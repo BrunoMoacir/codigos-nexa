@@ -33,13 +33,6 @@ A documentação de engenharia está dividida por módulos funcionais. Time de d
 | **ML Models** | CatBoost & NeuralProphet | O melhor para dados tabulares e séries temporais. |
 | **Database** | PostgreSQL | Relacional robusto para transações financeiras. |
 
-## 🚀 Como Rodar Localmente
-
-1. Clone o repositório.
-2. Instale as dependências: `pip install -r requirements.txt`
-3. Configure o `.env` (veja `.env.example`).
-4. Suba o banco: `docker-compose up -d`
-5. Inicie a API: `uvicorn app.main:app --reload`
 
 ---
 *Nexa AI Engineering Team © 2026*
