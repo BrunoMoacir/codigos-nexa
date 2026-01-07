@@ -122,3 +122,45 @@ Siga esta ordem para construir o módulo.
 │   └── /utils          # Helpers
 ├── requirements.txt
 └── docker-compose.yml
+
+
+🛠️ 2. Tarefas de Desenvolvimento
+Passo 2.1: Engenharia de Dados (Ingestão)
+
+[ ] Criar tabela transactions no Postgres com o schema definido acima.
+
+[ ] Implementar NexaIngestor em services/ingestor.py usando Polars.
+
+[ ] Implementar lógica de Regex em services/classifier.py para classificar "Uber", "Ifood", "Netflix".
+
+Passo 2.2: O Motor de Previsão
+
+[ ] Criar função detect_recurring(): Agrupa transações e identifica padrões fixos.
+
+[ ] Criar função generate_cashflow_projection():
+
+Gera dataframe de 30 dias futuros.
+
+Preenche com recorrências fixas (Motor Determinístico).
+
+(Opcional MVP) Roda NeuralProphet para variáveis.
+
+Retorna JSON: [{date: '2025-10-01', balance: 1500}, ...].
+
+Passo 2.3: O Agente (LangGraph)
+
+[ ] Definir Tools em services/agent.py:
+
+@tool get_current_balance(user_id)
+
+@tool get_forecast_analysis(user_id)
+
+[ ] Configurar Grafo: Nó de Agente (LLM) -> Nó de Ferramenta -> Nó de Resposta.
+
+[ ] Prompt de Sistema: "Você é um Economista Chefe. Não invente números. Use as ferramentas."
+
+Passo 2.4: API Externa
+
+[ ] Endpoint POST /webhook/transaction: Recebe JSON e chama Ingestor.
+
+[ ] Endpoint POST /chat/message: Recebe texto do usuário e invoca LangGraph.
