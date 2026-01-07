@@ -1,4 +1,4 @@
-#Nexa AI: Arquitetura Técnica & Fluxo de Dados (Funcionalidade 1)
+# 🏗️ Nexa AI: Core Engine (Funcionalidade 1)
 
 > **Status:** MVP (Fase 1) | **Stack:** Python, Polars, PyTorch, LangGraph
 
