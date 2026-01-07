@@ -1,4 +1,4 @@
-# 🏗️ Nexa AI: Core Engine (Funcionalidade 1)
+# 🏗️ Nexa AI: Core Engine (Funcionalidade 1) FLUXO DE CAIXA E PREVISÃO
 
 > **Status:** MVP (Fase 1) | **Stack:** Python, Polars, PyTorch, LangGraph
 
