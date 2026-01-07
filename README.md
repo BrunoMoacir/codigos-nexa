@@ -17,7 +17,7 @@ A documentação de engenharia está dividida por módulos funcionais. Time de d
 * **Foco:** O "GPS Financeiro". Algoritmos híbridos (NeuralProphet + Determinístico) para projetar o saldo dos próximos 30 dias.
 * **Stack:** PyTorch, NeuralProphet.
 
-### 3. [Otimizador de Crédito (Funcionalidade 3)](docs/specs/03_OPTIMIZER.md)
+### 2. [Otimizador de Crédito (Funcionalidade 2)](docs/specs/03_OPTIMIZER.md)
 * **Foco:** Sistema de recomendação que analisa gastos e sugere cartões com melhor retorno (Milhas/Cashback).
 * **Stack:** Scikit-learn, Rule-based Engine.
 
