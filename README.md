@@ -35,6 +35,83 @@ Não usamos apenas IA. Usamos uma abordagem híbrida:
 * **Motor Determinístico (Python):** Identifica padrões exatos (`is_recurring=True`). Se o aluguel é dia 10, ele projeta exatamente dia 10.
 * **Motor Probabilístico (NeuralProphet):** Analisa gastos variáveis (Mercado, Lazer). Entende tendências e sazonalidade (ex: gasta mais no fim de semana).
 * **Resultado:** Soma dos dois motores gera o *Saldo Projetado*.
+  arefas de Desenvolvimento
+Passo 2.1: Detector de Recorrência (detector.py)
+
+Objetivo: Identificar o que é fixo. 
+
+[ ] Criar função identify_recurring(transactions_df):
+
+Agrupar por merchant_clean.
+
+Calcular count (frequência) e std_dev (variação de dias).
+
+Se count >= 3 meses e std_dev_days < 4: Marcar como Recorrente.
+
+Retornar lista de objetos RecurringEvent (Data provável, Valor médio).
+
+Passo 2.2: O Modelo Neural (prophet_model.py)
+
+Objetivo: Prever o comportamento variável.
+
+[ ] Preparar Dataset: Filtrar apenas transações NÃO recorrentes.
+
+[ ] Agrupar por dia (ds) e somar valores (y).
+
+[ ] Instanciar e treinar:
+
+Python
+m = NeuralProphet(n_forecasts=30, yearly_seasonality=False, weekly_seasonality=True)
+m.fit(df)
+forecast = m.predict(m.make_future_dataframe(periods=30))
+[ ] Tratar "Cold Start": Se o usuário tiver < 30 dias de histórico, retornar Média Simples em vez de rodar o modelo.
+
+Passo 2.3: O Motor de Consolidação (engine.py)
+
+Objetivo: Construir a Linha do Tempo. 
+
+[ ] Criar função generate_forecast(user_id):
+
+Busca saldo atual.
+
+Gera DataFrame vazio de D+1 a D+30.
+
+Soma eventos do Passo 2.1 (Aloca nas datas exatas).
+
+Soma valores do Passo 2.2 (Distribui nos dias).
+
+Calcula soma acumulada (cumsum) para criar a linha do saldo.
+
+Salva na tabela daily_forecast.
+
+Passo 2.4: O Sentinela (sentinel.py)
+
+Objetivo: Gerar notificações ativas. 
+
+[ ] Criar lógica de varredura:
+
+Ler daily_forecast.
+
+Encontrar o menor valor de saldo (min_balance) nos 30 dias.
+
+[ ] Regra de Alerta:
+
+Se min_balance < 0:
+
+Identificar o dia da quebra.
+
+Identificar a maior despesa nesse dia (main_driver).
+
+Gerar evento de notificação: "Alerta Crítico: Saldo negativo previsto para dia 15 devido a 'Cartão Nubank'." 
+
+✅ Definition of Done (Critérios de Aceite)
+[ ] O sistema identifica automaticamente que "Netflix" é recorrente e projeta ela no dia correto do mês que vem.
+
+[ ] O gráfico de previsão não é uma linha reta; ele flutua conforme o padrão de gastos de fim de semana (efeito NeuralProphet).
+
+[ ] Se eu adicionar uma despesa futura manual muito alta, o sistema alerta que o saldo ficará negativo.
+
+[ ] A soma final (Saldo Projetado dia 30) considera Saldo Atual + Receitas Previstas - Despesas Previstas.
 ### Estágio 4: A Interface do Agente (Chat)
 *Objective: Explicar os números com empatia.*
 1.  Usuário pergunta -> **LangGraph** identifica a intenção.
