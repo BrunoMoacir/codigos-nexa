@@ -1,4 +1,4 @@
-# 🏗️ Nexa AI: Arquitetura Técnica & Fluxo de Dados
+#Nexa AI: Arquitetura Técnica & Fluxo de Dados (Funcionalidade 1)
 
 > **Status:** MVP (Fase 1) | **Stack:** Python, Polars, PyTorch, LangGraph
 
@@ -6,7 +6,7 @@ Este documento descreve a arquitetura de engenharia da Nexa. Nosso objetivo não
 
 ---
 
-## 🛠️ Tech Stack & Decisões de Engenharia Funcionalidade 1
+## 🛠️ Tech Stack & Decisões de Engenharia 
 
 | Componente | Tecnologia | Por que escolhemos isso? (Decision Log) |
 | :--- | :--- | :--- |
@@ -82,3 +82,43 @@ A tabela `transactions_clean` é o coração do sistema.
 2.  **A IA não inventa números:** Todo número mostrado no chat deve vir de uma função Python determinística (`tool`). O LLM apenas lê o número e o coloca numa frase.
 3.  **Cold Start Strategy:** No dia 1, não temos modelo treinado. Dependemos pesadamente de Regex e LLM Fallback até termos dataset suficiente (5k records) para treinar o CatBoost.
 4.  **Privacy First:** Identificadores pessoais (PII) são mascarados antes de qualquer envio para APIs de LLM externas.
+
+
+---
+
+## 💾 Schema de Dados (`transactions_clean`)
+
+| Coluna | Tipo | Descrição |
+| :--- | :--- | :--- |
+| `transaction_id` | String | PK. Hash único. |
+| `date` | Date | Data de competência. |
+| `amount` | Float64 | (-) Saída, (+) Entrada. |
+| `merchant_clean` | String | Nome higienizado (ex: "iFood"). |
+| `category` | Categorical | Macro categoria. |
+| `is_recurring` | Boolean | Define qual motor de previsão usará este dado. |
+| `status` | Categorical | `POSTED` ou `PENDING`. |
+| `is_manual_override`| Boolean | Se `True`, a IA não toca mais. |
+| `confidence_score` | Float32 | 0.0 a 1.0. |
+
+---
+
+# 🚀 Parte 2: Roteiro de Implementação (Passo a Passo)
+
+Siga esta ordem para construir o módulo.
+
+## 📂 1. Estrutura de Pastas
+
+```bash
+/nexa-core
+├── /app
+│   ├── /api            # Endpoints FastAPI (Webhooks, Chat)
+│   ├── /core           # Configs (Env vars, DB connection)
+│   ├── /services
+│   │   ├── ingestor.py # Lógica Polars (Limpeza)
+│   │   ├── classifier.py # Lógica Waterfall
+│   │   ├── forecaster.py # Motor Híbrido
+│   │   └── agent.py    # LangGraph Logic
+│   ├── /models         # Pydantic Schemas & SQL Models
+│   └── /utils          # Helpers
+├── requirements.txt
+└── docker-compose.yml
