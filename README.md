@@ -6,7 +6,7 @@ Este documento descreve a arquitetura de engenharia da Nexa. Nosso objetivo não
 
 ---
 
-## 🛠️ Tech Stack & Decisões de Engenharia
+## 🛠️ Tech Stack & Decisões de Engenharia Funcionalidade 1
 
 | Componente | Tecnologia | Por que escolhemos isso? (Decision Log) |
 | :--- | :--- | :--- |
