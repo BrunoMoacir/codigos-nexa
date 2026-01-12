@@ -1,192 +1,230 @@
-# 🏗️ Nexa AI: Core Engine (Funcionalidade 1)
-#  FLUXO DE CAIXA E PREVISÃO
-FLUXO DE CAIXA E PREVISÃO
 
-> **Status:** MVP (Fase 1) | **Stack:** Python, Polars, PyTorch, LangGraph
-Este documento descreve a arquitetura de engenharia da Nexa. Nosso objetivo não é apenas criar um "chatbot", mas um **Agente Financeiro Autônomo** que conversa com dados estruturados. A premissa central é: **IA Generativa explica, Matemática Determinística calcula.**
+# 🏗️ Nexa AI — Core Engine (Funcionalidade 1)
+## Fluxo de Caixa, Previsão & Inteligência Ativa
+
+> **Status:** MVP (Fase 1)  
+> **Stack:** Python 3.11+, Polars, PyTorch, NeuralProphet, CatBoost, LangGraph  
+> **Princípio Central:** *O dado oficial vem primeiro. Se falhar, o sistema se adapta.*  
+> **Mantra:** **Matemática determinística calcula. IA generativa explica.**
+
 ---
-## 🛠️ Tech Stack & Decisões de Engenharia 
-| Componente | Tecnologia | Por que escolhemos isso? (Decision Log) |
-| :--- | :--- | :--- |
-| **Linguagem** | `Python 3.11+` | Padrão da indústria para IA e Engenharia de Dados. |
-| **Processamento** | `Polars` (Rust) | Substitui o Pandas. Processamento paralelo, memória eficiente e *lazy execution*. Vital para escalar transações bancárias. |
-| **Orquestração** | `LangGraph` | Evolução do LangChain. Permite fluxos cíclicos e gestão de estado (memória) para conversas longas. |
-| **Classificação** | `CatBoost` | Modelo *State-of-the-art* para dados tabulares. Vence Redes Neurais em dados financeiros sujos. |
-| **Previsão** | `NeuralProphet` | Baseado em PyTorch. Híbrido de séries temporais com regressão linear. Ideal para sazonalidade financeira. |
-| **Validação** | `Pydantic` | Garante tipagem estrita. A IA não pode alucinar tipos de dados (ex: retornar string onde deve ser float). |
+
+## 🎯 Visão Geral
+
+O Core Engine da Nexa é responsável por transformar transações bancárias em **decisões financeiras acionáveis**.  
+Não somos um chatbot financeiro. Somos um **Agente Financeiro Autônomo**, capaz de prever cenários futuros mesmo quando dados bancários são incompletos ou instáveis.
+
+O sistema foi desenhado desde o início para conviver com a realidade do Open Finance brasileiro.
+
 ---
-## 🌊 O Pipeline de Dados (Data Flow)
-O ciclo de vida do dado na Nexa segue 4 estágios críticos, desenhados para garantir velocidade e consistência.
-### Estágio 1: A Ingestão (Raw Ingest)
-*Objective: Zero data loss.*
-1.  **Entrada:** Webhooks de Open Finance (Pluggy/Belvo) recebem o evento.
-2.  **Ação:** O JSON cru é salvo imediatamente no **Data Lake** (`raw_events`).
-    * *Regra:* Nunca processamos o dado na entrada. Salvamos primeiro para auditoria e *replay* em caso de erro.
-### Estágio 2: A Refinaria (Refinement & Waterfall)
-*Objective: Transformar JSON sujo em Tabela Estruturada (`transactions_clean`).*
-Utilizamos uma estratégia de classificação em **Cascata (Waterfall)** para otimizar custos e latência:
-1.  **Nível 0 (Override Manual):** Verifica se o usuário já classificou este estabelecimento antes. Se sim, aplica a regra dele.
-2.  **Nível 1 (Regex/Hard-coded):** Verifica padrões óbvios (ex: "Uber", "Netflix"). Custo zero, latência < 1ms.
-3.  **Nível 2 (CatBoost/Modelo):** Se falhar no Regex, passa pelo modelo treinado.
-4.  **Nível 3 (LLM Fallback):** Último recurso. Envia para GPT-4o-mini classificar. O resultado é salvo para treinar o CatBoost futuramente (*Active Learning*).
-### Estágio 3: O Motor de Previsão (The Oracle)
-*Objective: Projetar Fluxo de Caixa para 30 dias.*
-Não usamos apenas IA. Usamos uma abordagem híbrida:
-* **Motor Determinístico (Python):** Identifica padrões exatos (`is_recurring=True`). Se o aluguel é dia 10, ele projeta exatamente dia 10.
-* **Motor Probabilístico (NeuralProphet):** Analisa gastos variáveis (Mercado, Lazer). Entende tendências e sazonalidade (ex: gasta mais no fim de semana).
-* **Resultado:** Soma dos dois motores gera o *Saldo Projetado*.
-  arefas de Desenvolvimento
-Passo 2.1: Detector de Recorrência (detector.py)
 
-Objetivo: Identificar o que é fixo. 
+## 🧠 Estratégia Central — *Shadow Invoice* (Fatura Sombra)
 
-[ ] Criar função identify_recurring(transactions_df):
+A Nexa sempre segue esta ordem de decisão:
 
-Agrupar por merchant_clean.
+### 🥇 1️⃣ Fonte Primária — Dados Oficiais do Banco
+Sempre que disponíveis, utilizamos:
+- Extrato bancário
+- Transações confirmadas
+- Fatura aberta / future invoice
 
-Calcular count (frequência) e std_dev (variação de dias).
+Esses dados **têm prioridade absoluta**, desde que passem por validações internas de consistência.
 
-Se count >= 3 meses e std_dev_days < 4: Marcar como Recorrente.
-
-Retornar lista de objetos RecurringEvent (Data provável, Valor médio).
-
-Passo 2.2: O Modelo Neural (prophet_model.py)
-
-Objetivo: Prever o comportamento variável.
-
-[ ] Preparar Dataset: Filtrar apenas transações NÃO recorrentes.
-
-[ ] Agrupar por dia (ds) e somar valores (y).
-
-[ ] Instanciar e treinar:
-
-Python
-m = NeuralProphet(n_forecasts=30, yearly_seasonality=False, weekly_seasonality=True)
-m.fit(df)
-forecast = m.predict(m.make_future_dataframe(periods=30))
-[ ] Tratar "Cold Start": Se o usuário tiver < 30 dias de histórico, retornar Média Simples em vez de rodar o modelo.
-
-Passo 2.3: O Motor de Consolidação (engine.py)
-
-Objetivo: Construir a Linha do Tempo. 
-
-[ ] Criar função generate_forecast(user_id):
-
-Busca saldo atual.
-
-Gera DataFrame vazio de D+1 a D+30.
-
-Soma eventos do Passo 2.1 (Aloca nas datas exatas).
-
-Soma valores do Passo 2.2 (Distribui nos dias).
-
-Calcula soma acumulada (cumsum) para criar a linha do saldo.
-
-Salva na tabela daily_forecast.
-
-Passo 2.4: O Sentinela (sentinel.py)
-
-Objetivo: Gerar notificações ativas. 
-
-[ ] Criar lógica de varredura:
-
-Ler daily_forecast.
-
-Encontrar o menor valor de saldo (min_balance) nos 30 dias.
-
-[ ] Regra de Alerta:
-
-Se min_balance < 0:
-
-Identificar o dia da quebra.
-
-Identificar a maior despesa nesse dia (main_driver).
-
-Gerar evento de notificação: "Alerta Crítico: Saldo negativo previsto para dia 15 devido a 'Cartão Nubank'." 
-
-✅ Definition of Done (Critérios de Aceite)
-[ ] O sistema identifica automaticamente que "Netflix" é recorrente e projeta ela no dia correto do mês que vem.
-
-[ ] O gráfico de previsão não é uma linha reta; ele flutua conforme o padrão de gastos de fim de semana (efeito NeuralProphet).
-
-[ ] Se eu adicionar uma despesa futura manual muito alta, o sistema alerta que o saldo ficará negativo.
-
-[ ] A soma final (Saldo Projetado dia 30) considera Saldo Atual + Receitas Previstas - Despesas Previstas.
-### Estágio 4: A Interface do Agente (Chat)
-*Objective: Explicar os números com empatia.*
-1.  Usuário pergunta -> **LangGraph** identifica a intenção.
-2.  **Tool Calling:** O Agente executa funções Python (ex: `get_forecast()`). **A IA não calcula nada de cabeça.**
-3.  **Resposta:** O LLM recebe o JSON calculado e gera a resposta em texto natural ("Você vai fechar o mês no azul...").
 ---
-## 💾 Schema de Dados (Core)
-A tabela `transactions_clean` é o coração do sistema.
-| Coluna | Tipo (Polars) | Descrição e Regras |
-| :--- | :--- | :--- |
-| `transaction_id` | String | Hash único. Chave primária. |
-| `date` | Date | Data de competência. |
-| `amount` | Float64 | Positivo (Entrada), Negativo (Saída). |
-| `description_raw` | String | O texto original sujo do banco. |
-| `merchant_clean` | String | Nome higienizado para exibição (ex: "Padaria do Zé"). |
-| `category_level_1` | Categorical | Categoria Macro (Alimentação, Transporte, Lazer). |
-| `is_recurring` | Boolean | Se `True`, alimenta o Motor Determinístico. |
-| `status` | Categorical | `POSTED` (Confirmado) ou `PENDING` (Não impacta saldo final ainda). |
-| `is_manual_override`| Boolean | Se `True`, a IA está proibida de reclassificar essa linha. |
-| `confidence_score` | Float32 | 0.0 a 1.0. Se < 0.7, o Chat deve pedir confirmação ao usuário. |
+
+### ⚠️ 2️⃣ Validação de Consistência
+Antes de confiar no dado oficial, o Core Engine executa verificações como:
+- Completude do período
+- Coerência de datas e valores
+- Histórico mínimo disponível
+- Estabilidade conhecida da API da instituição
+
+Se qualquer regra crítica falhar, o dado é marcado como **UNTRUSTED**.
+
 ---
-## 🚨 Regras de Ouro (Engineering Principles)
-1.  **Regras > IA:** Se podemos resolver com `if/else` ou Regex, não usamos LLM. É mais rápido, barato e previsível.
-2.  **A IA não inventa números:** Todo número mostrado no chat deve vir de uma função Python determinística (`tool`). O LLM apenas lê o número e o coloca numa frase.
-3.  **Cold Start Strategy:** No dia 1, não temos modelo treinado. Dependemos pesadamente de Regex e LLM Fallback até termos dataset suficiente (5k records) para treinar o CatBoost.
-4.  **Privacy First:** Identificadores pessoais (PII) são mascarados antes de qualquer envio para APIs de LLM externas.
+
+### 🥈 3️⃣ Fallback Inteligente — *Shadow Invoice*
+Quando o dado oficial:
+- Não existe  
+- Está incompleto  
+- Está inconsistente  
+- Ou a API do banco é instável  
+
+A Nexa ativa automaticamente a **Shadow Invoice**.
+
+> **Shadow Invoice é uma projeção matemática da fatura futura, calculada localmente a partir do histórico real do usuário.**
+
+O usuário nunca fica sem resposta.
+
 ---
-## 💾 Schema de Dados (`transactions_clean`)
-| Coluna | Tipo | Descrição |
-| :--- | :--- | :--- |
-| `transaction_id` | String | PK. Hash único. |
-| `date` | Date | Data de competência. |
-| `amount` | Float64 | (-) Saída, (+) Entrada. |
-| `merchant_clean` | String | Nome higienizado (ex: "iFood"). |
-| `category` | Categorical | Macro categoria. |
-| `is_recurring` | Boolean | Define qual motor de previsão usará este dado. |
-| `status` | Categorical | `POSTED` ou `PENDING`. |
-| `is_manual_override`| Boolean | Se `True`, a IA não toca mais. |
-| `confidence_score` | Float32 | 0.0 a 1.0. |
+
+## 🔍 Como a Shadow Invoice é Calculada
+
+A projeção se baseia em três padrões matematicamente detectáveis:
+
+### 1️⃣ Parcelamentos (A Chave de Ouro)
+Detectamos padrões explícitos como:
+- `01/10`
+- `1/10`
+- `01 de 10`
+
+Exemplo:
+```
+
+MAGALU *COMPRA 01/10 → MAGALU *COMPRA 02/10
+
+````
+
+O sistema projeta automaticamente a próxima parcela, mantendo:
+- Merchant
+- Valor
+- Dia aproximado do mês
+
+📌 Sem PDF. Sem OCR. 100% determinístico.
+
 ---
-# 🚀 Parte 2: Roteiro de Implementação (Passo a Passo)
-Siga esta ordem para construir o módulo.
-## 📂 1. Estrutura de Pastas
-```bash
-/nexa-core
-├── /app
-│   ├── /api            # Endpoints FastAPI (Webhooks, Chat)
-│   ├── /core           # Configs (Env vars, DB connection)
-│   ├── /services
-│   │   ├── ingestor.py # Lógica Polars (Limpeza)
-│   │   ├── classifier.py # Lógica Waterfall
-│   │   ├── forecaster.py # Motor Híbrido
-│   │   └── agent.py    # LangGraph Logic
-│   ├── /models         # Pydantic Schemas & SQL Models
-│   └── /utils          # Helpers
-├── requirements.txt
-└── docker-compose.yml
-🛠️ 2. Tarefas de Desenvolvimento
-Passo 2.1: Engenharia de Dados (Ingestão)
-[ ] Criar tabela transactions no Postgres com o schema definido acima.
-[ ] Implementar NexaIngestor em services/ingestor.py usando Polars.
-[ ] Implementar lógica de Regex em services/classifier.py para classificar "Uber", "Ifood", "Netflix".
-Passo 2.2: O Motor de Previsão
-[ ] Criar função detect_recurring(): Agrupa transações e identifica padrões fixos.
-[ ] Criar função generate_cashflow_projection():
-Gera dataframe de 30 dias futuros.
-Preenche com recorrências fixas (Motor Determinístico).
-(Opcional MVP) Roda NeuralProphet para variáveis.
-Retorna JSON: [{date: '2025-10-01', balance: 1500}, ...].
-Passo 2.3: O Agente (LangGraph)
-[ ] Definir Tools em services/agent.py:
-@tool get_current_balance(user_id)
-@tool get_forecast_analysis(user_id)
-[ ] Configurar Grafo: Nó de Agente (LLM) -> Nó de Ferramenta -> Nó de Resposta.
-[ ] Prompt de Sistema: "Você é um Economista Chefe. Não invente números. Use as ferramentas."
-Passo 2.4: API Externa
-[ ] Endpoint POST /webhook/transaction: Recebe JSON e chama Ingestor.
-[ ] Endpoint POST /chat/message: Recebe texto do usuário e invoca LangGraph.
+
+### 2️⃣ Assinaturas Recorrentes
+Identificamos recorrências quando:
+- Mesmo merchant
+- Frequência mensal
+- Baixa variação de data (desvio < 4 dias)
+- Presença em ≥ 3 meses
+
+O Nexa cria uma **linha virtual futura** na data correta.
+
+---
+
+### 3️⃣ Gastos Variáveis (Colchão de Liquidez)
+Para categorias variáveis (Uber, Mercado, Lazer):
+- Média móvel dos últimos 60–90 dias
+- Ajuste por sazonalidade
+- Percentil de segurança (p50 / p70)
+
+Isso evita subestimar a fatura futura.
+
+---
+
+## 🧩 Estratégia por Banco (Design Pattern: Strategy)
+
+Cada instituição financeira possui um **adaptador próprio**, que define o nível de confiança nos dados oficiais.
+
+```python
+class BankStrategy:
+    def predict_invoice(self, history, api_data):
+        raise NotImplementedError
+
+
+class NubankStrategy(BankStrategy):
+    def predict_invoice(self, history, api_data):
+        if api_data and api_data.is_consistent():
+            return api_data
+        return project_from_history(history)
+
+
+class BradescoStrategy(BankStrategy):
+    def predict_invoice(self, history, api_data):
+        return project_from_history(history)
+````
+
+Essa abordagem evita `if/else` espalhados pelo código e permite tuning fino por banco.
+
+---
+
+## 🧠 Funcionalidades Ativas Geradas pelo Core Engine
+
+Essas funcionalidades **não são módulos separados**.
+Elas são **saídas diretas do mesmo motor de previsão**.
+
+---
+
+### 💰 Quanto Posso Gastar Hoje? (*Safe-to-Spend*)
+
+**Pergunta respondida:**
+
+> *“Quanto posso gastar hoje sem comprometer meu mês?”*
+
+Cálculo diário baseado em:
+
+* Saldo atual
+* Despesas futuras previstas (recorrências + Shadow Invoice)
+* Margem de segurança
+
+```
+Safe-to-Spend = Saldo Atual − (Despesas Previstas + Margem)
+```
+
+---
+
+### 🧾 Resumo Semanal dos Gastos
+
+**Pergunta respondida:**
+
+> *“O que mudou no meu financeiro essa semana?”*
+
+Geração automática com:
+
+* Total gasto vs semana anterior
+* Principais categorias
+* Gastos fora do padrão
+* Impacto no fluxo de caixa futuro
+
+Exemplo:
+
+> “Você gastou 12% mais esta semana.
+> Isso reduz seu Safe-to-Spend da próxima semana em R$ 180.”
+
+---
+
+### 🕳️ Identificação de Gastos Invisíveis
+
+**Pergunta respondida:**
+
+> *“Para onde meu dinheiro está vazando sem eu perceber?”*
+
+O sistema detecta:
+
+* Pequenos valores recorrentes
+* Assinaturas esquecidas
+* Parcelamentos antigos ainda ativos
+* Vazamentos financeiros de baixo valor unitário, mas alto impacto acumulado
+
+---
+
+## 🚨 Expiração de Token & Resiliência
+
+Se a conexão Open Finance expirar:
+
+* **T-30:** aviso preventivo
+* **T-7:** alerta crítico
+* **T-0:** sistema entra em modo Shadow Invoice com aviso explícito
+
+O sistema nunca para. Apenas reduz o nível de certeza e comunica isso claramente.
+
+---
+
+## 🧠 Regras de Ouro do Core Engine
+
+1. O dado oficial sempre vem primeiro
+2. Se o dado falhar, a matemática assume
+3. Nenhum número é inventado
+4. Toda previsão possui impacto mensurável
+5. IA explica — nunca calcula
+
+---
+
+## 🧾 Resumo Executivo
+
+> **A Nexa não mostra apenas gráficos.
+> Ela responde perguntas reais:
+> quanto posso gastar, o que mudou e onde estou perdendo dinheiro.
+> Sempre — mesmo quando o banco falha.**
+
+```
+
+Se quiser, no próximo passo posso:
+- Ajustar esse README para **versão pública vs interna**
+- Criar o **README da Funcionalidade 2 já conectado**
+- Gerar **diagramas de arquitetura**
+- Escrever **ADRs oficiais (Architecture Decision Records)**
+```
