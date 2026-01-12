@@ -379,82 +379,60 @@ Exemplo
     "due_date": "2025-02-24"
   }
 ]
-````
-2.7 POST /reconnect/{user_id}
-Dispara fluxo de reconexão (gera connect_url Pluggy/Belvo).
-3️⃣ Artefatos Internos (Persistidos)
-raw_events — JSON cru (audit trail)
-transactions_clean — tabela Polars normalizada
-shadow_invoice_events — parcelas e assinaturas futuras
-daily_forecast — série diária D+1..D+N
-alerts — consentimento + previsão negativa
-items — { item_id, institution_id, consent_expires_at, status, last_sync_at, bank_trust_score }
-4️⃣ Fluxo Recomendado / Boas Práticas
-Salvar raw_events imediatamente → responder 204.
-Processamento assíncrono:
-ingestor
-classifier
-detector de recorrência
-forecaster
-Idempotência: item_id + event_id ou idempotency_key.
-Observability: logs estruturados (trace_id, user_id, item_id).
-Retries & Backoff: polling com fallback (Shadow Invoice).
-Segurança: PII criptografado at-rest; mascarar antes de LLMs.
-Token expiry: jobs T-30 / T-7 / T-0.
-5️⃣ Integração Pluggy / Belvo — Campos Úteis
-Campos típicos:
-item.id
-institution.id
-accounts
-transactions
-cards
-balances
-consent.expires_at
-Normalização obrigatória
-date → YYYY-MM-DD
-amount → Float
-description_raw → texto original
-Recomendação
+### 2.7 `POST /reconnect/{user_id}`
+
+Dispara fluxo de reconexão (gera `connect_url` via Pluggy/Belvo).
+```
+---
+
+## 3️⃣ Artefatos Internos (Persistidos)
+
+- `raw_events` — JSON cru (audit trail)
+- `transactions_clean` — tabela Polars normalizada
+- `shadow_invoice_events` — parcelas e assinaturas futuras
+- `daily_forecast` — série diária D+1..D+N
+- `alerts` — consentimento + previsão negativa
+- `items` — `{ item_id, institution_id, consent_expires_at, status, last_sync_at, bank_trust_score }`
+
+---
+
+## 4️⃣ Fluxo Recomendado / Boas Práticas
+
+- Salvar `raw_events` imediatamente → responder `204`.
+- Processamento assíncrono:
+  - ingestor
+  - classifier
+  - detector de recorrência
+  - forecaster
+- **Idempotência:** `item_id + event_id` ou `idempotency_key`.
+- **Observability:** logs estruturados (`trace_id`, `user_id`, `item_id`).
+- **Retries & Backoff:** polling com fallback (Shadow Invoice).
+- **Segurança:** PII criptografado at-rest; mascarar antes de LLMs.
+- **Token expiry:** jobs T-30 / T-7 / T-0.
+
+---
+
+## 5️⃣ Integração Pluggy / Belvo — Campos Úteis
+
+**Campos típicos**
+- `item.id`
+- `institution.id`
+- `accounts`
+- `transactions`
+- `cards`
+- `balances`
+- `consent.expires_at`
+
+**Normalização obrigatória**
+- `date` → `YYYY-MM-DD`
+- `amount` → `Float`
+- `description_raw` → texto original
+
+**Recomendação**
 Criar adaptadores:
-connectors/pluggy.py
-connectors/belvo.py
+- `connectors/pluggy.py`
+- `connectors/belvo.py`
+
 Retornando:
+```json
 { "source", "fetched_at", "item_version", "trust_score" }
-6️⃣ Idempotência & Versionamento
-Cada processamento grava item_version (hash do payload).
-Jobs detectam diffs entre versões para evitar reprocessamento total.
-7️⃣ Observability & Health
-Dashboards
-Sync success rate por instituição
-Latência média do ingestor
-Erros por regra de classificação
-% de itens UNTRUSTED
-Alertas Operacionais
-Falha de ingestão > X minutos
-Aumento de error rate em conectores externos
-8️⃣ Requisitos de Implantação
-Queue: Redis / Rabbit / Kafka
-Workers: pipelines Polars
-DB: Postgres (metadata) + Object Storage (raw_events)
-Secrets: Vault (rotação periódica)
-Retention
-raw_events: 1 ano (configurável)
-transactions_clean: 5 anos
-9️⃣ Fluxo End-to-End (Resumo)
-Webhook transactions.updated → /webhook/transaction
-Worker processa → transactions_clean
-Detector encontra parcela 01/10 → shadow_invoice_event
-Forecaster gera daily_forecast
-Sentinel cria alerta (se aplicável)
-/forecast/{user_id} retorna forecast auditável
-✅ Resumo Rápido
-Fonte primária: Open Finance (Pluggy / Belvo)
-Sempre: salvar raw, versionar e auditar
-Endpoints-chave:
-/webhook/transaction
-/forecast/{user_id}
-/shadow_invoice/{user_id}
-/safe_to_spend/{user_id}
-/alerts/{user_id}
-/reconnect/{user_id}
-Princípios: idempotência, audit trail, fallback (Shadow Invoice) e alertas T-30/T-7/T-0
