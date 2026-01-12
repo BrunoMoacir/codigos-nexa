@@ -379,6 +379,7 @@ Exemplo
     "due_date": "2025-02-24"
   }
 ]
+````
 2.7 POST /reconnect/{user_id}
 Dispara fluxo de reconexão (gera connect_url Pluggy/Belvo).
 3️⃣ Artefatos Internos (Persistidos)
