@@ -222,9 +222,3 @@ O sistema nunca para. Apenas reduz o nível de certeza e comunica isso clarament
 
 ```
 
-Se quiser, no próximo passo posso:
-- Ajustar esse README para **versão pública vs interna**
-- Criar o **README da Funcionalidade 2 já conectado**
-- Gerar **diagramas de arquitetura**
-- Escrever **ADRs oficiais (Architecture Decision Records)**
-```
