@@ -1,38 +1,19 @@
-# 🏦 Nexa AI: The Autonomous Financial Agent
+# 🏦 Nexa AI — The Autonomous Financial Agent
 
-> **Status:** MVP Development 🚧
-> **Mission:** Democratizar a inteligência financeira de "Family Offices" para o brasileiro comum através de IA Generativa e Matemática Determinística.
+> **Status:** MVP em Desenvolvimento 🚧  
+> **Missão:** Democratizar a inteligência financeira de *Family Offices* para o brasileiro comum usando **IA Generativa + Matemática Determinística**.
 
-A Nexa não é apenas um organizador financeiro. É um **Agente Ativo** que prevê o futuro (Fluxo de Caixa) e otimiza o presente (Cartões e Taxas) conversando naturalmente com o usuário.
+A **Nexa AI** não é um organizador financeiro passivo.  
+Ela é um **Agente Financeiro Autônomo** que:
+- **Prevê o futuro** (Fluxo de Caixa, compromissos e riscos)
+- **Otimiza o presente** (cartões, taxas, decisões de gasto)
+- **Conversa naturalmente** com o usuário, explicando *o porquê* de cada decisão
 
----
-
-## 📚 Documentação Técnica (Specs)
-
-A documentação de engenharia está dividida por módulos funcionais. Time de desenvolvimento, sigam a ordem abaixo:
-
-### 1. [Core Engine & Ingestão (Funcionalidade 1)](docs/specs/01_CORE_ENGINE.md)
-* **Foco:** Ingestão de dados (Open Finance), Limpeza (Polars), Classificação Waterfall e a Interface do Chat (LangGraph).
-* **Stack:** Polars, CatBoost, LangGraph.
-* **Foco:** O "GPS Financeiro". Algoritmos híbridos (NeuralProphet + Determinístico) para projetar o saldo dos próximos 30 dias.
-* **Stack:** PyTorch, NeuralProphet.
-
-### 2. [Otimizador de Crédito (Funcionalidade 2)](docs/specs/03_OPTIMIZER.md)
-* **Foco:** Sistema de recomendação que analisa gastos e sugere cartões com melhor retorno (Milhas/Cashback).
-* **Stack:** Scikit-learn, Rule-based Engine.
+> Pense na Nexa como um **GPS financeiro**: ela sabe onde você está, para onde vai e qual o caminho matematicamente mais inteligente.
 
 ---
 
-## 🛠️ Tech Stack Principal
+## 🧠 Visão Geral do Sistema
 
-| Área | Tecnologia | Motivo |
-| :--- | :--- | :--- |
-| **Backend** | Python 3.11+ | Ecossistema de IA robusto. |
-| **Data Processing** | Polars (Rust) | Performance extrema para ETL financeiro. |
-| **Agent Orchestration** | LangGraph | Controle de estado e loops complexos de conversa. |
-| **ML Models** | CatBoost & NeuralProphet | O melhor para dados tabulares e séries temporais. |
-| **Database** | PostgreSQL | Relacional robusto para transações financeiras. |
+A Nexa é composta por **módulos independentes**, todos sustentados por um **Core Engine unificado**, que garante consistência de dados, explicabilidade e segurança.
 
-
----
-*Nexa AI Engineering Team © 2026*
