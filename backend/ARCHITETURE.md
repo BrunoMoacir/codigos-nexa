@@ -663,18 +663,3 @@ A: `storage/raw_events.py` → S3/MinIO
 A: `integrations/open_finance/pluggy.py`
 
 ---
-
-## 🚀 PRÓXIMOS PASSOS
-
-1. Ler este guia completo
-2. Entender separação de responsabilidades
-3. Começar implementação por:
-   - `core/` (fundação)
-   - `schemas/` (contratos)
-   - `db/` (persistência)
-   - `api/` (endpoints)
-   - `etl/` (processamento)
-   - `engines/` (cálculos)
-   - `agent/` (orquestração)
-
-**Dúvidas? Pergunte antes de criar código!** 🤝
