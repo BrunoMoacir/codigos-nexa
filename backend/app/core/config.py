@@ -1,15 +1,20 @@
 from pydantic_settings import BaseSettings
-# – Centraliza configs
-# – Facilita Docker, CI, produção
+
 
 class Settings(BaseSettings):
-    # Credenciais da Pluggy, guardadas no .env
+    """
+    Centraliza todas as variáveis de ambiente do projeto
+    """
+
+    # Credenciais da Pluggy
     PLUGGY_CLIENT_ID: str
     PLUGGY_CLIENT_SECRET: str
 
+    # URL base da Pluggy (sandbox ou produção)
+    PLUGGY_BASE_URL: str = "https://api.pluggy.ai"
+
     class Config:
-        env_file = ".env"  # Diz ao Pydantic para ler o .env
+        env_file = ".env"          # Arquivo de variáveis
+        extra = "forbid"           # Proíbe variáveis não declaradas (bom!)
 
-
-# Instância global de configuração
 settings = Settings()

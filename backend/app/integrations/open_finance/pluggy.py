@@ -1,5 +1,5 @@
-import requests  # Biblioteca HTTP
-from app.core.config import settings  # Configurações do projeto
+import requests
+from app.core.config import settings
 
 
 class PluggyClient:
@@ -7,50 +7,97 @@ class PluggyClient:
     Cliente responsável por conversar com a API da Pluggy
     """
 
-    BASE_URL = "https://api.pluggy.ai"  # URL base da Pluggy
+    BASE_URL = settings.PLUGGY_BASE_URL
 
     def __init__(self):
-        # Lê o clientId do .env
         self.client_id = settings.PLUGGY_CLIENT_ID
-
-        # Lê o clientSecret do .env
         self.client_secret = settings.PLUGGY_CLIENT_SECRET
-
-        # Token que será obtido após autenticação
         self.access_token: str | None = None
 
     def authenticate(self) -> str:
-        """
-        Realiza autenticação na Pluggy e retorna o access_token
-        """
-
-        # Endpoint de autenticação da Pluggy
         url = f"{self.BASE_URL}/auth"
 
-        # Corpo da requisição (body params)
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+
         payload = {
             "clientId": self.client_id,
             "clientSecret": self.client_secret,
         }
 
-        # Requisição POST para a Pluggy
         response = requests.post(
             url,
-            json=payload,      # Envia como JSON
-            timeout=10         # Timeout de segurança
+            data=payload,   # 👈 form-urlencoded
+            headers=headers,
+            timeout=10,
         )
 
-        # Se a resposta não for 200, algo deu errado
-        if response.status_code != 200:
-            raise Exception(
-                f"Erro ao autenticar na Pluggy: {response.status_code} - {response.text}"
-            )
+        print("AUTH STATUS:", response.status_code)
+        print("AUTH RESPONSE:", response.text)
 
-        # Converte resposta JSON em dicionário
+        response.raise_for_status()
+
         data = response.json()
 
-        # Guarda o token em memória
-        self.access_token = data["accessToken"]
+        if "apiKey" not in data:
+            raise Exception(f"Resposta inesperada da Pluggy: {data}")
 
-        # Retorna o token
+        self.access_token = data["apiKey"]
         return self.access_token
+
+    def _headers(self) -> dict:
+        if not self.access_token:
+            self.authenticate()
+
+        return {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/json",
+        }
+
+    def create_sandbox_item(self) -> dict:
+        url = f"{self.BASE_URL}/items"
+
+        payload = {
+            "connectorId": "pluggy_sandbox",
+            "parameters": {
+                "username": "user_ok",
+                "password": "password_ok",
+            },
+        }
+
+        response = requests.post(
+            url,
+            json=payload,
+            headers=self._headers(),
+            timeout=10,
+        )
+
+        response.raise_for_status()
+        return response.json()
+
+    def get_accounts(self, item_id: str) -> dict:
+        url = f"{self.BASE_URL}/accounts"
+
+        response = requests.get(
+            url,
+            params={"itemId": item_id},
+            headers=self._headers(),
+            timeout=10,
+        )
+
+        response.raise_for_status()
+        return response.json()
+
+    def get_transactions(self, account_id: str) -> dict:
+        url = f"{self.BASE_URL}/transactions"
+
+        response = requests.get(
+            url,
+            params={"accountId": account_id},
+            headers=self._headers(),
+            timeout=10,
+        )
+
+        response.raise_for_status()
+        return response.json()
