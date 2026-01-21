@@ -570,3 +570,241 @@ class TransactionBatchWebhook(BaseModel):
         default_factory=datetime.utcnow,
         description="Quando os dados foram buscados (rastreabilidade)"
     )
+
+# ==========================================
+# BATCH WEBHOOK COM VALIDAÇÃO TOLERANTE
+# ==========================================
+
+from typing import TypedDict
+from pydantic import ValidationError
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+
+class RejectedTransaction(TypedDict):
+    """
+    Registro de transação rejeitada.
+    
+    Usado para:
+        - Auditoria (salvar em DB)
+        - Debugging (logs estruturados)
+        - Alertas (se taxa de rejeição > threshold)
+    """
+    raw_data: dict[str, Any]
+    error_type: str
+    error_message: str
+    field_errors: dict[str, list[str]]
+    rejected_at: datetime
+
+
+class TransactionBatchResult(BaseModel):
+    """
+    Resultado do processamento de batch com validação tolerante.
+    
+    Contém:
+        - Transações válidas (processadas)
+        - Transações rejeitadas (auditoria)
+        - Métricas de qualidade
+    """
+    
+    valid_transactions: list[TransactionWebhook] = Field(
+        description="Transações que passaram na validação"
+    )
+    
+    rejected_transactions: list[RejectedTransaction] = Field(
+        description="Transações rejeitadas com motivo"
+    )
+    
+    # Métricas
+    total_received: int = Field(
+        description="Total de transações no batch original"
+    )
+    
+    total_valid: int = Field(
+        description="Transações válidas"
+    )
+    
+    total_rejected: int = Field(
+        description="Transações rejeitadas"
+    )
+    
+    rejection_rate: float = Field(
+        ge=0.0,
+        le=1.0,
+        description="Taxa de rejeição (0.0 - 1.0)"
+    )
+    
+    # Contexto
+    account_id: str
+    item_id: str
+    institution_id: str
+    processed_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    
+    @classmethod
+    def from_raw_batch(
+        cls,
+        raw_transactions: list[dict[str, Any]],
+        account_id: str,
+        item_id: str,
+        institution_id: str
+    ) -> "TransactionBatchResult":
+        """
+        Processa batch com validação tolerante.
+        
+        Estratégia:
+            1. Para cada transação:
+                - Tenta validar com Pydantic
+                - Se OK → adiciona em valid_transactions
+                - Se FALHA → loga + adiciona em rejected_transactions
+            2. Calcula métricas
+            3. Alerta se rejection_rate > threshold
+        
+        Args:
+            raw_transactions: Lista de dicts crus (JSON do webhook)
+            account_id: ID da conta
+            item_id: ID do item Pluggy/Belvo
+            institution_id: ID do banco (ex: "nubank")
+        
+        Returns:
+            TransactionBatchResult com válidas + rejeitadas
+        
+        Exemplo:
+            >>> result = TransactionBatchResult.from_raw_batch(
+            ...     raw_transactions=[{...}, {...}],
+            ...     account_id="acc_123",
+            ...     item_id="item_456",
+            ...     institution_id="nubank"
+            ... )
+            >>> print(f"Válidas: {result.total_valid}, Rejeitadas: {result.total_rejected}")
+        """
+        
+        valid_transactions: list[TransactionWebhook] = []
+        rejected_transactions: list[RejectedTransaction] = []
+        
+        # Processar cada transação individualmente
+        for idx, raw_txn in enumerate(raw_transactions):
+            try:
+                # Tentar validar com Pydantic
+                txn = TransactionWebhook(
+                    **raw_txn,
+                    source=DataSource.PLUGGY,  # TODO: detectar dinamicamente
+                    institution_id=institution_id
+                )
+                
+                valid_transactions.append(txn)
+                
+            except ValidationError as e:
+                # Transação inválida → registrar rejeição
+                
+                # Extrair erros por campo
+                field_errors: dict[str, list[str]] = {}
+                for error in e.errors():
+                    field = ".".join(str(loc) for loc in error["loc"])
+                    msg = error["msg"]
+                    
+                    if field not in field_errors:
+                        field_errors[field] = []
+                    field_errors[field].append(msg)
+                
+                rejected = RejectedTransaction(
+                    raw_data=raw_txn,
+                    error_type="ValidationError",
+                    error_message=str(e),
+                    field_errors=field_errors,
+                    rejected_at=datetime.utcnow()
+                )
+                
+                rejected_transactions.append(rejected)
+                
+                # Log estruturado para debugging
+                logger.warning(
+                    "transaction_rejected",
+                    batch_index=idx,
+                    account_id=account_id,
+                    institution_id=institution_id,
+                    transaction_id=raw_txn.get("id", "unknown"),
+                    errors=field_errors,
+                    # Não logar raw_data completo (pode ter PII)
+                )
+            
+            except Exception as e:
+                # Erro inesperado (não deveria acontecer)
+                rejected = RejectedTransaction(
+                    raw_data=raw_txn,
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    field_errors={},
+                    rejected_at=datetime.utcnow()
+                )
+                
+                rejected_transactions.append(rejected)
+                
+                logger.error(
+                    "transaction_unexpected_error",
+                    batch_index=idx,
+                    account_id=account_id,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+        
+        # Calcular métricas
+        total_received = len(raw_transactions)
+        total_valid = len(valid_transactions)
+        total_rejected = len(rejected_transactions)
+        rejection_rate = total_rejected / total_received if total_received > 0 else 0.0
+        
+        # Alerta se taxa de rejeição alta
+        REJECTION_THRESHOLD = 0.20  # 20%
+        
+        if rejection_rate > REJECTION_THRESHOLD:
+            logger.error(
+                "high_rejection_rate",
+                account_id=account_id,
+                institution_id=institution_id,
+                rejection_rate=rejection_rate,
+                total_rejected=total_rejected,
+                total_received=total_received,
+                message=f"Taxa de rejeição {rejection_rate:.1%} acima do threshold {REJECTION_THRESHOLD:.1%}"
+            )
+        
+        # Log final
+        logger.info(
+            "batch_processed",
+            account_id=account_id,
+            institution_id=institution_id,
+            total_received=total_received,
+            total_valid=total_valid,
+            total_rejected=total_rejected,
+            rejection_rate=rejection_rate
+        )
+        
+        return cls(
+            valid_transactions=valid_transactions,
+            rejected_transactions=rejected_transactions,
+            total_received=total_received,
+            total_valid=total_valid,
+            total_rejected=total_rejected,
+            rejection_rate=rejection_rate,
+            account_id=account_id,
+            item_id=item_id,
+            institution_id=institution_id
+        )
+
+
+# ==========================================
+# HELPER: SALVAR REJEIÇÕES NO DB
+# ==========================================
+
+# TODO: Criar tabela rejected_transactions no Postgres
+# Campos:
+#   - id (UUID)
+#   - account_id
+#   - institution_id
+#   - raw_data (JSONB)
+#   - error_type
+#   - error_message
+#   - field_errors (JSONB)
+#   - rejected_at (timestamp)
+#   - reviewed (boolean) - para inbox de revisão manual
