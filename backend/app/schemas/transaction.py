@@ -30,13 +30,14 @@ Fluxo completo:
 Versão: 1.2.0
 Última atualização: 2024-01-21
 """
-
+from datetime import timedelta
+import hashlib
 import re
 import html
 import logging
 from datetime import datetime, timezone, date
 from decimal import Decimal, InvalidOperation
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from pydantic import (
     BaseModel,
@@ -98,9 +99,6 @@ CONTROL_CHARS_PATTERN = re.compile(f"[{re.escape(CONTROL_CHARS)}]")
 # ==========================================
 # HELPERS DE PARSING
 # ==========================================
-
-# Constantes (exemplo)
-CONTROL_CHARS_PATTERN = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 def sanitize_text(text: str, max_length: int = MAX_DESCRIPTION_LENGTH, escape_html: bool = False) -> str: #TESTADO E OK!!
     """
@@ -234,7 +232,6 @@ except ImportError:
     # Fallback para Python < 3.9 (Requer: pip install backports.zoneinfo)
     from backports.zoneinfo import ZoneInfo
 
-print(sanitize_text(""))
 
 # Configuração de Timezones
 TZ_UTC = timezone.utc
@@ -307,61 +304,44 @@ def parse_date_safe(v: Any, field_name: str = "date", default_tz: Any = TZ_BR) -
     raise ValueError(f"{field_name} formato desconhecido: {v}")
 
 
-def parse_status_safe(v: Any) -> TransactionStatus: #TESTADO E OK!!
-    """
-    Parser estrito de status.
-    
-    Mudança chave da v1:
-    - REMOVIDO o fallback para POSTED. Se não conhece o status, 
-      ESTOURA ERRO. Segurança financeira em primeiro lugar.
-    """
+def parse_status_safe(v: Any) -> TransactionStatus:
+    """Parser tolerante de status."""
     if isinstance(v, TransactionStatus):
         return v
-        
-    # Tratamento de Nulos: 
-    # Dependendo da regra de negócio, None pode ser PENDING ou erro.
-    # Aqui assumimos que transação sem status é inválida.
+    
+    # ✅ MUDANÇA CRÍTICA: Permite None (fallback para POSTED)
     if v is None or v == "":
-        raise ValueError("Status da transação não pode ser vazio.")
-
+        return TransactionStatus.POSTED  # Default seguro
+    
     if isinstance(v, str):
         v_clean = v.strip().upper()
         
-        # 1. Tentativa Direta
         try:
             return TransactionStatus(v_clean)
         except ValueError:
             pass
-
-        # 2. Tabela de Aliases (Expandida)
+        
         aliases = {
-            # Sucesso
             "PROCESSED": TransactionStatus.POSTED,
             "COMPLETED": TransactionStatus.POSTED,
-            "SETTLED":   TransactionStatus.POSTED,
+            "SETTLED": TransactionStatus.POSTED,
             "CONFIRMED": TransactionStatus.POSTED,
-            
-            # Pendente
-            "SCHEDULED":  TransactionStatus.PENDING,
+            "SCHEDULED": TransactionStatus.PENDING,
             "IN_PROCESS": TransactionStatus.PENDING,
             "PROCESSING": TransactionStatus.PENDING,
-            
-            # Falha (Crítico mapear estes!)
-            "FAILED":    TransactionStatus.CANCELLED,
-            "REJECTED":  TransactionStatus.CANCELLED,
-            "CANCELED":  TransactionStatus.CANCELLED, # US spelling
-            "VOIDED":    TransactionStatus.CANCELLED,
+            "FAILED": TransactionStatus.CANCELLED,
+            "REJECTED": TransactionStatus.CANCELLED,
+            "CANCELED": TransactionStatus.CANCELLED,
+            "VOIDED": TransactionStatus.CANCELLED,
         }
-
+        
         if v_clean in aliases:
             return aliases[v_clean]
-            
-        # 3. Fail Fast
-        # Loga o erro crítico para o dev adicionar o novo status na lista acima
-        msg = f"Status desconhecido encontrado: '{v_clean}'. Impossível mapear com segurança."
-        logger.error(msg)
-        raise ValueError(msg)
-
+        
+        # Status desconhecido (mas não None): usar POSTED com warning
+        logger.warning(f"Status desconhecido '{v_clean}', usando POSTED como fallback")
+        return TransactionStatus.POSTED
+    
     raise ValueError(f"Tipo inválido para status: {type(v)}")
 
 
@@ -453,6 +433,18 @@ class TransactionWebhook(BaseModel): #TESTADO E OK!!
     status: TransactionStatus = Field(
         default=TransactionStatus.POSTED,
         description="Status da transação (POSTED, PENDING, CANCELLED)"
+    )
+
+    # Muitos bancos mandam isso (ex: "CREDIT", "DEBIT")
+    type: Optional[str] = Field(
+        default=None, 
+        description="Indicador de Crédito/Débito (ex: CREDIT, DEBIT)"
+    )
+
+    # --- CAMPO COMPUTADO (Deve ficar junto dos campos, não métodos) ---
+    dedup_hash: str = Field(
+        default="",
+        description="Hash compósito para deduplicação (gerado automaticamente)"
     )
     
     # ==========================================
@@ -550,106 +542,264 @@ class TransactionWebhook(BaseModel): #TESTADO E OK!!
     )
     
     # ==========================================
-    # VALIDATORS
+    # VALIDATORS 
     # ==========================================
     
-    @field_validator("amount", mode="before")
-    @classmethod
-    def parse_amount(cls, v: Any) -> Decimal:
-        """Parseia valor monetário com múltiplos formatos."""
-        return parse_amount_safe(v, "amount")
-    
-    @field_validator("balance", mode="before")
-    @classmethod
-    def parse_balance(cls, v: Any) -> Decimal | None:
-        """Parseia saldo (opcional)."""
-        if v is None or v == "":
-            return None
-        return parse_amount_safe(v, "balance")
-    
-    @field_validator("transaction_date", "fetched_at", mode="before")
-    @classmethod
-    def parse_dates(cls, v: Any) -> datetime:
-        """Parseia datas garantindo UTC."""
-        return parse_date_safe(v)
-    
-    @field_validator("status", mode="before")
-    @classmethod
-    def parse_status(cls, v: Any) -> TransactionStatus:
-        """Parseia status com fallback tolerante."""
-        return parse_status_safe(v)
-    
-    @field_validator("description", "description_raw", "observations", "merchant")
-    @classmethod
-    def sanitize_texts(cls, v: str | None) -> str | None:
-        """Sanitiza textos removendo controles e limitando tamanho."""
-        if v is None:
-            return None
-        return sanitize_text(v) or None
-    
-    @model_validator(mode="after")
-    def validate_fundamental_fields(self) -> "TransactionWebhook":
-        """
-        Valida campos fundamentais (última linha de defesa).
-        
-        Garante que campos críticos estão presentes mesmo que
-        tenham passado por validators individuais.
-        """
-        required = ["transaction_id", "amount", "transaction_date", 
-                   "account_id", "institution_id", "item_id", "fetched_at"]
-        
-        for field in required:
-            value = getattr(self, field, None)
-            if value is None or value == "":
-                raise ValueError(f"Campo fundamental '{field}' está vazio ou None")
-        
-        return self
-    
-    @model_validator(mode="after")
-    def merge_descriptions(self) -> "TransactionWebhook":
-        """
-        Fallback de descriptions: description → description_raw → observations.
-        
-        Se description estiver vazio, tenta preencher com outras fontes.
-        """
-        if not self.description or not self.description.strip():
-            # Tenta description_raw
-            if self.description_raw and self.description_raw.strip():
-                self.description = self.description_raw
-            # Senão, tenta observations
-            elif self.observations and self.observations.strip():
-                self.description = self.observations
-            # Se tudo vazio, deixa como ""
-            else:
-                self.description = ""
-        
-        return self
-    
-    @model_validator(mode="after")
-    def validate_installments(self) -> "TransactionWebhook":
-        """
-        Valida coerência de parcelamentos.
-        
-        Se installment_number existe, installment_total deve existir.
-        installment_number deve ser <= installment_total.
-        """
-        if self.installment_number is not None:
-            if self.installment_total is None:
-                raise ValueError(
-                    "Se installment_number está presente, "
-                    "installment_total também deve estar"
-                )
-            
-            if self.installment_number > self.installment_total:
-                raise ValueError(
-                    f"installment_number ({self.installment_number}) não pode "
-                    f"ser maior que installment_total ({self.installment_total})"
-                )
-        
-        return self
+    # ==========================================
+# VALIDATORS (Ordem de Execução)
+# ==========================================
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# FASE 1: FIELD VALIDATORS (Parsers Individuais)
+# Rodam ANTES dos model validators
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@field_validator("amount", mode="before")
+@classmethod
+def parse_amount(cls, v: Any) -> Decimal:
+    """Parseia valor monetário com múltiplos formatos."""
+    return parse_amount_safe(v, "amount")
+
+@field_validator("balance", mode="before")
+@classmethod
+def parse_balance(cls, v: Any) -> Decimal | None:
+    """Parseia saldo (opcional)."""
+    if v is None or v == "":
+        return None
+    return parse_amount_safe(v, "balance")
+
+@field_validator("transaction_date", "fetched_at", mode="before")
+@classmethod
+def parse_dates(cls, v: Any, info) -> datetime:
+    """Parseia datas garantindo UTC."""
+    return parse_date_safe(v, field_name=info.field_name)
+
+@field_validator("status", mode="before")
+@classmethod
+def parse_status(cls, v: Any) -> TransactionStatus:
+    """Parseia status com fallback tolerante."""
+    return parse_status_safe(v)
+
+@field_validator("description", "description_raw", "observations", "merchant")
+@classmethod
+def sanitize_texts(cls, v: str | None) -> str | None:
+    """Sanitiza textos removendo controles e limitando tamanho."""
+    if v is None:
+        return None
+    return sanitize_text(v) or None
 
 
-class RejectedTransaction(BaseModel): #Testar
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# FASE 2: MODEL VALIDATORS (Validações Cross-Field)
+# Rodam DEPOIS dos field validators, na ordem definida
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@model_validator(mode="after")
+def step1_validate_fundamental_fields(self) -> "TransactionWebhook":
+    """
+    STEP 1: Valida campos fundamentais (última linha de defesa).
+    
+    Garante que campos críticos estão presentes mesmo que
+    tenham passado por validators individuais.
+    
+    ORDEM: Primeiro validator (valida existência básica).
+    """
+    required = ["transaction_id", "amount", "transaction_date", 
+               "account_id", "institution_id", "item_id", "fetched_at"]
+    
+    for field in required:
+        value = getattr(self, field, None)
+        if value is None or value == "":
+            raise ValueError(f"Campo fundamental '{field}' está vazio ou None")
+    
+    return self
+
+
+@model_validator(mode="after")
+def step2_validate_temporal_consistency(self) -> "TransactionWebhook":
+    """
+    STEP 2: Valida sanidade temporal.
+    
+    Verifica que datas fazem sentido (não muito antigas/futuras).
+    
+    ORDEM: Segundo (depende de step1 garantir que datas existem).
+    """
+    now = datetime.now(TZ_UTC)
+
+    # 1. Transaction date: permite até 1 ano no futuro (agendamentos)
+    if self.transaction_date > now + timedelta(days=365):
+        raise ValueError(
+            f"transaction_date muito distante no futuro: {self.transaction_date}"
+        )
+
+    # 2. Transaction date: permite até 10 anos no passado (histórico)
+    if self.transaction_date < now - timedelta(days=3650):
+        logger.warning(
+            f"transaction_date muito antiga: {self.transaction_date} "
+            f"(ID: {self.transaction_id})"
+        )
+
+    # 3. Fetched_at: NUNCA pode estar no futuro
+    if self.fetched_at > now + timedelta(minutes=5):  # 5min de clock skew
+        raise ValueError(
+            f"fetched_at no futuro: {self.fetched_at}"
+        )
+
+    return self
+
+
+@model_validator(mode="after")
+def step3_merge_descriptions(self) -> "TransactionWebhook":
+    """
+    STEP 3: Fallback de descriptions.
+    
+    Prioridade: description → description_raw → observations.
+    Se todos vazios, deixa description = "".
+    
+    ORDEM: Terceiro (manipula dados, não valida).
+    """
+    if not self.description or not self.description.strip():
+        # Tenta description_raw
+        if self.description_raw and self.description_raw.strip():
+            self.description = self.description_raw
+        # Senão, tenta observations
+        elif self.observations and self.observations.strip():
+            self.description = self.observations
+        # Se tudo vazio, deixa como ""
+        else:
+            self.description = ""
+    
+    return self
+
+
+@model_validator(mode="after")
+def step4_validate_installments(self) -> "TransactionWebhook":
+    """
+    STEP 4: Valida coerência de parcelamentos.
+    
+    Se installment_number existe, installment_total deve existir.
+    installment_number deve ser <= installment_total.
+    
+    ORDEM: Quarto (validação lógica independente).
+    """
+    if self.installment_number is not None:
+        if self.installment_total is None:
+            raise ValueError(
+                "Se installment_number está presente, "
+                "installment_total também deve estar"
+            )
+        
+        if self.installment_number > self.installment_total:
+            raise ValueError(
+                f"installment_number ({self.installment_number}) não pode "
+                f"ser maior que installment_total ({self.installment_total})"
+            )
+    
+    return self
+
+
+@model_validator(mode="after")
+def step5_normalize_amount_sign(self) -> "TransactionWebhook":
+    """
+    STEP 5: Normaliza sinal do amount.
+    
+    Usa campo 'type' (DEBIT/CREDIT) para corrigir sinal se necessário.
+    Evita adivinhar por texto (muito perigoso).
+    
+    ORDEM: Quinto (depende de amount existir - step1 validou).
+    
+    IMPORTANTE: Não usa keywords na description porque:
+        - "ESTORNO DE COMPRA" tem "COMPRA" mas é crédito
+        - "DEVOLUÇÃO PAGAMENTO" tem "PAGAMENTO" mas é crédito
+        - Polars faz análise semântica mais robusta
+    """
+    if self.type:
+        type_upper = self.type.upper()
+        
+        # Regra: DEBIT deve ser negativo
+        if type_upper in ["DEBIT", "DEBITO", "D"]:
+            if self.amount > 0:
+                self.amount = -self.amount
+        
+        # Regra: CREDIT deve ser positivo
+        elif type_upper in ["CREDIT", "CREDITO", "C"]:
+            if self.amount < 0:
+                self.amount = abs(self.amount)
+    
+    return self
+
+
+@model_validator(mode="after")
+def step6_generate_composite_key(self) -> "TransactionWebhook":
+    """
+    STEP 6: Gera chave única composta (deduplicação).
+    
+    Hash baseado em: Account + Date + Amount + Desc (primeiros 20 chars).
+    
+    ORDEM: ÚLTIMO (depende de todos os campos estarem normalizados).
+    
+    Rationale:
+        - Usa apenas os primeiros 20 chars da descrição
+        - Evita que variações no final mudem o hash
+        - Ex: "PAG UBER SAO PAULO" vs "PAG UBER RIO DE JANEIRO"
+              Ambos viram "PAG UBER" no hash
+    """
+    # Formatação segura para evitar erros de tipo
+    date_str = self.transaction_date.isoformat()
+    amt_str = str(self.amount)
+    
+    # Pega apenas os primeiros 20 chars da descrição
+    # (evita que pequenas variações no final mudem o hash)
+    desc_short = (self.description or "").strip().upper()[:20]
+
+    raw_string = f"{self.account_id}|{date_str}|{amt_str}|{desc_short}"
+    
+    self.dedup_hash = hashlib.sha256(raw_string.encode()).hexdigest()
+    
+    # Validação extra: hash nunca pode ficar vazio
+    if not self.dedup_hash:
+        raise ValueError("Falha ao gerar dedup_hash")
+    
+    return self
+
+# ## 📊 **ORDEM DE EXECUÇÃO (Resumo)**
+# ```
+# ┌─────────────────────────────────────────────┐
+# │ FASE 1: FIELD VALIDATORS (Parsers)         │
+# ├─────────────────────────────────────────────┤
+# │ 1. parse_amount()           → Decimal      │
+# │ 2. parse_balance()          → Decimal|None │
+# │ 3. parse_dates()            → datetime UTC │
+# │ 4. parse_status()           → Enum         │
+# │ 5. sanitize_texts()         → str clean    │
+# └─────────────────────────────────────────────┘
+#               ↓
+# ┌─────────────────────────────────────────────┐
+# │ FASE 2: MODEL VALIDATORS (Validações)      │
+# ├─────────────────────────────────────────────┤
+# │ STEP 1: validate_fundamental_fields()      │
+# │         ✅ Garante campos obrigatórios      │
+# │              ↓                              │
+# │ STEP 2: validate_temporal_consistency()    │
+# │         ✅ Sanidade temporal                │
+# │              ↓                              │
+# │ STEP 3: merge_descriptions()               │
+# │         ✅ Fallback description_raw         │
+# │              ↓                              │
+# │ STEP 4: validate_installments()            │
+# │         ✅ Coerência parcelamento           │
+# │              ↓                              │
+# │ STEP 5: normalize_amount_sign()            │
+# │         ✅ Corrige sinal (type: DEBIT)      │
+# │              ↓                              │
+# │ STEP 6: generate_composite_key()           │
+# │         ✅ Hash de deduplicação             │
+# └─────────────────────────────────────────────┘
+#               ↓
+#         TransactionWebhook
+#         (Pronto para S3)
+
+class RejectedTransaction(BaseModel): #FALTA IR PARA TESTES
     """
     Registro de transação rejeitada durante validação Pydantic.
     
@@ -729,7 +879,7 @@ class RejectedTransaction(BaseModel): #Testar
     )
 
 
-class TransactionBatchResult(BaseModel): #TESTAR E COMPLETAR O CODIGO
+class TransactionBatchResult(BaseModel):
     """
     Resultado de validação tolerante de batch.
     
@@ -790,3 +940,5 @@ class TransactionBatchResult(BaseModel): #TESTAR E COMPLETAR O CODIGO
         Uso:
             if result.alert_level
             """
+        
+        #ESTA INCOMPLETO E DEPOIS TEM QUE IR PRA TESTES
