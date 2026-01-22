@@ -1,810 +1,849 @@
 """
-Pydantic Schemas para Transações Open Finance.
+transaction.py - Schemas Pydantic para Transações Open Finance
 
-Estratégia Multi-Banco:
-    ✅ Aceitar variações de formato (permissivo)
-    ✅ Validar FORMA, não semântica (isso é Polars)
-    ✅ Parsear múltiplos formatos (datas, valores)
-    ✅ Fallbacks explícitos (campos opcionais com default)
-    ✅ Metadados de qualidade inline
+Responsabilidades (CAMADA 1 - Firewall Semântico):
+    ✅ Validação estrutural mínima
+    ✅ Parsing robusto (múltiplos formatos BR/US)
+    ✅ Validação tolerante (rejeita item, não batch)
+    ✅ Segurança (limites, sanitização)
+    ✅ Metadados para BankStrategy (institution_id, item_id)
+    ❌ NÃO faz validação semântica pesada (Polars)
+    ❌ NÃO aplica BankStrategy diretamente (Polars)
 
-Princípio:
-    "Funcionalidade 1 não precisa do extrato perfeito.
-     Precisa de informação suficiente para projetar fluxo de caixa
-     com confiança mensurável."
+Fluxo completo:
+    Open Finance JSON (Pluggy/Belvo)
+        ↓
+    FastAPI Webhook
+        ↓
+    TransactionWebhook (validação Pydantic) ← ESTAMOS AQUI
+        ↓
+    raw_events (S3) + metadata (Postgres)
+        ↓
+    Message Queue (Redis)
+        ↓
+    Polars Ingestor (normalização + BankStrategy)
+        ↓
+    transactions_clean (Postgres)
+        ↓
+    TransactionOut (API response)
 
-Baseado em:
-    - 4 níveis de importância (FUNDAMENTAL → DISPOSABLE)
-    - Observações reais de 10+ bancos brasileiros
-    - Compatibilidade Pluggy/Belvo/CSV
+Versão: 1.2.0
+Última atualização: 2024-01-21
 """
 
-from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Literal, Any
-from datetime import datetime, date
-from decimal import Decimal
 import re
+import html
+import logging
+from datetime import datetime, timezone, date
+from decimal import Decimal, InvalidOperation
+from typing import Any, Literal
 
-from app.schemas.enums import (
-    DataStatus,
-    DataSource,
-    TransactionStatus,
-    FieldImportance,
-    FIELD_IMPORTANCE_MAP
+from pydantic import (
+    BaseModel,
+    Field,
+    field_validator,
+    model_validator,
+    ConfigDict,
+    ValidationError
 )
+
+# Importar enums do módulo compartilhado
+from .enums import (
+    DataSource,
+    DataStatus,
+    TransactionStatus,
+    Currency,
+    get_field_importance,
+    is_field_required,
+    get_required_fields
+)
+
+# Configurar logger
+logger = logging.getLogger(__name__)
 
 
 # ==========================================
-# TRANSACTION WEBHOOK (Entrada)
+# CONSTANTES
+# ==========================================
+
+# Limites de segurança (prevenir DoS e valores absurdos)
+MAX_AMOUNT = Decimal("1_000_000_000")  # 1 bilhão BRL
+MAX_DESCRIPTION_LENGTH = 500           # Prevenir strings gigantes
+MAX_TRANSACTION_ID_LENGTH = 255        # IDs padrão DB
+MAX_INSTALLMENTS = 60                  # 5 anos de parcelamento (extremo)
+
+# Thresholds de alerta (TransactionBatchResult)
+REJECTION_WARNING_THRESHOLD = 0.20   # 20% de rejeição → WARNING
+REJECTION_CRITICAL_THRESHOLD = 1.0   # 100% de rejeição → CRITICAL
+
+# Regex patterns (compilados uma vez para performance)
+AMOUNT_PATTERN = re.compile(
+    r"""
+    ^\s*                      # Whitespace inicial
+    [-+]?                     # Sinal opcional
+    (?:R\$\s*)?               # "R$" opcional (BR)
+    \(?                       # Parênteses opcional (negativo contábil)
+    (\d{1,3}(?:[.,]\d{3})*    # Parte inteira com separadores
+    (?:[.,]\d{1,2})?)         # Parte decimal opcional
+    \)?                       # Fecha parênteses
+    \s*$                      # Whitespace final
+    """,
+    re.VERBOSE
+)
+
+# Controles ASCII perigosos (0x00-0x1F exceto \t, \n, \r)
+CONTROL_CHARS = "".join(
+    chr(i) for i in range(32) if i not in (9, 10, 13)
+)
+CONTROL_CHARS_PATTERN = re.compile(f"[{re.escape(CONTROL_CHARS)}]")
+
+
+# ==========================================
+# HELPERS DE PARSING
+# ==========================================
+
+def sanitize_text(text: str, max_length: int = MAX_DESCRIPTION_LENGTH) -> str:
+    """
+    Sanitiza texto removendo controles perigosos e limitando tamanho.
+    
+    Proteções:
+        1. Limita tamanho ANTES de processar (previne ReDoS)
+        2. Remove controles ASCII (0x00-0x1F exceto tab/newline/CR)
+        3. Normaliza espaços consecutivos
+        4. Escapa HTML (previne XSS se exibido em UI)
+        5. Remove leading/trailing whitespace
+    
+    Args:
+        text: Texto a sanitizar
+        max_length: Tamanho máximo (default: 500)
+    
+    Returns:
+        Texto sanitizado e seguro
+    
+    Example:
+        >>> sanitize_text("PAG  UBER\x00\x01VIAGEM")
+        "PAG UBER VIAGEM"
+        
+        >>> sanitize_text("<script>alert('xss')</script>")
+        "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;"
+        
+        >>> sanitize_text("A" * 600, max_length=100)
+        "AAAA...AAA"  # (100 chars)
+    """
+    if not isinstance(text, str):
+        return ""
+    
+    # 1. Truncar ANTES de processar (segurança)
+    if len(text) > max_length:
+        text = text[:max_length]
+    
+    # 2. Remover controles ASCII perigosos
+    text = CONTROL_CHARS_PATTERN.sub("", text)
+    
+    # 3. Normalizar espaços (múltiplos → único)
+    text = re.sub(r"\s+", " ", text)
+    
+    # 4. Escapar HTML
+    text = html.escape(text)
+    
+    # 5. Strip
+    return text.strip()
+
+
+def parse_amount_safe(v: Any, field_name: str = "amount") -> Decimal:
+    """
+    Parser seguro de valores monetários (robusto para formatos BR/US).
+    
+    Aceita:
+        - Decimal: Decimal("150.50")
+        - Float: 150.50
+        - Int: 150
+        - String BR: "150,50", "1.500,50", "R$ 150,50"
+        - String US: "150.50", "1,500.50", "$150.50"
+        - Contábil: "(150.50)" → -150.50 (negativo)
+    
+    Args:
+        v: Valor a parsear
+        field_name: Nome do campo (para mensagens de erro)
+    
+    Returns:
+        Decimal validado e normalizado
+    
+    Raises:
+        ValueError: se valor for zero, negativo demais, ou formato inválido
+    
+    Example:
+        >>> parse_amount_safe(150.50, "amount")
+        Decimal('150.50')
+        
+        >>> parse_amount_safe("1.500,50", "amount")
+        Decimal('1500.50')
+        
+        >>> parse_amount_safe("(150.50)", "amount")
+        Decimal('-150.50')
+        
+        >>> parse_amount_safe(0, "amount")
+        ValueError: amount não pode ser zero
+    """
+    # Já é Decimal válido
+    if isinstance(v, Decimal):
+        amount = v
+    
+    # Numérico simples
+    elif isinstance(v, (int, float)):
+        amount = Decimal(str(v))
+    
+    # String → parsing robusto
+    elif isinstance(v, str):
+        v = v.strip()
+        
+        # Vazio
+        if not v:
+            raise ValueError(f"{field_name} está vazio")
+        
+        # Detectar negativo contábil: (150.50)
+        is_negative_accounting = v.startswith("(") and v.endswith(")")
+        if is_negative_accounting:
+            v = v[1:-1]  # Remove parênteses
+        
+        # Remove símbolos monetários
+        v = v.replace("R$", "").replace("$", "").strip()
+        
+        # Detectar formato (BR usa vírgula decimal, US usa ponto)
+        # Heurística: se tem vírgula seguida de 2 dígitos no final → BR
+        is_br_format = bool(re.search(r",\d{2}$", v))
+        
+        if is_br_format:
+            # BR: 1.500,50 → 1500.50
+            v = v.replace(".", "")  # Remove separador de milhar
+            v = v.replace(",", ".")  # Vírgula vira ponto decimal
+        else:
+            # US: 1,500.50 → 1500.50
+            v = v.replace(",", "")  # Remove separador de milhar
+        
+        # Converte para Decimal
+        try:
+            amount = Decimal(v)
+        except (InvalidOperation, ValueError) as e:
+            raise ValueError(
+                f"{field_name} tem formato inválido: {v!r} (erro: {e})"
+            )
+        
+        # Aplica sinal negativo contábil
+        if is_negative_accounting:
+            amount = -amount
+    
+    else:
+        raise ValueError(
+            f"{field_name} deve ser número ou string, recebido: {type(v).__name__}"
+        )
+    
+    # Validações de negócio
+    if amount == 0:
+        raise ValueError(f"{field_name} não pode ser zero")
+    
+    if abs(amount) > MAX_AMOUNT:
+        raise ValueError(
+            f"{field_name} excede limite ({MAX_AMOUNT}): {amount}"
+        )
+    
+    return amount
+
+
+def parse_date_safe(v: Any, field_name: str = "date") -> datetime:
+    """
+    Parser seguro de datas/timestamps (SEMPRE retorna UTC).
+    
+    Aceita:
+        - datetime: datetime.now()
+        - date: date.today() → converte para datetime UTC
+        - ISO 8601: "2024-01-15T10:30:00Z", "2024-01-15T10:30:00.000Z"
+        - BR: "15/01/2024", "15/01/2024 10:30:00"
+        - US: "2024-01-15", "2024-01-15 10:30:00"
+    
+    Args:
+        v: Valor a parsear
+        field_name: Nome do campo (para mensagens de erro)
+    
+    Returns:
+        datetime timezone-aware (UTC)
+    
+    Raises:
+        ValueError: se formato for inválido
+    
+    Example:
+        >>> parse_date_safe("2024-01-15T10:30:00Z", "date")
+        datetime(2024, 1, 15, 10, 30, tzinfo=timezone.utc)
+        
+        >>> parse_date_safe("15/01/2024", "date")
+        datetime(2024, 1, 15, 0, 0, tzinfo=timezone.utc)
+        
+        >>> parse_date_safe(date(2024, 1, 15), "date")
+        datetime(2024, 1, 15, 0, 0, tzinfo=timezone.utc)
+    """
+    # Já é datetime
+    if isinstance(v, datetime):
+        dt = v
+        # Garante timezone-aware (UTC)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt
+    
+    # date → datetime UTC (00:00)
+    if isinstance(v, date):
+        return datetime.combine(v, datetime.min.time(), tzinfo=timezone.utc)
+    
+    # String → parsing robusto
+    if isinstance(v, str):
+        v = v.strip()
+        
+        if not v:
+            raise ValueError(f"{field_name} está vazio")
+        
+        # Trata ISO 8601 com milissegundos (Pluggy usa isso)
+        # "2024-01-15T10:30:00.000Z" → remove .000 antes de parsear
+        v_clean = re.sub(r"\.\d{3}Z$", "Z", v)
+        
+        # Tenta formatos em ordem de probabilidade (Pluggy primeiro)
+        formats = [
+            "%Y-%m-%dT%H:%M:%SZ",       # ISO 8601 UTC (Pluggy)
+            "%Y-%m-%dT%H:%M:%S%z",      # ISO 8601 com timezone
+            "%Y-%m-%d",                 # ISO date (Pluggy usa para "date")
+            "%Y-%m-%d %H:%M:%S",        # US datetime
+            "%d/%m/%Y %H:%M:%S",        # BR datetime
+            "%d/%m/%Y",                 # BR date
+        ]
+        
+        for fmt in formats:
+            try:
+                dt = datetime.strptime(v_clean, fmt)
+                # Adiciona UTC se naive
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt.astimezone(timezone.utc)
+            except ValueError:
+                continue
+        
+        # Nenhum formato funcionou
+        raise ValueError(
+            f"{field_name} tem formato inválido: {v!r}. "
+            f"Formatos aceitos: ISO 8601, YYYY-MM-DD, DD/MM/YYYY"
+        )
+    
+    raise ValueError(
+        f"{field_name} deve ser datetime, date ou string, "
+        f"recebido: {type(v).__name__}"
+    )
+
+
+def parse_status_safe(v: Any) -> TransactionStatus:
+    """
+    Parser seguro de status de transação.
+    
+    Aceita:
+        - Enum: TransactionStatus.POSTED
+        - String: "POSTED", "posted", "Posted"
+        - None/vazio: retorna POSTED (fallback seguro)
+        - Aliases: "PROCESSED" → POSTED, "COMPLETED" → POSTED
+    
+    Args:
+        v: Valor a parsear
+    
+    Returns:
+        TransactionStatus validado
+    
+    Raises:
+        ValueError: se tipo for inválido (não string/enum/None)
+    
+    Rationale:
+        - Pluggy: envia "POSTED"
+        - Belvo: envia "PROCESSED" (diferente!)
+        - CSV: pode vir vazio ou lowercase
+        - Fallback tolerante: POSTED (mais comum)
+    
+    Example:
+        >>> parse_status_safe("posted")
+        TransactionStatus.POSTED
+        
+        >>> parse_status_safe("PROCESSED")
+        TransactionStatus.POSTED  # Belvo alias
+        
+        >>> parse_status_safe(None)
+        TransactionStatus.POSTED  # Fallback
+        
+        >>> parse_status_safe("canceled")
+        TransactionStatus.CANCELLED  # Normaliza US → UK
+    """
+    # Já é enum válido
+    if isinstance(v, TransactionStatus):
+        return v
+    
+    # None ou vazio → fallback POSTED (tolerante)
+    if v is None or v == "":
+        return TransactionStatus.POSTED
+    
+    # String → normalizar e mapear
+    if isinstance(v, str):
+        v_upper = v.strip().upper()
+        
+        # Mapeamento direto (tenta primeiro)
+        try:
+            return TransactionStatus(v_upper)
+        except ValueError:
+            pass
+        
+        # Aliases de outros conectores (Belvo, etc)
+        aliases = {
+            "PROCESSED": TransactionStatus.POSTED,
+            "COMPLETED": TransactionStatus.POSTED,
+            "SETTLED": TransactionStatus.POSTED,
+            "CANCELED": TransactionStatus.CANCELLED,  # US → UK
+        }
+        
+        if v_upper in aliases:
+            return aliases[v_upper]
+        
+        # Status desconhecido → logar e usar POSTED (tolerante, não quebra)
+        logger.warning(
+            "unknown_transaction_status",
+            extra={
+                "status": v,
+                "fallback": "POSTED"
+            }
+        )
+        return TransactionStatus.POSTED
+    
+    # Tipo completamente inesperado
+    raise ValueError(
+        f"Status deve ser string, TransactionStatus ou None. "
+        f"Recebido: {type(v).__name__}"
+    )
+
+
+# ==========================================
+# SCHEMAS
 # ==========================================
 
 class TransactionWebhook(BaseModel):
     """
     Schema de ENTRADA para webhooks Open Finance.
     
-    Design:
-        - Campos FUNDAMENTAIS → obrigatórios
-        - Campos SUBSTITUÍVEIS → opcionais com fallback
-        - Campos MELHORADORES → opcionais sem default
-        - Campos DESCARTÁVEIS → ignorados (não declarados)
+    Responsabilidade (CAMADA 1 - Pydantic):
+        ✅ Firewall semântico (validação estrutural)
+        ✅ Parsing robusto de múltiplos formatos
+        ✅ Fallbacks explícitos
+        ❌ NÃO faz validação semântica pesada (Polars faz)
     
-    Compatibilidade:
-        ✅ Pluggy
-        ✅ Belvo
-        ✅ CSV upload
+    Próxima camada:
+        → raw_events (S3) → Polars Ingestor → transactions_clean
     
-    Versionamento:
-        - Schema versão: 1.0.0
-        - Compatível com Pluggy API v2, Belvo v1
+    Metadados (set pelo webhook receiver):
+        - institution_id: inferido de connector.id
+        - item_id: de item.id
+        - fetched_at: timestamp do webhook
     """
     
-    # ============================================
+    # ==========================================
     # 1️⃣ FUNDAMENTAL (não-negociáveis)
-    # ============================================
+    # ==========================================
     
     transaction_id: str = Field(
         ...,
-        alias="id",
-        min_length=1,
-        max_length=255,
-        description="ID único da transação (idempotência, deduplicação)"
+        max_length=MAX_TRANSACTION_ID_LENGTH,
+        description="ID único da transação (Pluggy: 'id')"
     )
     
     amount: Decimal = Field(
         ...,
-        description=(
-            "Valor da transação (matemática base). "
-            "Positivo=entrada, negativo=saída. "
-            "Aceita múltiplos formatos: 1500.00, -150,50, 'R$ 150,50'"
-        )
+        description="Valor da transação (negativo = débito, positivo = crédito)"
     )
     
-    transaction_date: str | datetime | date = Field(
+    transaction_date: datetime = Field(
         ...,
-        alias="date",
-        description=(
-            "Data da transação (série temporal). "
-            "Aceita: ISO 8601, DD/MM/YYYY, YYYY-MM-DD"
-        )
+        description="Data da transação (SEMPRE UTC timezone-aware)"
     )
     
     account_id: str = Field(
         ...,
-        alias="accountId",
-        description="ID da conta (vincular saldo, conta, banco)"
+        max_length=MAX_TRANSACTION_ID_LENGTH,
+        description="ID da conta (Pluggy: 'accountId')"
     )
     
-    # institution_id virá do contexto (item_id → institution_id)
-    # Não vem no JSON individual da transação
-    
-    # ============================================
+    # ==========================================
     # 2️⃣ CRÍTICO MAS SUBSTITUÍVEL (fallback possível)
-    # ============================================
+    # ==========================================
     
     description: str = Field(
-        default="",  # ← Fallback: string vazia
+        default="",
+        max_length=MAX_DESCRIPTION_LENGTH,
         description=(
             "Descrição da transação. "
-            "CRÍTICO para: detectar parcelamentos, recorrências. "
-            "Fallback se ausente: usar padrão de datas + valor"
+            "Fallback: description → description_raw → observations"
         )
     )
     
     balance: Decimal | None = Field(
-        default=None,  # ← Fallback: None
+        default=None,
         description=(
-            "Saldo após transação. "
-            "CRÍTICO para: Safe-to-Spend, validação de forecast. "
-            "Fallback se ausente: estimar via cumsum"
+            "Saldo após transação (opcional). "
+            "Se None, Polars estima via cumsum."
         )
     )
     
-    # ============================================
-    # 3️⃣ MELHORADORES DE QUALIDADE (aumentam confiança)
-    # ============================================
+    # ==========================================
+    # 3️⃣ MELHORADORES (aumentam confiança)
+    # ==========================================
     
     category: str | None = Field(
         default=None,
-        description=(
-            "Categoria sugerida pelo banco. "
-            "MELHORA: resumo semanal, gastos invisíveis. "
-            "Fallback: classificador interno (CatBoost)"
-        )
-    )
-    
-    status: TransactionStatus = Field(
-        default=TransactionStatus.POSTED,  # ← Assume POSTED se não vier
-        description=(
-            "Status da transação. "
-            "MELHORA: evitar duplicatas, precisão curto prazo. "
-            "Fallback: tratar como POSTED"
-        )
+        description="Categoria (Pluggy/Belvo pode enviar)"
     )
     
     merchant: str | None = Field(
         default=None,
-        description=(
-            "Nome do estabelecimento. "
-            "MELHORA: limpeza de descriptions. "
-            "Opcional: extraído de description se ausente"
-        )
+        max_length=MAX_DESCRIPTION_LENGTH,
+        description="Nome do estabelecimento"
     )
     
-    # ============================================
-    # 4️⃣ METADADOS ADICIONAIS (compatibilidade)
-    # ============================================
+    status: TransactionStatus = Field(
+        default=TransactionStatus.POSTED,
+        description="Status da transação (POSTED, PENDING, CANCELLED)"
+    )
     
-    currency: str = Field(
-        default="BRL",
-        alias="currencyCode",
-        description="Moeda (99% BRL no Brasil)"
+    # ==========================================
+    # 4️⃣ METADADOS ADICIONAIS
+    # ==========================================
+    
+    currency: Currency = Field(
+        default=Currency.BRL,
+        description="Moeda (MVP: apenas BRL)"
     )
     
     description_raw: str | None = Field(
         default=None,
-        alias="descriptionRaw",
-        description="Descrição crua (alguns bancos enviam 2 versões)"
+        max_length=MAX_DESCRIPTION_LENGTH,
+        description="Descrição original sem processamento"
     )
     
     observations: str | None = Field(
         default=None,
-        description="Observações extras (Belvo usa isso)"
+        max_length=MAX_DESCRIPTION_LENGTH,
+        description="Observações adicionais"
     )
     
-    # Merchant detalhado (alguns bancos enviam objeto)
     merchant_details: dict[str, Any] | None = Field(
         default=None,
-        alias="merchant",
-        description="Objeto merchant com name, category, logo"
+        description="Detalhes extras do merchant (JSON)"
     )
     
-    # Parcelamentos (importante para detectar!)
     installment_number: int | None = Field(
         default=None,
-        description="Parcela atual (ex: 3 de 12)"
+        ge=1,
+        le=MAX_INSTALLMENTS,
+        description="Número da parcela atual (1-60)"
     )
     
     installment_total: int | None = Field(
         default=None,
-        description="Total de parcelas"
+        ge=1,
+        le=MAX_INSTALLMENTS,
+        description="Total de parcelas (1-60)"
     )
-    
-    # ============================================
-    # METADADOS INTERNOS (set pelo webhook receiver)
-    # ============================================
-    
-    source: DataSource = Field(
-        default=DataSource.UNKNOWN,
-        description="Origem dos dados (set pelo API handler)"
-    )
-    
-    institution_id: str | None = Field(
-        default=None,
-        description="ID do banco (set pelo webhook receiver via item_id)"
-    )
-    
-    # JSON completo para auditoria (salvo no S3)
-    raw_payload: dict[str, Any] | None = Field(
-        default=None,
-        exclude=True,  # Não serializar em responses
-        description="JSON completo para debug (S3 raw_events)"
-    )
-    
-    class Config:
-        populate_by_name = True  # Aceita aliases (id ou transaction_id)
-        str_strip_whitespace = True  # Remove espaços automaticamente
-        
     
     # ==========================================
-    # VALIDATORS (Parsing Robusto)
+    # 5️⃣ RASTREABILIDADE (para BankStrategy)
+    # ==========================================
+    
+    institution_id: str = Field(
+        ...,
+        description="ID do banco (inferido de connector.id pelo webhook receiver)"
+    )
+    
+    item_id: str = Field(
+        ...,
+        max_length=MAX_TRANSACTION_ID_LENGTH,
+        description="ID da conexão Pluggy/Belvo (item.id)"
+    )
+    
+    source: DataSource = Field(
+        default=DataSource.PLUGGY,
+        description="Fonte de dados (PLUGGY, BELVO, MANUAL_CSV)"
+    )
+    
+    fetched_at: datetime = Field(
+        ...,
+        description="Quando dados foram buscados (UTC, set pelo webhook receiver)"
+    )
+    
+    # ==========================================
+    # 6️⃣ AUDITORIA (não serializa)
+    # ==========================================
+    
+    raw_payload: dict[str, Any] | None = Field(
+        default=None,
+        exclude=True,  # Não serializa em JSON (só auditoria interna)
+        description="Payload completo do webhook (audit trail)"
+    )
+    
+    # Configuração
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "transaction_id": "txn_abc123",
+                "amount": -150.50,
+                "transaction_date": "2024-01-15T10:30:00Z",
+                "account_id": "acc_xyz789",
+                "description": "PAG UBER VIAGEM",
+                "balance": 1849.50,
+                "status": "POSTED",
+                "institution_id": "nubank",
+                "item_id": "item_123",
+                "source": "PLUGGY",
+                "fetched_at": "2024-01-21T14:00:00Z"
+            }
+        }
+    )
+    
+    # ==========================================
+    # VALIDATORS
     # ==========================================
     
     @field_validator("amount", mode="before")
     @classmethod
     def parse_amount(cls, v: Any) -> Decimal:
-        """
-        Parseia valores em múltiplos formatos.
-        
-        Aceita:
-            - 1500.00 (US)
-            - 1500,50 (BR)
-            - -150.50 (negativo explícito)
-            - (150.50) (negativo em parênteses - contabilidade)
-            - "R$ 150,50" (com símbolo)
-        
-        Retorna:
-            Decimal normalizado
-        
-        Raises:
-            ValueError: formato não reconhecido
-        """
-        if isinstance(v, (int, float, Decimal)):
-            return Decimal(str(v))
-        
-        if not isinstance(v, str):
-            raise ValueError(
-                f"Amount deve ser número ou string, recebido: {type(v).__name__}"
-            )
-        
-        # Remove espaços, símbolos de moeda
-        v = v.strip().replace("R$", "").replace("BRL", "").strip()
-        
-        # Detecta negativo em parênteses: (150.50) → -150.50
-        if v.startswith("(") and v.endswith(")"):
-            v = "-" + v[1:-1]
-        
-        # Remove separadores de milhar (pontos em BR, vírgulas em US)
-        # Heurística: se tem vírgula E ponto → vírgula é milhar
-        if "," in v and "." in v:
-            # Ex: 1.500,50 (BR) ou 1,500.50 (US)
-            if v.rindex(",") > v.rindex("."):
-                # BR: 1.500,50
-                v = v.replace(".", "").replace(",", ".")
-            else:
-                # US: 1,500.50
-                v = v.replace(",", "")
-        elif "," in v:
-            # Só vírgula: assume BR (1500,50)
-            v = v.replace(",", ".")
-        
-        # Remove espaços restantes
-        v = v.replace(" ", "")
-        
-        try:
-            return Decimal(v)
-        except Exception as e:
-            raise ValueError(
-                f"Não foi possível parsear amount: '{v}'. "
-                f"Formatos aceitos: 1500.00, -150,50, 'R$ 150,50'. "
-                f"Erro: {e}"
-            )
-    
-    
-    @field_validator("amount")
-    @classmethod
-    def amount_cannot_be_zero(cls, v: Decimal) -> Decimal:
-        """
-        Transações com valor zero são inválidas.
-        
-        Rationale:
-            - Não impacta fluxo de caixa
-            - Pode ser erro de sincronização
-            - Polui análises de recorrência
-        """
-        if v == 0:
-            raise ValueError("Amount não pode ser zero")
-        return v
-    
-    
-    @field_validator("transaction_date", mode="before")
-    @classmethod
-    def parse_date(cls, v: Any) -> datetime:
-        """
-        Parseia datas em múltiplos formatos.
-        
-        Aceita:
-            - ISO 8601: 2024-01-15T10:30:00.000Z
-            - ISO 8601 com timezone: 2024-01-15T10:30:00-03:00
-            - Apenas data: 2024-01-15
-            - Formato BR: 15/01/2024
-            - Formato US: 01/15/2024 (ambíguo, última opção)
-        
-        Retorna:
-            datetime normalizado (UTC se sem timezone)
-        
-        Raises:
-            ValueError: formato não reconhecido
-        """
-        if isinstance(v, datetime):
-            return v
-        
-        if isinstance(v, date):
-            return datetime.combine(v, datetime.min.time())
-        
-        if not isinstance(v, str):
-            raise ValueError(
-                f"Date deve ser string ou datetime, recebido: {type(v).__name__}"
-            )
-        
-        v = v.strip()
-        
-        # 1. Tentar ISO 8601 (mais comum em APIs)
-        try:
-            # Remove 'Z' e trata como UTC
-            return datetime.fromisoformat(v.replace("Z", "+00:00"))
-        except:
-            pass
-        
-        # 2. Tentar apenas data ISO: 2024-01-15
-        try:
-            return datetime.strptime(v, "%Y-%m-%d")
-        except:
-            pass
-        
-        # 3. Tentar formato BR: 15/01/2024 (mais provável em CSV)
-        try:
-            return datetime.strptime(v, "%d/%m/%Y")
-        except:
-            pass
-        
-        # 4. Tentar formato US: 01/15/2024 (ambíguo, última opção)
-        try:
-            return datetime.strptime(v, "%m/%d/%Y")
-        except:
-            pass
-        
-        # Nenhum formato funcionou
-        raise ValueError(
-            f"Não foi possível parsear date: '{v}'. "
-            f"Formatos aceitos: ISO 8601, YYYY-MM-DD, DD/MM/YYYY"
-        )
-    
+        """Parseia valor monetário com múltiplos formatos."""
+        return parse_amount_safe(v, "amount")
     
     @field_validator("balance", mode="before")
     @classmethod
     def parse_balance(cls, v: Any) -> Decimal | None:
-        """
-        Parseia balance (pode ser null).
-        
-        40% dos bancos não enviam balance.
-        Usa mesmo parser de amount.
-        """
+        """Parseia saldo (opcional)."""
         if v is None or v == "":
             return None
-        
-        # Reusar parser de amount
-        return cls.parse_amount(v)
+        return parse_amount_safe(v, "balance")
     
-    
-    @field_validator("description")
+    @field_validator("transaction_date", "fetched_at", mode="before")
     @classmethod
-    def sanitize_description(cls, v: str) -> str:
-        """
-        Sanitização básica de description.
-        
-        - Remove múltiplos espaços
-        - Remove caracteres de controle
-        - Limita tamanho (evitar abuso)
-        
-        Nota: Normalização pesada (lowercase, etc) é feita no Polars.
-        """
-        if not v:
-            return ""
-        
-        # Remove múltiplos espaços
-        v = re.sub(r'\s+', ' ', v.strip())
-        
-        # Remove caracteres de controle (quebras de linha, tabs)
-        v = re.sub(r'[\x00-\x1F\x7F]', '', v)
-        
-        # Limita tamanho (500 chars é MUITO generoso)
-        if len(v) > 500:
-            v = v[:500]
-        
-        return v
+    def parse_dates(cls, v: Any) -> datetime:
+        """Parseia datas garantindo UTC."""
+        return parse_date_safe(v)
     
+    @field_validator("status", mode="before")
+    @classmethod
+    def parse_status(cls, v: Any) -> TransactionStatus:
+        """Parseia status com fallback tolerante."""
+        return parse_status_safe(v)
+    
+    @field_validator("description", "description_raw", "observations", "merchant")
+    @classmethod
+    def sanitize_texts(cls, v: str | None) -> str | None:
+        """Sanitiza textos removendo controles e limitando tamanho."""
+        if v is None:
+            return None
+        return sanitize_text(v) or None
     
     @model_validator(mode="after")
-    def extract_merchant_from_details(self):
+    def validate_fundamental_fields(self) -> "TransactionWebhook":
         """
-        Se merchant é None mas merchant_details existe,
-        extrai merchant.name do objeto.
+        Valida campos fundamentais (última linha de defesa).
         
-        Alguns bancos (C6, Inter):
-            merchant: null
-            merchant_details: {"name": "NETFLIX", "category": "..."}
+        Garante que campos críticos estão presentes mesmo que
+        tenham passado por validators individuais.
         """
-        if self.merchant is None and self.merchant_details:
-            self.merchant = self.merchant_details.get("name")
+        required = ["transaction_id", "amount", "transaction_date", 
+                   "account_id", "institution_id", "item_id", "fetched_at"]
+        
+        for field in required:
+            value = getattr(self, field, None)
+            if value is None or value == "":
+                raise ValueError(f"Campo fundamental '{field}' está vazio ou None")
         
         return self
     
-    
     @model_validator(mode="after")
-    def merge_descriptions(self):
+    def merge_descriptions(self) -> "TransactionWebhook":
         """
-        Fallback de description.
+        Fallback de descriptions: description → description_raw → observations.
         
-        Prioridade:
-            1. description (se não vazio)
-            2. description_raw
-            3. observations (Belvo/Bradesco)
-        
-        Bradesco exemplo:
-            description: "COMPRA CARTAO" ← genérico
-            observations: "FARMACIA SAO JOAO" ← útil!
+        Se description estiver vazio, tenta preencher com outras fontes.
         """
-        if not self.description:
-            if self.description_raw:
+        if not self.description or not self.description.strip():
+            # Tenta description_raw
+            if self.description_raw and self.description_raw.strip():
                 self.description = self.description_raw
-            elif self.observations:
+            # Senão, tenta observations
+            elif self.observations and self.observations.strip():
                 self.description = self.observations
+            # Se tudo vazio, deixa como ""
+            else:
+                self.description = ""
         
         return self
-    
     
     @model_validator(mode="after")
-    def validate_fundamental_fields(self):
+    def validate_installments(self) -> "TransactionWebhook":
         """
-        Validação final: campos FUNDAMENTAIS presentes?
+        Valida coerência de parcelamentos.
         
-        Se faltar qualquer FUNDAMENTAL → transação inutilizável.
-        Rejeita evento individual, não lote inteiro.
+        Se installment_number existe, installment_total deve existir.
+        installment_number deve ser <= installment_total.
         """
-        fundamental_fields = [
-            "transaction_id",
-            "amount",
-            "transaction_date",
-            "account_id"
-        ]
-        
-        missing = []
-        for field in fundamental_fields:
-            if getattr(self, field, None) is None:
-                missing.append(field)
-        
-        if missing:
-            raise ValueError(
-                f"Campos FUNDAMENTAIS faltando: {', '.join(missing)}. "
-                f"Transação inutilizável para Core Engine."
-            )
+        if self.installment_number is not None:
+            if self.installment_total is None:
+                raise ValueError(
+                    "Se installment_number está presente, "
+                    "installment_total também deve estar"
+                )
+            
+            if self.installment_number > self.installment_total:
+                raise ValueError(
+                    f"installment_number ({self.installment_number}) não pode "
+                    f"ser maior que installment_total ({self.installment_total})"
+                )
         
         return self
 
 
-# ==========================================
-# TRANSACTION OUT (Saída para Frontend/API)
-# ==========================================
-
-class TransactionOut(BaseModel):
+class RejectedTransaction(BaseModel):
     """
-    Schema de SAÍDA para frontend/API.
+    Registro de transação rejeitada durante validação Pydantic.
     
-    Diferenças do TransactionWebhook:
-        - Dados já processados (limpos, classificados)
-        - Tipos normalizados (datetime, float)
-        - Campos de confiança (confidence, data_status)
-        - Sem raw_payload
+    Responsabilidades:
+        - Auditoria completa (nada é perdido)
+        - Debugging (por que foi rejeitada?)
+        - Inbox de revisão manual (UI para analista)
+        - Métricas de qualidade por banco
+    
+    Persistência (futuro):
+        → Tabela `rejected_transactions` (Postgres)
+        → Campos: raw_data (JSONB), field_errors (JSONB)
+    
+    Uso:
+        - Analista revisa rejected_transactions
+        - Detecta padrões de rejeição por banco
+        - Melhora schemas baseado em rejeições comuns
     """
     
-    id: str
-    amount: float
-    date: datetime
-    description: str
-    
-    category: str | None = None
-    merchant: str | None = None
-    
-    is_recurring: bool = False
-    is_installment: bool = False
-    installment_info: str | None = None  # "3/12"
-    
-    balance: float | None = None
-    
-    # Metadados de qualidade
-    confidence: float = Field(
-        ...,
-        ge=0.0,
-        le=1.0,
-        description="Confiança nos dados processados (0.0 - 1.0)"
+    # Dados rejeitados (sem PII em logs)
+    raw_data: dict[str, Any] = Field(
+        description="JSON original que falhou validação (NUNCA logar completo)"
     )
     
-    source: Literal["OFFICIAL", "SHADOW", "HYBRID"] = Field(
+    # Motivo da rejeição
+    error_type: str = Field(
+        description="Tipo de erro (ValidationError, ValueError, DuplicateInBatch)"
+    )
+    
+    error_message: str = Field(
+        description="Mensagem completa do erro"
+    )
+    
+    field_errors: dict[str, list[str]] = Field(
+        default_factory=dict,
         description=(
-            "OFFICIAL: dados do banco. "
-            "SHADOW: gerado por Shadow Invoice. "
-            "HYBRID: mistura (DEGRADED data_status)"
+            "Erros por campo estruturados. "
+            "Exemplo: {'amount': ['cannot be zero'], 'date': ['invalid format']}"
         )
     )
     
-    data_status: DataStatus = Field(
-        description="Status após BankStrategy + Polars validation"
+    # Timestamp
+    rejected_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Quando a transação foi rejeitada (UTC)"
     )
     
-    class Config:
-        json_schema_extra = {
+    # Contexto (extraído do raw_data quando possível)
+    transaction_id: str | None = Field(
+        default=None,
+        description="ID da transação (se conseguiu extrair do raw_data)"
+    )
+    
+    account_id: str | None = Field(
+        default=None,
+        description="ID da conta (se presente no raw_data)"
+    )
+    
+    institution_id: str | None = Field(
+        default=None,
+        description="ID do banco (para métricas por instituição)"
+    )
+    
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
-                "id": "txn_nubank_123",
-                "amount": -150.50,
-                "date": "2024-01-15T10:30:00Z",
-                "description": "Netflix Assinatura",
-                "category": "Assinaturas",
-                "merchant": "Netflix",
-                "is_recurring": True,
-                "is_installment": False,
-                "balance": 3250.50,
-                "confidence": 0.95,
-                "source": "OFFICIAL",
-                "data_status": "TRUSTED"
+                "raw_data": {"id": "txn_123", "amount": 0, "date": "2024-01-15"},
+                "error_type": "ValidationError",
+                "error_message": "amount não pode ser zero",
+                "field_errors": {"amount": ["não pode ser zero"]},
+                "rejected_at": "2024-01-21T10:30:00Z",
+                "transaction_id": "txn_123",
+                "account_id": "acc_456",
+                "institution_id": "nubank"
             }
         }
-
-
-# ==========================================
-# BATCH WEBHOOK (múltiplas transações)
-# ==========================================
-
-class TransactionBatchWebhook(BaseModel):
-    """
-    Webhook com múltiplas transações.
-    
-    Pluggy/Belvo enviam listas de 10-100 transações por webhook.
-    
-    Importante:
-        - Se 1 transação falhar validação → rejeita ela, não o lote
-        - item_id usado para buscar institution_id
-        - fetched_at para rastreabilidade
-    """
-    
-    transactions: list[TransactionWebhook] = Field(
-        ...,
-        min_length=1,
-        description="Lista de transações (min: 1)"
     )
-    
-    # Metadados do batch
-    account_id: str
-    item_id: str  # Pluggy/Belvo connection ID
-    institution_id: str  # "nubank", "inter", etc (set pelo webhook receiver)
-    fetched_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        description="Quando os dados foram buscados (rastreabilidade)"
-    )
-
-# ==========================================
-# BATCH WEBHOOK COM VALIDAÇÃO TOLERANTE
-# ==========================================
-
-from typing import TypedDict
-from pydantic import ValidationError
-import structlog
-
-logger = structlog.get_logger(__name__)
-
-
-class RejectedTransaction(TypedDict):
-    """
-    Registro de transação rejeitada.
-    
-    Usado para:
-        - Auditoria (salvar em DB)
-        - Debugging (logs estruturados)
-        - Alertas (se taxa de rejeição > threshold)
-    """
-    raw_data: dict[str, Any]
-    error_type: str
-    error_message: str
-    field_errors: dict[str, list[str]]
-    rejected_at: datetime
 
 
 class TransactionBatchResult(BaseModel):
     """
-    Resultado do processamento de batch com validação tolerante.
+    Resultado de validação tolerante de batch.
     
-    Contém:
-        - Transações válidas (processadas)
-        - Transações rejeitadas (auditoria)
-        - Métricas de qualidade
+    Filosofia (da arquitetura):
+        "99 transações válidas > 0 transações (batch inteiro rejeitado)"
+        "Open Finance é instável → esperar falhas individuais"
+        "Shadow Invoice preenche lacunas → 1 faltando não quebra forecast"
+    
+    Alertas automáticos:
+        - rejection_rate > 20% → WARNING (log + métrica)
+        - rejection_rate = 100% → CRITICAL (log + alerta)
+    
+    Uso:
+        result = TransactionBatchResult.from_raw_batch(raw_list, ...)
+        if result.should_alert:
+            logger.warning("high_rejection_rate", level=result.alert_level)
     """
     
+    # Transações processadas
     valid_transactions: list[TransactionWebhook] = Field(
+        default_factory=list,
         description="Transações que passaram na validação"
     )
     
     rejected_transactions: list[RejectedTransaction] = Field(
+        default_factory=list,
         description="Transações rejeitadas com motivo"
     )
     
     # Métricas
-    total_received: int = Field(
-        description="Total de transações no batch original"
-    )
-    
-    total_valid: int = Field(
-        description="Transações válidas"
-    )
-    
-    total_rejected: int = Field(
-        description="Transações rejeitadas"
-    )
-    
-    rejection_rate: float = Field(
-        ge=0.0,
-        le=1.0,
-        description="Taxa de rejeição (0.0 - 1.0)"
-    )
+    total_received: int = Field(ge=0)
+    total_valid: int = Field(ge=0)
+    total_rejected: int = Field(ge=0)
+    rejection_rate: float = Field(ge=0.0, le=1.0)
     
     # Contexto
     account_id: str
     item_id: str
     institution_id: str
-    processed_at: datetime = Field(default_factory=datetime.utcnow)
+    processed_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
     
+    # ==========================================
+    # PROPRIEDADES CALCULADAS (Alertas)
+    # ==========================================
     
-    @classmethod
-    def from_raw_batch(
-        cls,
-        raw_transactions: list[dict[str, Any]],
-        account_id: str,
-        item_id: str,
-        institution_id: str
-    ) -> "TransactionBatchResult":
+    @property
+    def alert_level(self) -> Literal["OK", "WARNING", "CRITICAL"]:
         """
-        Processa batch com validação tolerante.
-        
-        Estratégia:
-            1. Para cada transação:
-                - Tenta validar com Pydantic
-                - Se OK → adiciona em valid_transactions
-                - Se FALHA → loga + adiciona em rejected_transactions
-            2. Calcula métricas
-            3. Alerta se rejection_rate > threshold
-        
-        Args:
-            raw_transactions: Lista de dicts crus (JSON do webhook)
-            account_id: ID da conta
-            item_id: ID do item Pluggy/Belvo
-            institution_id: ID do banco (ex: "nubank")
+        Nível de alerta baseado na taxa de rejeição.
         
         Returns:
-            TransactionBatchResult com válidas + rejeitadas
+            "OK": rejection_rate <= 20%
+            "WARNING": rejection_rate > 20% e < 100%
+            "CRITICAL": rejection_rate = 100%
         
-        Exemplo:
-            >>> result = TransactionBatchResult.from_raw_batch(
-            ...     raw_transactions=[{...}, {...}],
-            ...     account_id="acc_123",
-            ...     item_id="item_456",
-            ...     institution_id="nubank"
-            ... )
-            >>> print(f"Válidas: {result.total_valid}, Rejeitadas: {result.total_rejected}")
-        """
-        
-        valid_transactions: list[TransactionWebhook] = []
-        rejected_transactions: list[RejectedTransaction] = []
-        
-        # Processar cada transação individualmente
-        for idx, raw_txn in enumerate(raw_transactions):
-            try:
-                # Tentar validar com Pydantic
-                txn = TransactionWebhook(
-                    **raw_txn,
-                    source=DataSource.PLUGGY,  # TODO: detectar dinamicamente
-                    institution_id=institution_id
-                )
-                
-                valid_transactions.append(txn)
-                
-            except ValidationError as e:
-                # Transação inválida → registrar rejeição
-                
-                # Extrair erros por campo
-                field_errors: dict[str, list[str]] = {}
-                for error in e.errors():
-                    field = ".".join(str(loc) for loc in error["loc"])
-                    msg = error["msg"]
-                    
-                    if field not in field_errors:
-                        field_errors[field] = []
-                    field_errors[field].append(msg)
-                
-                rejected = RejectedTransaction(
-                    raw_data=raw_txn,
-                    error_type="ValidationError",
-                    error_message=str(e),
-                    field_errors=field_errors,
-                    rejected_at=datetime.utcnow()
-                )
-                
-                rejected_transactions.append(rejected)
-                
-                # Log estruturado para debugging
-                logger.warning(
-                    "transaction_rejected",
-                    batch_index=idx,
-                    account_id=account_id,
-                    institution_id=institution_id,
-                    transaction_id=raw_txn.get("id", "unknown"),
-                    errors=field_errors,
-                    # Não logar raw_data completo (pode ter PII)
-                )
-            
-            except Exception as e:
-                # Erro inesperado (não deveria acontecer)
-                rejected = RejectedTransaction(
-                    raw_data=raw_txn,
-                    error_type=type(e).__name__,
-                    error_message=str(e),
-                    field_errors={},
-                    rejected_at=datetime.utcnow()
-                )
-                
-                rejected_transactions.append(rejected)
-                
-                logger.error(
-                    "transaction_unexpected_error",
-                    batch_index=idx,
-                    account_id=account_id,
-                    error=str(e),
-                    error_type=type(e).__name__
-                )
-        
-        # Calcular métricas
-        total_received = len(raw_transactions)
-        total_valid = len(valid_transactions)
-        total_rejected = len(rejected_transactions)
-        rejection_rate = total_rejected / total_received if total_received > 0 else 0.0
-        
-        # Alerta se taxa de rejeição alta
-        REJECTION_THRESHOLD = 0.20  # 20%
-        
-        if rejection_rate > REJECTION_THRESHOLD:
-            logger.error(
-                "high_rejection_rate",
-                account_id=account_id,
-                institution_id=institution_id,
-                rejection_rate=rejection_rate,
-                total_rejected=total_rejected,
-                total_received=total_received,
-                message=f"Taxa de rejeição {rejection_rate:.1%} acima do threshold {REJECTION_THRESHOLD:.1%}"
-            )
-        
-        # Log final
-        logger.info(
-            "batch_processed",
-            account_id=account_id,
-            institution_id=institution_id,
-            total_received=total_received,
-            total_valid=total_valid,
-            total_rejected=total_rejected,
-            rejection_rate=rejection_rate
-        )
-        
-        return cls(
-            valid_transactions=valid_transactions,
-            rejected_transactions=rejected_transactions,
-            total_received=total_received,
-            total_valid=total_valid,
-            total_rejected=total_rejected,
-            rejection_rate=rejection_rate,
-            account_id=account_id,
-            item_id=item_id,
-            institution_id=institution_id
-        )
-
-
-# ==========================================
-# HELPER: SALVAR REJEIÇÕES NO DB
-# ==========================================
-
-# TODO: Criar tabela rejected_transactions no Postgres
-# Campos:
-#   - id (UUID)
-#   - account_id
-#   - institution_id
-#   - raw_data (JSONB)
-#   - error_type
-#   - error_message
-#   - field_errors (JSONB)
-#   - rejected_at (timestamp)
-#   - reviewed (boolean) - para inbox de revisão manual
+        Uso:
+            if result.alert_level
+            """
