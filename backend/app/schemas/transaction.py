@@ -48,14 +48,11 @@ from pydantic import (
 )
 
 # Importar enums do módulo compartilhado
-from .enums import (
+from enums import (
     DataSource,
     DataStatus,
     TransactionStatus,
-    Currency,
-    get_field_importance,
-    is_field_required,
-    get_required_fields
+    Currency
 )
 
 # Configurar logger
@@ -102,331 +99,277 @@ CONTROL_CHARS_PATTERN = re.compile(f"[{re.escape(CONTROL_CHARS)}]")
 # HELPERS DE PARSING
 # ==========================================
 
-def sanitize_text(text: str, max_length: int = MAX_DESCRIPTION_LENGTH) -> str:
+# Constantes (exemplo)
+CONTROL_CHARS_PATTERN = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+def sanitize_text(text: str, max_length: int = MAX_DESCRIPTION_LENGTH, escape_html: bool = False) -> str: #TESTADO E OK!!
     """
-    Sanitiza texto removendo controles perigosos e limitando tamanho.
-    
-    Proteções:
-        1. Limita tamanho ANTES de processar (previne ReDoS)
-        2. Remove controles ASCII (0x00-0x1F exceto tab/newline/CR)
-        3. Normaliza espaços consecutivos
-        4. Escapa HTML (previne XSS se exibido em UI)
-        5. Remove leading/trailing whitespace
-    
-    Args:
-        text: Texto a sanitizar
-        max_length: Tamanho máximo (default: 500)
-    
-    Returns:
-        Texto sanitizado e seguro
-    
-    Example:
-        >>> sanitize_text("PAG  UBER\x00\x01VIAGEM")
-        "PAG UBER VIAGEM"
-        
-        >>> sanitize_text("<script>alert('xss')</script>")
-        "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;"
-        
-        >>> sanitize_text("A" * 600, max_length=100)
-        "AAAA...AAA"  # (100 chars)
+    Versão Definitiva:
+    1. Trunca entrada excessiva (anti-ReDoS).
+    2. Limpa caracteres.
+    3. Normaliza espaços.
+    4. Escapa (Opcional).
+    5. Garante limite FINAL (segurança de DB).
     """
     if not isinstance(text, str):
         return ""
-    
-    # 1. Truncar ANTES de processar (segurança)
+
+    # 1. Proteção inicial contra ReDoS (corta excessos absurdos antes de processar)
+    # Cortamos um pouco a mais que o max_length para dar margem a normalizações,
+    # mas impedimos processar strings de 10MB.
+    if len(text) > max_length * 2:
+        text = text[:max_length * 2]
+
+    # 2. Remover controles
+    text = CONTROL_CHARS_PATTERN.sub("", text)
+
+    # 3. Normalizar espaços
+    text = re.sub(r"\s+", " ", text).strip()
+
+    # 4. Escapar HTML (Opcional - Geralmente deve ser False para salvar no DB)
+    if escape_html:
+        text = html.escape(text)
+
+    # 5. Corte Final Rígido (Garante que cabe na coluna do banco)
     if len(text) > max_length:
         text = text[:max_length]
-    
-    # 2. Remover controles ASCII perigosos
-    text = CONTROL_CHARS_PATTERN.sub("", text)
-    
-    # 3. Normalizar espaços (múltiplos → único)
-    text = re.sub(r"\s+", " ", text)
-    
-    # 4. Escapar HTML
-    text = html.escape(text)
-    
-    # 5. Strip
-    return text.strip()
+
+    return text
 
 
-def parse_amount_safe(v: Any, field_name: str = "amount") -> Decimal:
+import re
+from decimal import Decimal, InvalidOperation
+from typing import Any
+
+def parse_amount_safe(v: Any, field_name: str = "amount", default_locale: str = 'BR') -> Decimal:
     """
-    Parser seguro de valores monetários (robusto para formatos BR/US).
+    Parser financeiro híbrido e resiliente.
     
-    Aceita:
-        - Decimal: Decimal("150.50")
-        - Float: 150.50
-        - Int: 150
-        - String BR: "150,50", "1.500,50", "R$ 150,50"
-        - String US: "150.50", "1,500.50", "$150.50"
-        - Contábil: "(150.50)" → -150.50 (negativo)
-    
-    Args:
-        v: Valor a parsear
-        field_name: Nome do campo (para mensagens de erro)
-    
-    Returns:
-        Decimal validado e normalizado
-    
-    Raises:
-        ValueError: se valor for zero, negativo demais, ou formato inválido
-    
-    Example:
-        >>> parse_amount_safe(150.50, "amount")
-        Decimal('150.50')
-        
-        >>> parse_amount_safe("1.500,50", "amount")
-        Decimal('1500.50')
-        
-        >>> parse_amount_safe("(150.50)", "amount")
-        Decimal('-150.50')
-        
-        >>> parse_amount_safe(0, "amount")
-        ValueError: amount não pode ser zero
+    Estratégia:
+    1. Se tem ',' e '.', a última ocorrência define a casa decimal.
+    2. Se tem apenas um separador, usa o locale + regex para inferir.
+       - BR com ponto: "1.000" (Milhar) vs "1.50" (Decimal híbrido).
     """
-    # Já é Decimal válido
+    # 1. Short-circuit para tipos já numéricos
     if isinstance(v, Decimal):
-        amount = v
-    
-    # Numérico simples
-    elif isinstance(v, (int, float)):
-        amount = Decimal(str(v))
-    
-    # String → parsing robusto
-    elif isinstance(v, str):
-        v = v.strip()
-        
-        # Vazio
-        if not v:
-            raise ValueError(f"{field_name} está vazio")
-        
-        # Detectar negativo contábil: (150.50)
-        is_negative_accounting = v.startswith("(") and v.endswith(")")
-        if is_negative_accounting:
-            v = v[1:-1]  # Remove parênteses
-        
-        # Remove símbolos monetários
-        v = v.replace("R$", "").replace("$", "").strip()
-        
-        # Detectar formato (BR usa vírgula decimal, US usa ponto)
-        # Heurística: se tem vírgula seguida de 2 dígitos no final → BR
-        is_br_format = bool(re.search(r",\d{2}$", v))
-        
-        if is_br_format:
-            # BR: 1.500,50 → 1500.50
-            v = v.replace(".", "")  # Remove separador de milhar
-            v = v.replace(",", ".")  # Vírgula vira ponto decimal
+        return v
+    if isinstance(v, (int, float)):
+        return Decimal(str(v))
+    if not isinstance(v, str):
+        raise ValueError(f"{field_name} formato inválido: deve ser string ou número.")
+
+    # 2. Limpeza inicial
+    v = v.strip()
+    if not v:
+        raise ValueError(f"{field_name} está vazio.")
+
+    # 3. Tratamento de Sinais (Contábil e Padrão)
+    is_negative = False
+    if v.startswith("(") and v.endswith(")"):
+        is_negative = True
+        v = v[1:-1]
+    elif v.startswith("-"):
+        is_negative = True
+        v = v[1:]
+
+    # 4. Remove moeda e ESPAÇOS INTERNOS (ex: "1 500,00")
+    v = v.replace("R$", "").replace("$", "").replace(" ", "")
+
+    # 5. Análise de Separadores
+    has_comma = "," in v
+    has_dot = "." in v
+
+    if has_comma and has_dot:
+        # Lógica Posicional: Quem aparece por último é o decimal
+        if v.rfind(",") > v.rfind("."):
+            # Formato BR: 1.500.000,50
+            v = v.replace(".", "").replace(",", ".")
         else:
-            # US: 1,500.50 → 1500.50
-            v = v.replace(",", "")  # Remove separador de milhar
-        
-        # Converte para Decimal
-        try:
-            amount = Decimal(v)
-        except (InvalidOperation, ValueError) as e:
-            raise ValueError(
-                f"{field_name} tem formato inválido: {v!r} (erro: {e})"
-            )
-        
-        # Aplica sinal negativo contábil
-        if is_negative_accounting:
-            amount = -amount
+            # Formato US: 1,500,000.50
+            v = v.replace(",", "")
     
-    else:
-        raise ValueError(
-            f"{field_name} deve ser número ou string, recebido: {type(v).__name__}"
-        )
-    
-    # Validações de negócio
-    if amount == 0:
-        raise ValueError(f"{field_name} não pode ser zero")
-    
+    elif has_comma:
+        # Apenas vírgula (ex: "1000,50" ou "1,000")
+        if default_locale == 'BR':
+            # No BR, vírgula isolada é quase sempre decimal
+            v = v.replace(",", ".")
+        else:
+            # No US, vírgula é milhar. "1,000" -> 1000.
+            # Risco: "10,5" no US vira 105. Aceitável pois vírgula não é decimal lá.
+            v = v.replace(",", "")
+            
+    elif has_dot:
+        # Apenas ponto (ex: "10.50" ou "1.000")
+        if default_locale == 'BR':
+            # A GRANDE SACADA: Diferenciar milhar de decimal por estrutura
+            # Se parece estritamente milhar (1-3 digitos, ponto, 3 digitos...)
+            # Ex: 1.000 (match) | 1.000.000 (match) | 1.50 (no match)
+            if re.match(r"^\d{1,3}(\.\d{3})+$", v):
+                v = v.replace(".", "") # É milhar, remove
+            else:
+                # Não parece milhar (ex: 1.50, 10.5).
+                # Assume que o usuário digitou com ponto decimal (hábito comum).
+                pass 
+        else:
+            # US: Ponto é decimal, não faz nada.
+            pass
+
+    # 6. Conversão Final
+    try:
+        amount = Decimal(v)
+    except (InvalidOperation, ValueError):
+        raise ValueError(f"{field_name} contém valor inválido para conversão: '{v}'")
+
+    if is_negative:
+        amount = -amount
+
     if abs(amount) > MAX_AMOUNT:
-        raise ValueError(
-            f"{field_name} excede limite ({MAX_AMOUNT}): {amount}"
-        )
-    
+        raise ValueError(f"{field_name} excede o limite permitido.")
+
     return amount
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    # Fallback para Python < 3.9 (Requer: pip install backports.zoneinfo)
+    from backports.zoneinfo import ZoneInfo
 
-def parse_date_safe(v: Any, field_name: str = "date") -> datetime:
+print(sanitize_text(""))
+
+# Configuração de Timezones
+TZ_UTC = timezone.utc
+TZ_BR = ZoneInfo("America/Sao_Paulo")
+
+def parse_date_safe(v: Any, field_name: str = "date", default_tz: Any = TZ_BR) -> datetime: #TESTADO E OK!!
     """
-    Parser seguro de datas/timestamps (SEMPRE retorna UTC).
+    Parser de datas corrigido.
     
-    Aceita:
-        - datetime: datetime.now()
-        - date: date.today() → converte para datetime UTC
-        - ISO 8601: "2024-01-15T10:30:00Z", "2024-01-15T10:30:00.000Z"
-        - BR: "15/01/2024", "15/01/2024 10:30:00"
-        - US: "2024-01-15", "2024-01-15 10:30:00"
-    
-    Args:
-        v: Valor a parsear
-        field_name: Nome do campo (para mensagens de erro)
-    
-    Returns:
-        datetime timezone-aware (UTC)
-    
-    Raises:
-        ValueError: se formato for inválido
-    
-    Example:
-        >>> parse_date_safe("2024-01-15T10:30:00Z", "date")
-        datetime(2024, 1, 15, 10, 30, tzinfo=timezone.utc)
-        
-        >>> parse_date_safe("15/01/2024", "date")
-        datetime(2024, 1, 15, 0, 0, tzinfo=timezone.utc)
-        
-        >>> parse_date_safe(date(2024, 1, 15), "date")
-        datetime(2024, 1, 15, 0, 0, tzinfo=timezone.utc)
+    Diferença chave da v1:
+    - Se a data for 'naive' (sem info de fuso), assume 'default_tz' 
+      (ex: Brasil) e ENTÃO converte para UTC.
     """
-    # Já é datetime
+    if v is None:
+        raise ValueError(f"{field_name} é None")
+
+    # 1. Já é datetime
     if isinstance(v, datetime):
-        dt = v
-        # Garante timezone-aware (UTC)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        else:
-            dt = dt.astimezone(timezone.utc)
-        return dt
+        # Se não tem fuso, assume o default (ex: Brasil)
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=default_tz)
+        return v.astimezone(TZ_UTC)
     
-    # date → datetime UTC (00:00)
+    # 2. Date -> Datetime (Inicio do dia no fuso default)
     if isinstance(v, date):
-        return datetime.combine(v, datetime.min.time(), tzinfo=timezone.utc)
+        # Cria datetime 00:00:00 no fuso especificado (ex: Brasil)
+        dt = datetime.combine(v, datetime.min.time(), tzinfo=default_tz)
+        return dt.astimezone(TZ_UTC)
     
-    # String → parsing robusto
+    # 3. String Parsing
     if isinstance(v, str):
         v = v.strip()
-        
         if not v:
-            raise ValueError(f"{field_name} está vazio")
-        
-        # Trata ISO 8601 com milissegundos (Pluggy usa isso)
-        # "2024-01-15T10:30:00.000Z" → remove .000 antes de parsear
-        v_clean = re.sub(r"\.\d{3}Z$", "Z", v)
-        
-        # Tenta formatos em ordem de probabilidade (Pluggy primeiro)
+            raise ValueError(f"{field_name} vazio")
+
+        # Estratégia Otimizada:
+        # A) Tenta ISO 8601 nativo (muito mais rápido e robusto que strptime)
+        try:
+            # fromisoformat (Py 3.11+) lida bem com 'Z' e offsets
+            # Para versões antigas, substitua 'Z' por '+00:00'
+            if v.endswith("Z"):
+                v_iso = v[:-1] + "+00:00"
+            else:
+                v_iso = v
+            
+            dt = datetime.fromisoformat(v_iso)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=default_tz)
+            return dt.astimezone(TZ_UTC)
+        except ValueError:
+            pass # Falhou ISO, tenta formatos manuais
+
+        # B) Formatos BR e Legados
         formats = [
-            "%Y-%m-%dT%H:%M:%SZ",       # ISO 8601 UTC (Pluggy)
-            "%Y-%m-%dT%H:%M:%S%z",      # ISO 8601 com timezone
-            "%Y-%m-%d",                 # ISO date (Pluggy usa para "date")
-            "%Y-%m-%d %H:%M:%S",        # US datetime
-            "%d/%m/%Y %H:%M:%S",        # BR datetime
-            "%d/%m/%Y",                 # BR date
+            "%d/%m/%Y %H:%M:%S", # BR Completo
+            "%d/%m/%Y",          # BR Data
+            "%Y-%m-%d %H:%M:%S", # SQL Simples
         ]
         
         for fmt in formats:
             try:
-                dt = datetime.strptime(v_clean, fmt)
-                # Adiciona UTC se naive
+                dt = datetime.strptime(v, fmt)
+                # Se formato não tem timezone (ex: BR), aplica o default
                 if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                return dt.astimezone(timezone.utc)
+                    dt = dt.replace(tzinfo=default_tz)
+                return dt.astimezone(TZ_UTC)
             except ValueError:
                 continue
-        
-        # Nenhum formato funcionou
-        raise ValueError(
-            f"{field_name} tem formato inválido: {v!r}. "
-            f"Formatos aceitos: ISO 8601, YYYY-MM-DD, DD/MM/YYYY"
-        )
-    
-    raise ValueError(
-        f"{field_name} deve ser datetime, date ou string, "
-        f"recebido: {type(v).__name__}"
-    )
+
+    raise ValueError(f"{field_name} formato desconhecido: {v}")
 
 
-def parse_status_safe(v: Any) -> TransactionStatus:
+def parse_status_safe(v: Any) -> TransactionStatus: #TESTADO E OK!!
     """
-    Parser seguro de status de transação.
+    Parser estrito de status.
     
-    Aceita:
-        - Enum: TransactionStatus.POSTED
-        - String: "POSTED", "posted", "Posted"
-        - None/vazio: retorna POSTED (fallback seguro)
-        - Aliases: "PROCESSED" → POSTED, "COMPLETED" → POSTED
-    
-    Args:
-        v: Valor a parsear
-    
-    Returns:
-        TransactionStatus validado
-    
-    Raises:
-        ValueError: se tipo for inválido (não string/enum/None)
-    
-    Rationale:
-        - Pluggy: envia "POSTED"
-        - Belvo: envia "PROCESSED" (diferente!)
-        - CSV: pode vir vazio ou lowercase
-        - Fallback tolerante: POSTED (mais comum)
-    
-    Example:
-        >>> parse_status_safe("posted")
-        TransactionStatus.POSTED
-        
-        >>> parse_status_safe("PROCESSED")
-        TransactionStatus.POSTED  # Belvo alias
-        
-        >>> parse_status_safe(None)
-        TransactionStatus.POSTED  # Fallback
-        
-        >>> parse_status_safe("canceled")
-        TransactionStatus.CANCELLED  # Normaliza US → UK
+    Mudança chave da v1:
+    - REMOVIDO o fallback para POSTED. Se não conhece o status, 
+      ESTOURA ERRO. Segurança financeira em primeiro lugar.
     """
-    # Já é enum válido
     if isinstance(v, TransactionStatus):
         return v
-    
-    # None ou vazio → fallback POSTED (tolerante)
-    if v is None or v == "":
-        return TransactionStatus.POSTED
-    
-    # String → normalizar e mapear
-    if isinstance(v, str):
-        v_upper = v.strip().upper()
         
-        # Mapeamento direto (tenta primeiro)
+    # Tratamento de Nulos: 
+    # Dependendo da regra de negócio, None pode ser PENDING ou erro.
+    # Aqui assumimos que transação sem status é inválida.
+    if v is None or v == "":
+        raise ValueError("Status da transação não pode ser vazio.")
+
+    if isinstance(v, str):
+        v_clean = v.strip().upper()
+        
+        # 1. Tentativa Direta
         try:
-            return TransactionStatus(v_upper)
+            return TransactionStatus(v_clean)
         except ValueError:
             pass
-        
-        # Aliases de outros conectores (Belvo, etc)
+
+        # 2. Tabela de Aliases (Expandida)
         aliases = {
+            # Sucesso
             "PROCESSED": TransactionStatus.POSTED,
             "COMPLETED": TransactionStatus.POSTED,
-            "SETTLED": TransactionStatus.POSTED,
-            "CANCELED": TransactionStatus.CANCELLED,  # US → UK
+            "SETTLED":   TransactionStatus.POSTED,
+            "CONFIRMED": TransactionStatus.POSTED,
+            
+            # Pendente
+            "SCHEDULED":  TransactionStatus.PENDING,
+            "IN_PROCESS": TransactionStatus.PENDING,
+            "PROCESSING": TransactionStatus.PENDING,
+            
+            # Falha (Crítico mapear estes!)
+            "FAILED":    TransactionStatus.CANCELLED,
+            "REJECTED":  TransactionStatus.CANCELLED,
+            "CANCELED":  TransactionStatus.CANCELLED, # US spelling
+            "VOIDED":    TransactionStatus.CANCELLED,
         }
-        
-        if v_upper in aliases:
-            return aliases[v_upper]
-        
-        # Status desconhecido → logar e usar POSTED (tolerante, não quebra)
-        logger.warning(
-            "unknown_transaction_status",
-            extra={
-                "status": v,
-                "fallback": "POSTED"
-            }
-        )
-        return TransactionStatus.POSTED
-    
-    # Tipo completamente inesperado
-    raise ValueError(
-        f"Status deve ser string, TransactionStatus ou None. "
-        f"Recebido: {type(v).__name__}"
-    )
+
+        if v_clean in aliases:
+            return aliases[v_clean]
+            
+        # 3. Fail Fast
+        # Loga o erro crítico para o dev adicionar o novo status na lista acima
+        msg = f"Status desconhecido encontrado: '{v_clean}'. Impossível mapear com segurança."
+        logger.error(msg)
+        raise ValueError(msg)
+
+    raise ValueError(f"Tipo inválido para status: {type(v)}")
 
 
 # ==========================================
 # SCHEMAS
 # ==========================================
 
-class TransactionWebhook(BaseModel):
+class TransactionWebhook(BaseModel): #TESTADO E OK!!
     """
     Schema de ENTRADA para webhooks Open Finance.
     
@@ -706,7 +649,7 @@ class TransactionWebhook(BaseModel):
         return self
 
 
-class RejectedTransaction(BaseModel):
+class RejectedTransaction(BaseModel): #Testar
     """
     Registro de transação rejeitada durante validação Pydantic.
     
@@ -786,7 +729,7 @@ class RejectedTransaction(BaseModel):
     )
 
 
-class TransactionBatchResult(BaseModel):
+class TransactionBatchResult(BaseModel): #TESTAR E COMPLETAR O CODIGO
     """
     Resultado de validação tolerante de batch.
     

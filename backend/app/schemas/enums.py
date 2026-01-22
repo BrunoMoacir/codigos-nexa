@@ -6,7 +6,7 @@ Centralizar aqui evita imports circulares e garante consistência.
 
 from enum import Enum
 
-
+#Adicionar um currency
 # ==========================================
 # STATUS DE DADOS
 # ==========================================
@@ -116,3 +116,18 @@ FIELD_IMPORTANCE_MAP = {
     "geolocation": FieldImportance.DISPOSABLE,
     "merchant_logo": FieldImportance.DISPOSABLE,
 }
+
+
+class Currency(str, Enum):
+    """
+    Códigos de moeda (ISO 4217).
+    
+    Usado para:
+        - Normalização de inputs
+        - Conversão cambial (futuro)
+        - Validação de consistência
+    """
+    BRL = "BRL"  # Real Brasileiro (Default MVP)
+    USD = "USD"  # Dólar Americano
+    EUR = "EUR"  # Euro
+    GBP = "GBP"  # Libra Esterlina
