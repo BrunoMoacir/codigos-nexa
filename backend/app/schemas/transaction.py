@@ -76,24 +76,30 @@ CONTROL_CHARS = "".join(
 )
 CONTROL_CHARS_PATTERN = re.compile(f"[{re.escape(CONTROL_CHARS)}]")
 
+# Remove scripts e styles (COM conteúdo)
+SCRIPT_PATTERN = re.compile(
+    r'<script[^>]*>.*?</script>',
+    re.IGNORECASE | re.DOTALL
+)
+STYLE_PATTERN = re.compile(
+    r'<style[^>]*>.*?</style>',
+    re.IGNORECASE | re.DOTALL
+)
 
+# Remove todas as outras tags HTML (sem conteúdo)
+HTML_TAG_PATTERN = re.compile(r'<[^>]+>')
 # ==========================================
 # HELPERS DE PARSING
 # ==========================================
 
-def sanitize_text(
-    text: str, 
-    max_length: int = MAX_DESCRIPTION_LENGTH, 
-    escape_html: bool = False,
-    strip_html_tags: bool = True  # ✅ NOVO: Remove tags por padrão
-) -> str:
+def sanitize_text(text: str, max_length: int = MAX_DESCRIPTION_LENGTH, escape_html: bool = False, strip_html_tags: bool = True) -> str:
     """
-    Versão Definitiva:
+    Versão Definitiva v2.0:
     1. Trunca entrada excessiva (anti-ReDoS).
-    2. Remove tags HTML (anti-XSS).  # ✅ NOVO
-    3. Limpa caracteres de controle.
+    2. Remove tags HTML perigosas COM conteúdo.  # ✅ NOVO
+    3. Limpa caracteres.
     4. Normaliza espaços.
-    5. Escapa HTML (opcional, se precisar preservar caracteres especiais).
+    5. Escapa (Opcional).
     6. Garante limite FINAL (segurança de DB).
     """
     if not isinstance(text, str):
@@ -103,9 +109,11 @@ def sanitize_text(
     if len(text) > max_length * 2:
         text = text[:max_length * 2]
 
-    # 2. ✅ NOVO: Remove tags HTML (anti-XSS)
+    # 2. ✅ NOVO: Remove tags HTML perigosas COM conteúdo
     if strip_html_tags:
-        text = re.sub(r'<[^>]+>', '', text)  # Remove <script>, <div>, etc
+        text = SCRIPT_PATTERN.sub('', text)
+        text = STYLE_PATTERN.sub('', text)
+        text = HTML_TAG_PATTERN.sub('', text)
 
     # 3. Remover controles
     text = CONTROL_CHARS_PATTERN.sub("", text)
@@ -113,8 +121,7 @@ def sanitize_text(
     # 4. Normalizar espaços
     text = re.sub(r"\s+", " ", text).strip()
 
-    # 5. Escapar HTML (opcional)
-    # NOTA: Geralmente deve ser False se strip_html_tags=True
+    # 5. Escapar HTML (Opcional)
     if escape_html:
         text = html.escape(text)
 
