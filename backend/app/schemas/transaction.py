@@ -9,27 +9,8 @@ Responsabilidades (CAMADA 1 - Firewall Semântico):
     ✅ Metadados para BankStrategy (institution_id, item_id)
     ❌ NÃO faz validação semântica pesada (Polars)
     ❌ NÃO aplica BankStrategy diretamente (Polars)
-
-Fluxo completo:
-    Open Finance JSON (Pluggy/Belvo)
-        ↓
-    FastAPI Webhook
-        ↓
-    TransactionWebhook (validação Pydantic) ← ESTAMOS AQUI
-        ↓
-    raw_events (S3) + metadata (Postgres)
-        ↓
-    Message Queue (Redis)
-        ↓
-    Polars Ingestor (normalização + BankStrategy)
-        ↓
-    transactions_clean (Postgres)
-        ↓
-    TransactionOut (API response)
-
-Versão: 1.2.0
-Última atualização: 2024-01-21
 """
+
 from datetime import timedelta
 import hashlib
 import re
@@ -100,35 +81,44 @@ CONTROL_CHARS_PATTERN = re.compile(f"[{re.escape(CONTROL_CHARS)}]")
 # HELPERS DE PARSING
 # ==========================================
 
-def sanitize_text(text: str, max_length: int = MAX_DESCRIPTION_LENGTH, escape_html: bool = False) -> str: #TESTADO E OK!!
+def sanitize_text(
+    text: str, 
+    max_length: int = MAX_DESCRIPTION_LENGTH, 
+    escape_html: bool = False,
+    strip_html_tags: bool = True  # ✅ NOVO: Remove tags por padrão
+) -> str:
     """
     Versão Definitiva:
     1. Trunca entrada excessiva (anti-ReDoS).
-    2. Limpa caracteres.
-    3. Normaliza espaços.
-    4. Escapa (Opcional).
-    5. Garante limite FINAL (segurança de DB).
+    2. Remove tags HTML (anti-XSS).  # ✅ NOVO
+    3. Limpa caracteres de controle.
+    4. Normaliza espaços.
+    5. Escapa HTML (opcional, se precisar preservar caracteres especiais).
+    6. Garante limite FINAL (segurança de DB).
     """
     if not isinstance(text, str):
         return ""
 
-    # 1. Proteção inicial contra ReDoS (corta excessos absurdos antes de processar)
-    # Cortamos um pouco a mais que o max_length para dar margem a normalizações,
-    # mas impedimos processar strings de 10MB.
+    # 1. Proteção inicial contra ReDoS
     if len(text) > max_length * 2:
         text = text[:max_length * 2]
 
-    # 2. Remover controles
+    # 2. ✅ NOVO: Remove tags HTML (anti-XSS)
+    if strip_html_tags:
+        text = re.sub(r'<[^>]+>', '', text)  # Remove <script>, <div>, etc
+
+    # 3. Remover controles
     text = CONTROL_CHARS_PATTERN.sub("", text)
 
-    # 3. Normalizar espaços
+    # 4. Normalizar espaços
     text = re.sub(r"\s+", " ", text).strip()
 
-    # 4. Escapar HTML (Opcional - Geralmente deve ser False para salvar no DB)
+    # 5. Escapar HTML (opcional)
+    # NOTA: Geralmente deve ser False se strip_html_tags=True
     if escape_html:
         text = html.escape(text)
 
-    # 5. Corte Final Rígido (Garante que cabe na coluna do banco)
+    # 6. Corte Final Rígido
     if len(text) > max_length:
         text = text[:max_length]
 
