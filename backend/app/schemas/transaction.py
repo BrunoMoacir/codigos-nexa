@@ -2282,7 +2282,7 @@ class TransactionBatchResult(BaseModel):
 # FIM DO ARQUIVO transaction.py
 # ==========================================
 
-# 📊 RESUMO DO ARQUIVO (1500+ linhas)
+# 📊 RESUMO DO ARQUIVO
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 
 # SCHEMAS IMPLEMENTADOS:
