@@ -775,4 +775,37 @@ Cada arquivo tem documentação completa em:
 
 **Total de arquivos documentados: 15**
 **Linhas de documentação: ~3000**
-**Tempo de leitura estimado: 2-3 horas**
+
+## 🏗️ ORDEM DE CRIAÇÃO - etl/bank_strategy/
+
+### **Arquivos (em ordem de dependência):**
+
+1. **profiles.py** (Dataclass de configuração)
+   - Depende de: Nada
+   - Usado por: base.py, registry.py
+   - Testar: Criar BankProfile manualmente, testar factory method
+
+2. **base.py** (Interface ABC)
+   - Depende de: profiles.py
+   - Usado por: default.py, nubank.py, itau.py
+   - Testar: Verificar que não pode instanciar diretamente (é abstrata)
+
+3. **strategies/default.py** (Implementação base)
+   - Depende de: base.py, profiles.py, schemas/transaction.py
+   - Usado por: nubank.py, itau.py (herança), registry.py (fallback)
+   - Testar: Normalizar transação genérica
+
+4. **config/bank_profiles.yaml** (Configurações)
+   - Depende de: Nada (arquivo de dados)
+   - Usado por: registry.py
+   - Testar: Validar YAML (syntax check)
+
+5. **strategies/nubank.py, strategies/itau.py** (Strategies específicas)
+   - Depende de: default.py, base.py, profiles.py
+   - Usado por: registry.py
+   - Testar: Normalizar transação específica do banco
+
+6. **registry.py + __init__.py** (Singleton + API pública)
+   - Depende de: TODOS os arquivos acima
+   - Usado por: schemas/transaction.py
+   - Testar: get_bank_strategy("nubank"), get_bank_strategy("unknown")
