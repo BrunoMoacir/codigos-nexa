@@ -30,12 +30,13 @@ from pydantic import (
 )
 
 # Importar enums do módulo compartilhado
-from enums import (
+from app.schemas.enums import (
     DataSource,
     DataStatus,
     TransactionStatus,
-    Currency
+    Currency,
 )
+
 
 # Configurar logger
 logger = logging.getLogger(__name__)
