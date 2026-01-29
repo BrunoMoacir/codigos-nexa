@@ -39,6 +39,8 @@ from .ingestor import TransactionIngestor
 from .classifier import TransactionClassifier
 from .recurring_detector import RecurringDetector
 from .data_quality import DataQualityValidator
+# ✅ NOVO: BankStrategy
+from .bank_strategy import get_bank_strategy
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # API PÚBLICA DO MÓDULO
@@ -51,6 +53,7 @@ __all__ = [
     "TransactionClassifier",   # Categoriza transações (CatBoost)
     "RecurringDetector",       # Detecta assinaturas/parcelamentos
     "DataQualityValidator",    # Calcula confidence scores
+    "get_bank_strategy",       # ✅ NOVO: Factory de strategies
 ]
 
 # Versão do módulo (facilita debugging)

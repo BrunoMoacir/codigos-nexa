@@ -41,3 +41,5 @@ class BankStrategy(ABC):
         Retorna TRUSTED | DEGRADED | UNTRUSTED
         """
         pass
+
+    
