@@ -2,7 +2,7 @@
 
 import polars as pl
 from app.etl.bank_strategy.base import BankStrategy
-from app.enums import DataStatus
+from app.schemas.enums import DataStatus
 
 
 class ItauStrategy(BankStrategy):
