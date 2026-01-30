@@ -8,6 +8,7 @@ import hashlib
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+from pathlib import Path
 
 import polars as pl
 import duckdb
@@ -42,9 +43,39 @@ class QualityMetrics:
 
 class TransactionIngestor:
 
-    def __init__(self, db_path: str = "data/transactions.duckdb"):
-        self.db_path = db_path
+    def __init__(self, db_path: str = None):
+        """
+        Inicializa o TransactionIngestor.
+    
+        Args:
+            db_path: Caminho customizado para o banco DuckDB.
+                    Se None, usa: <project_root>/data/transactions.duckdb
+        """
+        self.logger = logging.getLogger(__name__)
+    
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # Configurar caminho do banco
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        if db_path is None:
+            # Caminho padrão: <project_root>/data/transactions.duckdb
+            project_root = Path(__file__).parent.parent.parent.parent
+            self.db_path = str(project_root / "data" / "transactions.duckdb")
+        else:
+            self.db_path = db_path
+    
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # Criar diretório se não existir
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        db_dir = Path(self.db_path).parent
+        db_dir.mkdir(parents=True, exist_ok=True)
+    
+        self.logger.info(f"DuckDB path: {self.db_path}")
+    
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # Inicializar banco
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         self._init_db()
+
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # INIT DB
