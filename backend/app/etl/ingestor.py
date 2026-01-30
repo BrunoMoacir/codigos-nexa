@@ -1,85 +1,81 @@
 """
 app/etl/ingestor.py - Transforma JSON → DataFrame limpo (Polars)
-
-╔══════════════════════════════════════════════════════════════════════╗
-║ O QUE ESTE ARQUIVO FAZ                                               ║
-╚══════════════════════════════════════════════════════════════════════╝
-
-Recebe lista de TransactionWebhook (já validados pelo Pydantic) e:
-1. Converte para DataFrame Polars
-2. Deduplica transações (via dedup_hash)
-3. Normaliza textos (trim + lowercase)
-4. Converte tipos (Decimal → Float64, datetime consistente)
-5. Enriquece com colunas calculadas (month, day_of_week, etc)
-6. Calcula métricas de qualidade
-7. ✅ NOVO: Aplica BankStrategy (normalização específica por banco)
-8. ✅ NOVO: Avalia qualidade (data_status: TRUSTED/DEGRADED/UNTRUSTED)
-
-
-╔══════════════════════════════════════════════════════════════════════╗
-║ MUDANÇAS COM BANKSTRATEGY                                            ║
-╚══════════════════════════════════════════════════════════════════════╝
-
-ANTES:
-  JSON → DataFrame → Deduplica → Normaliza Texto → Enriquece
-
-DEPOIS:
-  JSON → DataFrame → Deduplica → ✅ BankStrategy → Normaliza Texto → Enriquece
-                                      ↓
-                          (normaliza POR BANCO + avalia qualidade)
+e persiste no DuckDB com idempotência cross-lote
 """
 
 import logging
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 import polars as pl
+import duckdb
 
 from app.schemas.transaction import TransactionWebhook
-from app.etl.bank_strategy import get_bank_strategy  # ✅ NOVO
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# CONFIGURAÇÃO DE LOGGING
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+from app.etl.bank_strategy import get_bank_strategy
 
 logger = logging.getLogger(__name__)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# DATACLASS: MÉTRICAS DE QUALIDADE
+# DATACLASS: MÉTRICAS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @dataclass
 class QualityMetrics:
-    """
-    Métricas de qualidade do processamento ETL.
-    """
     total_records: int
     duplicates_removed: int
     records_after_dedup: int
     quality_score: float
     processing_time_ms: float
 
-    # ✅ NOVO: Distribuição de qualidade por banco
     trusted_count: int = 0
     degraded_count: int = 0
     untrusted_count: int = 0
+    inserted_rows: int = 0
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# CLASSE PRINCIPAL: TRANSACTION INGESTOR
+# INGESTOR
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 class TransactionIngestor:
-    """
-    Processa transações validadas (Pydantic) → DataFrame limpo (Polars).
-    """
 
-    def __init__(self):
-        logger.info("TransactionIngestor inicializado")
+    def __init__(self, db_path: str = "data/transactions.duckdb"):
+        self.db_path = db_path
+        self._init_db()
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # MÉTODO PRINCIPAL
+    # INIT DB
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _init_db(self):
+        with duckdb.connect(self.db_path) as con:
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS transactions (
+                    transaction_id TEXT,
+                    institution_id TEXT,
+                    account_id TEXT,
+                    description TEXT,
+                    merchant TEXT,
+                    amount DOUBLE,
+                    balance DOUBLE,
+                    currency TEXT,
+                    transaction_date TIMESTAMP,
+                    fetched_at TIMESTAMP,
+                    dedup_hash TEXT UNIQUE,
+                    data_status TEXT,
+                    month INTEGER,
+                    day_of_week INTEGER,
+                    transaction_type TEXT
+                )
+            """)
+
+        logger.info("DuckDB inicializado", extra={"db_path": self.db_path})
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # PROCESS
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def process(
@@ -88,259 +84,153 @@ class TransactionIngestor:
     ) -> tuple[pl.DataFrame, QualityMetrics]:
 
         if not transactions:
-            raise ValueError("Lista de transações está vazia")
-
-        if not isinstance(transactions, list):
-            raise TypeError("transactions deve ser uma lista")
-
-        if not all(isinstance(tx, TransactionWebhook) for tx in transactions):
-            raise TypeError("Todos os itens devem ser TransactionWebhook")
+            raise ValueError("Lista de transações vazia")
 
         start_time = datetime.now()
 
-        logger.info(
-            "Iniciando processamento ETL",
-            extra={"total_transactions": len(transactions)}
-        )
-
-        # PASSO 1: JSON → DataFrame
+        # 1. JSON → DataFrame
         df = self._to_dataframe(transactions)
 
-        # PASSO 2: Deduplicação
-        df, duplicates_removed = self._deduplicate(df)
-
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # ✅ PASSO 3: BANKSTRATEGY (NOVO)
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        df = self._apply_bank_strategies(df)
-
-        # PASSO 4: Normalização de textos
+        # 2. Normalização de texto (ANTES do hash)
         df = self._normalize_texts(df)
 
-        # PASSO 5: Conversão de tipos
+        # 3. Criar dedup_hash
+        df = self._create_dedup_hash(df)
+
+        # 4. Deduplicação intra-lote
+        df, duplicates_removed = self._deduplicate(df)
+
+        # 5. BankStrategy
+        df = self._apply_bank_strategies(df)
+
+        # 6. Conversão de tipos
         df = self._convert_types(df)
 
-        # PASSO 6: Enriquecimento
+        # 7. Enriquecimento
         df = self._enrich_columns(df)
 
-        # PASSO 7: Métricas
+        # 8. Load no DuckDB (idempotente)
+        inserted_rows = self._load_duckdb(df)
+
         processing_time = (datetime.now() - start_time).total_seconds() * 1000
 
-        metrics = self._calculate_metrics(
+        metrics = QualityMetrics(
             total_records=len(transactions),
             duplicates_removed=duplicates_removed,
             records_after_dedup=len(df),
-            processing_time_ms=processing_time
-        )
-
-        logger.info(
-            "Processamento ETL concluído",
-            extra={
-                "total_records": metrics.total_records,
-                "duplicates_removed": metrics.duplicates_removed,
-                "quality_score": metrics.quality_score,
-                "processing_time_ms": metrics.processing_time_ms
-            }
+            quality_score=len(df) / len(transactions),
+            processing_time_ms=processing_time,
+            trusted_count=df.filter(pl.col("data_status") == "TRUSTED").height,
+            degraded_count=df.filter(pl.col("data_status") == "DEGRADED").height,
+            untrusted_count=df.filter(pl.col("data_status") == "UNTRUSTED").height,
+            inserted_rows=inserted_rows
         )
 
         return df, metrics
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # PASSO 1: JSON → DataFrame
+    # PASSO 1
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def _to_dataframe(self, transactions: list[TransactionWebhook]) -> pl.DataFrame:
-        raw_dicts = [tx.model_dump() for tx in transactions]
-        df = pl.DataFrame(raw_dicts)
-
-        logger.debug("DataFrame criado", extra={"shape": df.shape})
-        return df
+        return pl.DataFrame([tx.model_dump() for tx in transactions])
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # PASSO 2: Deduplicação
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    def _deduplicate(self, df: pl.DataFrame) -> tuple[pl.DataFrame, int]:
-        before = len(df)
-        df = df.unique(subset=["dedup_hash"], keep="first")
-        removed = before - len(df)
-
-        if removed > 0:
-            logger.warning("Duplicatas removidas", extra={"count": removed})
-
-        return df, removed
-    
-    #  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # ✅ PASSO 3: BANKSTRATEGY (NOVO)
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    def _apply_bank_strategies(self, df: pl.DataFrame) -> pl.DataFrame:
-        """
-        Aplica normalização específica por banco + avalia qualidade.
-        
-        ALGORITMO:
-            1. Agrupa transações por institution_id
-            2. Para cada banco:
-               - Obtém strategy (get_bank_strategy)
-               - Normaliza dados (strategy.normalize)
-               - Avalia qualidade (strategy.evaluate_quality)
-               - Adiciona coluna data_status
-            3. Concatena todos DataFrames
-        
-        EXEMPLO:
-            Input:
-              ┌──────────────┬────────┬────────────────┐
-              │ description  │ amount │ institution_id │
-              ├──────────────┼────────┼────────────────┤
-              │ UBER*VIAGEM  │ 50.00  │ itau           │  ← BUG: sinal errado
-              │ uber trip    │ -45.00 │ nubank         │  ← OK
-              └──────────────┴────────┴────────────────┘
-            
-            Output (após BankStrategy):
-              ┌──────────────┬────────┬────────────────┬─────────────┐
-              │ description  │ amount │ institution_id │ data_status │
-              ├──────────────┼────────┼────────────────┼─────────────┤
-              │ uber viagem  │ -50.00 │ itau           │ DEGRADED    │  ← Corrigido!
-              │ uber trip    │ -45.00 │ nubank         │ TRUSTED     │  ← Mantido
-              └──────────────┴────────┴────────────────┴─────────────┘
-        """
-        
-        # Verifica se coluna institution_id existe
-        if "institution_id" not in df.columns:
-            logger.warning("institution_id não encontrado, pulando BankStrategy")
-            # Adiciona data_status padrão
-            return df.with_columns(pl.lit("UNKNOWN").alias("data_status"))
-        
-        # Agrupa por banco
-        banks = df.select("institution_id").unique().to_series().to_list()
-        
-        logger.info(
-            "Aplicando BankStrategy",
-            extra={"banks": banks, "total_banks": len(banks)}
-        )
-        
-        # Processa cada banco separadamente
-        processed_dfs = []
-        
-        for bank_id in banks:
-            # Filtra transações deste banco
-            bank_df = df.filter(pl.col("institution_id") == bank_id)
-            
-            logger.debug(
-                "Processando banco",
-                extra={"bank_id": bank_id, "count": len(bank_df)}
-            )
-            
-            try:
-                # Obtém strategy do banco
-                strategy = get_bank_strategy(bank_id)
-                
-                # NORMALIZA (correções específicas do banco)
-                bank_df = strategy.normalize(bank_df)
-                
-                # AVALIA QUALIDADE (calcula data_status)
-                data_status = strategy.evaluate_quality(bank_df)
-                
-                # Adiciona coluna data_status
-                bank_df = bank_df.with_columns(
-                    pl.lit(data_status.value).alias("data_status")
-                )
-                
-                logger.info(
-                    "Banco processado",
-                    extra={
-                        "bank_id": bank_id,
-                        "strategy": strategy.__class__.__name__,
-                        "tier": strategy.tier.value,
-                        "data_status": data_status.value,
-                        "count": len(bank_df)
-                    }
-                )
-                
-            except Exception as e:
-                logger.error(
-                    "Erro ao processar banco",
-                    extra={"bank_id": bank_id, "error": str(e)},
-                    exc_info=True
-                )
-                # Fallback: marca como UNTRUSTED
-                bank_df = bank_df.with_columns(
-                    pl.lit("UNTRUSTED").alias("data_status")
-                )
-            
-            processed_dfs.append(bank_df)
-        
-        # Concatena todos DataFrames processados
-        if not processed_dfs:
-            logger.warning("Nenhum DataFrame processado")
-            return df.with_columns(pl.lit("UNKNOWN").alias("data_status"))
-        
-        result_df = pl.concat(processed_dfs)
-        
-        logger.info(
-            "BankStrategy aplicado",
-            extra={"total_records": len(result_df)}
-        )
-        
-        return result_df
-
-
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # PASSO 4 — NORMALIZAÇÃO (CORRIGIDO)
+    # PASSO 2 — NORMALIZAÇÃO
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def _normalize_texts(self, df: pl.DataFrame) -> pl.DataFrame:
-        """
-        Normaliza colunas de texto usando API correta do Polars.
-
-        IMPORTANTE:
-        ❌ Polars NÃO possui `.str.strip()`
-        ✅ O equivalente correto é `.str.trim()`
-
-        Operações aplicadas:
-            - trim(): remove espaços no início e fim
-            - to_lowercase(): converte para minúsculas
-
-        Benefícios:
-            - Consistência entre bancos
-            - Facilita busca e ML
-            - Evita variações semânticas ("UBER" vs "uber")
-        """
-
-        text_columns = ["description", "merchant"]
-
-        for col in text_columns:
+        for col in ["description", "merchant"]:
             if col in df.columns:
                 df = df.with_columns(
                     pl.col(col)
                     .cast(pl.String)
-                    .fill_null("")  # Preenche nulos com string vazia
-                    .str.strip_chars()          # remove espaços (Polars)
-                    .str.to_lowercase()  # lowercase
+                    .fill_null("")
+                    .str.strip_chars()
+                    .str.to_lowercase()
                     .alias(col)
                 )
-
-        logger.debug("Textos normalizados", extra={"columns": text_columns})
         return df
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # PASSO 5: Conversão de Tipos
+    # PASSO 3 — DEDUP HASH
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _create_dedup_hash(self, df: pl.DataFrame) -> pl.DataFrame:
+        df = df.with_columns(
+            pl.col("description")
+            .str.replace_all(r"\s+", " ")
+            .str.split(" ")
+            .list.slice(0, 2)          # 👈 usa só as 2 primeiras palavras
+            .list.join(" ")
+            .alias("dedup_desc")
+        )
+
+        return df.with_columns(
+            pl.concat_str(
+                [
+                    pl.col("account_id"),
+                    pl.col("amount").cast(pl.Utf8),
+                    pl.col("transaction_date").cast(pl.Utf8),
+                    pl.col("dedup_desc")
+                ],
+                separator="|"
+            )
+            .map_elements(lambda x: hashlib.sha256(x.encode()).hexdigest())
+            .alias("dedup_hash")
+    ).drop("dedup_desc")
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # PASSO 4 — DEDUPLICAÇÃO
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _deduplicate(self, df: pl.DataFrame):
+        before = df.height
+        df = df.unique(subset=["dedup_hash"], keep="first")
+        return df, before - df.height
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # PASSO 5 — BANK STRATEGY
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _apply_bank_strategies(self, df: pl.DataFrame) -> pl.DataFrame:
+        banks = df.select("institution_id").unique().to_series().to_list()
+        processed = []
+
+        for bank_id in banks:
+            bank_df = df.filter(pl.col("institution_id") == bank_id)
+            try:
+                strategy = get_bank_strategy(bank_id)
+                bank_df = strategy.normalize(bank_df)
+                status = strategy.evaluate_quality(bank_df)
+                bank_df = bank_df.with_columns(
+                    pl.lit(status.value).alias("data_status")
+                )
+            except Exception:
+                bank_df = bank_df.with_columns(
+                    pl.lit("UNTRUSTED").alias("data_status")
+                )
+
+            processed.append(bank_df)
+
+        return pl.concat(processed, how="diagonal_relaxed")
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # PASSO 6 — TIPOS
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def _convert_types(self, df: pl.DataFrame) -> pl.DataFrame:
         df = df.with_columns(pl.col("amount").cast(pl.Float64))
-
         if "balance" in df.columns:
             df = df.with_columns(pl.col("balance").cast(pl.Float64))
-
         return df
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # PASSO 6: Enriquecimento
+    # PASSO 7 — ENRIQUECIMENTO
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def _enrich_columns(self, df: pl.DataFrame) -> pl.DataFrame:
-        df = df.with_columns([
+        return df.with_columns([
             pl.col("transaction_date").dt.month().alias("month"),
             pl.col("transaction_date").dt.weekday().alias("day_of_week"),
             pl.when(pl.col("amount") < 0)
@@ -349,29 +239,33 @@ class TransactionIngestor:
               .alias("transaction_type")
         ])
 
-        return df
-
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # PASSO 7: Métricas de Qualidade
+    # PASSO 8 — LOAD DUCKDB (IDEMPOTENTE)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    def _calculate_metrics(
-        self,
-        total_records: int,
-        duplicates_removed: int,
-        records_after_dedup: int,
-        processing_time_ms: float
-    ) -> QualityMetrics:
+    def _load_duckdb(self, df: pl.DataFrame) -> int:
+        with duckdb.connect(self.db_path) as con:
+            con.register("df_view", df.to_pandas())
 
-        quality_score = (
-            records_after_dedup / total_records
-            if total_records > 0 else 0.0
-        )
+            result = con.execute("""
+                INSERT OR IGNORE INTO transactions
+                SELECT
+                    transaction_id,
+                    institution_id,
+                    account_id,
+                    description,
+                    merchant,
+                    amount,
+                    balance,
+                    currency,
+                    transaction_date,
+                    fetched_at,
+                    dedup_hash,
+                    data_status,
+                    month,
+                    day_of_week,
+                    transaction_type
+                FROM df_view
+            """)
 
-        return QualityMetrics(
-            total_records=total_records,
-            duplicates_removed=duplicates_removed,
-            records_after_dedup=records_after_dedup,
-            quality_score=quality_score,
-            processing_time_ms=processing_time_ms
-        )
+            return result.rowcount
