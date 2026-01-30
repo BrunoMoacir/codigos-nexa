@@ -2,10 +2,12 @@
 
 import polars as pl
 from app.etl.bank_strategy.base import BankStrategy
-from app.schemas.enums import DataStatus
+from app.schemas.enums import DataStatus, BankTier
 
 
 class ItauStrategy(BankStrategy):
+
+    tier = BankTier.TIER_3
 
     BANK_ID = "itau"
 
@@ -14,12 +16,12 @@ class ItauStrategy(BankStrategy):
         Normalizações específicas do Itaú
         """
 
-        # 1. Converter transaction_date (string → datetime)
-        df = df.with_columns(
-            pl.col("transaction_date")
-            .str.strptime(pl.Datetime, format="%Y-%m-%d", strict=False)
-            .fill_null(pl.col("transaction_date"))
-        )
+        # # 1. Converter transaction_date (string → datetime)
+        # df = df.with_columns(
+        #     pl.col("transaction_date")
+        #     .str.strptime(pl.Datetime, format="%Y-%m-%d", strict=False)
+        #     .fill_null(pl.col("transaction_date"))
+        # )
 
         # 2. Normalizar merchant (CAIXA ALTA → lowercase)
         if "merchant" in df.columns:
