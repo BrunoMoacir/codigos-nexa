@@ -1,10 +1,30 @@
+"""
+app/api/v1/router.py - Router principal da API v1
+
+Registra todas as rotas disponíveis.
+"""
+
 from fastapi import APIRouter
-from app.api.v1.routes import pluggy_test
-from app.api.v1.routes import bank_simulation
+
+# Importar rotas existentes
+from app.api.v1.routes import pluggy_test, bank_simulation
+
+# ✅ NOVA: Importar rota de transactions
+from app.api.v1.routes import transactions
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# CRIAR ROUTER PRINCIPAL
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 router = APIRouter()
 
-# Registra rotas de teste da Pluggy
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# REGISTRAR ROTAS
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Rotas de teste (desenvolvimento)
 router.include_router(pluggy_test.router)
-# Outras rotas podem ser registradas aqui futuramente
-router.include_router(bank_simulation.router) 
+router.include_router(bank_simulation.router)
+
+# ✅ NOVA: Rota de transações (produção - webhook Pluggy)
+router.include_router(transactions.router)
