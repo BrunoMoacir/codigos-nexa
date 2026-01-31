@@ -1622,301 +1622,98 @@ class TransactionOut(BaseModel):
 # TRANSACTION BATCH RESULT (Validação Tolerante)
 # ==========================================
 
+"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TRANSACTION BATCH RESULT - VERSÃO CORRIGIDA COM MAPEAMENTO DE CAMPOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SUBSTITUIR ESTA CLASSE COMPLETA em: app/schemas/transaction.py
+
+CORREÇÕES:
+    ✅ from_raw_batch() agora mapeia campos Pluggy/Belvo
+    ✅ Método _normalize_webhook_fields() adicionado
+    ✅ Suporta Nubank, Itaú, Inter automaticamente
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+
 class TransactionBatchResult(BaseModel):
     """
     Resultado de validação tolerante de batch de transações.
     
-    Filosofia Nexa (da arquitetura):
+    Filosofia Nexa:
         ✅ "99 transações válidas > 0 transações (batch inteiro rejeitado)"
         ✅ "Open Finance é instável → esperar falhas individuais"
         ✅ "Shadow Invoice preenche lacunas → 1 faltando não quebra forecast"
-    
-    Responsabilidades:
-        1. Processar batch completo (não falhar no primeiro erro)
-        2. Separar transações válidas de rejeitadas
-        3. Calcular métricas de qualidade (rejection_rate, error_patterns)
-        4. Gerar alertas automáticos (WARNING/CRITICAL)
-        5. Fornecer contexto para debugging
-    
-    Alertas automáticos:
-        - rejection_rate ≥ 20% → WARNING (log + métrica)
-        - rejection_rate = 100% → CRITICAL (log + alerta Slack)
-        - rejection_rate < 20% → INFO (operação normal)
-    
-    Fluxo de uso:
-        # No webhook receiver (FastAPI)
-        @app.post("/webhook/transaction")
-        async def receive_batch(payload: dict):
-            raw_transactions = payload["results"]  # Lista de dicts
-            institution_id = infer_institution(payload["connector"])
-            
-            # Processar batch tolerantemente
-            result = TransactionBatchResult.from_raw_batch(
-                raw_data=raw_transactions,
-                institution_id=institution_id,
-                batch_id=payload.get("batch_id", str(uuid4()))
-            )
-            
-            # Persistir válidas
-            if result.valid_transactions:
-                await save_to_s3(result.valid_transactions)
-                await enqueue_for_processing(result.valid_transactions)
-            
-            # Persistir rejeitadas (DLQ)
-            if result.rejected_transactions:
-                await save_rejected_to_postgres(result.rejected_transactions)
-            
-            # Alertar se necessário
-            if result.should_alert:
-                logger.log(
-                    result.alert_level.lower(),  # "warning" ou "critical"
-                    "high_rejection_rate_detected",
-                    extra={
-                        "institution_id": institution_id,
-                        "rejection_rate": result.rejection_rate,
-                        "total_rejected": result.total_rejected,
-                        "alert_level": result.alert_level,
-                        "top_errors": result.error_summary
-                    }
-                )
-                
-                if result.alert_level == "CRITICAL":
-                    await send_slack_alert(
-                        f"🚨 CRITICAL: {institution_id} - "
-                        f"100% rejection rate (batch_id: {result.batch_id})"
-                    )
-            
-            # Responder ao webhook (sempre 200, mesmo com rejeições)
-            return {
-                "status": "processed",
-                "batch_id": result.batch_id,
-                "accepted": result.total_valid,
-                "rejected": result.total_rejected,
-                "rejection_rate": result.rejection_rate
-            }
-    
-    Métricas geradas (para dashboards):
-        - transactions_processed_total (counter)
-        - transactions_rejected_total (counter)
-        - rejection_rate_by_institution (gauge)
-        - validation_errors_by_field (counter)
-    
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # TODO (FUTURO - MÉTRICAS E ALERTAS):
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # 
-    # 1. MÉTRICAS (Prometheus):
-    #    from prometheus_client import Counter, Gauge
-    #    
-    #    transactions_processed = Counter(
-    #        'transactions_processed_total',
-    #        'Total de transações processadas',
-    #        ['institution_id', 'status']  # status: valid/rejected
-    #    )
-    #    
-    #    rejection_rate = Gauge(
-    #        'rejection_rate_by_institution',
-    #        'Taxa de rejeição por banco',
-    #        ['institution_id']
-    #    )
-    #    
-    #    validation_errors = Counter(
-    #        'validation_errors_by_field',
-    #        'Erros de validação por campo',
-    #        ['institution_id', 'field', 'error_type']
-    #    )
-    # 
-    # 2. ALERTAS (Slack/PagerDuty):
-    #    async def send_slack_alert(message: str, severity: str):
-    #        await slack_client.post(
-    #            channel="#data-quality-alerts",
-    #            text=message,
-    #            color="danger" if severity == "CRITICAL" else "warning"
-    #        )
-    # 
-    # 3. DASHBOARD (Grafana):
-    #    - Gráfico de rejection_rate ao longo do tempo
-    #    - Top 10 erros por banco
-    #    - Mapa de calor de horários com mais rejeições
-    # 
-    # 4. AUTO-REMEDIATION:
-    #    if rejection_rate > 50% for 3 consecutive batches:
-    #        - Pausar ingestão do banco
-    #        - Criar issue no GitHub automaticamente
-    #        - Notificar time de engenharia
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     """
     
     # ==========================================
     # CAMPOS
     # ==========================================
     
-    # Identificação
-    batch_id: str = Field(
-        description="ID único do batch (UUID ou webhook ID)"
-    )
-    
-    institution_id: str = Field(
-        description="Banco de origem (para métricas e alertas)"
-    )
-    
+    batch_id: str = Field(description="ID único do batch")
+    institution_id: str = Field(description="Banco de origem")
     processed_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
-        description="Quando o batch foi processado (UTC)"
+        description="Quando foi processado"
     )
     
-    # Transações processadas
     valid_transactions: list[TransactionWebhook] = Field(
         default_factory=list,
-        description=(
-            "Transações que passaram por validação Pydantic. "
-            "Prontas para S3 → Queue → Polars."
-        )
+        description="Transações válidas (prontas para S3)"
     )
     
     rejected_transactions: list[RejectedTransaction] = Field(
         default_factory=list,
-        description=(
-            "Transações que falharam validação. "
-            "Vão para DLQ (Dead Letter Queue) no Postgres."
-        )
+        description="Transações rejeitadas (DLQ)"
     )
     
-    # Contadores
-    total_received: int = Field(
-        ge=0,
-        description="Total de transações no batch original"
-    )
+    total_received: int = Field(ge=0, description="Total recebido")
+    total_valid: int = Field(ge=0, description="Total válidas")
+    total_rejected: int = Field(ge=0, description="Total rejeitadas")
+    rejection_rate: float = Field(ge=0.0, le=1.0, description="Taxa rejeição")
     
-    total_valid: int = Field(
-        ge=0,
-        description="Transações que passaram (len(valid_transactions))"
-    )
-    
-    total_rejected: int = Field(
-        ge=0,
-        description="Transações rejeitadas (len(rejected_transactions))"
-    )
-    
-    # Métricas de qualidade
-    rejection_rate: float = Field(
-        ge=0.0,
-        le=1.0,
-        description=(
-            "Taxa de rejeição (0.0 - 1.0). "
-            "Fórmula: total_rejected / total_received. "
-            "Ex: 0.15 = 15% de rejeição."
-        )
-    )
-    
-    # Análise de erros
     error_summary: dict[str, int] = Field(
         default_factory=dict,
-        description=(
-            "Top erros agrupados por tipo. "
-            "Ex: {'ValidationError': 10, 'ValueError': 3, 'KeyError': 1}. "
-            "Útil para identificar padrões de falha."
-        )
+        description="Top erros por tipo"
     )
     
     field_error_summary: dict[str, int] = Field(
         default_factory=dict,
-        description=(
-            "Top campos com erro. "
-            "Ex: {'amount': 5, 'transaction_date': 3, 'description': 1}. "
-            "Ajuda a identificar campos problemáticos por banco."
-        )
+        description="Top campos com erro"
     )
     
-    # Alertas
     alert_level: Literal["INFO", "WARNING", "CRITICAL"] = Field(
         default="INFO",
-        description=(
-            "Nível de alerta baseado em rejection_rate. "
-            "\n"
-            "INFO: < 20% (operação normal)\n"
-            "WARNING: 20-99% (qualidade degradada)\n"
-            "CRITICAL: 100% (falha completa do batch)"
-        )
+        description="Nível de alerta"
     )
     
-    should_alert: bool = Field(
-        default=False,
-        description=(
-            "Se True, deve disparar alerta (log + Slack/PagerDuty). "
-            "True quando alert_level ∈ {WARNING, CRITICAL}."
-        )
-    )
+    should_alert: bool = Field(default=False, description="Deve alertar?")
+    alert_message: str | None = Field(default=None, description="Mensagem alerta")
     
-    alert_message: str | None = Field(
-        default=None,
-        description=(
-            "Mensagem de alerta pronta para envio. "
-            "Inclui contexto (banco, taxa, top erros). "
-            "None se should_alert=False."
-        )
-    )
-    
-    # Configuração
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "batch_id": "batch_abc123",
                 "institution_id": "nubank",
-                "processed_at": "2024-01-21T14:00:00+00:00",
                 "total_received": 100,
                 "total_valid": 95,
                 "total_rejected": 5,
                 "rejection_rate": 0.05,
-                "error_summary": {
-                    "ValidationError": 3,
-                    "ValueError": 2
-                },
-                "field_error_summary": {
-                    "amount": 2,
-                    "transaction_date": 3
-                },
-                "alert_level": "INFO",
-                "should_alert": False,
-                "alert_message": None
+                "alert_level": "INFO"
             }
         }
     )
     
     # ==========================================
-    # VALIDATORS (Auto-cálculo de métricas)
+    # VALIDATORS
     # ==========================================
     
     @model_validator(mode="after")
     def calculate_metrics(self) -> "TransactionBatchResult":
-        """
-        Calcula automaticamente métricas derivadas.
-        
-        ORDEM: Primeiro validator (calcula contadores).
-        
-        Métricas calculadas:
-            - total_valid (len de valid_transactions)
-            - total_rejected (len de rejected_transactions)
-            - rejection_rate (total_rejected / total_received)
-        """
-        # 1. Contadores
+        """Calcula métricas derivadas."""
         self.total_valid = len(self.valid_transactions)
         self.total_rejected = len(self.rejected_transactions)
         
-        # 2. Sanidade: total_received deve bater
-        calculated_total = self.total_valid + self.total_rejected
-        if calculated_total != self.total_received:
-            logger.warning(
-                "batch_count_mismatch",
-                extra={
-                    "batch_id": self.batch_id,
-                    "total_received": self.total_received,
-                    "calculated_total": calculated_total,
-                    "message": "Soma de válidas + rejeitadas ≠ total_received"
-                }
-            )
-        
-        # 3. Rejection rate
         if self.total_received > 0:
             self.rejection_rate = self.total_rejected / self.total_received
         else:
@@ -1924,31 +1721,19 @@ class TransactionBatchResult(BaseModel):
         
         return self
     
-    
     @model_validator(mode="after")
     def analyze_errors(self) -> "TransactionBatchResult":
-        """
-        Analisa padrões de erro nas rejected_transactions.
-        
-        ORDEM: Segundo (depende de rejected_transactions estar populado).
-        
-        Gera:
-            - error_summary: {'ValidationError': 10, 'ValueError': 3}
-            - field_error_summary: {'amount': 5, 'date': 3}
-        """
+        """Analisa padrões de erro."""
         error_types: dict[str, int] = {}
         field_errors: dict[str, int] = {}
         
         for rejected in self.rejected_transactions:
-            # Contar tipos de erro
             error_type = rejected.error_type
             error_types[error_type] = error_types.get(error_type, 0) + 1
             
-            # Contar erros por campo
             for field_name in rejected.field_errors.keys():
                 field_errors[field_name] = field_errors.get(field_name, 0) + 1
         
-        # Ordenar por frequência (top erros primeiro)
         self.error_summary = dict(
             sorted(error_types.items(), key=lambda x: x[1], reverse=True)
         )
@@ -1959,24 +1744,9 @@ class TransactionBatchResult(BaseModel):
         
         return self
     
-    
     @model_validator(mode="after")
     def determine_alert_level(self) -> "TransactionBatchResult":
-        """
-        Define nível de alerta baseado em rejection_rate.
-        
-        ORDEM: Terceiro (depende de rejection_rate calculado).
-        
-        Thresholds (constantes globais):
-            - REJECTION_WARNING_THRESHOLD = 0.20 (20%)
-            - REJECTION_CRITICAL_THRESHOLD = 1.0 (100%)
-        
-        Lógica:
-            - < 20%: INFO (operação normal)
-            - 20-99%: WARNING (qualidade degradada)
-            - 100%: CRITICAL (falha completa)
-        """
-        # 1. Determinar nível
+        """Define nível de alerta."""
         if self.rejection_rate >= REJECTION_CRITICAL_THRESHOLD:
             self.alert_level = "CRITICAL"
             self.should_alert = True
@@ -1987,9 +1757,7 @@ class TransactionBatchResult(BaseModel):
             self.alert_level = "INFO"
             self.should_alert = False
         
-        # 2. Gerar mensagem de alerta (se necessário)
         if self.should_alert:
-            # Top 3 erros para contexto
             top_errors = list(self.error_summary.items())[:3]
             top_errors_str = ", ".join(
                 f"{err}: {count}" for err, count in top_errors
@@ -2006,7 +1774,7 @@ class TransactionBatchResult(BaseModel):
         return self
     
     # ==========================================
-    # FACTORY METHOD (Criação a partir de raw batch)
+    # FACTORY METHOD (CORRIGIDO!)
     # ==========================================
     
     @classmethod
@@ -2014,80 +1782,28 @@ class TransactionBatchResult(BaseModel):
         cls,
         raw_data: list[dict[str, Any]],
         institution_id: str,
-        item_id: str,  # ✅ NOVO: Required (vem do webhook parent context)
-        fetched_at: datetime,  # ✅ NOVO: Required (timestamp de recebimento)
+        item_id: str,
+        fetched_at: datetime,
         batch_id: str | None = None
     ) -> "TransactionBatchResult":
         """
         Factory method: Processa batch completo de forma tolerante.
         
-        Filosofia:
-            - NUNCA falhar no primeiro erro
-            - Processar TODAS as transações
-            - Separar válidas de rejeitadas
-            - Gerar métricas e alertas
+        ✅ NOVO: Agora mapeia campos Pluggy/Belvo → padrão Nexa!
         
         Args:
-            raw_data: Lista de dicts do webhook (payload["results"])
-            institution_id: ID do banco (inferido de connector.id)
-            item_id: ID da conexão Pluggy/Belvo (payload["item"]["id"])
-            fetched_at: Timestamp UTC de quando webhook foi recebido
-            batch_id: ID do batch (opcional, gera UUID se None)
+            raw_data: Lista de dicts do webhook
+            institution_id: ID do banco (inferido de connector)
+            item_id: ID da conexão Pluggy/Belvo
+            fetched_at: Timestamp UTC de recebimento
+            batch_id: ID do batch (opcional)
         
         Returns:
-            TransactionBatchResult com:
-                - valid_transactions: prontas para S3
-                - rejected_transactions: para DLQ
-                - métricas: rejection_rate, error_summary
-                - alertas: alert_level, should_alert
-        
-        Example:
-            # No webhook receiver (FastAPI)
-            @app.post("/webhook/transaction")
-            async def receive_transaction_batch(payload: dict):
-                # 1. Extrair contexto do webhook parent
-                institution_id = infer_institution_from_connector(
-                    payload["connector"]["id"]  # Ex: "nubank" de connector_id=201
-                )
-                item_id = payload["item"]["id"]  # Ex: "item_abc123"
-                fetched_at = datetime.now(timezone.utc)  # Timestamp de recebimento
-                
-                # 2. Extrair transações (lista de dicts)
-                raw_transactions = payload["results"]  # Ex: 100 transações
-                
-                # 3. Processar batch (enriquece cada transação)
-                result = TransactionBatchResult.from_raw_batch(
-                    raw_data=raw_transactions,
-                    institution_id=institution_id,
-                    item_id=item_id,
-                    fetched_at=fetched_at,
-                    batch_id=payload.get("id")
-                )
-                
-                # Resultado:
-                # - 95 válidas → S3 + Queue
-                # - 5 rejeitadas → DLQ (Postgres)
-                # - rejection_rate = 5% → INFO (sem alerta)
-        
-        CRITICAL - Enrichment Step:
-            Cada raw_txn é enriquecido com metadados obrigatórios:
-            - institution_id: inferido do connector (contexto do webhook)
-            - item_id: ID da conexão (contexto do webhook)
-            - fetched_at: timestamp de recebimento (auditoria)
-            
-            Por que necessário?
-            - TransactionWebhook.validate() exige esses campos
-            - Webhook da Pluggy/Belvo NÃO envia no JSON
-            - São metadados de contexto (não da transação em si)
-        
-        Performance:
-            - Processa 1000 transações em ~200ms (Pydantic é rápido)
-            - Enrichment é O(n) com dict merge (muito eficiente)
-            - Sem I/O neste método (só validação)
+            TransactionBatchResult com transações validadas
         """
         import uuid
         
-        # 1. Gerar batch_id se não fornecido
+        # 1. Gerar batch_id
         if batch_id is None:
             batch_id = f"batch_{uuid.uuid4().hex[:12]}"
         
@@ -2095,75 +1811,58 @@ class TransactionBatchResult(BaseModel):
         valid: list[TransactionWebhook] = []
         rejected: list[RejectedTransaction] = []
         
-        # 3. Processar cada transação (tolerante)
+        # 3. Processar cada transação
         for raw_txn in raw_data:
             try:
-                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                # ENRICHMENT STEP (CRITICAL)
-                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                # Injeta metadados obrigatórios que NÃO vêm no JSON cru.
-                # 
-                # Por que necessário?
-                # - TransactionWebhook exige institution_id, item_id, fetched_at
-                # - Webhook da Pluggy/Belvo envia apenas dados da transação
-                # - Metadados vêm do contexto (payload parent)
-                # 
-                # Decisão de design:
-                # - Usar dict merge (não mutar raw_txn original)
-                # - Preservar raw_txn original para auditoria
-                # - Enriched só existe durante validação
-                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                # ✅ STEP A: MAPEAR CAMPOS (NOVO!)
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                # Converte campos Pluggy/Belvo → padrão Nexa
+                # Ex: id → transaction_id, accountId → account_id
+                
+                normalized_txn = cls._normalize_webhook_fields(
+                    raw_txn, 
+                    institution_id
+                )
+                
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                # STEP B: ENRIQUECER COM METADADOS
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 
                 enriched_txn = {
-                    **raw_txn,  # Dados originais da transação
-                    "institution_id": institution_id,  # Contexto: banco
-                    "item_id": item_id,  # Contexto: conexão
-                    "fetched_at": fetched_at  # Contexto: timestamp
+                    **normalized_txn,
+                    "institution_id": institution_id,
+                    "item_id": item_id,
+                    "fetched_at": fetched_at
                 }
                 
-                # Validar com Pydantic (agora tem todos os campos obrigatórios)
-                transaction = TransactionWebhook(**enriched_txn)
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                # STEP C: VALIDAR COM PYDANTIC
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 
-                # Sucesso: adicionar às válidas
+                transaction = TransactionWebhook(**enriched_txn)
                 valid.append(transaction)
                 
             except ValidationError as e:
-                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                # DECISÃO: Salvar raw_txn (SEM enrichment) no DLQ
-                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                # Por que?
-                # - raw_data no DLQ deve ser FIEL ao que veio do banco
-                # - Facilita debugging (repro exato do problema)
-                # - Enrichment é responsabilidade do receiver, não do banco
-                # 
-                # Contexto ainda é preservado em campos separados:
-                # - RejectedTransaction.institution_id (de kwargs)
-                # - raw_data permanece puro (do webhook)
-                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                
                 rejected_txn = RejectedTransaction.create_from_exception(
-                    data=raw_txn,  # ✅ Cru (sem enrichment)
+                    data=raw_txn,
                     exc=e,
-                    institution_id=institution_id  # ✅ Contexto em campo separado
+                    institution_id=institution_id
                 )
                 rejected.append(rejected_txn)
                 
             except Exception as e:
-                # Erro inesperado (KeyError, TypeError, AttributeError, etc)
                 logger.error(
                     "unexpected_error_in_batch_processing",
                     extra={
                         "batch_id": batch_id,
                         "institution_id": institution_id,
                         "error_type": type(e).__name__,
-                        "error_message": str(e),
-                        # ⚠️ CUIDADO: raw_txn pode ter PII
-                        # Em produção, considerar mascarar campos sensíveis
+                        "error_message": str(e)
                     },
                     exc_info=True
                 )
                 
-                # Ainda assim, criar RejectedTransaction
                 rejected_txn = RejectedTransaction.create_from_exception(
                     data=raw_txn,
                     exc=e,
@@ -2171,59 +1870,130 @@ class TransactionBatchResult(BaseModel):
                 )
                 rejected.append(rejected_txn)
         
-        # 4. Criar resultado (dispara validators automáticos)
+        # 4. Criar resultado
         result = cls(
             batch_id=batch_id,
             institution_id=institution_id,
             valid_transactions=valid,
             rejected_transactions=rejected,
             total_received=len(raw_data),
-            # ✅ CORREÇÃO: Inicializa com 0 para passar na validação estrutural.
-            # O validador 'calculate_metrics' (mode='after') vai rodar logo em seguida
-            # e calcular os valores reais baseados nas listas acima.
             total_valid=0,
             total_rejected=0,
             rejection_rate=0.0
         )
         
-        # 5. Model validators calculam métricas automaticamente:
-        #    - calculate_metrics(): contadores, rejection_rate
-        #    - analyze_errors(): error_summary, field_error_summary
-        #    - determine_alert_level(): alert_level, should_alert, alert_message
-        
         return result
+    
+    # ==========================================
+    # ✅ NOVO MÉTODO: MAPEAMENTO DE CAMPOS
+    # ==========================================
+    
+    @staticmethod
+    def _normalize_webhook_fields(
+        raw_txn: dict[str, Any], 
+        institution_id: str
+    ) -> dict[str, Any]:
+        """
+        Normaliza campos específicos de cada banco → padrão Nexa.
+        
+        MAPEAMENTOS:
+        
+        Nubank/Pluggy (padrão):
+            id → transaction_id
+            accountId → account_id
+            date → transaction_date
+        
+        Itaú (não-padrão):
+            conta → account_id
+            data → transaction_date
+            valor → amount
+            descricao → description
+            tipo → type
+            saldo → balance
+        
+        Inter (quase padrão):
+            value → amount
+        
+        Args:
+            raw_txn: Transação crua do webhook
+            institution_id: ID do banco
+        
+        Returns:
+            Dict com campos normalizados
+        """
+        normalized = raw_txn.copy()
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # PLUGGY/BELVO PADRÃO (Nubank, Bradesco, etc)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        # id → transaction_id
+        if "id" in normalized and "transaction_id" not in normalized:
+            normalized["transaction_id"] = normalized.pop("id")
+        
+        # accountId → account_id
+        if "accountId" in normalized and "account_id" not in normalized:
+            normalized["account_id"] = normalized.pop("accountId")
+        
+        # date → transaction_date
+        if "date" in normalized and "transaction_date" not in normalized:
+            normalized["transaction_date"] = normalized.pop("date")
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # ITAÚ (Campos não-padrão)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        if institution_id == "itau":
+            # conta → account_id
+            if "conta" in normalized:
+                normalized["account_id"] = normalized.pop("conta")
+            
+            # data → transaction_date
+            if "data" in normalized:
+                normalized["transaction_date"] = normalized.pop("data")
+            
+            # valor → amount
+            if "valor" in normalized:
+                normalized["amount"] = normalized.pop("valor")
+            
+            # descricao → description
+            if "descricao" in normalized:
+                normalized["description"] = normalized.pop("descricao")
+            
+            # tipo → type
+            if "tipo" in normalized:
+                normalized["type"] = normalized.pop("tipo")
+            
+            # saldo → balance
+            if "saldo" in normalized:
+                normalized["balance"] = normalized.pop("saldo")
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # INTER (Quase padrão, mas usa "value")
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        elif institution_id == "inter":
+            # value → amount
+            if "value" in normalized:
+                normalized["amount"] = normalized.pop("value")
+        
+        return normalized
     
     # ==========================================
     # HELPER METHODS
     # ==========================================
     
     def log_summary(self, logger: logging.Logger) -> None:
-        """
-        Loga resumo do batch processado.
+        """Loga resumo do batch processado."""
+        log_level = self.alert_level.lower()
         
-        Útil para debugging e auditoria.
-        
-        Args:
-            logger: Logger configurado (ex: logging.getLogger(__name__))
-        
-        Example:
-            result = TransactionBatchResult.from_raw_batch(...)
-            result.log_summary(logger)
-            
-            # Output:
-            # INFO: Batch batch_abc123 processado - Banco: nubank - 
-            #       95/100 válidas (5% rejeição) - Top erros: ValidationError: 3
-        """
-        log_level = self.alert_level.lower()  # "info", "warning", "critical"
-        
-        # Top 3 erros para contexto
         top_errors = list(self.error_summary.items())[:3]
         top_errors_str = ", ".join(
             f"{err}: {count}" for err, count in top_errors
         ) if top_errors else "nenhum"
         
         logger.log(
-            getattr(logging, log_level.upper()),  # logging.INFO, WARNING, etc
+            getattr(logging, log_level.upper()),
             f"Batch {self.batch_id} processado - "
             f"Banco: {self.institution_id} - "
             f"{self.total_valid}/{self.total_received} válidas "
@@ -2231,53 +2001,21 @@ class TransactionBatchResult(BaseModel):
             f"Top erros: {top_errors_str}"
         )
     
-    
     def to_metrics_dict(self) -> dict[str, Any]:
-        """
-        Converte resultado em dict para métricas (Prometheus/Datadog).
-        
-        Returns:
-            Dict com métricas estruturadas:
-                - counters: transactions_valid, transactions_rejected
-                - gauges: rejection_rate
-                - labels: institution_id, alert_level
-        
-        Example:
-            result = TransactionBatchResult.from_raw_batch(...)
-            metrics = result.to_metrics_dict()
-            
-            # Enviar para Prometheus
-            transactions_valid.labels(
-                institution_id=metrics["institution_id"]
-            ).inc(metrics["transactions_valid"])
-            
-            rejection_rate.labels(
-                institution_id=metrics["institution_id"]
-            ).set(metrics["rejection_rate"])
-        """
+        """Converte para dict de métricas."""
         return {
-            # Identificação
             "batch_id": self.batch_id,
             "institution_id": self.institution_id,
             "processed_at": self.processed_at.isoformat(),
-            
-            # Contadores (Prometheus Counters)
             "transactions_received": self.total_received,
             "transactions_valid": self.total_valid,
             "transactions_rejected": self.total_rejected,
-            
-            # Gauges (Prometheus Gauges)
             "rejection_rate": self.rejection_rate,
-            
-            # Labels (para filtragem)
             "alert_level": self.alert_level,
             "should_alert": self.should_alert,
-            
-            # Contexto (para debugging)
             "error_summary": self.error_summary,
             "field_error_summary": self.field_error_summary,
         }
-
 
 # ==========================================
 # FIM DO ARQUIVO transaction.py

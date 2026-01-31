@@ -20,9 +20,9 @@ from decimal import Decimal
 try:
     from transaction import (
         TransactionBatchResult,
-        TransactionOut,
+        # TransactionOut,
         TransactionWebhook,
-        RejectedTransaction
+        # RejectedTransaction
     )
 except ImportError:
     print("❌ Erro: 'transaction.py' não encontrado.")
