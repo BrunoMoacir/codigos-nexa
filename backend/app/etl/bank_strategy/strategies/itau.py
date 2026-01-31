@@ -47,15 +47,24 @@ class ItauStrategy(BankStrategy):
 
     def evaluate_quality(self, df: pl.DataFrame) -> DataStatus:
         """
-        Qualidade considerada UNTRUSTED se:
-        - datas inválidas (essencial para fluxo de caixa)
+        Avalia qualidade dos dados do Itaú.
+    
+        Itaú é TIER_3 (problemático):
+        - Bugs conhecidos (sinais invertidos)
+        - Balance faltando ocasionalmente
+        - Formato BR inconsistente
+    
+        DEGRADED se:
+        - Datas válidas (passam validação básica)
+        - Itaú sempre é TIER_3 (conservador)
+    
+        UNTRUSTED se:
+        - Datas inválidas
         """
-        
-        # Verifica datas nulas
+        # Verifica datas inválidas
         if df.filter(pl.col("transaction_date").is_null()).height > 0:
-            return DataStatus.UNTRUSTED # ✅ CORREÇÃO 3: Enum consistente
-
-        # Itaú é Tier 3, então mesmo se passar, retornamos DEGRADED 
-        # (para forçar verificação mais atenta ou uso de Shadow Invoice)
-        # ou TRUSTED se você confiar muito no parser. Vamos de TRUSTED por padrão se passar.
-        return DataStatus.TRUSTED
+            return DataStatus.UNTRUSTED
+    
+        # ✅ CORREÇÃO: Itaú é TIER_3, sempre retorna DEGRADED
+        # (força uso de Shadow Invoice para preenchimento de lacunas)
+        return DataStatus.DEGRADED
