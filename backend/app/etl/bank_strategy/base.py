@@ -16,7 +16,7 @@ class BankStrategy(ABC):
     - Aplicar normalizações específicas
     - Avaliar a qualidade dos dados recebidos
     """
-
+        
     bank_id: str
     tier: BankTier
 
