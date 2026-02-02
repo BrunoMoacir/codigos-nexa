@@ -50,10 +50,16 @@ class SubscriptionDetector(ShadowInvoiceDetector):
         logger.debug(f"Agrupamentos por descrição: {len(grouped)}")
         
         for row in grouped.iter_rows(named=True):
+            avg = row["avg_amount"]
+            std = row["std_amount"]
+
+            avg_str = f"{avg:.2f}" if avg is not None else "N/A"
+            std_str = f"{std:.2f}" if std is not None else "N/A"
+            
             logger.debug(
                 f"  {row['description']}: "
-                f"avg={row['avg_amount']:.2f}, "
-                f"std={row['std_amount']:.2f}, "
+                f"avg={avg_str}, "
+                f"std={std_str}, "
                 f"months={row['months']}"
             )
         

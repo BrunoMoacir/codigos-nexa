@@ -6,6 +6,7 @@ MUDANÇAS:
     ✅ "date" → "transaction_date"
     ✅ Adicionado "account_id" (obrigatório)
     ✅ Formato de data corrigido (ISO 8601 com timezone)
+    ✅ Netflix recorrente (3 meses) para teste de assinatura
 """
 
 from datetime import datetime, timezone
@@ -19,12 +20,6 @@ class MockPluggyClient:
     """
     
     def create_sandbox_item(self) -> dict:
-        """
-        Simula criação de item sandbox.
-        
-        Returns:
-            dict com id do item criado
-        """
         return {
             "id": "mock_item_id_123",
             "connector": {
@@ -35,15 +30,6 @@ class MockPluggyClient:
         }
     
     def get_accounts(self, item_id: str) -> dict:
-        """
-        Simula busca de contas de um item.
-        
-        Args:
-            item_id: ID do item
-            
-        Returns:
-            dict com lista de contas
-        """
         return {
             "results": [
                 {
@@ -57,35 +43,18 @@ class MockPluggyClient:
         }
     
     def get_transactions(self, account_id: str) -> dict:
-        """
-        Simula busca de transações de uma conta.
-        
-        ✅ CORRIGIDO: Agora retorna campos compatíveis com TransactionWebhook
-        
-        Args:
-            account_id: ID da conta
-            
-        Returns:
-            dict com lista de transações NO FORMATO CORRETO
-        """
         return {
             "results": [
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 # TRANSAÇÃO 1: PIX Recebido (CRÉDITO)
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 {
-                    # ✅ CORRIGIDO: "id" → "transaction_id"
                     "transaction_id": "trx_001",
-                    
-                    # ✅ CORRIGIDO: Adicionado account_id (obrigatório)
                     "account_id": account_id,
-                    
-                    # ✅ CORRIGIDO: "date" → "transaction_date" com ISO 8601
                     "transaction_date": "2026-01-10T08:30:00Z",
-                    
                     "description": "PIX RECEBIDO",
                     "amount": 1500.00,
-                    "balance": 6500.00,  # Saldo após transação
+                    "balance": 6500.00,
                     "type": "CREDIT",
                     "category": "TRANSFER",
                     "status": "POSTED"
@@ -108,7 +77,7 @@ class MockPluggyClient:
                 },
                 
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                # TRANSAÇÃO 3: Netflix (DÉBITO)
+                # TRANSAÇÃO 3: Netflix (DÉBITO) - JANEIRO
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 {
                     "transaction_id": "trx_003",
@@ -158,16 +127,48 @@ class MockPluggyClient:
                 # TRANSAÇÃO 6: Duplicata intencional (para testar dedup)
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 {
-                    "transaction_id": "trx_002_duplicate",  # ID diferente
+                    "transaction_id": "trx_002_duplicate",
                     "account_id": account_id,
-                    "transaction_date": "2026-01-15T18:45:00Z",  # Mesma data
-                    "description": "UBER *TRIP - RIO DE JANEIRO",  # Primeiros 20 chars iguais
-                    "amount": -45.50,  # Mesmo amount
+                    "transaction_date": "2026-01-15T18:45:00Z",
+                    "description": "UBER *TRIP - RIO DE JANEIRO",
+                    "amount": -45.50,
                     "balance": 6454.50,
                     "type": "DEBIT",
                     "category": "TRANSPORT",
                     "status": "POSTED",
                     "merchant": "Uber"
+                },
+                
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                # TRANSAÇÃO 7: Netflix (DÉBITO) - FEVEREIRO
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                {
+                    "transaction_id": "trx_006",
+                    "account_id": account_id,
+                    "transaction_date": "2026-02-20T10:00:00Z",
+                    "description": "NETFLIX.COM",
+                    "amount": -49.90,
+                    "balance": 14569.30,
+                    "type": "DEBIT",
+                    "category": "ENTERTAINMENT",
+                    "status": "POSTED",
+                    "merchant": "Netflix"
+                },
+                
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                # TRANSAÇÃO 8: Netflix (DÉBITO) - MARÇO
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                {
+                    "transaction_id": "trx_007",
+                    "account_id": account_id,
+                    "transaction_date": "2026-03-20T10:00:00Z",
+                    "description": "NETFLIX.COM",
+                    "amount": -49.90,
+                    "balance": 14519.40,
+                    "type": "DEBIT",
+                    "category": "ENTERTAINMENT",
+                    "status": "POSTED",
+                    "merchant": "Netflix"
                 }
             ]
         }
