@@ -1,31 +1,21 @@
-import polars as pl
-
-
 class SafeToSpendCalculator:
     """
-    Calcula quanto o usuário pode gastar por dia
-    sem quebrar o caixa no horizonte analisado.
+    Calcula quanto o usuário pode gastar com segurança.
     """
 
     def __init__(self, buffer: float = 1000.0):
         self.buffer = buffer
 
-    def calculate(self, cashflow_df: pl.DataFrame, days: int = 30) -> dict:
-        if cashflow_df.is_empty():
-            raise ValueError("Cashflow vazio")
+    def calculate(self, cashflow_df, days: int = 30) -> dict:
+        min_balance = cashflow_df["projected_balance"].min()
 
-        min_balance = cashflow_df.select(
-            pl.col("projected_balance").min()
-        ).item()
-
-        safe_amount = (min_balance - self.buffer) / days
-
-        if safe_amount < 0:
-            safe_amount = 0.0
+        safe_total = min_balance - self.buffer
+        safe_total = max(0.0, safe_total)
 
         return {
             "days": days,
             "buffer": self.buffer,
-            "min_projected_balance": round(min_balance, 2),
-            "safe_to_spend_daily": round(safe_amount, 2),
+            "min_projected_balance": float(min_balance),
+            "safe_to_spend_total": safe_total,
+            "safe_to_spend_daily": safe_total / days if days else 0.0,
         }
