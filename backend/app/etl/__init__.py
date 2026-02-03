@@ -41,6 +41,8 @@ from .recurring_detector import RecurringDetector
 from .data_quality import DataQualityValidator
 # ✅ NOVO: BankStrategy
 from .bank_strategy import get_bank_strategy
+from .shadow_invoices import run_shadow_invoice_detection
+from .profiles import UserProfileAnalyzer
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # API PÚBLICA DO MÓDULO
@@ -54,6 +56,8 @@ __all__ = [
     "RecurringDetector",       # Detecta assinaturas/parcelamentos
     "DataQualityValidator",    # Calcula confidence scores
     "get_bank_strategy",       # ✅ NOVO: Factory de strategies
+    "run_shadow_invoice_detection",
+    "UserProfileAnalyzer",
 ]
 
 # Versão do módulo (facilita debugging)
