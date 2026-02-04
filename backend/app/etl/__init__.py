@@ -43,6 +43,7 @@ from .data_quality import DataQualityValidator
 from .bank_strategy import get_bank_strategy
 from .shadow_invoices import run_shadow_invoice_detection
 from .profiles import UserProfileAnalyzer
+# from .cashflow import CashflowProjector, SafeToSpendCalculator  # ✅ NOVO
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # API PÚBLICA DO MÓDULO
@@ -58,6 +59,8 @@ __all__ = [
     "get_bank_strategy",       # ✅ NOVO: Factory de strategies
     "run_shadow_invoice_detection",
     "UserProfileAnalyzer",
+    # "CashflowProjector",          # ✅ NOVO
+    # "SafeToSpendCalculator",      # ✅ NOVO
 ]
 
 # Versão do módulo (facilita debugging)

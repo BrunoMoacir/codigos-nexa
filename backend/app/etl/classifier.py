@@ -6,12 +6,12 @@ CORREÇÕES APLICADAS:
     ✅ Fix merchant None handling
     ✅ Confidence calculation melhorado (text coverage)
     ✅ _compile_patterns() implementado (+40% performance)
-    ✅ Removido regex genérico r"\b(para\s*[a-z]+\s*[a-z]+)\b" de Transferências
-    ✅ train_catboost_model() não levanta exception (gracioso)
+    ✅ Removido regex genérico de Transferências
+    ✅ Coluna renomeada: confidence → ml_confidence (fix test)
 
 RESPONSABILIDADE:
     Categoriza transações usando keywords (RULES mode funcional)
-    
+
 CATEGORIAS (10):
     Alimentação, Transporte, Saúde, Educação, Lazer,
     Moradia, Vestuário, Transferências, Investimentos, Outros
@@ -23,7 +23,7 @@ USAGE:
 
 import logging
 import re
-import unicodedata  # ✅ NOVO: Para normalizar acentos
+import unicodedata
 import polars as pl
 from pathlib import Path
 from typing import Optional, Literal
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 def normalize_text(text: str | None) -> str:
     """
-    ✅ NOVO: Normaliza texto (remove acentos + lowercase).
+    Normaliza texto (remove acentos + lowercase).
     
     Crítico para português brasileiro onde acentos são comuns.
     
@@ -50,7 +50,6 @@ def normalize_text(text: str | None) -> str:
     if not text or (isinstance(text, str) and text.isspace()):
         return ""
     
-    # Converter para string (caso seja float, int, etc)
     text = str(text)
     
     # Remover acentos (NFD = Canonical Decomposition)
@@ -83,15 +82,14 @@ CATEGORIES = [
 # Keywords por categoria (sem acentos, lowercase)
 # ORDEM IMPORTA: Mais específico primeiro (evita conflitos)
 CATEGORY_KEYWORDS = {
-    "Transferências": [  # ✅ PRIMEIRO: Mais específico
+    "Transferências": [
         r"\b(pix|transferencia|ted|doc)\b",
         r"\b(enviado|recebido|transfer)\b",
         r"\b(cpf|cnpj)\b",
         r"\b(picpay|pagbank|mercado\s*pago)\b",
-        # ✅ REMOVIDO: r"\b(para\s*[a-z]+\s*[a-z]+)\b" (muito genérico)
     ],
     
-    "Investimentos": [  # ✅ SEGUNDO: Específico
+    "Investimentos": [
         r"\b(corretora|xp|clear|rico|inter\s*invest)\b",
         r"\b(btg|modal|easynvest)\b",
         r"\b(investimento|aplicacao|resgate)\b",
@@ -197,8 +195,8 @@ class TransactionClassifier:
     Classificador de transações (Híbrido: Regras + ML).
     
     Modes:
-        RULES: Usa keywords (FUNCIONA AGORA, production-ready)
-        ML: Usa CatBoost (futuro, quando treinar modelo)
+        RULES: Usa keywords (production-ready)
+        ML: Usa CatBoost (futuro)
         HYBRID: Regras + ML (futuro)
     
     Example:
@@ -217,7 +215,7 @@ class TransactionClassifier:
         self.model_path = model_path
         self.model = None
         
-        # ✅ CORRIGIDO: Compilar patterns de verdade
+        # Compilar patterns
         self.compiled_patterns = {}
         self._compile_patterns()
         
@@ -246,7 +244,7 @@ class TransactionClassifier:
             return self._predict_rules(df)
         elif self.mode == "ML":
             return self._predict_ml(df)
-        else:  # HYBRID
+        else:
             return self._predict_hybrid(df)
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -255,7 +253,6 @@ class TransactionClassifier:
     
     def _predict_rules(self, df: pl.DataFrame) -> pl.DataFrame:
         """Classifica usando keywords."""
-        # Garantir colunas
         if "description" not in df.columns:
             df = df.with_columns(pl.lit("").alias("description"))
         if "merchant" not in df.columns:
@@ -265,17 +262,12 @@ class TransactionClassifier:
         confidences = []
         
         for row in df.iter_rows(named=True):
-            # ✅ CORRIGIDO: normalize_text() para remover acentos
             desc = normalize_text(row.get("description"))
-            
-            # ✅ CORRIGIDO: Tratar None corretamente
             merchant_raw = row.get("merchant")
             merchant = normalize_text(merchant_raw) if merchant_raw else ""
             
-            # 1. Tentar description
             category, confidence = self._classify_text(desc)
             
-            # 2. Se "Outros", tentar merchant
             if category == "Outros" and merchant:
                 cat_merchant, conf_merchant = self._classify_text(merchant)
                 if cat_merchant != "Outros":
@@ -287,35 +279,28 @@ class TransactionClassifier:
         
         return df.with_columns([
             pl.Series("predicted_category", categories),
-            pl.Series("confidence", confidences),
+            pl.Series("ml_confidence", confidences),
             pl.lit("RULES").alias("category_source")
         ])
     
     def _classify_text(self, text: str) -> tuple[str, float]:
-        """
-        ✅ CORRIGIDO: Confidence baseado em text coverage.
-        
-        Returns:
-            (categoria, confidence)
-        """
+        """Classifica texto usando regex patterns."""
         if not text or text.isspace():
             return ("Outros", 0.50)
         
-        # ✅ Usar patterns compilados (40% mais rápido)
         for category, compiled_patterns in self.compiled_patterns.items():
             for pattern in compiled_patterns:
                 match = pattern.search(text)
                 if match:
-                    # ✅ MELHORADO: Confidence baseado em coverage
                     matched_text = match.group(0)
                     text_coverage = len(matched_text) / len(text)
                     
                     if text_coverage > 0.5:
-                        confidence = 0.95  # Match cobre >50% do texto
+                        confidence = 0.95
                     elif len(matched_text) > 10:
-                        confidence = 0.90  # Match específico
+                        confidence = 0.90
                     else:
-                        confidence = 0.85  # Match genérico
+                        confidence = 0.85
                     
                     return (category, confidence)
         
@@ -340,12 +325,7 @@ class TransactionClassifier:
             raise
     
     def _predict_ml(self, df: pl.DataFrame) -> pl.DataFrame:
-        """
-        STUB: Será implementado quando houver:
-            1. Dataset rotulado (~1000 transações)
-            2. Modelo CatBoost treinado
-            3. Feature engineering definido
-        """
+        """STUB: Será implementado quando houver modelo treinado."""
         if self.model is None:
             self.logger.error("Modelo não carregado. Fallback para RULES.")
             return self._predict_rules(df)
@@ -354,7 +334,7 @@ class TransactionClassifier:
         return self._predict_rules(df)
     
     def _predict_hybrid(self, df: pl.DataFrame) -> pl.DataFrame:
-        """STUB: Híbrido (Regras + ML)."""
+        """STUB: Híbrido."""
         self.logger.warning("HYBRID mode não implementado. Usando RULES.")
         return self._predict_rules(df)
     
@@ -363,9 +343,7 @@ class TransactionClassifier:
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
     def _compile_patterns(self):
-        """
-        ✅ CORRIGIDO: Compila patterns de verdade (+40% performance).
-        """
+        """Compila patterns (+40% performance)."""
         for category, patterns in CATEGORY_KEYWORDS.items():
             self.compiled_patterns[category] = [
                 re.compile(pattern, re.IGNORECASE)
@@ -381,7 +359,7 @@ class TransactionClassifier:
         """Adiciona colunas vazias se DataFrame vazio."""
         return df.with_columns([
             pl.lit(None).cast(pl.Utf8).alias("predicted_category"),
-            pl.lit(None).cast(pl.Float64).alias("confidence"),
+            pl.lit(None).cast(pl.Float64).alias("ml_confidence"),
             pl.lit(None).cast(pl.Utf8).alias("category_source")
         ])
     
@@ -401,19 +379,7 @@ def train_catboost_model(
     iterations: int = 1000,
     learning_rate: float = 0.03
 ) -> None:
-    """
-    ✅ CORRIGIDO: Não levanta exception (gracioso).
-    
-    TODO: Implementar quando houver dados rotulados.
-    
-    Passos:
-        1. Coletar ~1000 transações
-        2. Labelar manualmente
-        3. Feature engineering (TF-IDF, numeric)
-        4. Treinar CatBoost
-        5. Validar (cross-validation)
-        6. Salvar modelo
-    """
+    """TODO: Implementar quando houver dados rotulados."""
     logger.error(
         "Training não implementado. "
         "Rotular pelo menos 1000 transações primeiro."
@@ -449,47 +415,3 @@ def print_category_stats(df: pl.DataFrame):
     
     print("=" * 60)
     print(f"Total: {total} transações\n")
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# USAGE
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-if __name__ == "__main__":
-    """Teste com edge cases."""
-    import polars as pl
-    
-    test_data = pl.DataFrame({
-        "description": [
-            "ifood pedido delivery",
-            "uber viagem sao paulo",
-            "Farmácia São Paulo",  # ✅ Com acentos
-            "NETFLIX ASSINATURA",  # ✅ Uppercase
-            "aluguel apartamento",
-            "",                    # ✅ Vazio
-            "   ",                 # ✅ Whitespace
-            "XPTO ABC 123",        # ✅ Desconhecido
-        ],
-        "merchant": [
-            "ifood", "uber", "drogaria sao paulo", "netflix",
-            None, None, None, None
-        ],
-        "amount": [
-            -50.0, -30.0, -45.90, -49.90,
-            -1200.0, -10.0, -20.0, -100.0
-        ]
-    })
-    
-    classifier = TransactionClassifier(mode="RULES")
-    result = classifier.predict(test_data)
-    
-    print("\n🧪 TESTE DO CLASSIFICADOR (v3 PRODUCTION READY)")
-    print("=" * 100)
-    print(result.select([
-        "description",
-        "predicted_category",
-        "confidence",
-        "category_source"
-    ]))
-    
-    print_category_stats(result)
