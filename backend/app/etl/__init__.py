@@ -44,6 +44,7 @@ from .bank_strategy import get_bank_strategy
 from .shadow_invoices import run_shadow_invoice_detection
 from .profiles import UserProfileAnalyzer
 # from .cashflow import CashflowProjector, SafeToSpendCalculator  # ✅ NOVO
+from .recurring_detector import RecurringDetector, detect_recurring_patterns, print_recurring_stats
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # API PÚBLICA DO MÓDULO
@@ -61,6 +62,10 @@ __all__ = [
     "UserProfileAnalyzer",
     # "CashflowProjector",          # ✅ NOVO
     # "SafeToSpendCalculator",      # ✅ NOVO
+    # ✅ NOVO: Recurring patterns
+    "RecurringDetector",       # Detecta assinaturas/parcelamentos
+    "detect_recurring_patterns",  # Helper function
+    "RecurringDetector",         # Detector principal
 ]
 
 # Versão do módulo (facilita debugging)

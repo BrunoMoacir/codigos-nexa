@@ -1,8 +1,10 @@
 """
-🧪 TESTE COM WEBHOOKS REAIS - OPEN FINANCE BRASIL
+🧪 TESTE COM WEBHOOKS REAIS - OPEN FINANCE BRASIL (v2.0 - COM RECURRING DETECTOR)
 ═══════════════════════════════════════════════════════════════════════
 
 Testa o pipeline completo com webhooks autênticos dos bancos brasileiros.
+
+✅ NOVO: Inclui RecurringDetector no pipeline
 
 Como executar:
     cd /Users/gabriel-abel/projetoNexa/codigos-nexa-16
@@ -31,7 +33,12 @@ from app.schemas.transaction import (
     TransactionWebhook,
     TransactionBatchResult,
 )
-from app.etl import TransactionIngestor, TransactionClassifier
+from app.etl import (
+    TransactionIngestor, 
+    TransactionClassifier,
+    RecurringDetector,  # ✅ NOVO
+    print_recurring_stats  # ✅ NOVO
+)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -486,7 +493,7 @@ def test_4_batch_misto():
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TESTE 5: PIPELINE COMPLETO END-TO-END
+# ✅ TESTE 5: PIPELINE COMPLETO END-TO-END (COM RECURRING DETECTOR)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def test_5_full_pipeline():
@@ -496,10 +503,11 @@ def test_5_full_pipeline():
     Fluxo:
         Webhook raw → TransactionBatchResult (Pydantic)
                     → TransactionIngestor   (Polars + BankStrategy + DuckDB)
-                    → TransactionClassifier (stub → predicted_category)
-                    → DataFrame final      (todas as colunas)
+                    → TransactionClassifier (Categorização)
+                    → RecurringDetector     (✅ NOVO - Flags de recorrência)
+                    → DataFrame final       (TODAS as colunas)
     """
-    print_section("TESTE 5: PIPELINE COMPLETO (End-to-End)")
+    print_section("TESTE 5: PIPELINE COMPLETO (End-to-End + RecurringDetector)")
 
     # ─── 5.1  Webhook ─────────────────────────────────────────────
     print_subsection("5.1 Recebendo webhook (Nubank)")
@@ -555,21 +563,41 @@ def test_5_full_pipeline():
     print_subsection("5.4 Classificador")
 
     classifier = TransactionClassifier()
-    final_df = classifier.predict(clean_df)
+    categorized_df = classifier.predict(clean_df)
 
-    categories = final_df.select("predicted_category").unique().to_series().to_list()
-    print(f"   Colunas do DataFrame final: {final_df.shape[1]}")
+    categories = categorized_df.select("predicted_category").unique().to_series().to_list()
+    print(f"   Colunas do DataFrame: {categorized_df.shape[1]}")
     print(f"   Categorias atribuídas: {categories}")
 
-    assert "predicted_category" in final_df.columns, \
+    assert "predicted_category" in categorized_df.columns, \
         "Pipeline: coluna predicted_category ausente"
-    assert "ml_confidence" in final_df.columns, \
+    assert "ml_confidence" in categorized_df.columns, \
         "Pipeline: coluna ml_confidence ausente"
-    assert "category_source" in final_df.columns, \
+    assert "category_source" in categorized_df.columns, \
         "Pipeline: coluna category_source ausente"
 
-    # ─── 5.5  DataFrame final ─────────────────────────────────────
-    print_subsection("5.5 DataFrame Final")
+    # ─── 5.5  RecurringDetector ✅ NOVO ───────────────────────────
+    print_subsection("5.5 RecurringDetector (Detecção de Padrões)")
+
+    detector = RecurringDetector()
+    final_df = detector.detect(categorized_df)
+
+    # Verificar flags adicionadas
+    recurring_count = final_df.filter(final_df["is_recurring"] == True).height
+    installment_count = final_df.filter(final_df["is_installment"] == True).height
+
+    print(f"   ✅ Flags adicionadas: is_recurring, is_installment, installment_info, recurring_confidence")
+    print(f"   Assinaturas detectadas: {recurring_count}")
+    print(f"   Parcelamentos detectados: {installment_count}")
+
+    # Validar colunas
+    assert "is_recurring" in final_df.columns, "Pipeline: coluna is_recurring ausente"
+    assert "is_installment" in final_df.columns, "Pipeline: coluna is_installment ausente"
+    assert "installment_info" in final_df.columns, "Pipeline: coluna installment_info ausente"
+    assert "recurring_confidence" in final_df.columns, "Pipeline: coluna recurring_confidence ausente"
+
+    # ─── 5.6  DataFrame final ─────────────────────────────────────
+    print_subsection("5.6 DataFrame Final (TODAS as colunas)")
 
     print(final_df.select([
         "transaction_id",
@@ -578,12 +606,20 @@ def test_5_full_pipeline():
         "amount",
         "data_status",
         "predicted_category",
+        "is_recurring",
+        "is_installment",
         "transaction_type"
     ]))
 
+    # ─── 5.7  Estatísticas de Recorrência ✅ NOVO ────────────────
+    print_subsection("5.7 Estatísticas de Recorrência")
+
+    print_recurring_stats(final_df)
+
     print(f"\n🎉 PIPELINE COMPLETO EXECUTADO COM SUCESSO!")
-    print(f"   Webhook → Pydantic → Ingestor → Classifier → DataFrame")
+    print(f"   Webhook → Pydantic → Ingestor → Classifier → RecurringDetector → DataFrame")
     print(f"   {len(raw_txns)} transações processadas sem erros")
+    print(f"   Total de colunas no DataFrame final: {len(final_df.columns)}")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -592,7 +628,8 @@ def test_5_full_pipeline():
 
 def run_all_tests():
     print("\n" + "🚀" * 40)
-    print("🧪 TESTE COM WEBHOOKS REAIS - OPEN FINANCE BRASIL")
+    print("🧪 TESTE COM WEBHOOKS REAIS - OPEN FINANCE BRASIL (v2.0)")
+    print("✅ NOVO: Pipeline completo incluindo RecurringDetector")
     print("🚀" * 40)
 
     try:
@@ -600,7 +637,8 @@ def run_all_tests():
         test_2_itau_webhook()
         test_3_inter_webhook()
         test_4_batch_misto()
-        test_5_full_pipeline()   # ← Agora existe 👍
+        test_5_full_pipeline()   # ✅ ATUALIZADO com RecurringDetector
+        test_6_recurring_simulation()
 
         print("\n" + "=" * 80)
         print("✅ TODOS OS TESTES COM WEBHOOKS REAIS PASSARAM!")
@@ -611,7 +649,7 @@ def run_all_tests():
         print("   ✅ Teste 2 — Itaú   (TIER_3): Bugs corrigidos, status DEGRADED")
         print("   ✅ Teste 3 — Inter  (TIER_2): Qualidade boa, status TRUSTED")
         print("   ✅ Teste 4 — Batch misto: 3 válidas + 1 rejeitada (esperado)")
-        print("   ✅ Teste 5 — Pipeline E2E: Webhook → DataFrame completo")
+        print("   ✅ Teste 5 — Pipeline E2E: Webhook → DataFrame completo + RecurringDetector ✅")
 
         print("\n🎯 VALIDAÇÕES REALIZADAS:")
         print("   ✅ Parsers BR/US (1.500,00 e 1,500.00)")
@@ -622,12 +660,13 @@ def run_all_tests():
         print("   ✅ Deduplicação via dedup_hash")
         print("   ✅ DuckDB persistence (INSERT OR IGNORE)")
         print("   ✅ Classifier stub (predicted_category, ml_confidence)")
+        print("   ✅ RecurringDetector (is_recurring, is_installment, installment_info) ✅ NOVO")
 
         print("\n🎯 PRÓXIMOS PASSOS:")
-        print("   1. API Layer (FastAPI) — receber webhooks reais")
-        print("   2. Treinar CatBoost — classificação real")
-        print("   3. RecurringDetector — assinaturas e parcelamentos")
-        print("   4. Shadow Invoice — previsão de gastos futuros")
+        print("   1. DataQualityValidator — calcula confidence global")
+        print("   2. CashflowProjector — integrar Shadow Invoices")
+        print("   3. SafeToSpendCalculator — cálculo real")
+        print("   4. API Layer (FastAPI) — receber webhooks reais")
 
         return True
 
@@ -640,6 +679,69 @@ def run_all_tests():
         traceback.print_exc()
         return False
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TESTE 6: SIMULAÇÃO DE RECORRÊNCIA (Histórico de 3 meses)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def test_6_recurring_simulation():
+    """
+    Simula um histórico de 3 meses para validar o RecurringDetector.
+    """
+    print_section("TESTE 6: SIMULAÇÃO DE RECORRÊNCIA (Netflix + Magalu)")
+    
+    import polars as pl
+    
+    # Criar dados sintéticos (3 meses de Netflix + 1 compra parcelada)
+    data = {
+        "transaction_id": ["t1", "t2", "t3", "t4"],
+        "institution_id": ["nubank"] * 4,
+        "description": [
+            "NETFLIX.COM",       # Mês 1 (Outubro)
+            "NETFLIX.COM",       # Mês 2 (Novembro)
+            "NETFLIX.COM",       # Mês 3 (Dezembro) - Padrão detectado!
+            "MAGALU *LOJA 10x"   # Parcelado explícito
+        ],
+        "amount": [-55.90, -55.90, -55.90, -100.00],
+        "transaction_date": [
+            datetime(2023, 10, 15),
+            datetime(2023, 11, 15),
+            datetime(2023, 12, 15),
+            datetime(2024, 1, 20)
+        ],
+        # Colunas auxiliares necessárias para o detector (normalmente vêm do Ingestor/Classifier)
+        "merchant": ["Netflix", "Netflix", "Netflix", "Magalu"],
+        "predicted_category": ["Lazer", "Lazer", "Lazer", "Outros"]
+    }
+    
+    df_history = pl.DataFrame(data)
+    
+    print(f"📊 Dados simulados (3 meses de histórico):")
+    print(df_history.select(["transaction_date", "description", "amount"]))
+    
+    # Rodar Detector
+    print_subsection("6.1 Executando RecurringDetector")
+    detector = RecurringDetector()
+    df_result = detector.detect(df_history)
+    
+    # Validar Assinatura (Netflix)
+    netflix = df_result.filter(pl.col("description") == "NETFLIX.COM")
+    is_netflix_recurring = netflix["is_recurring"].all()
+    
+    # Validar Parcelamento (Magalu)
+    magalu = df_result.filter(pl.col("description").str.contains("MAGALU"))
+    is_magalu_installment = magalu["is_installment"].all()
+    installment_info = magalu["installment_info"][0]
+    
+    print(f"\n✅ Resultados:")
+    print(f"   Netflix é recorrente? {is_netflix_recurring} (Esperado: True)")
+    print(f"   Magalu é parcelado? {is_magalu_installment} (Esperado: True)")
+    print(f"   Info da parcela: {installment_info} (Esperado: '10/10')")
+    
+    assert is_netflix_recurring, "Falha ao detectar assinatura da Netflix"
+    assert is_magalu_installment, "Falha ao detectar parcelamento Magalu"
+    
+    # Imprimir estatísticas bonitas
+    print_recurring_stats(df_result)
 
 if __name__ == "__main__":
     success = run_all_tests()
