@@ -11,6 +11,12 @@ def generate_daily_forecast(
     Gera saldo projetado dia a dia.
     """
 
+    # 🔒 Normalização defensiva do tipo de data
+    if transactions.schema.get("date") != pl.Date:
+        transactions = transactions.with_columns(
+            pl.col("date").str.strptime(pl.Date, strict=False)
+        )
+
     today = date.today()
     future_dates = [today + timedelta(days=i) for i in range(days)]
 
