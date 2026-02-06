@@ -1,3 +1,4 @@
+#app/domain/finance_engine
 class FinanceEngine:
 
     def calculate_summary(self, income: float, expenses: float):

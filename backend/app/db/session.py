@@ -1,3 +1,4 @@
+#app/db/session
 import duckdb
 import polars as pl
 

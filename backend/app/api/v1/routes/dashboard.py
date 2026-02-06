@@ -1,3 +1,4 @@
+#app/api/v1/routes/dashboard
 from fastapi import APIRouter
 from app.domain.finance_engine import FinanceEngine
 from app.domain.safe_to_spend_engine import SafeToSpendEngine

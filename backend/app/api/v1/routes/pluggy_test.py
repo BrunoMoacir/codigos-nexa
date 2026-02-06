@@ -1,3 +1,4 @@
+#app/api/v1/routes/pluggy_test
 from fastapi import APIRouter
 from app.integrations.open_finance.pluggy_mock import MockPluggyClient
 # futuramente: from app.integrations.open_finance.pluggy import PluggyClient

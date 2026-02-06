@@ -1,3 +1,4 @@
+#app/services/finance_engine_service
 from app.core_engine.safe_to_spend.engine import SafeToSpendEngine
 from app.core_engine.profile.analyzer import UserProfileAnalyzer
 from app.core_engine.shadow_invoices.detector import ShadowInvoiceDetector
