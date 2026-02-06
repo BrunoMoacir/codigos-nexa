@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from app.api.v1.router import router as api_router
+from app.api.v1.routes.dashboard import router as dashboard_router
 
 app = FastAPI(
     title="Nexa API",
@@ -8,6 +9,8 @@ app = FastAPI(
 
 # Registra as rotas da API v1
 app.include_router(api_router, prefix="/api/v1")
+
+app.include_router(dashboard_router)
 
 @app.get("/health")
 def health():
