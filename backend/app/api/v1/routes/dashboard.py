@@ -1,20 +1,32 @@
 from fastapi import APIRouter
+from app.domain.finance_engine import FinanceEngine
+from app.domain.safe_to_spend_engine import SafeToSpendEngine
 
 router = APIRouter(
     prefix="/dashboard",
     tags=["Dashboard"]
 )
 
+finance_engine = FinanceEngine()
+safe_engine = SafeToSpendEngine()
 
-@router.get("/health-score")
-def get_health_score():
+
+@router.get("/summary")
+def dashboard_summary():
+    income = 7200
+    expenses = 5300
+    return finance_engine.calculate_summary(income, expenses)
+
+
+@router.get("/safe-to-spend")
+def safe_to_spend():
     """
-    Endpoint temporário para validar a estrutura do dashboard.
-    Depois será ligado ao ETL + Pluggy.
+    Quanto o usuário pode gastar com segurança hoje.
     """
-    return {
-        "income": 7200,
-        "expenses": 5300,
-        "savings_rate": 26.3,
-        "health_score": 85
-    }
+
+    return safe_engine.calculate(
+        current_balance=3800,
+        upcoming_fixed_expenses=2100,
+        upcoming_subscriptions=180,
+        upcoming_installments=620
+    )
