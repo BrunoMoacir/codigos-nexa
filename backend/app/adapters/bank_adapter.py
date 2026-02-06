@@ -1,3 +1,4 @@
+"backend/app/adapters/bank_adapter.py"
 from datetime import datetime, timezone
 from uuid import uuid4
 from decimal import Decimal

@@ -1,3 +1,4 @@
+# backend/app/cashflow/safe_to_spend.py
 class SafeToSpendCalculator:
     """
     Calcula quanto o usuário pode gastar com segurança.

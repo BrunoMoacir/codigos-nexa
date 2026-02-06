@@ -1,3 +1,4 @@
+#backend/app/schemas/enums.py
 """
 Enums compartilhados entre validação Pydantic, BankStrategy e Polars.
 

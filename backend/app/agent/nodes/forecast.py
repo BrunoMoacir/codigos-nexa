@@ -1,3 +1,4 @@
+"backend/app/agent/nodes/forecast.py"
 from app.core.forecast import generate_daily_forecast, calculate_safe_to_spend
 
 def forecast_node(state):

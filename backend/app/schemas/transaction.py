@@ -1,3 +1,4 @@
+#backend/app/schemas/transactions.py
 """
 transaction.py - Schemas Pydantic para Transações Open Finance
 

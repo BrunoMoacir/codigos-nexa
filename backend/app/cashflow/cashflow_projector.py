@@ -1,4 +1,4 @@
-# app/etl/cashflow/cashflow_projector.py
+# backend/app/cashflow/cashflow_projector.py
 import polars as pl
 from datetime import datetime, timedelta, timezone
 
