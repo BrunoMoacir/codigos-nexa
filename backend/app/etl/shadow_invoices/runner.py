@@ -75,4 +75,4 @@ def run_shadow_invoice_detection(df: pl.DataFrame) -> pl.DataFrame:
     if not results:
         return pl.DataFrame()
     
-    return pl.concat(results)
+    return pl.concat(results, how="diagonal_relaxed")

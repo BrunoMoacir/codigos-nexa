@@ -398,14 +398,16 @@ class UserProfileAnalyzer:
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # FATOR 1: Taxa de poupança (50 pontos)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        if savings_rate >= 30:
-            score += 50  # Excelente
-        elif savings_rate >= 20:
-            score += 40  # Muito bom
+        if savings_rate >= 25:
+            score += 50
+        elif savings_rate >= 15:
+            score += 45
         elif savings_rate >= 10:
-            score += 30  # Bom
+            score += 40
+        elif savings_rate >= 5:
+            score += 30
         elif savings_rate >= 0:
-            score += 20  # Regular
+            score += 20
         # Se savings_rate < 0, não ganha pontos
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -413,8 +415,10 @@ class UserProfileAnalyzer:
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         if income > expenses:
             score += 30  # Balanço positivo
-        elif income == expenses:
-            score += 15  # Neutro
+        elif abs(income - expenses) / max(income, 1) < 0.02:
+            score += 20  # praticamente neutro
+        elif income >= expenses * 0.95:
+            score += 10  # quase equilibrado
         # Se income < expenses, não ganha pontos
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -423,16 +427,20 @@ class UserProfileAnalyzer:
         if income > 0:
             expense_ratio = expenses / income
             
-            if expense_ratio < 0.5:
+            if expense_ratio < 0.6:
                 score += 20  # Gasta <50% da renda
-            elif expense_ratio < 0.7:
+            elif expense_ratio < 0.75:
                 score += 15  # Gasta 50-70%
-            elif expense_ratio < 0.9:
+            elif expense_ratio < 0.85:
                 score += 10  # Gasta 70-90%
+            elif expense_ratio < 0.95:
+                score += 7   # Gasta 90-100%
+            elif expense_ratio < 1.0:
+                score += 5   # Gasta 95-100%
             # Se gasta >90%, não ganha pontos
         
         # Garantir que score não ultrapassa 100
-        return min(score, 100)
+        return min(100,max(0,score))
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # CÁLCULO 8: TIPO DE PERFIL

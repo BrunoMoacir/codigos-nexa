@@ -178,7 +178,6 @@ class InstallmentDetector(ShadowInvoiceDetector):
             pl.struct([
                 pl.col("original_desc").alias("description"),
                 pl.col("occurrences").alias("occurrences"),
-                pl.lit(None).cast(pl.Utf8).alias("installment_info")  # Será preenchido depois
             ]).alias("metadata"),
             pl.lit(0.9).alias("confidence")  # Alta confiança (keyword presente)
         ])
@@ -228,7 +227,6 @@ class InstallmentDetector(ShadowInvoiceDetector):
             pl.struct([
                 pl.col("description").alias("description"),
                 pl.col("occurrences").alias("occurrences"),
-                pl.lit(None).cast(pl.Utf8).alias("installment_info")
             ]).alias("metadata"),
             pl.lit(0.7).alias("confidence")  # Confiança menor (sem keyword)
         ])
