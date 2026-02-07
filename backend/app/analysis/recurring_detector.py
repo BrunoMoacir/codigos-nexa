@@ -17,7 +17,7 @@ class RecurringDetector:
     já existente no core.
     """
 
-    def detect(self, df: pl.DataFrame) -> pl.DataFrame:
+    def run(self, df: pl.DataFrame) -> pl.DataFrame:
         """
         Detecta recorrência nas transações.
 

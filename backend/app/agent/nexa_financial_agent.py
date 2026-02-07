@@ -1,107 +1,97 @@
 """
-app/agent/financial_agent.py
+Nexa Financial Agent - Cérebro financeiro da Nexa
 
-Motor central de inteligência financeira da Nexa.
+Orquestra todos os motores financeiros:
+    - Recorrência
+    - Shadow invoices
+    - Perfil financeiro
+    - Projeção de fluxo de caixa
+    - Safe-to-spend
 
-Responsabilidades:
-- Executar o pipeline financeiro completo do usuário:
-    ETL → Recorrência → Shadow Invoices → Perfil → Cashflow → Safe-to-Spend
-
-- Produzir uma resposta unificada, pronta para consumo pela API / dashboard.
-
-Este módulo representa o "cérebro" da plataforma.
+Objetivo:
+    Gerar diagnóstico financeiro completo e acionável.
 """
 
-from typing import Dict, Any
+from typing import Dict, List
+import polars as pl
 
 from app.analysis.recurring_detector import RecurringDetector
 from app.analysis.shadow_invoice_detector import ShadowInvoiceDetector
 from app.analysis.user_profile_analyzer import UserProfileAnalyzer
 
 from app.cashflow.projector import CashflowProjector
-from app.cashflow.safe_to_spend import SafeToSpendEngine
-
-from app.etl.runner import run_full_etl_pipeline
-
+from app.cashflow.safe_to_spend import SafeToSpendCalculator
 
 
 class FinancialAgent:
     """
-    Orquestrador financeiro principal.
-
-    Este agente executa TODA a inteligência financeira:
-        - Carrega dados bancários
-        - Processa ETL
-        - Detecta recorrência
-        - Detecta shadow invoices
-        - Analisa perfil financeiro
-        - Projeta fluxo de caixa futuro
-        - Calcula Safe-to-Spend
-
-    Ele transforma dados bancários brutos em inteligência financeira acionável.
+    Agente financeiro principal da Nexa.
     """
 
     def __init__(self):
-        # Inicializa os motores de análise
         self.recurring_detector = RecurringDetector()
         self.shadow_invoice_detector = ShadowInvoiceDetector()
         self.user_profile_analyzer = UserProfileAnalyzer()
+
         self.cashflow_projector = CashflowProjector()
-        self.safe_to_spend_engine = SafeToSpendEngine()
+        self.safe_to_spend_calculator = SafeToSpendCalculator()
 
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # MÉTODO PRINCIPAL — EXECUTA O PIPELINE COMPLETO
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    def run(self, user_id: str) -> Dict[str, Any]:
+    def run(self, transactions: List[Dict]) -> Dict:
         """
-        Executa o pipeline financeiro completo para um usuário.
+        Executa pipeline financeiro completo.
 
         Args:
-            user_id (str): Identificador único do usuário.
+            transactions: Lista de transações normalizadas.
 
         Returns:
-            Dict com:
-                - perfil financeiro
-                - projeção de saldo
-                - shadow invoices
-                - safe_to_spend
-                - risco financeiro
+            Diagnóstico financeiro completo.
         """
 
-        # ==========================================================
-        # STEP 1 — Executar ETL completo
-        # ==========================================================
-        etl_result = run_full_etl_pipeline(user_id=user_id)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # STEP 1 — Perfil Financeiro
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-        transactions = etl_result["transactions"]
-        balances = etl_result.get("balances", {})
+        profile = self.user_profile_analyzer.analyze(transactions)
 
-        # ==========================================================
-        # STEP 2 — Detectar recorrências
-        # ==========================================================
-        recurring_result = self.recurring_detector.detect(transactions)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # STEP 2 — Recorrências
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-        # ==========================================================
-        # STEP 3 — Detectar shadow invoices (obrigações futuras)
-        # ==========================================================
-        shadow_invoices = self.shadow_invoice_detector.detect(
-            recurring_transactions=recurring_result["recurring"],
-            installment_transactions=recurring_result["installments"]
+        recurring = self.recurring_detector.run(transactions)
+
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # STEP 3 — Shadow Invoices
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        shadow_invoices = self.shadow_invoice_detector.run(transactions)
+
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # STEP 4 — Projeção de Cashflow
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        df = pl.DataFrame(transactions)
+
+        projection_df = self.cashflow_projector.project(
+            transactions_df=df
         )
 
-        # ==========================================================
-        # STEP 4 — Analisar perfil financeiro do usuário
-        # ==========================================================
-        user_profile = self.user_profile_analyzer.analyze(transactions)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # STEP 5 — Safe To Spend
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-        # ==========================================================
-        # STEP 5 — Projetar fluxo de caixa futuro
-        # ==========================================================
-        forecast = self.cashflow_projector.project(
-            current_balance=balances.get("current_balance", 0.0),
-            recurring_expenses=shadow_invoices["monthly_commitment"],
+        safe_to_spend = self.safe_to_spend_calculator.calculate(
+            projection_df=projection_df,
             horizon_days=30
         )
 
-        # =========================================
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # RESULTADO FINAL
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        return {
+            "profile": profile,
+            "recurring": recurring,
+            "shadow_invoices": shadow_invoices,
+            "cashflow_projection": projection_df.to_dicts(),
+            "safe_to_spend": safe_to_spend.to_dict()
+        }
