@@ -1,34 +1,53 @@
-#backend/app/core/recurrency.py
-import polars as pl
-from datetime import timedelta
+import pandas as pd
+from typing import List, Dict
 
-def detect_recurring_transactions(df: pl.DataFrame) -> pl.DataFrame:
+
+def detect_recurring(transactions: List[Dict]) -> List[Dict]:
     """
-    Marca transações recorrentes (mensal, semanal).
+    Detecta receitas e despesas recorrentes com base em frequência mensal.
+
+    Heurística:
+      - Mesmo valor aproximado
+      - Mesmo nome normalizado
+      - Frequência >= 2 meses
+
+    Retorna:
+      Lista de padrões recorrentes detectados
     """
 
-    df = df.with_columns([
-        pl.col("date").cast(pl.Date)
-    ])
+    if not transactions:
+        return []
+
+    df = pd.DataFrame(transactions)
+
+    if df.empty:
+        return []
+
+    df["date"] = pd.to_datetime(df["date"])
+    df["month"] = df["date"].dt.to_period("M")
+    df["description"] = df["description"].str.lower().str.strip()
 
     grouped = (
-        df.group_by(["description", "amount"])
-        .agg([
-            pl.count().alias("count"),
-            pl.col("date").min().alias("first_date"),
-            pl.col("date").max().alias("last_date")
-        ])
-        .filter(pl.col("count") >= 3)
+        df.groupby(["description", "amount"])
+        .agg(
+            months=("month", "nunique"),
+            total_occurrences=("amount", "count"),
+        )
+        .reset_index()
     )
 
-    recurring_keys = grouped.select(["description", "amount"])
+    recurring = grouped[grouped["months"] >= 2]
 
-    return (
-        df.join(recurring_keys, on=["description", "amount"], how="left")
-          .with_columns(
-              pl.when(pl.col("description").is_not_null())
-              .then(True)
-              .otherwise(False)
-              .alias("is_recurring")
-          )
-    )
+    patterns = []
+
+    for _, row in recurring.iterrows():
+        patterns.append(
+            {
+                "description": row["description"],
+                "amount": float(row["amount"]),
+                "months": int(row["months"]),
+                "occurrences": int(row["total_occurrences"]),
+            }
+        )
+
+    return patterns

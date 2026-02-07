@@ -1,41 +1,59 @@
-#backend/app/core/shadow_invoices.py
-import polars as pl
-from datetime import date
+import pandas as pd
+from typing import List, Dict
 
-def detect_installments(df: pl.DataFrame) -> pl.DataFrame:
+
+def detect_shadow_invoices(transactions: List[Dict]) -> List[Dict]:
     """
-    Detecta padrões de parcelas (ex: 3x, 6x, 12x).
+    Detecta possíveis cobranças invisíveis:
+      - Débitos recorrentes pequenos
+      - Valores baixos
+      - Frequência mensal
+
+    Heurística:
+      - valor absoluto <= 100
+      - frequência >= 3 meses
+      - descrição semelhante
     """
 
-    patterns = ["x", "parcela", "parcelado"]
+    if not transactions:
+        return []
 
-    return df.with_columns(
-        pl.col("description")
-        .str.to_lowercase()
-        .str.contains_any(patterns)
-        .alias("is_installment")
+    df = pd.DataFrame(transactions)
+
+    if df.empty:
+        return []
+
+    df["date"] = pd.to_datetime(df["date"])
+    df["month"] = df["date"].dt.to_period("M")
+    df["description"] = df["description"].str.lower().str.strip()
+
+    df = df[df["amount"] < 0]
+    df["abs_amount"] = df["amount"].abs()
+
+    df = df[df["abs_amount"] <= 100]
+
+    grouped = (
+        df.groupby(["description"])
+        .agg(
+            months=("month", "nunique"),
+            avg_amount=("abs_amount", "mean"),
+            occurrences=("abs_amount", "count"),
+        )
+        .reset_index()
     )
 
+    suspects = grouped[grouped["months"] >= 3]
 
-def generate_future_installments(df: pl.DataFrame, months_forward: int = 12) -> pl.DataFrame:
-    """
-    Projeta parcelas futuras detectadas.
-    """
+    results = []
 
-    installments = df.filter(pl.col("is_installment") == True)
+    for _, row in suspects.iterrows():
+        results.append(
+            {
+                "description": row["description"],
+                "avg_amount": round(float(row["avg_amount"]), 2),
+                "months": int(row["months"]),
+                "occurrences": int(row["occurrences"]),
+            }
+        )
 
-    future_rows = []
-
-    for row in installments.iter_rows(named=True):
-        for i in range(1, months_forward + 1):
-            future_rows.append({
-                "date": row["date"].add_months(i),
-                "amount": row["amount"],
-                "description": f"{row['description']} (shadow)",
-                "is_shadow": True
-            })
-
-    if not future_rows:
-        return pl.DataFrame()
-
-    return pl.DataFrame(future_rows)
+    return results

@@ -6,6 +6,7 @@ Registra todas as rotas disponíveis.
 
 from fastapi import APIRouter
 from app.api.v1.routes import analyze
+from app.api.v1.routes import cashflow
 
 # Importar rotas existentes
 from app.api.v1.routes import pluggy_test, bank_simulation
@@ -28,6 +29,8 @@ router.include_router(pluggy_test.router)
 router.include_router(bank_simulation.router)
 
 router.include_router(analyze.router)
+
+router.include_router(cashflow.router)
 
 
 # ✅ NOVA: Rota de transações (produção - webhook Pluggy)
