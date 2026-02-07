@@ -1,5 +1,5 @@
 """
-test_schemas_complete.py - Validação Completa de TODOS os Schemas
+test_schemas_complete.py - Validação Completa de TODOS os Schemas (CORRIGIDO)
 
 OBJETIVO:
     Validar todos os schemas Pydantic do sistema para garantir que:
@@ -24,6 +24,11 @@ SCHEMAS TESTADOS:
     12. FinancialHealthResponse (saúde financeira)
     13. MonthlyForecastResponse (previsão mensal)
     14. ForecastResponse (forecast completo)
+
+CORREÇÕES APLICADAS:
+    ✅ CORREÇÃO 1: Campo "date" → "projection_date" (CashflowProjectionPoint)
+    ✅ CORREÇÃO 2: Campo "shadow_amount" → "expenses" (CashflowProjectionPoint)
+    ✅ CORREÇÃO 3: Adicionado "id" ao batch Itaú (TransactionBatchResult)
 
 EXECUÇÃO:
     cd backend
@@ -197,6 +202,10 @@ def test_transaction_batch_result():
     
     subheader("TESTE 1.5: TransactionBatchResult - Validação Tolerante")
     
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ✅ CORREÇÃO 3 APLICADA: Adicionado "id": "txn_2" ao batch Itaú
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
     # Batch com transações válidas e inválidas
     raw_batch = [
         # Válida (Nubank)
@@ -209,6 +218,7 @@ def test_transaction_batch_result():
         },
         # Válida (Itaú - campos PT)
         {
+            "id": "txn_2",  # ✅ CORRIGIDO: Adicionado campo obrigatório
             "conta": "acc_2",
             "valor": "100,50",
             "data": "15/01/2024 10:00:00",
@@ -225,7 +235,7 @@ def test_transaction_batch_result():
     try:
         result = TransactionBatchResult.from_raw_batch(
             raw_data=raw_batch,
-            institution_id="nubank",
+            institution_id="itau",  # ✅ CORRIGIDO: "nubank" → "itau" para testar mapeamento
             item_id="item_123",
             fetched_at=datetime.now(timezone.utc)
         )
@@ -330,19 +340,24 @@ def test_cashflow_schemas():
     
     subheader("TESTE 3.1: CashflowProjectionPoint")
     
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ✅ CORREÇÃO 1 APLICADA: "date" → "projection_date"
+    # ✅ CORREÇÃO 2 APLICADA: "shadow_amount" → "expenses"
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
     point_data = {
-        "date": date(2026, 3, 5),
+        "projection_date": date(2026, 3, 5),  # ✅ CORRIGIDO
         "projected_balance": 4950.10,
-        "shadow_amount": -49.90,
+        "expenses": -49.90,  # ✅ CORRIGIDO
         "risk_flag": None
     }
     
     try:
         point = CashflowProjectionPoint(**point_data)
         success("CashflowProjectionPoint criado")
-        success(f"  • Date: {point.date}")
+        success(f"  • Date: {point.projection_date}")  # ✅ CORRIGIDO
         success(f"  • Balance: R$ {point.projected_balance}")
-        success(f"  • Shadow: R$ {point.shadow_amount}")
+        success(f"  • Expenses: R$ {point.expenses}")  # ✅ CORRIGIDO
         
     except Exception as e:
         error(f"FALHOU: {e}")
@@ -695,7 +710,7 @@ def test_edge_cases():
 
 def main():
     """Executa todos os testes de schemas."""
-    header("VALIDAÇÃO COMPLETA DE SCHEMAS")
+    header("VALIDAÇÃO COMPLETA DE SCHEMAS (CORRIGIDO)")
     
     tests = [
         ("1. TRANSACTION SCHEMAS", test_transaction_webhook),

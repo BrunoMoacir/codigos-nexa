@@ -132,3 +132,51 @@ class Currency(str, Enum):
     USD = "USD"  # Dólar Americano
     EUR = "EUR"  # Euro
     GBP = "GBP"  # Libra Esterlina
+
+class TransactionType(str, Enum):
+    """
+    Tipo da transação (débito ou crédito).
+    
+    Usado para:
+        - Normalização de sinal do amount
+        - Classificação de fluxo de caixa
+        - Validação de consistência
+    """
+    DEBIT = "DEBIT"      # Débito (saída de dinheiro)
+    CREDIT = "CREDIT"    # Crédito (entrada de dinheiro)
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ✅ NOVO: CATEGORY TYPE (para classificação)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class CategoryType(str, Enum):
+    """
+    Categorias de transações financeiras.
+    
+    Usado por:
+        - CatBoost (classificação ML)
+        - Frontend (filtros e gráficos)
+        - Engines (análise de gastos)
+    
+    Categorias:
+        - ALIMENTACAO: Supermercados, restaurantes, delivery
+        - TRANSPORTE: Uber, gasolina, estacionamento
+        - MORADIA: Aluguel, condomínio, IPTU
+        - SAUDE: Farmácia, médicos, plano de saúde
+        - EDUCACAO: Escolas, cursos, livros
+        - LAZER: Streaming, cinema, viagens
+        - COMPRAS: Roupas, eletrônicos, online
+        - SERVICOS: Telefone, internet, luz, água
+        - INVESTIMENTOS: Aplicações, ações, fundos
+        - OUTROS: Não classificado
+    """
+    ALIMENTACAO = "ALIMENTACAO"
+    TRANSPORTE = "TRANSPORTE"
+    MORADIA = "MORADIA"
+    SAUDE = "SAUDE"
+    EDUCACAO = "EDUCACAO"
+    LAZER = "LAZER"
+    COMPRAS = "COMPRAS"
+    SERVICOS = "SERVICOS"
+    INVESTIMENTOS = "INVESTIMENTOS"
+    OUTROS = "OUTROS"
