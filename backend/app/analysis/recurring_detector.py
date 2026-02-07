@@ -1,3 +1,4 @@
+#app/analysis/cashflow_projector
 """
 RecurringDetector
 
