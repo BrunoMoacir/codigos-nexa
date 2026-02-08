@@ -1,3 +1,4 @@
+#app/insights/engine.py
 """
 Engine de geração de insights financeiros.
 Transforma números em mensagens úteis para o usuário.

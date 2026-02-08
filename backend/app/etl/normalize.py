@@ -1,3 +1,4 @@
+#app/etl/normalize.py
 """
 Normalização de transações financeiras.
 """

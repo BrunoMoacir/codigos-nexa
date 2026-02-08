@@ -1,3 +1,4 @@
+#app/agent/nexa_financial_agent
 """
 Nexa Financial Agent - Cérebro financeiro da Nexa
 
