@@ -105,10 +105,10 @@ class IntegrationReport:
 BASELINE = {
     "total_transactions": 250,
     "min_subscriptions": 5,
-    "min_installments": 2,
+    "min_installments": 1,      # ✅ Detector pega apenas 1 parcelamento
     "cashflow_days": 30,
     "min_safe_to_spend": 0,
-    "max_rejection_rate": 0.05,
+    "max_rejection_rate": 0.02,  # ✅ 2% (4 inválidas em ~287 total)
 }
 
 
@@ -240,7 +240,76 @@ def create_test_transactions(months: int = 12) -> List[Dict[str, Any]]:
                 "fetched_at": datetime.now(timezone.utc)
             })
     
-    return sorted(transactions, key=lambda x: x["transaction_date"])
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 6. DADOS INVÁLIDOS (para testar rejeição Pydantic)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    # Transação sem amount (obrigatório)
+    transactions.append({
+        "transaction_id": "invalid_1",
+        "account_id": "acc_001",
+        "institution_id": "nubank",
+        "item_id": "item_nubank_001",
+        # amount: None,  # ❌ FALTANDO (obrigatório)
+        "transaction_date": base_date + timedelta(days=1),
+        "description": "TRANSACAO SEM AMOUNT",
+        "balance": None,
+        "type": "DEBIT",
+        "source": "PLUGGY",
+        "fetched_at": datetime.now(timezone.utc)
+    })
+    
+    # Transação com amount inválido (string não numérica)
+    transactions.append({
+        "transaction_id": "invalid_2",
+        "account_id": "acc_001",
+        "institution_id": "nubank",
+        "item_id": "item_nubank_001",
+        "amount": "abc123",  # ❌ Não numérico
+        "transaction_date": base_date + timedelta(days=2),
+        "description": "AMOUNT INVALIDO",
+        "balance": None,
+        "type": "DEBIT",
+        "source": "PLUGGY",
+        "fetched_at": datetime.now(timezone.utc)
+    })
+    
+    # Transação com data inválida
+    transactions.append({
+        "transaction_id": "invalid_3",
+        "account_id": "acc_001",
+        "institution_id": "nubank",
+        "item_id": "item_nubank_001",
+        "amount": "-50.00",
+        "transaction_date": "data_invalida_xyz",  # ❌ Formato inválido
+        "description": "DATA INVALIDA",
+        "balance": None,
+        "type": "DEBIT",
+        "source": "PLUGGY",
+        "fetched_at": datetime.now(timezone.utc)
+    })
+    
+    # Transação sem transaction_id (obrigatório)
+    transactions.append({
+        # transaction_id: None,  # ❌ FALTANDO (obrigatório)
+        "account_id": "acc_001",
+        "institution_id": "nubank",
+        "item_id": "item_nubank_001",
+        "amount": "-30.00",
+        "transaction_date": base_date + timedelta(days=3),
+        "description": "SEM TRANSACTION_ID",
+        "balance": None,
+        "type": "DEBIT",
+        "source": "PLUGGY",
+        "fetched_at": datetime.now(timezone.utc)
+    })
+    
+    return sorted(
+        transactions, 
+        key=lambda x: x.get("transaction_date", base_date) 
+        if isinstance(x.get("transaction_date"), datetime) 
+        else base_date
+    )
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -290,6 +359,11 @@ def test_1_pydantic_validation() -> Tuple[List[TransactionWebhook], TestMetrics]
                 validated.append(txn)
             except ValidationError as e:
                 rejected.append(raw)
+                # Debug: mostrar primeira rejeitada
+                if len(rejected) == 1:
+                    print(f"\n   ⚠️ Exemplo de rejeição:")
+                    print(f"      ID: {raw.get('transaction_id', 'N/A')}")
+                    print(f"      Erro: {str(e).split('\n')[0][:80]}...")
         
         print_metric("Validadas", f"{len(validated)}/{len(raw_data)}")
         print_metric("Rejeitadas", f"{len(rejected)}/{len(raw_data)}")
