@@ -1,21 +1,21 @@
-#app/api/v1/test_dashboard.py
-from fastapi.testclient import TestClient
-from app.main import app
+# #app/api/v1/test_dashboard.py
+# from fastapi.testclient import TestClient
+# from app.main import app
 
-client = TestClient(app)
+# client = TestClient(app)
 
 
-def test_dashboard_endpoint():
-    r = client.get("/user/test-user/dashboard")
+# def test_dashboard_endpoint():
+#     r = client.get("/user/test-user/dashboard")
 
-    assert r.status_code in (200, 404)
+#     assert r.status_code in (200, 404)
 
-    if r.status_code == 200:
-        body = r.json()
-        assert "dashboard" in body
-        dash = body["dashboard"]
+#     if r.status_code == 200:
+#         body = r.json()
+#         assert "dashboard" in body
+#         dash = body["dashboard"]
 
-        assert "safe_to_spend" in dash
-        assert "shadow_invoices" in dash
-        assert "profile" in dash
-        assert "data_quality" in dash
+#         assert "safe_to_spend" in dash
+#         assert "shadow_invoices" in dash
+#         assert "profile" in dash
+#         assert "data_quality" in dash

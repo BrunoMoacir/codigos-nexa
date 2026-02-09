@@ -1,7 +1,9 @@
 #app/api/v1/routes/dashboard
 from fastapi import APIRouter
 from app.domain.finance_engine import FinanceEngine
-from app.domain.safe_to_spend_engine import SafeToSpendEngine
+from app.cashflow.safe_to_spend import SafeToSpendCalculator
+from app.cashflow.projector import CashflowProjector
+from app.etl.shadow_invoices import run_shadow_invoice_detection
 
 router = APIRouter(
     prefix="/dashboard",

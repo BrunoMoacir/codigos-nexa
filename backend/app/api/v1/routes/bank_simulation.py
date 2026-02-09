@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from app.simulations.factory import simulate_bank
+from tests.fixtures.mocks.factory import simulate_bank
 
 router = APIRouter(
     prefix="/banks",

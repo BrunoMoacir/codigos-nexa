@@ -27,6 +27,18 @@ USAGE AVANÇADO (Componentes individuais):
 # IMPORTS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+from .projector import CashflowProjector, ProjectionSummary
+from .safe_to_spend import SafeToSpendCalculator, SafeToSpendResult
+from .engine import CashflowEngine
+
+__all__ = [
+    "CashflowProjector",
+    "ProjectionSummary",
+    "SafeToSpendCalculator",
+    "SafeToSpendResult",
+    "CashflowEngine",
+]
+
 from .projector import (
     CashflowProjector,
     ProjectionSummary,

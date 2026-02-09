@@ -1,7 +1,7 @@
 #backend/app/simulations/factory.py
-from app.simulations.itau import mock_itau, map_itau
-from app.simulations.nubank import mock_nubank, map_nubank
-from app.simulations.bb import mock_bb, map_bb
+from .itau import mock_itau, map_itau
+from .nubank import mock_nubank, map_nubank
+from .bb import mock_bb, map_bb
 
 
 def simulate_bank(bank: str):
