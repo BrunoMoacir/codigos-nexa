@@ -1872,15 +1872,19 @@ class TransactionBatchResult(BaseModel):
                 rejected.append(rejected_txn)
         
         # 4. Criar resultado
+        total_valid = len(valid)
+        total_rejected = len(rejected)
+        rejection_rate = total_rejected / len(raw_data) if len(raw_data) > 0 else 0.0
+        
         result = cls(
             batch_id=batch_id,
             institution_id=institution_id,
             valid_transactions=valid,
             rejected_transactions=rejected,
             total_received=len(raw_data),
-            total_valid=0,
-            total_rejected=0,
-            rejection_rate=0.0
+            total_valid=total_valid,
+            total_rejected=total_rejected,
+            rejection_rate=rejection_rate
         )
         
         return result

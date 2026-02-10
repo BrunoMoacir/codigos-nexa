@@ -17,7 +17,7 @@ USAGE AVANÇADO (Componentes individuais):
     from app.cashflow import CashflowProjector, SafeToSpendCalculator
     
     projector = CashflowProjector(horizon_days=30)
-    projection_df = projector.project(df, shadow_df)
+    projection_df = projector.project(transactions_df, shadow_df)
     
     calculator = SafeToSpendCalculator()
     sts = calculator.calculate(projection_df, 30)
@@ -31,44 +31,15 @@ from .projector import CashflowProjector, ProjectionSummary
 from .safe_to_spend import SafeToSpendCalculator, SafeToSpendResult
 from .engine import CashflowEngine
 
-__all__ = [
-    "CashflowProjector",
-    "ProjectionSummary",
-    "SafeToSpendCalculator",
-    "SafeToSpendResult",
-    "CashflowEngine",
-]
-
-from .projector import (
-    CashflowProjector,
-    ProjectionSummary,
-    project_cashflow
-)
-
-from .safe_to_spend import (
-    SafeToSpendCalculator,
-    SafeToSpendResult,
-    calculate_safe_to_spend
-)
-
-from .engine import CashflowEngine
-
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # API PÚBLICA
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 __all__ = [
-    # Projector (lógica de projeção)
     "CashflowProjector",
     "ProjectionSummary",
-    "project_cashflow",
-    
-    # Safe-to-Spend (lógica de cálculo)
     "SafeToSpendCalculator",
     "SafeToSpendResult",
-    "calculate_safe_to_spend",
-    
-    # Engine (orquestrador)
     "CashflowEngine",
 ]
 
