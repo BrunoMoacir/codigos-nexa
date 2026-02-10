@@ -11,7 +11,7 @@ router = APIRouter(
 )
 
 finance_engine = FinanceEngine()
-safe_engine = SafeToSpendEngine()
+# safe_engine = SafeToSpendEngine()
 
 
 @router.get("/summary")
