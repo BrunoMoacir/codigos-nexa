@@ -1,0 +1,76 @@
+{
+  "validation_date": "2026-02-13T14:59:09.109420",
+  "synthetic_test_results": [
+    {
+      "transaction_id": "test_1",
+      "description": "Uber viagem centro",
+      "predicted": "PF",
+      "expected": "PF",
+      "correct": "✅"
+    },
+    {
+      "transaction_id": "test_2",
+      "description": "Netflix mensal",
+      "predicted": "PF",
+      "expected": "PF",
+      "correct": "✅"
+    },
+    {
+      "transaction_id": "test_3",
+      "description": "Compra Carrefour",
+      "predicted": "PF",
+      "expected": "PF",
+      "correct": "✅"
+    },
+    {
+      "transaction_id": "test_4",
+      "description": "Salário empresa ABC Ltda",
+      "predicted": "PJ",
+      "expected": "PJ",
+      "correct": "✅"
+    },
+    {
+      "transaction_id": "test_5",
+      "description": "Aluguel escritório",
+      "predicted": "PJ",
+      "expected": "PJ",
+      "correct": "✅"
+    },
+    {
+      "transaction_id": "test_6",
+      "description": "Compra material escritório papelaria",
+      "predicted": "PJ",
+      "expected": "PJ",
+      "correct": "✅"
+    },
+    {
+      "transaction_id": "test_7",
+      "description": "Transação sem categoria",
+      "predicted": "UNCERTAIN",
+      "expected": "UNCERTAIN",
+      "correct": "N/A"
+    },
+    {
+      "transaction_id": "test_8",
+      "description": "PIX recebido amigo",
+      "predicted": "PF",
+      "expected": "PF",
+      "correct": "✅"
+    },
+    {
+      "transaction_id": "test_9",
+      "description": "Compra corporativa",
+      "predicted": "PJ",
+      "expected": "PJ",
+      "correct": "✅"
+    }
+  ],
+  "statistics": {
+    "total": 9,
+    "pf_count": 4,
+    "pj_count": 4,
+    "uncertain_count": 1,
+    "accuracy": 0.8888888888888888,
+    "correct_predictions": 8
+  }
+}

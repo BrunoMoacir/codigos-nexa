@@ -15,6 +15,7 @@ import polars as pl
 import pandas as pd
 import joblib
 import logging
+import os
 from datetime import datetime
 import re
 from typing import Dict, Any, Optional
@@ -32,9 +33,9 @@ class PFPJClassifier:
     3. Retorna 'PF', 'PJ' ou 'UNCERTAIN'
     """
 
-    def __init__(self, model_path: str = "models/pf_pj_classifier.pkl",
-                 encoders_path: str = "models/feature_encoders.pkl",
-                 scaler_path: str = "models/feature_scaler.pkl"):
+    def __init__(self, model_path: str = None,
+                 encoders_path: str = None,
+                 scaler_path: str = None):
         """
         Inicializa classificador.
 
@@ -43,6 +44,14 @@ class PFPJClassifier:
             encoders_path: Caminho para encoders categóricos
             scaler_path: Caminho para scaler numérico
         """
+        # Define caminhos padrão relativos ao backend
+        if model_path is None:
+            model_path = os.path.join(os.path.dirname(__file__), '..', '..', 'models', 'pf_pj_classifier.pkl')
+        if encoders_path is None:
+            encoders_path = os.path.join(os.path.dirname(__file__), '..', '..', 'models', 'feature_encoders.pkl')
+        if scaler_path is None:
+            scaler_path = os.path.join(os.path.dirname(__file__), '..', '..', 'models', 'feature_scaler.pkl')
+
         self.model = None
         self.encoders = {}
         self.scaler = None
@@ -131,7 +140,12 @@ class PFPJClassifier:
             # Encode categóricas
             for col in ['transaction_type', 'amount_category', 'category', 'merchant_category']:
                 if col in features_df.columns and col in self.encoders:
-                    features_df[col] = self.encoders[col].transform(features_df[col].astype(str))
+                    # Trata valores desconhecidos mapeando para a primeira classe conhecida
+                    encoder = self.encoders[col]
+                    features_df[col] = features_df[col].astype(str).apply(
+                        lambda x: x if x in encoder.classes_ else encoder.classes_[0]
+                    )
+                    features_df[col] = encoder.transform(features_df[col])
 
             # Scale numéricas
             numerical_cols = ['hour_of_day', 'day_of_week', 'amount', 'amount_abs', 'amount_log',
@@ -161,21 +175,31 @@ class PFPJClassifier:
         Extrai features da transação para ML.
         Mesmo código usado no treinamento.
         """
-        # Dados básicos
-        description = transaction.get('description', '')
-        category = transaction.get('category', '')
-        amount = transaction.get('amount', 0)
-        merchant = transaction.get('merchant', '')
+        # Dados básicos com tratamento de None
+        description = transaction.get('description', '') or ''
+        category = transaction.get('category', '') or ''
+        amount = transaction.get('amount', 0) or 0
+        merchant = transaction.get('merchant', '') or ''
 
-        # Features temporais
+        # Features temporais com tratamento de None
         transaction_date = transaction.get('transaction_date')
         if isinstance(transaction_date, str):
-            transaction_date = datetime.fromisoformat(transaction_date.replace('Z', '+00:00'))
+            try:
+                transaction_date = datetime.fromisoformat(transaction_date.replace('Z', '+00:00'))
+            except:
+                transaction_date = None
+        elif not isinstance(transaction_date, datetime):
+            transaction_date = None
 
         hour_of_day = transaction_date.hour if transaction_date else 12
         day_of_week = transaction_date.weekday() + 1 if transaction_date else 1  # 1=Seg
 
-        # Features monetárias
+        # Features monetárias com tratamento de None
+        try:
+            amount = float(amount) if amount is not None else 0.0
+        except (ValueError, TypeError):
+            amount = 0.0
+
         amount_abs = abs(amount)
         amount_log = math.log(amount_abs + 1) if amount_abs > 0 else 0
         transaction_type = 'credit' if amount > 0 else 'debit'
@@ -201,7 +225,7 @@ class PFPJClassifier:
                       'imobiliaria', 'viagem negocios', 'software', 'corporativo', 'marketing',
                       'cemig empresas', 'consultoria', 'contador']
 
-        description_lower = description.lower()
+        description_lower = description.lower() if description else ''
         pf_keyword_score = sum(1 for kw in pf_keywords if kw in description_lower)
         pj_keyword_score = sum(1 for kw in pj_keywords if kw in description_lower)
 
@@ -274,11 +298,25 @@ class PFPJFallbackClassifier:
 
     def classify(self, transaction: Dict[str, Any]) -> str:
         """Classifica usando regras determinísticas"""
-        description = transaction.get('description', '').lower()
-        category = transaction.get('category', '')
-        amount = abs(transaction.get('amount', 0))
-        hour_of_day = transaction.get('transaction_date', datetime.now()).hour if isinstance(transaction.get('transaction_date'), datetime) else 12
-        merchant = transaction.get('merchant', '').lower()
+        description = transaction.get('description', '') or ''
+        category = transaction.get('category', '') or ''
+        amount = transaction.get('amount', 0) or 0
+        transaction_date = transaction.get('transaction_date')
+        hour_of_day = 12  # default
+        if isinstance(transaction_date, datetime):
+            hour_of_day = transaction_date.hour
+        elif isinstance(transaction_date, str):
+            try:
+                parsed_date = datetime.fromisoformat(transaction_date.replace('Z', '+00:00'))
+                hour_of_day = parsed_date.hour
+            except:
+                pass
+        merchant = transaction.get('merchant', '') or ''
+
+        # Converte para tipos apropriados
+        description = description.lower()
+        merchant = merchant.lower()
+        amount = abs(amount)
 
         # Regras de alta prioridade
         if category in self.pj_categories:
