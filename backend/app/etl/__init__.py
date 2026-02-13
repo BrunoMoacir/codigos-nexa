@@ -26,7 +26,8 @@ from app.etl import (
     TransactionClassifier,
     RecurringDetector,
     DataQualityValidator,
-    UserProfileAnalyzer
+    UserProfileAnalyzer,
+    PFPJClassifier  # Novo classificador PF/PJ
 )
 
 ingestor = TransactionIngestor()
@@ -86,6 +87,9 @@ from .bank_strategy import get_bank_strategy
 # Shadow Invoices
 from .shadow_invoices import run_shadow_invoice_detection
 
+# PF/PJ Classifier (F4 - Divider PF/PJ)
+from .pf_pj_classifier import PFPJClassifier
+
 # TODO: Cashflow (próximo módulo)
 # from .cashflow import CashflowProjector, SafeToSpendCalculator
 
@@ -131,6 +135,12 @@ __all__ = [
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
     "run_shadow_invoice_detection",  # Detecta obrigações futuras (Subscriptions + Installments)
+    
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # PF/PJ CLASSIFIER (F4 - Divider PF/PJ) ✅ NOVO
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    "PFPJClassifier",  # Classifica transações PF vs PJ (ML + Rules Fallback)
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # TODO: CASHFLOW (próximo módulo)

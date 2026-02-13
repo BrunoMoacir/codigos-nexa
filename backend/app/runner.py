@@ -46,6 +46,7 @@ from app.etl import (
     TransactionClassifier,
     RecurringDetector,
     run_shadow_invoice_detection,
+    PFPJClassifier,  # Novo classificador PF/PJ
 )
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -65,10 +66,11 @@ class NexaRunner:
         2. Validação (Pydantic) → TransactionBatchResult
         3. ETL Ingestor → Normalização + BankStrategy + DuckDB
         4. ETL Classifier → Categorização automática
-        5. Recurring Detector → Detecção de padrões
-        6. Shadow Invoice ETL → Projeção de obrigações futuras
-        7. Cashflow Projector → Simulação diária de saldo
-        8. Safe-to-Spend → Quanto pode gastar com segurança
+        5. PF/PJ Classifier → Classificação PF vs PJ (ML + Rules)
+        6. Recurring Detector → Detecção de padrões
+        7. Shadow Invoice ETL → Projeção de obrigações futuras
+        8. Cashflow Projector → Simulação diária de saldo
+        9. Safe-to-Spend → Quanto pode gastar com segurança
 
     Ele NÃO implementa regras financeiras.
     Ele apenas executa as etapas na ordem correta.
@@ -92,6 +94,7 @@ class NexaRunner:
         # Inicializar componentes do pipeline
         self.ingestor = TransactionIngestor()
         self.classifier = TransactionClassifier(mode="RULES")
+        self.pf_pj_classifier = PFPJClassifier()  # Novo classificador PF/PJ
         self.recurring_detector = RecurringDetector()
         self.cashflow_projector = CashflowProjector()
         self.safe_calc = SafeToSpendCalculator()
@@ -171,17 +174,25 @@ class NexaRunner:
             # 4️⃣ CLASSIFIER: Categoriza automaticamente
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-            logger.info("🏷️  [4/8] Executando Classifier (categorização)...")
+            logger.info("🏷️  [4/9] Executando Classifier (categorização)...")
             transactions_categorized = self.classifier.predict(transactions_clean)
             logger.info(f"   ✅ Classifier completo")
+
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 4.5️⃣ PF/PJ CLASSIFIER: Classifica PF vs PJ
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+            logger.info("👥 [5/9] Executando PF/PJ Classifier...")
+            transactions_pf_pj = self.pf_pj_classifier.classify_batch(transactions_categorized)
+            logger.info(f"   ✅ PF/PJ Classifier completo")
 
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 5️⃣ RECURRING DETECTOR: Detecta padrões (assinaturas/parcelamentos)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-            logger.info("📊 [5/8] Executando Recurring Detector...")
+            logger.info("📊 [6/9] Executando Recurring Detector...")
             recurring_patterns = self.recurring_detector.detect(
-                transactions_categorized
+                transactions_pf_pj  # Agora usa transações com PF/PJ
             )
             logger.info(
                 f"   ✅ Recurring Detector: "
@@ -192,8 +203,8 @@ class NexaRunner:
             # 6️⃣ SHADOW INVOICE: Gera obrigações futuras
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-            logger.info("👻 [6/8] Executando Shadow Invoice ETL...")
-            shadow_events = run_shadow_invoice_detection(transactions_categorized)
+            logger.info("👻 [7/9] Executando Shadow Invoice ETL...")
+            shadow_events = run_shadow_invoice_detection(transactions_pf_pj)
             logger.info(
                 f"   ✅ Shadow Invoice: "
                 f"{len(shadow_events)} eventos futuros gerados"
@@ -203,7 +214,7 @@ class NexaRunner:
             # 7️⃣ CASHFLOW: Projeta saldo diário
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-            logger.info("💰 [7/8] Executando Cashflow Projector...")
+            logger.info("💰 [8/9] Executando Cashflow Projector...")
             start_balance = accounts_resp["results"][0]["balance"]
 
             # Ensure shadow_events is a DataFrame
@@ -213,7 +224,7 @@ class NexaRunner:
                 shadow_events_df = pl.DataFrame(shadow_events)
             
             cashflow_forecast = self.cashflow_projector.project(
-                transactions_df=transactions_categorized,
+                transactions_df=transactions_pf_pj,  # Agora usa transações com PF/PJ
                 shadow_invoices_df=shadow_events_df,
                 current_balance=start_balance
             )
@@ -227,7 +238,7 @@ class NexaRunner:
             # 8️⃣ SAFE-TO-SPEND: Calcula quanto pode gastar
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-            logger.info("🛡️  [8/8] Calculando Safe-to-Spend...")
+            logger.info("🛡️  [9/9] Calculando Safe-to-Spend...")
             safe_to_spend = self.safe_calc.calculate(
                 projection_df=cashflow_forecast,
                 horizon_days=horizon_days
@@ -258,6 +269,7 @@ class NexaRunner:
                     "rejected_count": batch_result.total_rejected,
                     "clean_df": transactions_clean,
                     "categorized_df": transactions_categorized,
+                    "pf_pj_classified_df": transactions_pf_pj,  # Novo: transações com PF/PJ
                 },
                 "analysis": {
                     "recurring_patterns": recurring_patterns,

@@ -1,0 +1,26 @@
+label,hour_of_day,day_of_week,is_weekend,is_business_hour,amount,amount_abs,amount_log,transaction_type,amount_category,pf_keyword_score,pj_keyword_score,has_business_terms,category,merchant_category,is_recurring,transaction_id,description,merchant
+PF,8,6,1,0,1500.0,1500.0,7.313886831633462,credit,very_high,2,0,0,TRANSFER,unknown,0,trx_pf_001,PIX RECEBIDO - AMIGO,
+PF,18,4,0,0,-45.5,45.5,3.8394523125933104,debit,very_low,1,0,0,TRANSPORT,entertainment,0,trx_pf_002,UBER *TRIP - SAO PAULO,Uber
+PF,10,2,0,1,-49.9,49.9,3.929862923556477,debit,very_low,1,0,0,ENTERTAINMENT,entertainment,1,trx_pf_003,NETFLIX.COM,Netflix
+PF,14,4,0,1,-285.4,285.4,5.657389435086491,debit,medium,1,0,0,GROCERIES,food_grocery,0,trx_pf_004,CARREFOUR SAO PAULO,Carrefour
+PF,19,5,0,0,-89.9,89.9,4.509760001183433,debit,low,1,0,0,HEALTH,health_pets,1,trx_pf_005,ACADEMIA FITNESS CLUB,Academia Fitness
+PF,12,6,1,1,-67.8,67.8,4.231203744939298,debit,low,1,0,0,FOOD,food_grocery,1,trx_pf_006,RESTAURANTE DO ZE,Restaurante do Zé
+PF,16,1,0,1,-123.45,123.45,4.823904028813601,debit,medium,1,0,0,HEALTH,health_pets,1,trx_pf_007,DROGARIA SAO JOAO,Drogaria São João
+PF,15,2,0,1,-234.67,234.67,5.462432521400004,debit,medium,1,0,0,SHOPPING,shopping_education,0,trx_pf_008,SHOPPING CENTER NORTE,Shopping Center Norte
+PF,20,3,0,0,-42.0,42.0,3.7612001156935624,debit,very_low,2,0,0,ENTERTAINMENT,entertainment,1,trx_pf_009,CINEPOLIS SHOPPING,Cinepolis
+PF,7,4,0,0,-15.8,15.8,2.8213788864092133,debit,very_low,1,0,0,FOOD,food_grocery,1,trx_pf_010,PADARIA DO BAIRRO,Padaria do Bairro
+PF,9,5,0,1,-19.9,19.9,3.039749158970765,debit,very_low,1,0,0,ENTERTAINMENT,entertainment,1,trx_pf_011,SPOTIFY PREMIUM,Spotify
+PF,17,6,1,1,-35.0,35.0,3.58351893845611,debit,very_low,1,0,0,SERVICES,services,1,trx_pf_012,LAVANDERIA RAPIDA,Lavanderia Rápida
+PF,11,7,1,1,-28.5,28.5,3.3843902633457743,debit,very_low,1,0,0,FOOD,entertainment,1,trx_pf_013,STARBUCKS CAFE,Starbucks
+PF,16,1,0,1,-156.78,156.78,5.061201657666944,debit,medium,2,0,0,PETS,health_pets,0,trx_pf_014,PET SHOP AMIGOS,Pet Shop Amigos
+PF,14,2,0,1,-89.9,89.9,4.509760001183433,debit,low,1,0,0,EDUCATION,shopping_education,0,trx_pf_015,LIVRARIA CULTURA,Livraria Cultura
+PJ,6,7,1,0,8500.0,8500.0,9.04793908261736,credit,very_high,0,3,1,SALARY,unknown,0,trx_pj_001,SALARIO - EMPRESA XYZ LTDA,
+PJ,10,1,0,1,-456.78,456.78,6.126388719364503,debit,medium,0,2,1,OFFICE_SUPPLIES,business,0,trx_pj_002,PAPELARIA EMPRESARIAL LTDA,Papelaria Empresarial
+PJ,14,2,0,1,-1234.56,1234.56,7.119279587584186,debit,very_high,0,1,1,SUPPLIES,business,0,trx_pj_003,FORNECEDOR ABC MATERIAL,Fornecedor ABC
+PJ,8,3,0,0,-2500.0,2500.0,7.824445930877619,debit,very_high,0,3,1,RENT,other,0,trx_pj_004,ALUGUEL ESCRITORIO - IMOBILIARIA XYZ,Imobiliária XYZ
+PJ,11,4,0,1,-890.3,890.3,6.792681071136672,debit,high,0,1,0,TRAVEL,business,0,trx_pj_005,PASSAGEM AEREA - VIAGEM NEGOCIOS,LATAM Airlines
+PJ,9,5,0,1,-567.89,567.89,6.343687093820427,debit,high,0,2,1,SOFTWARE,business,0,trx_pj_006,LICENCA SOFTWARE EMPRESARIAL,Microsoft
+PJ,13,6,1,1,-234.67,234.67,5.462432521400004,debit,medium,0,2,1,TELEPHONE,business,0,trx_pj_007,TELEFONE CORPORATIVO - VIVO EMPRESAS,Vivo Empresas
+PJ,10,7,1,1,-1456.78,1456.78,7.2846700095509425,debit,very_high,0,1,0,MARKETING,other,0,trx_pj_008,AGENCIA MARKETING DIGITAL,Agência Marketing Digital
+PJ,12,1,0,1,-678.9,678.9,6.521945728532414,debit,high,0,2,1,UTILITIES,business,0,trx_pj_009,ENERGIA ELETRICA - CEMIG EMPRESAS,CEMIG Empresas
+PJ,15,2,0,1,-890.12,890.12,6.792479098536934,debit,high,0,3,1,CONSULTING,business,0,trx_pj_010,CONSULTORIA CONTABIL - CONTADOR LTDA,Contador Ltda
