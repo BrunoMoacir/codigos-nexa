@@ -1280,7 +1280,88 @@ class TransactionOut(BaseModel):
             "Ex: 'UBER *TRIP' → 'Uber', 'NETFLIX.COM' → 'Netflix'"
         )
     )
+
+    # ==========================================
+    # 🆕 F4: CONTEXT CLASSIFICATION (PF/PJ)
+    # ==========================================
     
+    context_type: Literal["PF", "PJ", "UNCERTAIN"] | None = Field(
+        default=None,
+        description=(
+            "Contexto da transação (Pessoa Física ou Jurídica). "
+            "\n\n"
+            "PF (Pessoa Física):\n"
+            "  - Transações pessoais (Uber, Netflix, supermercado)\n"
+            "  - Lazer, alimentação, saúde pessoal\n"
+            "  - Horários fora do expediente comercial\n"
+            "  - Valores típicos de consumo individual\n"
+            "\n"
+            "PJ (Pessoa Jurídica):\n"
+            "  - Transações empresariais (fornecedores, aluguel)\n"
+            "  - Salários, material de escritório, software\n"
+            "  - Horário comercial, dias úteis\n"
+            "  - Valores altos, keywords corporativas\n"
+            "\n"
+            "UNCERTAIN:\n"
+            "  - Classificador não teve confiança suficiente\n"
+            "  - Transação ambígua (pode ser PF ou PJ)\n"
+            "  - Dados insuficientes para classificação\n"
+            "\n"
+            "Uso no Frontend:\n"
+            "  - Filtro de extrato: mostrar apenas PF ou PJ\n"
+            "  - Relatórios separados por contexto\n"
+            "  - Insights personalizados (gastos pessoais vs empresariais)\n"
+            "  - Badge colorido: PF=azul, PJ=verde, UNCERTAIN=cinza\n"
+            "\n"
+            "Classificação:\n"
+            "  - Modelo ML (Random Forest) + regras de fallback\n"
+            "  - Confiança > 80% para aceitar ML, senão usa regras\n"
+            "  - Usuário pode corrigir manualmente (user overrides)\n"
+            "\n"
+            "Exemplo de uso em query:\n"
+            "  GET /transactions?context_type=PF  # Apenas gastos pessoais\n"
+            "  GET /transactions?context_type=PJ  # Apenas empresariais"
+        )
+    )
+    
+    context_confidence: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Confiança da classificação PF/PJ (0.0 - 1.0). "
+            "\n\n"
+            "Interpretação:\n"
+            "  ≥ 0.9: Muito alta (ML com alta probabilidade)\n"
+            "  0.7-0.89: Alta (regras determinísticas fortes)\n"
+            "  0.5-0.69: Média (regras simples, ambíguo)\n"
+            "  < 0.5: Baixa (fallback para UNCERTAIN)\n"
+            "\n"
+            "None se context_type=None (não classificado ainda)"
+        )
+    )
+    
+    context_override_by_user: bool = Field(
+        default=False,
+        description=(
+            "True se context_type foi corrigido manualmente pelo usuário. "
+            "\n\n"
+            "Quando True:\n"
+            "  - O valor de context_type veio de user override, não do modelo\n"
+            "  - Ignorar context_confidence (não é relevante)\n"
+            "  - Mostrar badge 'Corrigido manualmente' na UI\n"
+            "  - Usar para re-treinar modelo (feedback loop)\n"
+            "\n"
+            "Fluxo de Override:\n"
+            "  1. Usuário vê transação classificada como PJ\n"
+            "  2. Usuário corrige para PF (era pessoal, não empresarial)\n"
+            "  3. POST /transactions/{id}/override {context_type: 'PF'}\n"
+            "  4. Sistema atualiza context_type + seta flag=True\n"
+            "  5. Salva override em tabela context_overrides\n"
+            "  6. Próximo re-treino usa esse feedback"
+        )
+    )
+
     # ==========================================
     # FLAGS CALCULADAS (Polars + Engines)
     # ==========================================
@@ -1614,10 +1695,6 @@ class TransactionOut(BaseModel):
             )
         
         return self
-
-# ==========================================
-# TRANSACTION BATCH RESULT (Validação Tolerante)
-# ==========================================
 
 # ==========================================
 # TRANSACTION BATCH RESULT (Validação Tolerante)
