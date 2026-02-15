@@ -30,7 +30,7 @@ import polars as pl
 import joblib
 
 # Imports do sistema
-from app.etl.runner_updated import run_etl_pipeline
+from backend.app.etl.runner import run_etl_pipeline
 from app.etl.pf_pj_classifier import PFPJClassifier, PFPJFallbackClassifier
 from app.integrations.open_finance.pluggy_mock import MockPluggyClient
 

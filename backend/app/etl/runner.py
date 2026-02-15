@@ -1,5 +1,5 @@
 """
-app/etl/runner_updated.py - Orquestrador Principal do Pipeline ETL
+app/etl/runner.py - Orquestrador Principal do Pipeline ETL
 
 Pipeline Completo (8 STEPS):
     1. Data Ingestor (Polars normalization + BankStrategy)
