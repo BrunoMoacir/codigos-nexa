@@ -1,0 +1,1 @@
+['transaction_id', 'institution_id', 'account_id', 'description', 'merchant', 'amount', 'balance', 'currency', 'transaction_date', 'fetched_at', 'dedup_hash', 'data_status', 'month', 'day_of_week', 'transaction_type']

@@ -314,41 +314,65 @@ def apply_user_overrides(df: pl.DataFrame, user_id: str) -> pl.DataFrame:
     """
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # IMPLEMENTAÇÃO MOCK (enquanto DB não está pronto)
+    # IMPLEMENTAÇÃO REAL (Integrada com DB)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
-    logger.info(f"   Aplicando user overrides para user_id={user_id}")
+    from app.db.queries import get_context_overrides
     
-    # Simula overrides (em produção viria do banco)
-    mock_overrides = {
-        "txn_abc123": "PF",  # Usuário corrigiu de PJ para PF
-        "txn_def456": "PJ",  # Usuário corrigiu de PF para PJ
-    }
-    
-    # Verifica se coluna pf_pj_label existe (Step 4 pode ter falhado)
-    if "pf_pj_label" not in df.columns:
-        logger.warning("   ⚠️  Coluna pf_pj_label não existe - pulando overrides")
-        return df
-    
-    # Adiciona coluna de flag se não existir
-    if "context_override_by_user" not in df.columns:
+    try:
+        # 1. BUSCAR OVERRIDES DO BANCO
+        # get_context_overrides retorna list[dict] com keys: transaction_id, corrected_context, ...
+        overrides = get_context_overrides(user_id)
+        
+        if not overrides:
+            logger.info("   ℹ️  Nenhum override encontrado no banco para este usuário")
+            return df
+            
+        # 2. CRIAR LOOKUP DICT
+        override_map = {
+            row['transaction_id']: row['corrected_context']
+            for row in overrides
+        }
+        
+        # 3. APLICAR OVERRIDES NO DATAFRAME
+        # Verifica se as colunas necessárias existem, cria se não
+        if "pf_pj_label" not in df.columns:
+            logger.warning("   ⚠️  Coluna pf_pj_label não existe - criando vazia para overrides")
+            df = df.with_columns(pl.lit(None).cast(pl.Utf8).alias("pf_pj_label"))
+            
+        if "pf_pj_confidence" not in df.columns:
+            df = df.with_columns(pl.lit(None).cast(pl.Float64).alias("pf_pj_confidence"))
+            
+        # Lógica de aplicação
         df = df.with_columns([
-            pl.lit(False).alias("context_override_by_user")
+            # Substituir pf_pj_label com override, manter original se não houver
+            pl.when(pl.col('transaction_id').is_in(override_map.keys()))
+            .then(pl.col('transaction_id').map_dict(override_map))
+            .otherwise(pl.col('pf_pj_label'))
+            .alias('pf_pj_label'),
+            
+            # Marcar como override
+            pl.when(pl.col('transaction_id').is_in(override_map.keys()))
+            .then(pl.lit(True))
+            .otherwise(pl.lit(False))
+            .alias('context_override_by_user'),
+            
+            # Definir confidence como 1.0 para overrides (firmeza total)
+            pl.when(pl.col('transaction_id').is_in(override_map.keys()))
+            .then(pl.lit(1.0))
+            .otherwise(pl.col('pf_pj_confidence'))
+            .alias('pf_pj_confidence')
         ])
-    
-    # Verifica se há transações com override neste batch
-    transaction_ids_in_df = df.select("transaction_id").to_series().to_list()
-    overrides_to_apply = {
-        tid: context for tid, context in mock_overrides.items()
-        if tid in transaction_ids_in_df
-    }
-    
-    if overrides_to_apply:
-        logger.info(f"   ✅ {len(overrides_to_apply)} overrides encontrados (mock)")
-        # TODO: Implementar lógica de aplicação quando DB estiver pronto
-    else:
-        logger.info("   ℹ️  Nenhum override encontrado para estas transações")
-    
+        
+        applied_count = len([tid for tid in override_map.keys() if tid in df['transaction_id'].to_list()])
+        if applied_count > 0:
+            logger.info(f"   ✅ {applied_count} overrides aplicados com sucesso")
+            
+    except Exception as e:
+        logger.error(f"   ❌ Erro ao aplicar overrides: {e}")
+        # Retorna DF original em caso de erro para não quebrar pipeline
+        return df
+
     return df
 
 
