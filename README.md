@@ -7,215 +7,209 @@ A **Nexa AI** não é um organizador financeiro passivo.
 Ela é um **Agente Financeiro Autônomo** que:
 - **Prevê o futuro** (Fluxo de Caixa, compromissos e riscos)
 - **Otimiza o presente** (cartões, taxas, decisões de gasto)
-- **Conversa naturalmente** com o usuário, explicando *o porquê* de cada decisão
+## Visão geral do repositório
 
-> Pense na Nexa como um **GPS financeiro**: ela sabe onde você está, para onde vai e qual o caminho matematicamente mais inteligente.
+Este README foi expandido para descrever a estrutura atual do workspace, o propósito de cada pasta e uma descrição por arquivo (quando aplicável). As descrições abaixo foram compiladas a partir dos nomes e documentação existente do projeto. Onde a função do arquivo foi inferida (pela convenção do nome), isto está indicado.
 
----
+Se quiser que eu abra e resuma o conteúdo linha-a-linha de arquivos específicos, eu posso fazer isso em seguida — basta indicar quais arquivos quer que eu detalhe.
 
-## 🧠 Visão Geral do Sistema
+### Top-level
 
-A Nexa é composta por **módulos independentes**, todos sustentados por um **Core Engine unificado**, que garante consistência de dados, explicabilidade e segurança.
+- `API_IMPLEMENTATION_FINAL.md` — Documento final de implementação da API (especificações e decisões de implementação).
+- `ARCHITECTURE_VISUAL_MAP.md` — Mapa visual da arquitetura do sistema (diagramas, fluxos e componentes).
+- `PROJETO_CHECKOUT_FINAL.md` — Documento de escopo/checkout do projeto (requisitos finais, entregáveis).
+- `QUICK_REFERENCE.md` — Referência rápida com comandos e atalhos para desenvolvedores.
+- `README.md` — Este arquivo (descrição completa do repositório).
+- `finance.duckdb` — Banco de dados DuckDB usado para dados financeiros de exemplo / desenvolvimento.
+- `backend/` — Código principal da aplicação backend (detalhes abaixo).
+- `data/` — Datasets (ex.: `transactions.duckdb`, CSVs e Parquet usados para treino/teste).
 
-```mermaid
-graph TD
-    A[Open Finance / APIs] --> B[Core Engine<br>Ingestão + Limpeza + Classificação]
-    B --> C[Fluxo de Caixa Projetado<br>30–90 dias]
+## Pasta `backend/` — visão geral
 
-    C --> D[Optimizer<br>Cartões]
-    C --> E[Architect<br>Conquistas]
-    C --> F[Divider<br>PF / PJ]
-    C --> G[Conversational AI<br>LangGraph]
+O diretório `backend/` contém a aplicação principal em Python, testes e scripts de suporte. Abaixo descrevo o propósito de cada item e o que cada arquivo/pasta faz, com base nos nomes e na documentação existente.
 
-    style A fill:#f9f9f9,stroke:#333,stroke-width:2px
-    style B fill:#e1f5fe,stroke:#01579b,stroke-width:2px
-    style C fill:#fff9c4,stroke:#fbc02d,stroke-width:2px
+Arquivos na raiz de `backend/`:
 
-```
+- `.env` — Variáveis de ambiente para desenvolvimento/local (credenciais, URLs, flags).
+- `.gitignore` — Regras do Git.
+- `ARCHITETURE.md` — Documento de arquitetura (detalhes do backend).
+- `debug_pluggy_validation.py` — Script de debug para validação usando pluggy (possivelmente executa hooks de validação).
+- `debug_validation.py` — Script de debug para validar dados ou pipelines.
+- `finance.duckdb` — DuckDB local com tabelas de desenvolvimento/teste.
+- `HOW_TO_TEST.md` — Guia de como executar testes e validações locais.
+- `imports.py` — Aggregador de imports/exports para facilitar testes ou execução (pode expor fixtures/utilitários).
+- `pyproject.toml` — Configuração do projeto Python (build, dependências, ferramentas).
+- `requirements.txt` — Dependências do Python (lista para pip).
+- `schema_info.txt` — Informação sobre schemas das tabelas (colunas e tipos).
+- `test_api.py` — Testes de integração/contrato da API.
+- `test_new_mock.py` — Teste relacionado a mock de dados/serviços.
+- `test_output.log` — Log de saída de testes (registro histórico).
 
+Pasta `backend/app/` — aplicação principal
 
----
+Estrutura e propósito dos arquivos principais em `backend/app/`:
 
-## 📚 Documentação Técnica (Engineering Specs)
+- `__init__.py` — inicializador do pacote `app`.
+- `main.py` — ponto de entrada da API (provavelmente inicia FastAPI/uvicorn). Inferência baseada em convenção.
+- `runner.py` — runner/CLI usado para executar pipelines, ETL, ou tarefas agendadas.
 
-A documentação está organizada **por funcionalidade**.  
-⚠️ **IMPORTANTE:** o time deve seguir a ordem abaixo, pois cada módulo depende do anterior.
+Subpasta `app/adapters/`:
 
----
+- `bank_adapter.py` — Adaptador para integração com bancos (Open Finance, leitura de extratos, normalização de payloads bancários).
 
-## 1️⃣ Core Engine & Ingestão — *Funcionalidade 1*
+Subpasta `app/agent/`:
 
-> **O coração da Nexa**
+- `__init__.py` — inicializador do pacote `agent`.
+- `graph.py` — definição de grafo/fluxo do agente (orquestração de ações do agente).
+- `state.py` — gerenciamento de estado do agente (contexto, memória curta/longa).
+- `nodes/` — pasta com nós/ações que compõem o agente (plugins, passos do fluxo). (conteúdo omitido na listagem)
 
-### 🎯 Objetivo
-Criar uma visão **confiável, limpa e projetada** da vida financeira do usuário.
+Subpasta `app/analysis/`:
 
-### 🔍 Responsabilidades
-- Ingestão de dados via **Open Finance**
-- Normalização e limpeza com **Polars**
-- Classificação inicial de transações (Waterfall + ML)
-- Projeção determinística e probabilística do fluxo de caixa
-- Interface conversacional base (Chat)
+- `__init__.py` — inicializador.
+- `recurring_detector.py` — algoritmo para detectar despesas recorrentes (assinaturas, parcelas).
+- `shadow_invoice_detector.py` — detector de faturas "ocultas" (parcelamentos e cobranças recorrentes disfarçadas).
 
-### 🧠 Conceitos-chave
-- **Transactions Clean:** dado financeiro confiável
-- **Shadow Invoice:** parcelas e assinaturas detectadas automaticamente
-- **Safe-to-Spend:** quanto o usuário pode gastar hoje sem risco
-- **Daily Forecast:** saldo projetado dia a dia
+Subpasta `app/api/`:
 
-### 🧱 Stack
-- **Data Processing:** Polars (Rust)
-- **ML (Classificação):** CatBoost
-- **Forecast:** NeuralProphet + lógica determinística
-- **Agent Orchestration:** LangGraph
+- `v1/` — versão 1 das rotas e controladores da API (endpoints REST/HTTP). Conteúdo não listado (suponho controllers, schemas e routers).
 
-📄 *Docs detalhados:* `/docs/funcionalidade-1-core-engine.md`
+Subpasta `app/cashflow/`:
 
----
+- `__init__.py` — inicializador.
+- `engine.py` — núcleo de cálculo/projeção do fluxo de caixa.
+- `projector.py` — lógica de projeção diária/por período (transforma transações em projeção).
+- `safe_to_spend.py` — cálculo de "safe-to-spend" (quanto pode gastar sem risco), com regras de segurança.
 
-## 2️⃣ Nexa Optimizer — Otimizador de Crédito (*Funcionalidade 2*)
+Subpasta `app/core/`:
 
-> **Matemática fria, zero marketing**
+- `__init__.py` — inicializador.
+- `config.py` — carregamento de configurações (padrão/env/validação de schemas).
+- `explain.py` — helpers para gerar explicações (textuais) das decisões do sistema.
+- `logging.py` — configuração de logging e helper para logs estruturados.
+- `recurrence.py` — regras e utilitários para recorrência de transações.
+- `security.py` — utilitários de segurança (tokens, verificação, roles).
+- `shadow_invoices.py` — lógica relacionada a "shadow invoices" (agregação e tratamento).
 
-### 🎯 Objetivo
-Recomendar **cartões de crédito** que realmente maximizam retorno líquido para o usuário.
+Subpasta `app/db/`:
 
-### 🧠 Premissa
-A Nexa **não recomenda troca** se não houver ganho matemático real.
+- `__init__.py` — inicializador.
+- `models.py` — modelos ORM / definições de tabelas (p.ex., SQLAlchemy/Dataclasses para persistência).
+- `queries.py` — queries reutilizáveis (consultas SQL pré-definidas para o app).
+- `session.py` — gerenciamento de sessão/connection pool com o banco.
+- `migrations/` — scripts de migração de esquema (pasta vazia/listada).
 
-### 🔍 O que o sistema analisa
-- Gasto projetado futuro (não só histórico)
-- Mix de categorias (mercado, viagem, internacional)
-- Parcelas futuras e impacto de liquidez
-- Anuidade real (considerando isenções)
-- Conversão de pontos → R$
+Subpasta `app/domain/`:
 
-### 📊 Saída
-- Faixa de ganho: pessimista / esperado / otimista
-- Impacto no caixa
-- Score de confiança
-- Explicação passo a passo
+- `__init__.py` — inicializador.
+- `finance_engine.py` — orquestrador de regras de negócio específicas do domínio financeiro (regras compostas, coordenação entre módulos).
 
-### 🧱 Stack
-- Scikit-learn
-- Rule-based Engine
-- Polars
-- LangGraph (explicabilidade)
+Subpasta `app/engines/`:
 
-📄 *Docs detalhados:* `/docs/funcionalidade-2-optimizer.md`
+- `__init__.py` — inicializador.
+- `calculator.py` — funções de cálculo financeiro (VPL, juros, amortizações).
+- `reconciler.py` — regras de reconciliação entre transações e registros contábeis.
+- `shadow_invoice.py` — motor específico para detecção/tratamento de shadow invoices.
 
----
+Subpasta `app/etl/`:
 
-## 3️⃣ Nexa Architect — Simulador de Conquistas (*Funcionalidade 3*)
+- `__init__.py` — inicializador.
+- `classifier.py` — pipeline ou wrapper que aplica modelos de classificação a transações (PF/PJ, categorias).
+- `data_quality.py` — verificações e métricas de qualidade dos dados.
+- `ingestor.py` — ingestor de fontes externas (importação e normalização de dados brutos).
+- `loader.py` — carregador para o banco local/duckdb ou ODS.
+- `organização.md` — documento de organização do ETL.
+- `pf_pj_classifier.py` — implementação do classificador PF vs PJ (pode conter o código do modelo e pré/processamento).
+- `profiles.py` — criação/manutenção de perfis de usuário (agregações, heurísticas).
+- `recurring_detector.py` — wrapper/integração para detectar recorrências no processo ETL.
+- `runner.py` — runner de pipelines ETL (execução agendada/manual).
+- `shadow_invoices.py` — integração ETL para detectar e persistir shadow invoices.
+- `test_ultimate_etl_and_schemas.py` — testes que exercitam ETL e validação de schemas.
+- `bank_strategy/`, `dedup/`, `shadow_invoices/` — submódulos com estratégias por banco, deduplicação e lógica relacionada (detalhes omitidos).
 
-> **O fim da taxa de juros como dogma**
+Subpasta `app/insights/`:
 
-### 🎯 Objetivo
-Simular a forma **mais barata no tempo** para adquirir bens de alto valor:
-- Carro
-- Imóvel
-- Grandes metas financeiras
+- `engine.py` — motor de insights (agregações, geração de insights acionáveis para o usuário).
 
-### 🧠 Premissa Central
-**Urgência (tempo)** × **Custo Total (dinheiro)**
+Subpasta `app/integrations/`:
 
-### ⚙️ Estratégias Comparadas
-- Financiamento (SAC / Price)
-- Consórcio Estratégico (Monte Carlo + probabilidade de lance)
+- `__init__.py` — inicializador.
+- `a/`, `open_finance/` — integrações com provedores de serviços e Open Finance.
 
-### 📊 Métrica de decisão
-- Valor Presente Líquido (VPL)
-- Risco de liquidez
-- Probabilidade de sucesso
+Subpasta `app/ml/`:
 
-### 🧱 Stack
-- NumPy
-- Monte Carlo Simulation
-- Scikit-learn
-- APIs econômicas (taxas, Selic, consórcios)
+- `__init__.py` — inicializador.
+- `models/` — artefatos de modelos, treinamentos e utilitários de ML (pasta com modelos salvos e helpers).
 
-📄 *Docs detalhados:* `/docs/funcionalidade-3-architect.md`
+Subpasta `app/schemas/`:
 
----
+- `__init__.py` — inicializador.
+- `...` — schemas Pydantic / validações para receptores e saídas da API.
 
-## 4️⃣ Nexa Divider — Separação PF / PJ (*Funcionalidade 4*)
+Subpasta `app/services/` e `app/storage/`:
 
-> **Contexto > Categoria**
+- `...` — serviços auxiliares (pagamentos, notificações) e abstrações de storage (S3, GCS, etc.). Conteúdo omitido.
 
-### 🎯 Objetivo
-Separar automaticamente **despesas pessoais (PF)** de **despesas operacionais (PJ)**, mesmo quando tudo passa pela mesma conta.
+Pasta `backend/data/`:
 
-### 🧠 Premissa Central
-**Contexto temporal + semântico + comportamental**
+- `training_dataset_pf_pj.csv` — CSV de treinamento para classificador PF vs PJ.
+- `training_dataset_pf_pj.parquet` — mesma base em formato Parquet (mais eficiente).
+- `transactions.duckdb` — base de transações para testes/infra.
 
-> Um almoço terça 12h perto do escritório ≠ almoço domingo 14h.
+Pasta `backend/docs/`:
 
-### 🔍 O que o modelo analisa
-- Horário e dia da semana
-- Localização (clusters casa / trabalho)
-- Tipo de conta
-- Histórico comportamental
-- Correções manuais do usuário (Active Learning)
+- `f4_complete_test_results.json` — resultados de testes automatizados/exportados.
+- `pf_pj_validation_report.md` — relatório de validação para o classificador PF/PJ.
+- `pf_pj_validation_results.json` — resultados numericos da validação.
 
-### 🧠 Modelo
-- Random Forest (MVP)
-- Regras de prioridade (antes do ML)
-- Aprendizado contínuo com feedback
+Pasta `backend/models/`:
 
-### 🧱 Stack
-- Polars
-- Scikit-learn
-- FastAPI
-- MLflow
+- `feature_encoders.pkl` — encoders de features salvos (usados em produção/teste).
+- `feature_scaler.pkl` — scaler salvo (normalização de features).
+- `pf_pj_classifier.pkl` — modelo serializado do classificador PF/PJ.
 
-📄 *Docs detalhados:* `/docs/funcionalidade-4-divider.md`
+Pasta `backend/scripts/`:
 
----
+- `apply_migrations.py` — script para aplicar migrações de banco.
+- `create_labeled_dataset.py` — script para gerar dataset rotulado (uso em ML).
+- `exploration_script.py` — script de exploração/EDA.
+- `pf_pj_fallback_rules.py` — regras fallback para classificador PF/PJ (heurísticas).
+- `test_manual_override.py` — script de teste para sobreposição manual de decisões.
+- `train_pf_pj_classifier.py` — script de treinamento do classificador PF/PJ.
+- `validate_pf_pj_classifier.py` — script de validação do classificador.
 
-## 🛠️ Tech Stack Principal
+Pasta `backend/tests/`:
 
-| Área | Tecnologia | Motivo |
-|-----|-----------|-------|
-| Backend | Python 3.11+ | Ecossistema maduro de IA |
-| Data Processing | Polars (Rust) | Performance extrema em ETL financeiro |
-| ML Tabular | CatBoost | Alta performance com pouco tuning |
-| Time Series | NeuralProphet | Previsão com explicabilidade |
-| Agent Orchestration | LangGraph | Controle de estado e loops complexos |
-| Database | PostgreSQL | Segurança e consistência |
-| Observability | OpenTelemetry | Auditoria e confiabilidade |
-| ML Tracking | MLflow | Versionamento de modelos |
-
----
-
-## 🧩 Filosofia da Nexa
-
-- **Nada de caixa-preta** → Toda decisão é explicável
-- **Sem achismo** → Apenas matemática e dados projetados
-- **IA como copiloto** → O usuário sempre pode corrigir
-- **Primeiro segurança, depois otimização**
-
----
-
-## 🚀 Roadmap (Resumo)
-
-**MVP**
-- Core Engine + Forecast
-- Optimizer básico
-- Divider com aprendizado manual
-
-**v1**
-- Architect completo
-- Active Learning automático
-- UI de revisão inteligente
-
-**v2**
-- Estratégias fiscais
-- Integração com contadores
-- Planejamento patrimonial avançado
+- `conftest.py` — fixtures e configuração de testes pytest.
+- `test_cashflow_projection.py` — testes do módulo de projeção de caixa.
+- `test_classifier.py` — testes do classificador PF/PJ.
+- `test_etl_ingestor.py` — testes do ingestor ETL.
+- `test_f4_complete.py` — teste fim-a-fim / integração completa.
+- `test_pipeline_integration.py` — integração de pipelines.
+- `test_pluggy_integration.py` — testes de integração com pluggy/hook system.
+- `test_recurring_detector.py` — testes do detector de recorrências.
+- `test_runner_import.py` — teste de importação do runner.
+- `test_runner.py` — testes do runner principal.
+- `test_safe_to_spend.py` — testes do cálculo safe-to-spend.
+- `test_shadow_invoice.py` — testes do módulo de shadow invoices.
+- `test_shadow_pipeline.py` — testes específicos do pipeline de shadow invoices.
+- `api/`, `data/`, `fixtures/` — diretórios com testes de API, dados de teste e fixtures.
 
 ---
 
-## 👥 Nexa AI Engineering Team
+## Observações gerais e suposições
 
-© 2026 — Nexa AI  
-Construindo o **primeiro Agente Financeiro Autônomo do Brasil**.
+- Muitas descrições acima foram inferidas a partir dos nomes e da documentação já existente no repositório (por exemplo `HOW_TO_TEST.md`, `ARCHITETURE.md` e o README original). Quando a função do arquivo é óbvia (p.ex. `train_pf_pj_classifier.py`), descrevi seu propósito com base em convenções comuns.
+- Onde houver `...` ou pastas listadas sem arquivos concretos no anexo, indiquei o propósito esperado. Se precisar, eu posso abrir cada arquivo e gerar um resumo preciso do conteúdo (funções, classes, entradas/saídas, docstrings) — isso pode ser feito arquivo a arquivo ou em lotes.
+
+## Próximos passos (opções)
+
+1. Gerar um sumário detalhado por arquivo com base no conteúdo real (abrir e ler cada arquivo): isso criará um documento com a assinatura de cada função/classe, docstrings e pontos-chave. (recomendado se precisar de documentação técnica precisa).
+2. Criar um arquivo `CONTRIBUTING.md` com instruções de desenvolvimento e fluxo de PRs.
+3. Gerar diagramas (Mermaid) automáticos para dependências entre módulos (posso escanear imports e construir o grafo).
+
+Diga qual opção prefere e eu sigo: posso começar abrindo todos os arquivos em `backend/` e produzir descrições linha-a-linha automaticamente.
+
+---
+
+Fim do README gerado automaticamente — atualização concluída.
