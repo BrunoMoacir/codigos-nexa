@@ -213,11 +213,5 @@ MÓDULOS AUXILIARES:
 TOTAL: 8 módulos implementados, 100% production-ready
 LINHAS: ~5000+ linhas de código
 TESTES: 20+ unitários + 3 E2E
-
-PRÓXIMOS PASSOS:
-    1. Cashflow + Safe-to-Spend (integrar Shadow Invoice)
-    2. API Layer (FastAPI endpoints)
-    3. Agent (LangGraph tools)
-    4. Database (Postgres models)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """

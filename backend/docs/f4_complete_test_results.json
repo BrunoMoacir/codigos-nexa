@@ -1,0 +1,62 @@
+{
+  "execution_date": "2026-02-14T21:37:27.759641",
+  "tests": {
+    "ml_models": {
+      "classifier_exists": true,
+      "encoders_exist": true,
+      "scaler_exists": true,
+      "classifier_loaded": true,
+      "features_count": 15
+    },
+    "fallback_rules": {
+      "total_rules": 10,
+      "correct": 6,
+      "accuracy": 0.6
+    },
+    "hybrid_classifier": {
+      "ml_available": true,
+      "fallback_available": true,
+      "simple_cases_correct": 2,
+      "batch_works": true
+    },
+    "pipeline_integration": {
+      "pipeline_works": true,
+      "column_added": true,
+      "all_classified": true,
+      "pf_count": 15,
+      "pj_count": 10,
+      "uncertain_count": 0,
+      "execution_time": 0.18731188774108887,
+      "processed_df": "shape: (25, 12)\n┌────────────────┬────────────┬────────────────────┬───────────────────┬───┬────────┬───────────────────┬─────────────┬───────────────────┐\n│ transaction_id ┆ account_id ┆ transaction_date   ┆ description       ┆ … ┆ status ┆ merchant          ┆ pf_pj_label ┆ context_override_ │\n│ ---            ┆ ---        ┆ ---                ┆ ---               ┆   ┆ ---    ┆ ---               ┆ ---         ┆ by_user           │\n│ str            ┆ str        ┆ str                ┆ str               ┆   ┆ str    ┆ str               ┆ str         ┆ ---               │\n│                ┆            ┆                    ┆                   ┆   ┆        ┆                   ┆             ┆ bool              │\n╞════════════════╪════════════╪════════════════════╪═══════════════════╪═══╪════════╪═══════════════════╪═════════════╪═══════════════════╡\n│ trx_pf_001     ┆ acc_001    ┆ 2026-01-10T08:30:0 ┆ PIX RECEBIDO -    ┆ … ┆ POSTED ┆ null              ┆ PF          ┆ false             │\n│                ┆            ┆ 0Z                 ┆ AMIGO             ┆   ┆        ┆                   ┆             ┆                   │\n│ trx_pf_002     ┆ acc_001    ┆ 2026-01-15T18:45:0 ┆ UBER *TRIP - SAO  ┆ … ┆ POSTED ┆ Uber              ┆ PF          ┆ false             │\n│                ┆            ┆ 0Z                 ┆ PAULO             ┆   ┆        ┆                   ┆             ┆                   │\n│ trx_pf_003     ┆ acc_001    ┆ 2026-01-20T10:00:0 ┆ NETFLIX.COM       ┆ … ┆ POSTED ┆ Netflix           ┆ PF          ┆ false             │\n│                ┆            ┆ 0Z                 ┆                   ┆   ┆        ┆                   ┆             ┆                   │\n│ trx_pf_004     ┆ acc_001    ┆ 2026-01-22T14:30:0 ┆ CARREFOUR SAO     ┆ … ┆ POSTED ┆ Carrefour         ┆ PF          ┆ false             │\n│                ┆            ┆ 0Z                 ┆ PAULO             ┆   ┆        ┆                   ┆             ┆                   │\n│ trx_pf_005     ┆ acc_001    ┆ 2026-01-23T19:00:0 ┆ ACADEMIA FITNESS  ┆ … ┆ POSTED ┆ Academia Fitness  ┆ PF          ┆ false             │\n│                ┆            ┆ 0Z                 ┆ CLUB              ┆   ┆        ┆                   ┆             ┆                   │\n│ …              ┆ …          ┆ …                  ┆ …                 ┆ … ┆ …      ┆ …                 ┆ …           ┆ …                 │\n│ trx_pj_006     ┆ acc_001    ┆ 2026-01-30T09:30:0 ┆ LICENCA SOFTWARE  ┆ … ┆ POSTED ┆ Microsoft         ┆ PJ          ┆ false             │\n│                ┆            ┆ 0Z                 ┆ EMPRESARIAL       ┆   ┆        ┆                   ┆             ┆                   │\n│ trx_pj_007     ┆ acc_001    ┆ 2026-01-31T13:20:0 ┆ TELEFONE          ┆ … ┆ POSTED ┆ Vivo Empresas     ┆ PJ          ┆ false             │\n│                ┆            ┆ 0Z                 ┆ CORPORATIVO -     ┆   ┆        ┆                   ┆             ┆                   │\n│                ┆            ┆                    ┆ VIVO EM…          ┆   ┆        ┆                   ┆             ┆                   │\n│ trx_pj_008     ┆ acc_001    ┆ 2026-02-01T10:15:0 ┆ AGENCIA MARKETING ┆ … ┆ POSTED ┆ Agência Marketing ┆ PJ          ┆ false             │\n│                ┆            ┆ 0Z                 ┆ DIGITAL           ┆   ┆        ┆ Digital           ┆             ┆                   │\n│ trx_pj_009     ┆ acc_001    ┆ 2026-02-02T12:00:0 ┆ ENERGIA ELETRICA  ┆ … ┆ POSTED ┆ CEMIG Empresas    ┆ PJ          ┆ false             │\n│                ┆            ┆ 0Z                 ┆ - CEMIG EMPRE…    ┆   ┆        ┆                   ┆             ┆                   │\n│ trx_pj_010     ┆ acc_001    ┆ 2026-02-03T15:30:0 ┆ CONSULTORIA       ┆ … ┆ POSTED ┆ Contador Ltda     ┆ PJ          ┆ false             │\n│                ┆            ┆ 0Z                 ┆ CONTABIL -        ┆   ┆        ┆                   ┆             ┆                   │\n│                ┆            ┆                    ┆ CONTADO…          ┆   ┆        ┆                   ┆             ┆                   │\n└────────────────┴────────────┴────────────────────┴───────────────────┴───┴────────┴───────────────────┴─────────────┴───────────────────┘"
+    },
+    "accuracy": {
+      "total": 25,
+      "correct": 25,
+      "errors": 0,
+      "accuracy": 1.0,
+      "precision_pf": 1.0,
+      "recall_pf": 1.0,
+      "f1_pf": 1.0,
+      "precision_pj": 1.0,
+      "recall_pj": 1.0,
+      "f1_pj": 1.0,
+      "error_details": []
+    },
+    "edge_cases": {
+      "total_cases": 5,
+      "passed": 5,
+      "all_passed": true
+    },
+    "schema": {
+      "fields_present": true,
+      "types_correct": true,
+      "values_valid": true
+    },
+    "performance": {
+      "batch_time": 0.1465778350830078,
+      "throughput": 170.5578472068602,
+      "avg_single_time": 0.005898094177246094,
+      "performance_ok": true
+    }
+  }
+}
