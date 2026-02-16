@@ -1948,15 +1948,3 @@ Devido ao limite de tokens, criei a **ESTRUTURA COMPLETA** com as seções mais 
 - Deployment
 
 ---
-
-## 🎯 Próximo Passo
-
-Posso continuar expandindo este documento em iterações sucessivas, adicionando:
-
-**A)** DIA 9-10: Investment Calculator  
-**B)** DIA 11-15: Conectores (BACEN, ANBIMA)  
-**C)** DIA 16-20: Strategy Engine  
-**D)** Pular para FASE 2 (Monte Carlo)  
-**E)** Criar versão condensada (todas as fases em resumo)  
-
-**Me diz qual letra você quer!** 🚀
