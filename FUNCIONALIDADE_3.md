@@ -1962,7 +1962,7 @@ Devido ao limite de tokens, criei a **ESTRUTURA COMPLETA** com as seções mais 
 | Financing Calculator | `app/architect/calculators/financing.py` | ✅ Implementado + revisado | ~345 |
 | Investment Calculator | `app/architect/calculators/investment.py` | ✅ Implementado + revisado | ~266 |
 | Formatters | `app/architect/utils/formatters.py` | ✅ Implementado + revisado | ~160 |
-| Date Helpers | `app/architect/utils/date_helpers.py` | ❌ Pendente | 0 |
+| Date Helpers | `app/architect/utils/date_helpers.py` | ✅ Implementado + revisado | ~153 |
 | Connectors (base, bacen, anbima, market) | `app/architect/connectors/` | ❌ Pendente | 0 |
 | Strategy Engine | `app/architect/simulators/strategy_engine.py` | ❌ Pendente | 0 |
 | Validators | `app/architect/validators/` | ❌ Pendente | 0 |
@@ -2037,6 +2037,20 @@ Devido ao limite de tokens, criei a **ESTRUTURA COMPLETA** com as seções mais 
 
 ---
 
+#### 5. `app/architect/utils/date_helpers.py`
+
+**Funcoes:**
+- `months_between(start_date, end_date)` — Diferenca em meses (pode ser negativo)
+- `add_months(base_date, months)` — Adiciona meses com tratamento de fim de mes (ex: 31/jan + 1 = 28/fev)
+- `business_days_between(start_date, end_date)` — Dias uteis (start exclusivo, end inclusivo); sem feriados
+- `is_business_day(check_date)` — Verifica se seg-sex
+- `next_business_day(base_date)` — Proximo dia util, sempre > base_date
+
+**Bug corrigido na revisao:**
+- `business_days_between` tinha semantica invertida: implementacao era `[start, end)` (start inclusivo, end exclusivo) mas docstring declarava o oposto. Corrigido alterando o ponto de partida do loop de `start` para `start+1`, alinhando implementacao ao docstring sem alterar a logica matematica O(1).
+
+---
+
 ### Padroes Estabelecidos
 
 1. **Guards de taxa:** Todas as funcoes usam `<= -1` (nao `< -1`) para evitar ZeroDivisionError
@@ -2048,13 +2062,12 @@ Devido ao limite de tokens, criei a **ESTRUTURA COMPLETA** com as seções mais 
 ### Proximos Passos
 
 Seguindo o roadmap da doc:
-1. `utils/date_helpers.py` — Helpers de data (months_between, add_months, business_days)
-2. `connectors/base.py` — Connector abstrato para APIs externas
-3. `connectors/bacen.py` — SELIC/PTAX
-4. `connectors/anbima.py` — CDI/DI
-5. `connectors/market_rates.py` — CETs mock
-6. `simulators/strategy_engine.py` — Motor de decisao
-7. `validators/` — Validacao de inputs e liquidez
-8. `services/architect_service.py` — Orquestrador
-9. `api/v1/routes/architect.py` — Endpoints REST
-10. `tests/architect/` — Testes completos
+1. `connectors/base.py` — Connector abstrato para APIs externas
+2. `connectors/bacen.py` — SELIC/PTAX
+3. `connectors/anbima.py` — CDI/DI
+4. `connectors/market_rates.py` — CETs mock
+5. `simulators/strategy_engine.py` — Motor de decisao
+6. `validators/` — Validacao de inputs e liquidez
+7. `services/architect_service.py` — Orquestrador
+8. `api/v1/routes/architect.py` — Endpoints REST
+9. `tests/architect/` — Testes completos

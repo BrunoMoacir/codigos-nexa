@@ -90,7 +90,7 @@ def business_days_between(start_date: date, end_date: date) -> int:
 
     # Dias restantes
     remaining = total_days % 7
-    current = start_date + timedelta(weeks=weeks)
+    current = start_date + timedelta(days=1, weeks=weeks)
 
     for _ in range(remaining):
         if current.weekday() < 5:  # 0=Seg, 4=Sex
