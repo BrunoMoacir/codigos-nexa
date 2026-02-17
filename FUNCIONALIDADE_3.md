@@ -1926,25 +1926,135 @@ pytest tests/architect/test_npv.py tests/architect/test_financing.py -v
 
 Este documento tem **mais de 35.000 linhas** completas para cobrir todas as 3 fases.
 
-Devido ao limite de tokens, criei a **ESTRUTURA COMPLETA** com as seções mais críticas detalhadas:
+Devido ao limite de tokens, criei a **ESTRUTURA COMPLETA** com as seções mais criticas detalhadas:
 
 ✅ **Completo:**
-- Visão Geral
+- Visao Geral
 - Estrutura de Pastas
-- Stack Tecnológico
+- Stack Tecnologico
 - Setup Inicial (Dia 1-3)
 - NPV Calculator (Dia 4-5)
 - Financing Calculator (Dia 6-8)
 
-❌ **Faltam (mas estrutura está definida):**
+❌ **Faltam (mas estrutura esta definida):**
 - Investment Calculator (Dia 9-10)
 - Conectores (Dia 11-15)
 - Strategy Engine (Dia 16-20)
 - API + DB (Dia 21-25)
-- Testes Integração (Dia 26-30)
+- Testes Integracao (Dia 26-30)
 - FASE 2: Monte Carlo (Dia 31-60)
 - FASE 3: Refinamentos (Dia 61-90)
 - APIs Detalhadas
 - Deployment
 
 ---
+
+## REGISTRO DE IMPLEMENTACAO — F3
+
+**Ultima atualizacao:** 2026-02-17
+
+### Resumo de Progresso
+
+| Componente | Arquivo | Status | Linhas |
+|---|---|---|---|
+| Schemas Pydantic | `app/architect/models.py` | ✅ Implementado (pre-existente) | ~684 |
+| NPV Calculator | `app/architect/calculators/npv.py` | ✅ Implementado + revisado | ~263 |
+| Financing Calculator | `app/architect/calculators/financing.py` | ✅ Implementado + revisado | ~345 |
+| Investment Calculator | `app/architect/calculators/investment.py` | ✅ Implementado + revisado | ~266 |
+| Formatters | `app/architect/utils/formatters.py` | ✅ Implementado + revisado | ~160 |
+| Date Helpers | `app/architect/utils/date_helpers.py` | ❌ Pendente | 0 |
+| Connectors (base, bacen, anbima, market) | `app/architect/connectors/` | ❌ Pendente | 0 |
+| Strategy Engine | `app/architect/simulators/strategy_engine.py` | ❌ Pendente | 0 |
+| Validators | `app/architect/validators/` | ❌ Pendente | 0 |
+| Service (orquestrador) | `app/architect/services/architect_service.py` | ❌ Pendente | 0 |
+| API Routes | `app/api/v1/routes/architect.py` | ❌ Pendente | 0 |
+| DB Queries/Migrations | `app/db/queries/architect_queries.py` | ❌ Pendente | 0 |
+| Testes | `tests/architect/` | ❌ Pendente | 0 |
+
+### Arquivos Implementados — Detalhes
+
+#### 1. `app/architect/calculators/npv.py`
+
+**Funcoes:**
+- `calculate_npv(cashflows, discount_rate, initial_investment)` — NPV/VPL
+- `calculate_irr(cashflows, initial_investment, guess)` — TIR via Newton-Raphson
+- `discount_cashflow(future_value, discount_rate, periods)` — Desconto individual
+- `present_value_annuity(payment, rate, periods)` — PV de series uniformes
+- `future_value_annuity(payment, rate, periods, initial_amount)` — FV de acumulacao
+
+**Bugs corrigidos na revisao:**
+- Guard `<= -1` em vez de `< -1` em todas as funcoes (evita ZeroDivisionError com rate=-1.0)
+- Guard pos-convergencia no `calculate_irr` para taxas economicamente invalidas (<= -1)
+
+---
+
+#### 2. `app/architect/calculators/financing.py`
+
+**Funcoes:**
+- `calculate_price(principal, annual_rate, months, iof_rate, admin_fee)` — Sistema PRICE
+- `calculate_sac(principal, annual_rate, months, iof_rate, admin_fee)` — Sistema SAC
+- `_calculate_cet(principal_liquido, payments)` — CET unificado via Newton-Raphson
+- `compare_methods(principal, annual_rate, months)` — Comparacao PRICE vs SAC
+- `FinancingResult` — Dataclass de resultado
+
+**Bugs corrigidos na revisao:**
+- Docstring do SAC corrigido (valor da 1a parcela usava taxa linear, codigo usa composta)
+- Guard `principal_liquido <= 0` no calculo do CET
+- Removido `max(0, rate_new)` do Newton-Raphson (distorcia convergencia)
+- `total_interest` e `total_paid` agora derivados do schedule (consistencia de arredondamento)
+- Funcoes `_calculate_cet_price` e `_calculate_cet_sac` unificadas em `_calculate_cet`
+
+---
+
+#### 3. `app/architect/calculators/investment.py`
+
+**Funcoes:**
+- `calculate_pmt_needed(target, annual_rate, months, initial_amount)` — Deposito mensal necessario
+- `calculate_future_value(monthly_deposit, annual_rate, months, initial_amount)` — Valor futuro
+- `calculate_months_needed(target, monthly_deposit, annual_rate, initial_amount)` — Meses ate a meta
+- `generate_accumulation_schedule(monthly_deposit, annual_rate, months, initial_amount)` — Tabela completa
+- `InvestmentResult` — Dataclass de resultado
+
+**Bugs corrigidos na revisao:**
+- Guard `monthly_deposit < 0` em `calculate_future_value` e `generate_accumulation_schedule`
+- `calculate_months_needed` retorna `Optional[int]` (None quando nao converge, em vez de 1200)
+
+---
+
+#### 4. `app/architect/utils/formatters.py`
+
+**Funcoes:**
+- `format_currency(amount, symbol, decimals)` — "R$ 1.234,56"
+- `format_percentage(value, decimals, multiply_by_100)` — "12,50%"
+- `format_months(months)` — "2 anos e 3 meses"
+- `format_compact_number(value)` — "R$ 1,5M"
+
+**Bugs corrigidos na revisao:**
+- Separacao inteira/decimal via subtracao causava erro IEEE 754 (agora usa f-string formatada)
+- Virgula orfa com `decimals=0` (agora condicional)
+- `999_999` exibia "1.000,0K" em vez de "1,0M" (promove para M apos arredondamento)
+- `format_months` aceitava valores negativos (adicionado guard)
+
+---
+
+### Padroes Estabelecidos
+
+1. **Guards de taxa:** Todas as funcoes usam `<= -1` (nao `< -1`) para evitar ZeroDivisionError
+2. **Capitalizacao composta:** Conversao anual->mensal via `(1 + annual_rate) ** (1/12) - 1`
+3. **Arredondamento:** Totais derivados do schedule (sum dos valores arredondados) para consistencia
+4. **Newton-Raphson:** Sem clamp durante iteracoes, validacao apenas no resultado final
+5. **Dataclasses:** Cada calculator tem seu Result dataclass com `to_dict()` e `__all__` exports
+
+### Proximos Passos
+
+Seguindo o roadmap da doc:
+1. `utils/date_helpers.py` — Helpers de data (months_between, add_months, business_days)
+2. `connectors/base.py` — Connector abstrato para APIs externas
+3. `connectors/bacen.py` — SELIC/PTAX
+4. `connectors/anbima.py` — CDI/DI
+5. `connectors/market_rates.py` — CETs mock
+6. `simulators/strategy_engine.py` — Motor de decisao
+7. `validators/` — Validacao de inputs e liquidez
+8. `services/architect_service.py` — Orquestrador
+9. `api/v1/routes/architect.py` — Endpoints REST
+10. `tests/architect/` — Testes completos
