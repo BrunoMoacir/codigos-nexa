@@ -55,29 +55,64 @@ Manipulação temporal precisa.
 
 ---
 
-## 3. Próximos Passos de Implementação
-O foco agora é implementar o **Simulador de Consórcio (`consortium.py`)**, que introduz uma complexidade estocástica (probabilística) ao sistema, diferentemente das calculadoras determinísticas acima.
-
-### Plano para `consortium.py`:
-1.  **Modelo Matemático**: Utilizar Simulação de Monte Carlo.
-2.  **Variáveis**: Número de participantes, taxa de administração, fundo de reserva, lance livre/fixo.
-3.  **Output**: Probabilidade de contemplação em X meses e Custo Financeiro esperado.
-
-#### d) `consortium.py` (Simulador Estocástico) - **NOVO**
+#### d) `consortium.py` (Simulador Estocástico) - **IMPLEMENTADO**
 Simulador probabilístico para consórcios.
--   **`calculate_consortium_metrics`**: Orquestra a simulação de Monte Carlo (padrão 2000 iterações) para determinar o perfil de risco do consórcio.
+-   **`calculate_consortium_metrics`**: Orquestra a simulação de Monte Carlo (2000 iterações) para determinar o perfil de risco do consórcio.
 -   **`_simulate_single_run`**: Simula a trajetória de *um* participante em um grupo de 200 pessoas.
     -   *Modelagem de Sorteio*: Probabilidade de $1/N$, onde $N$ decresce a cada mês.
-    -   *Modelagem de Lance*: Lances vencedores modelados como uma distribuição normal que decai ao longo do tempo (lances são mais altos no início).
--   **Propósito**: Entrega ao usuário não apenas o custo, mas a *probabilidade* de ter o bem em mãos em 6, 12 ou 24 meses, algo que calculadoras tradicionais ignoram.
+    -   *Modelagem de Lance*: Lances vencedores modelados como distribuição normal que decai ao longo do tempo.
+-   **Propósito**: Entrega ao usuário não apenas o custo, mas a *probabilidade* de ter o bem em mãos em 12, 24 ou 36 meses.
 
-### 2.4. Strategy Engine (`simulators/strategy_engine.py`) - **NOVO**
-O cérebro da operação.
--   **Responsabilidade**: Orquestrar as 3 simulações (Financiamento, Consórcio, Investimento) e recomendar a melhor.
--   **Lógica de Decisão**:
-    1.  Calcula os cenários paralelamente.
-    2.  Calcula NPV (Valor Presente Líquido) de cada fluxo de caixa para tornar comparáveis valores no tempo.
-    3.  Aplica restrições de liquidez (Parcela < Budget).
-    4.  Classifica estratégias por NPV (maior é melhor, ou seja, menor custo presente).
-    5.  Gera `ActionStep` (plano prático) customizado para a estratégia vencedora.
--   **Status**: Implementado. Integra as calculadoras e conecta as pontas.
+### 2.4. Strategy Engine (`simulators/strategy_engine.py`) - **IMPLEMENTADO**
+O cérebro da operação. Classe `StrategyEngine` com método principal `simulate()`.
+-   **Responsabilidade**: Orquestrar as 3 simulações e recomendar a melhor estratégia.
+-   **Fluxo de Decisão**:
+    1.  `_simulate_financing()` → Calcula PRICE ou SAC via `fin_calc`, gera cashflows e calcula NPV.
+    2.  `_simulate_investment()` → Calcula PMT ou meses necessários via `inv_calc`, gera cashflows e calcula NPV.
+    3.  `_simulate_consortium()` → Executa Monte Carlo via `cons_calc`, gera cashflows e calcula NPV.
+    4.  **Ranking por NPV**: Ordena estratégias do maior NPV (menor custo presente) para o menor.
+    5.  **Validação de Liquidez**: Se a parcela da melhor estratégia excede `max_monthly_budget`, faz fallback automático para a próxima.
+    6.  `_generate_action_plan()` → Gera `ActionStep` customizados para a estratégia vencedora.
+-   **Decisão Técnica**: Removido `numpy` como dependência — substituído por `math.isnan`/`math.isinf` via helper `_safe_float()`.
+-   **Retorno**: `SimulationResponse` (Pydantic) com custos, NPVs, probabilidades, impacto de liquidez e plano de ação.
+
+### 2.5. Conectores (`connectors/`) - **IMPLEMENTADOS**
+Camada de acesso a dados externos com resiliência.
+
+#### a) `base.py` (Classe Abstrata)
+-   Cache em memória com TTL configurável.
+-   Fallback automático se API externa falhar.
+-   Subclasses implementam `fetch_rates()` e `get_fallback_rates()`.
+
+#### b) `bacen.py` (Banco Central)
+-   Busca **Taxa SELIC** meta anual via API SGS do BCB (série 432).
+-   Fallback: taxa hardcoded (10,75% a.a.).
+
+#### c) `anbima.py` (CDI)
+-   Busca **Taxa CDI** anual via API SGS do BCB (série 4391, MVP).
+-   Plano futuro: migrar para ANBIMA Developer API.
+
+#### d) `market_rates.py` (CETs de Mercado)
+-   Lê CETs por tipo de bem (Imóvel, Veículo, Reforma, etc.) de `data/architect/market_rates.json`.
+-   Oferece `get_best_cet()` e `get_avg_cet()` por `AssetType`.
+
+### 2.6. Testes (`tests/architect/`) - **IMPLEMENTADO**
+
+#### `test_strategy_engine.py` — 16 testes, 5 classes
+| Classe | Testes | Cobertura |
+|--------|--------|-----------|
+| `TestStrategyEngineBasic` | 5 | Retorno válido, custos, NPV, meses, fontes |
+| `TestConsortiumSimulation` | 3 | Toggle consórcio on/off, probabilidades |
+| `TestBudgetConstraints` | 3 | Budget apertado → fallback, liquidez negativa |
+| `TestActionPlan` | 2 | Steps sequenciais, steps críticos |
+| `TestHelpers` | 3 | Métodos internos de cada simulação |
+
+**Resultado:** ✅ 16 passed in 0.84s
+
+---
+
+## 3. Próximos Passos de Implementação
+1.  **Validators** (`validators/input_validator.py`, `liquidity_validator.py`) — Validação de entrada e checagem de liquidez com `safe_to_spend` da F1.
+2.  **Architect Service** (`services/architect_service.py`) — Orquestrador que conecta API → Connectors → StrategyEngine → Response.
+3.  **API Routes** (`api/v1/routes/architect.py`) — Endpoint `POST /architect/simulate`.
+4.  **Testes de Integração** — Testar o fluxo completo API → Service → Engine → Calculators.
