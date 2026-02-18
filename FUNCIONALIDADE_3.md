@@ -1951,25 +1951,39 @@ Devido ao limite de tokens, criei a **ESTRUTURA COMPLETA** com as seções mais 
 
 ## REGISTRO DE IMPLEMENTACAO — F3
 
-**Ultima atualizacao:** 2026-02-17
+**Ultima atualizacao:** 2026-02-18
 
 ### Resumo de Progresso
 
 | Componente | Arquivo | Status | Linhas |
 |---|---|---|---|
-| Schemas Pydantic | `app/architect/models.py` | ✅ Implementado (pre-existente) | ~684 |
-| NPV Calculator | `app/architect/calculators/npv.py` | ✅ Implementado + revisado | ~263 |
+| Schemas Pydantic | `app/architect/models.py` | ✅ Implementado | ~684 |
+| NPV Calculator | `app/architect/calculators/npv.py` | ✅ Implementado + revisado | ~266 |
 | Financing Calculator | `app/architect/calculators/financing.py` | ✅ Implementado + revisado | ~345 |
-| Investment Calculator | `app/architect/calculators/investment.py` | ✅ Implementado + revisado | ~266 |
-| Formatters | `app/architect/utils/formatters.py` | ✅ Implementado + revisado | ~160 |
+| Investment Calculator | `app/architect/calculators/investment.py` | ✅ Implementado + revisado | ~270 |
+| Formatters | `app/architect/utils/formatters.py` | ✅ Implementado + revisado | ~171 |
 | Date Helpers | `app/architect/utils/date_helpers.py` | ✅ Implementado + revisado | ~153 |
-| Connectors (base, bacen, anbima, market) | `app/architect/connectors/` | ❌ Pendente | 0 |
-| Strategy Engine | `app/architect/simulators/strategy_engine.py` | ❌ Pendente | 0 |
-| Validators | `app/architect/validators/` | ❌ Pendente | 0 |
-| Service (orquestrador) | `app/architect/services/architect_service.py` | ❌ Pendente | 0 |
-| API Routes | `app/api/v1/routes/architect.py` | ❌ Pendente | 0 |
-| DB Queries/Migrations | `app/db/queries/architect_queries.py` | ❌ Pendente | 0 |
-| Testes | `tests/architect/` | ❌ Pendente | 0 |
+| Connector Base | `app/architect/connectors/base.py` | ✅ Implementado | ~208 |
+| Connector BACEN | `app/architect/connectors/bacen.py` | ✅ Implementado | ~135 |
+| Connector ANBIMA (CDI) | `app/architect/connectors/anbima.py` | ✅ Implementado | ~143 |
+| Connector Market Rates | `app/architect/connectors/market_rates.py` | ✅ Implementado | ~229 |
+| Connector ABAC | `app/architect/connectors/abac.py` | 🔶 Stub (Fase 2) | — |
+| Consortium Calculator | `app/architect/calculators/consortium.py` | 🔶 Stub (Fase 2) | — |
+| Strategy Engine | `app/architect/simulators/strategy_engine.py` | 🔶 Stub (Pendente) | — |
+| Monte Carlo | `app/architect/simulators/monte_carlo.py` | 🔶 Stub (Fase 2) | — |
+| Sensitivity Analyzer | `app/architect/simulators/sensitivity_analyzer.py` | 🔶 Stub (Fase 3) | — |
+| Input Validator | `app/architect/validators/input_validator.py` | 🔶 Stub (Pendente) | — |
+| Liquidity Validator | `app/architect/validators/liquidity_validator.py` | 🔶 Stub (Pendente) | — |
+| Service (orquestrador) | `app/architect/services/architect_service.py` | 🔶 Stub (Pendente) | — |
+| API Routes | `app/api/v1/routes/architect.py` | 🔶 Stub (Pendente) | — |
+| DB Migrations | `app/db/migrations/003_create_architect_tables.sql` | 🔶 Stub (Pendente) | — |
+| DB Queries | `app/db/queries/architect_queries.py` | 🔶 Stub (Pendente) | — |
+| Cache | `app/architect/utils/cache.py` | 🔶 Stub (Fase 3) | — |
+| Testes | `tests/architect/` | 🔶 Stubs criados (14 arquivos) | — |
+
+**Progresso geral da Fase 1:** ~45% completo (motores matematicos + conectores prontos; orquestracao + API pendentes)
+
+---
 
 ### Arquivos Implementados — Detalhes
 
@@ -2051,6 +2065,86 @@ Devido ao limite de tokens, criei a **ESTRUTURA COMPLETA** com as seções mais 
 
 ---
 
+#### 6. `app/architect/connectors/base.py`
+
+**Classe abstrata `BaseConnector`:**
+- `get_rates()` — Ponto de entrada com logica cache + API + fallback
+- `fetch_rates()` — Abstrato; implementado por cada conector especifico
+- `get_fallback_rates()` — Abstrato; valores hardcoded por conector
+- `_set_cache(data)`, `_get_cache()`, `_is_cache_valid()` — Gestao interna de cache
+- `invalidate_cache()` — Limpa cache manualmente
+- `is_cache_warm` — Property; True se cache valido
+
+**Classe `ConnectorError`:**
+- Excecao customizada para falhas de API
+
+**Decisoes de design:**
+- Cache em dois niveis: cache de sucesso (TTL 1h padrao) + cache de fallback (TTL 60s padrao)
+- Nunca bloqueia o usuario: API falha → retorna hardcoded
+- TTLs configuráveis por conector via `__init__`
+
+---
+
+#### 7. `app/architect/connectors/bacen.py`
+
+**Classe `BacenConnector(BaseConnector)`:**
+- Dado: taxa SELIC meta (serie SGS 432 do Banco Central)
+- API: `https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1`
+- Fallback hardcoded: 13,25% a.a. (referencia fev/2026)
+- `get_selic()` — Metodo de conveniencia; retorna `rates["selic_annual"]`
+- `fetch_rates()` — Busca SELIC via HTTP e converte de percentual para decimal
+- `get_fallback_rates()` — Retorna dict com `selic_annual` hardcoded
+
+**Uso esperado:**
+```python
+connector = BacenConnector()
+selic = connector.get_selic()   # ex: 0.1325
+```
+
+---
+
+#### 8. `app/architect/connectors/anbima.py`
+
+**Classe `AnbimaConnector(BaseConnector)`:**
+- Dado: taxa CDI (usa SGS serie 12 do BCB — API publica, sem autenticacao)
+- API: `https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados/ultimos/1`
+- Fallback hardcoded: 13,15% a.a. (referencia fev/2026)
+- `get_cdi()` — Metodo de conveniencia; retorna `rates["cdi_annual"]`
+- `fetch_rates()` — Busca CDI via HTTP e converte de percentual para decimal
+- `get_fallback_rates()` — Retorna dict com `cdi_annual` hardcoded
+
+**Uso esperado:**
+```python
+connector = AnbimaConnector()
+cdi = connector.get_cdi()   # ex: 0.1315
+```
+
+---
+
+#### 9. `app/architect/connectors/market_rates.py`
+
+**Classe `MarketRatesConnector(BaseConnector)`:**
+- Dado: CETs (Custo Efetivo Total) bancarios por tipo de ativo
+- Fonte: arquivo JSON local `data/architect/market_rates.json`
+- Tipos suportados: `IMOVEL`, `VEICULO`, `REFORMA`, `VIAGEM`, `OUTRO`
+- Por tipo: 3 cenarios (`min`, `avg`, `max`)
+- `get_best_cet(asset_type)` — CET minimo para o tipo de ativo
+- `get_avg_cet(asset_type)` — CET medio para o tipo de ativo
+- `fetch_rates()` — Le arquivo JSON local
+- `get_fallback_rates()` — Retorna dict hardcoded com CETs de fev/2026
+
+**CETs de fallback (fev/2026):**
+
+| Ativo | Melhor | Medio | Pior |
+|---|---|---|---|
+| Imovel | 10,50% | 12,40% | 14,90% |
+| Veiculo | 16,20% | 19,50% | 24,50% |
+| Reforma | 22,00% | 31,00% | 45,00% |
+| Viagem | 28,00% | 36,00% | 52,00% |
+| Outro | 24,00% | 32,00% | 48,00% |
+
+---
+
 ### Padroes Estabelecidos
 
 1. **Guards de taxa:** Todas as funcoes usam `<= -1` (nao `< -1`) para evitar ZeroDivisionError
@@ -2058,16 +2152,19 @@ Devido ao limite de tokens, criei a **ESTRUTURA COMPLETA** com as seções mais 
 3. **Arredondamento:** Totais derivados do schedule (sum dos valores arredondados) para consistencia
 4. **Newton-Raphson:** Sem clamp durante iteracoes, validacao apenas no resultado final
 5. **Dataclasses:** Cada calculator tem seu Result dataclass com `to_dict()` e `__all__` exports
+6. **Padrão Connector:** cache 2 niveis (sucesso + fallback), nunca bloqueia, TTL configuravel
+7. **Fallbacks:** Todos os conectores tem valores hardcoded atualizados para fev/2026
 
-### Proximos Passos
+---
+
+### Proximos Passos (Fase 1 — Pendentes)
 
 Seguindo o roadmap da doc:
-1. `connectors/base.py` — Connector abstrato para APIs externas
-2. `connectors/bacen.py` — SELIC/PTAX
-3. `connectors/anbima.py` — CDI/DI
-4. `connectors/market_rates.py` — CETs mock
-5. `simulators/strategy_engine.py` — Motor de decisao
-6. `validators/` — Validacao de inputs e liquidez
-7. `services/architect_service.py` — Orquestrador
-8. `api/v1/routes/architect.py` — Endpoints REST
-9. `tests/architect/` — Testes completos
+1. `simulators/strategy_engine.py` — Motor de decisao: compara NPVs dos 3 cenarios e escolhe o melhor
+2. `validators/input_validator.py` — Valida campos do `SimulationRequest` alem do Pydantic
+3. `validators/liquidity_validator.py` — Calcula `liquidity_impact` com base no `safe_to_spend` do F1
+4. `services/architect_service.py` — Orquestrador: busca F1, chama connectors, roda engine, persiste
+5. `api/v1/routes/architect.py` — Endpoints REST: `POST /architect/simulate`, `GET /architect/simulations/{id}`
+6. `db/migrations/003_create_architect_tables.sql` — Schema SQL para `architect_simulations`
+7. `db/queries/architect_queries.py` — CRUD de simulacoes
+8. `tests/architect/` — Testes unitarios e de integracao para tudo acima
