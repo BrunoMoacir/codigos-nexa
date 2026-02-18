@@ -1,0 +1,50 @@
+{
+  "_meta": {
+    "description": "CETs (Custo Efetivo Total) mock por tipo de bem — Fase 1 MVP",
+    "source": "Médias de mercado baseadas em simulações públicas dos bancos (fev/2026)",
+    "updated_at": "2026-02",
+    "note": "Atualizar trimestralmente. Fase 2 substituirá por APIs reais dos bancos."
+  },
+  "rates": {
+    "IMOVEL": {
+      "description": "Crédito imobiliário (SFH/SFI) — CAIXA, BB, Itaú, Bradesco",
+      "cet_min": 0.1050,
+      "cet_avg": 0.1240,
+      "cet_max": 0.1490,
+      "typical_months_min": 120,
+      "typical_months_max": 420
+    },
+    "VEICULO": {
+      "description": "Financiamento de veículos — CDC, consórcios e leasing",
+      "cet_min": 0.1620,
+      "cet_avg": 0.1950,
+      "cet_max": 0.2450,
+      "typical_months_min": 12,
+      "typical_months_max": 60
+    },
+    "REFORMA": {
+      "description": "Crédito para reforma/construção — crédito pessoal e CDC",
+      "cet_min": 0.2200,
+      "cet_avg": 0.3100,
+      "cet_max": 0.4500,
+      "typical_months_min": 12,
+      "typical_months_max": 60
+    },
+    "VIAGEM": {
+      "description": "Crédito para viagem — cartão parcelado e crédito pessoal",
+      "cet_min": 0.2800,
+      "cet_avg": 0.3600,
+      "cet_max": 0.5200,
+      "typical_months_min": 6,
+      "typical_months_max": 24
+    },
+    "OUTRO": {
+      "description": "Crédito pessoal geral",
+      "cet_min": 0.2400,
+      "cet_avg": 0.3200,
+      "cet_max": 0.4800,
+      "typical_months_min": 12,
+      "typical_months_max": 48
+    }
+  }
+}
