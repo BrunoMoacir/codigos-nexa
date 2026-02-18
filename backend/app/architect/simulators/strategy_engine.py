@@ -9,13 +9,11 @@ Responsabilidade:
     comparar os resultados (NPV, Liquidez, Prazo) e recomendar a melhor estratégia.
 
 Logica de Decisão:
-    1. Executa simulações paralelas para cada estratégia.
+    1. Executa simulações para cada estratégia.
     2. Valida restrições (ex: parcela não pode exceder orçamento).
     3. Calcula NPV de cada fluxo para comparação justa.
-    4. Seleciona a estratégia com menor custo financeiro (maior NPV, considerando que são saídas de caixa).
-       Nota: Como são pagamentos, buscamos o NPV "menos negativo" (maior valor algébrico)
-       ou o menor custo presente absoluto.
-       Por convenção aqui: NPV negativo = custo a valor presente.
+    4. Seleciona a estratégia com menor custo financeiro (maior NPV).
+       Nota: Como são pagamentos, NPV negativo = custo a valor presente.
        Melhor estratégia = Maior NPV (mais próximo de zero).
 """
 
@@ -32,351 +30,363 @@ from app.architect.models import (
     NPVComparison,
     ConsortiumProbability,
     ActionStep,
-    FinancingTerms,
-    InvestmentTerms,
-    RiskProfile
 )
-from app.architect.calculators import financing, investment, npv, consortium
+from app.architect.calculators import financing as fin_calc
+from app.architect.calculators import investment as inv_calc
+from app.architect.calculators import npv as npv_calc
+from app.architect.calculators import consortium as cons_calc
 from app.architect.utils.formatters import format_currency
 
 logger = logging.getLogger(__name__)
 
+
+def _safe_float(value: Any) -> float:
+    """Converte valor para float, tratando NaN e None."""
+    if value is None:
+        return 0.0
+    fval = float(value)
+    if math.isnan(fval) or math.isinf(fval):
+        return 0.0
+    return fval
+
+
 class StrategyEngine:
     """
     Motor central de decisão do Nexa Architect.
-    
+
     Não faz chamadas de rede/banco. Recebe todos os dados necessários
     (request do usuário + taxas de mercado) e processa a matemática pura.
     """
-    
+
     def simulate(
-        self, 
-        request: SimulationRequest, 
+        self,
+        request: SimulationRequest,
         market_rates: Dict[str, float],
-        consortium_data: Optional[Dict[str, Any]] = None
     ) -> SimulationResponse:
         """
         Executa a simulação completa e retorna a recomendação.
-        
+
         Args:
             request: Dados do usuário (target, entrada, orçamento, etc).
-            market_rates: Taxas atuais (selic_annual, cdi_annual, best_cet_annual, etc).
-            consortium_data: Dados históricos de consórcio (opcional).
-            
+            market_rates: Taxas atuais {selic_annual, cdi_annual, best_cet_annual}.
+
         Returns:
             SimulationResponse com a melhor estratégia e detalhes.
         """
-        logger.info(f"Iniciando simulação para user={request.user_id}, target={request.target_amount}")
-        
-        # 1. Preparar dados base
-        principal = request.principal
-        selic_monthly = (1 + market_rates.get("selic_annual", 0.10)) ** (1/12) - 1
-        
-        # 2. Simular Estratégias
-        
-        # A) Financiamento
+        logger.info(
+            "Iniciando simulação para user=%s, target=%s",
+            request.user_id,
+            request.target_amount,
+        )
+
+        selic_annual = market_rates.get("selic_annual", 0.1075)
+        selic_monthly = (1 + selic_annual) ** (1 / 12) - 1
+
+        # ── 1. Simular Estratégias ──────────────────────────────────
         fin_result = self._simulate_financing(request, market_rates)
-        
-        # B) Poupar/Investir
         inv_result = self._simulate_investment(request, market_rates)
-        
-        # C) Consórcio (se habilitado)
-        cons_result = None
+
+        cons_result: Optional[Dict[str, Any]] = None
         if request.include_consortium:
             cons_result = self._simulate_consortium(request, market_rates)
-            
-        # 3. Comparar NPVs
-        # NPV de pagamentos é negativo (saída de caixa).
-        # Queremos o que tem menor custo presente (maior valor algébrico).
-        
-        npv_fin = np.nan_to_num(fin_result["npv"])
-        npv_inv = np.nan_to_num(inv_result["npv"])
-        npv_cons = np.nan_to_num(cons_result["npv"]) if cons_result else -float('inf')
-        
-        # 4. Decisão preliminar baseada puramente financeiramente (NPV)
-        # Ajuste por perfil de risco pode ocorrer aqui
-        
-        strategies = {
+
+        # ── 2. Comparar NPVs ────────────────────────────────────────
+        npv_fin = _safe_float(fin_result["npv"])
+        npv_inv = _safe_float(inv_result["npv"])
+        npv_cons = _safe_float(cons_result["npv"]) if cons_result else None
+
+        # ── 3. Decisão: maior NPV = menor custo presente ────────────
+        strategies: Dict[StrategyType, float] = {
             StrategyType.FINANCING: npv_fin,
             StrategyType.SAVE_INVEST: npv_inv,
         }
-        if cons_result:
+        if cons_result and npv_cons is not None:
             strategies[StrategyType.CONSORTIUM] = npv_cons
-            
-        # Ordenar estratégias da melhor (maior NPV) para a pior
-        ranked_strategies = sorted(strategies.items(), key=lambda x: x[1], reverse=True)
-        best_strategy = ranked_strategies[0][0]
-        
-        # 5. Validação de Restrições (Liquidez)
-        # Se a melhor estratégia estourar o orçamento, tentamos a próxima
+
+        ranked = sorted(strategies.items(), key=lambda x: x[1], reverse=True)
+        best_strategy = ranked[0][0]
+
+        # ── 4. Validação de Restrições (Liquidez) ────────────────────
+        budget_limit = request.max_monthly_budget or float("inf")
         final_strategy = best_strategy
-        budget_limit = request.max_monthly_budget or float('inf')
-        
-        if best_strategy == StrategyType.FINANCING and fin_result["monthly_payment"] > budget_limit:
-            # Financiamento caro demais, fallback
-            final_strategy = StrategyType.SAVE_INVEST # Padrão seguro
-            if cons_result and cons_result["monthly_payment"] <= budget_limit:
-                # Verifica se consórcio é melhor que Investir (geralmente sim em prazo)
-                if npv_cons > npv_inv:
-                    final_strategy = StrategyType.CONSORTIUM
-        
-        elif best_strategy == StrategyType.CONSORTIUM and cons_result and cons_result["monthly_payment"] > budget_limit:
+
+        if (
+            best_strategy == StrategyType.FINANCING
+            and fin_result["monthly_payment"] > budget_limit
+        ):
             final_strategy = StrategyType.SAVE_INVEST
-            
-        # 6. Montar Resposta
-        
-        # Escolher dados da estratégia vencedora para preencher campos principais
+            if (
+                cons_result
+                and cons_result["monthly_payment"] <= budget_limit
+                and npv_cons is not None
+                and npv_cons > npv_inv
+            ):
+                final_strategy = StrategyType.CONSORTIUM
+
+        elif (
+            best_strategy == StrategyType.CONSORTIUM
+            and cons_result
+            and cons_result["monthly_payment"] > budget_limit
+        ):
+            final_strategy = StrategyType.SAVE_INVEST
+
+        # ── 5. Montar resposta ────────────────────────────────────────
         if final_strategy == StrategyType.FINANCING:
-            selected_scenario = fin_result
+            selected = fin_result
         elif final_strategy == StrategyType.CONSORTIUM and cons_result:
-            selected_scenario = cons_result
+            selected = cons_result
         else:
             final_strategy = StrategyType.SAVE_INVEST
-            selected_scenario = inv_result
-            
-        # Calcular impacto de liquidez
-        # (Parcela / Orçamento). Se orçamento não definido, usa 0 (sem impacto medido aqui)
-        # O Service deve preencher max_monthly_budget com safe_to_spend se não vier do request
-        monthly_cost = selected_scenario["monthly_payment"]
-        liquidity_base = request.max_monthly_budget or monthly_cost # Evita div/0
-        liquidity_impact = -(monthly_cost / liquidity_base) if liquidity_base > 0 else 0.0
-        
+            selected = inv_result
+
+        # Liquidez
+        monthly_cost = selected["monthly_payment"]
+        liquidity_base = request.max_monthly_budget or monthly_cost
+        liquidity_impact = (
+            -(monthly_cost / liquidity_base) if liquidity_base > 0 else 0.0
+        )
+
+        # Meses - financiamento é imediato, mas mínimo 1 pelo model
+        months = max(1, selected["months"])
+
         # Action Plan
-        action_plan = self._generate_action_plan(final_strategy, selected_scenario, request)
-        
+        action_plan = self._generate_action_plan(
+            final_strategy, selected, request
+        )
+
         return SimulationResponse(
             recommended_strategy=final_strategy,
             costs=CostScenario(
-                min_cost=float(selected_scenario["min_cost"]),
-                expected_cost=float(selected_scenario["expected_cost"]),
-                max_cost=float(selected_scenario["max_cost"])
+                min_cost=float(selected["min_cost"]),
+                expected_cost=float(selected["expected_cost"]),
+                max_cost=float(selected["max_cost"]),
             ),
             npv=NPVComparison(
                 financing=float(npv_fin),
-                consortium=float(npv_cons) if cons_result else None,
+                consortium=float(npv_cons) if npv_cons is not None else None,
                 save_invest=float(npv_inv),
-                discount_rate_used=selic_monthly
+                discount_rate_used=selic_monthly,
             ),
-            consortium_probability=cons_result["probability"] if cons_result else None,
-            liquidity_impact=round(liquidity_impact, 4),
-            months_to_achieve=selected_scenario["months"],
+            consortium_probability=(
+                cons_result["probability"] if cons_result else None
+            ),
+            liquidity_impact=round(float(liquidity_impact), 4),
+            months_to_achieve=months,
             action_plan=action_plan,
-            confidence_score=0.95, # Mock: Fatorar qualidade dos dados (F1) depois
-            data_sources=["bacen", "anbima", "market_rates", "internal_models"]
+            confidence_score=0.85,
+            data_sources=["bacen", "anbima", "market_rates", "internal_models"],
         )
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # HELPERS DE SIMULAÇÃO
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    def _simulate_financing(self, req: SimulationRequest, rates: Dict[str, float]) -> Dict[str, Any]:
-        """Simula cenário de financiamento."""
+    def _simulate_financing(
+        self, req: SimulationRequest, rates: Dict[str, float]
+    ) -> Dict[str, Any]:
+        """Simula cenário de financiamento (PRICE ou SAC)."""
         cet_annual = rates.get("best_cet_annual", 0.15)
-        # Fallback se best_cet_annual não vier (usa avg do tipo de bem)
-        if "best_cet_annual" not in rates:
-            # Tenta pegar pelo asset_type, sem connector aqui o caller deve passar pronto
-            # Assumimos que 'best_cet_annual' já vem resolvido do Service
-            pass
+        selic_monthly = (1 + rates.get("selic_annual", 0.1075)) ** (1 / 12) - 1
 
-        # Calcular PRICE (ou método escolhido)
-        # OBS: financing.py tem calculate_price e calculate_sac
-        # Vamos comparar ambos e pegar o melhor para o usuário (geralmente SAC é mais barato total, mas PRICE parcela inicial menor)
-        # Se usuário pediu PRICE, calculamos PRICE.
-        
-        meth = req.amortization_method # PRICE ou SAC
-        
-        if meth == "SAC":
-            sim = financing.calculate_sac(req.principal, cet_annual, req.financing_months)
+        # Calcular pelo método escolhido
+        if req.amortization_method.value == "SAC":
+            sim = fin_calc.calculate_sac(
+                req.principal, cet_annual, req.financing_months
+            )
         else:
-            sim = financing.calculate_price(req.principal, cet_annual, req.financing_months)
-            
-        # Calcular NPV
-        # Fluxo: +Principal (recebe bem agora) -Entrada -Parcelas...
-        # Ou simplificado: Custo presente = Entrada + NPV(Parcelas)
-        # Como queremos comparar custos, vamos calcular o valor presente dos PAGAMENTOS
-        # e inverter o sinal para representar "custo" (valor negativo de patrimônio).
-        
-        selic_monthly = (1 + rates.get("selic_annual", 0.10)) ** (1/12) - 1
-        
-        # Fluxo de pagamentos (sinais negativos)
-        # Mês 0: -Entrada
-        # Mês 1..N: -Parcela
-        
+            sim = fin_calc.calculate_price(
+                req.principal, cet_annual, req.financing_months
+            )
+
+        # Fluxo de caixa: -Entrada no mês 0, -Parcelas nos meses 1..N
         cashflows = [-req.down_payment]
-        for p in sim.schedule:
-            cashflows.append(-p["payment"])
-            
-        npv_val = npv.calculate_npv(cashflows, selic_monthly)
-        
+        for row in sim.schedule:
+            cashflows.append(-row["payment"])
+
+        npv_val = npv_calc.calculate_npv(cashflows, selic_monthly)
+
         return {
             "type": "FINANCING",
             "monthly_payment": sim.monthly_payment,
             "total_cost": sim.total_cost,
-            "min_cost": sim.total_cost, # Em financiamento fixo, variação é pequena
+            "min_cost": sim.total_cost,
             "expected_cost": sim.total_cost,
-            "max_cost": sim.total_cost * 1.05, # Margem risco
+            "max_cost": round(sim.total_cost * 1.05, 2),
             "npv": npv_val,
-            "months": 0, # Conquista imediata (0 meses de espera)
-            "sim_obj": sim
+            "months": 1,  # Aquisição imediata (ge=1 no model)
         }
 
-    def _simulate_investment(self, req: SimulationRequest, rates: Dict[str, float]) -> Dict[str, Any]:
-        """Simula cenário de poupar (CDI)"""
-        cdi_annual = rates.get("cdi_annual", 0.10)
-        
-        # Calcular quanto precisa guardar ou quanto tempo leva
+    def _simulate_investment(
+        self, req: SimulationRequest, rates: Dict[str, float]
+    ) -> Dict[str, Any]:
+        """Simula cenário de poupar/investir (CDI)."""
+        cdi_annual = rates.get("cdi_annual", 0.1025)
+        selic_monthly = (1 + rates.get("selic_annual", 0.1075)) ** (1 / 12) - 1
+
         if req.max_monthly_budget:
-            # Se tem limite de orçamento, calcula tempo
             monthly_dep = req.max_monthly_budget
-            months = investment.calculate_months_needed(
-                req.target_amount, monthly_dep, cdi_annual, req.down_payment
+            months = inv_calc.calculate_months_needed(
+                req.target_amount,
+                monthly_dep,
+                cdi_annual,
+                req.down_payment,
             )
-            # Se months for None (não converge), definimos um teto
             if months is None:
                 months = 120
         else:
-            # Sem limite, define prazo igual ao financiamento para comparar
             months = req.financing_months
-            monthly_dep = investment.calculate_pmt_needed(
-                req.target_amount, cdi_annual, months, req.down_payment
+            monthly_dep = inv_calc.calculate_pmt_needed(
+                req.target_amount,
+                cdi_annual,
+                months,
+                req.down_payment,
             )
-            
-        # Calcular NPV
-        # Fluxo: -Entrada (investida) -Aportes... +Resgate Final
-        selic_monthly = (1 + rates.get("selic_annual", 0.10)) ** (1/12) - 1
-        
+
+        # Fluxo: -Entrada -Aportes mensais
         cashflows = [-req.down_payment]
         cashflows.extend([-monthly_dep] * months)
-        # No final recebe o bem (valor +), mas como estamos comparando CUSTO de aquisição,
-        # o benefício de ter o bem anula o custo de compra.
-        # Para ser comparável com Financiamento (onde recebe bem no t=0), 
-        # a estratégia de investimento tem o custo de NÃO ter o bem por N meses (custo de oportunidade de uso).
-        # Mas simplificando para MVP: NPV(Saídas).
-        # Financiamento: paga caro, recebe cedo.
-        # Investimento: paga barato, recebe tarde.
-        # Para comparar maçãs com maçãs:
-        # NPV do Financiamento já desconta fluxos futuros.
-        # NPV do Investimento: fluxos de saída apenas.
-        # A diferença de "ter o bem" é subjetiva, mas financeiramente o VPL captura o valor do dinheiro.
-        
-        npv_val = npv.calculate_npv(cashflows, selic_monthly)
-        
+
+        npv_val = npv_calc.calculate_npv(cashflows, selic_monthly)
+
+        total_invested = req.down_payment + (monthly_dep * months)
+
         return {
             "type": "SAVE_INVEST",
-            "monthly_payment": monthly_dep,
-            "min_cost": req.target_amount, # Custo nominal é só o valor do bem (juros trabalharam a favor)
-            "expected_cost": req.target_amount, 
-            "max_cost": req.target_amount, 
-            "npv": npv_val, # Será menos negativo que financiamento (ótimo), mas tem o 'months' alto
+            "monthly_payment": round(monthly_dep, 2),
+            "min_cost": req.target_amount,
+            "expected_cost": req.target_amount,
+            "max_cost": req.target_amount,
+            "npv": npv_val,
             "months": months,
-            "sim_obj": None
         }
 
-    def _simulate_consortium(self, req: SimulationRequest, rates: Dict[str, float]) -> Dict[str, Any]:
-        """Simula cenário de consórcio."""
-        
-        # Parâmetros padrão de mercado (TODO: vir do connector ABAC na fase 2)
-        admin_rate = 0.16 # 16% taxa adm total
-        months = 60 # Grupos típicos
-        
-        sim = consortium.calculate_consortium_metrics(
+    def _simulate_consortium(
+        self, req: SimulationRequest, rates: Dict[str, float]
+    ) -> Dict[str, Any]:
+        """Simula cenário de consórcio via Monte Carlo."""
+        selic_monthly = (1 + rates.get("selic_annual", 0.1075)) ** (1 / 12) - 1
+
+        admin_rate = 0.16
+        cons_months = 60
+
+        sim = cons_calc.calculate_consortium_metrics(
             letter_value=req.target_amount,
-            months=months,
+            months=cons_months,
             admin_rate=admin_rate,
             reserve_fund_rate=0.02,
-            bid_amount=req.down_payment # Usa a entrada como lance
+            bid_amount=req.down_payment,
         )
-        
-        # NPV
-        selic_monthly = (1 + rates.get("selic_annual", 0.10)) ** (1/12) - 1
-        
-        # Fluxo médio esperado:
-        # Paga parcelas por 'months'
-        cashflows = [-sim.monthly_payment] * months
-        # Se deu lance, desembolsa no mês da contemplação (esperado)
+
+        # Fluxo: -Parcelas por N meses
+        cashflows = [-sim.monthly_payment] * cons_months
         expected_month = sim.contemplation_month_expected
-        if expected_month < len(cashflows):
-            cashflows[expected_month] -= req.down_payment # Lance sai do caixa
-            
-        npv_val = npv.calculate_npv(cashflows, selic_monthly)
-        
+
+        # Lance no mês esperado de contemplação
+        if expected_month < len(cashflows) and req.down_payment > 0:
+            cashflows[expected_month] -= req.down_payment
+
+        npv_val = npv_calc.calculate_npv(cashflows, selic_monthly)
+
+        # Montar ConsortiumProbability
+        prob_dict = sim.contemplation_probability
         prob = ConsortiumProbability(
-            win_12m=sim.contemplation_probability["12m"],
-            win_24m=sim.contemplation_probability["24m"],
-            win_36m=sim.contemplation_probability.get("36m", sim.contemplation_probability["half_term"]), # Adaptar keys
-            expected_months=expected_month,
-            with_lance=(req.down_payment > 0)
+            win_12m=prob_dict.get("12m", 0.0),
+            win_24m=prob_dict.get("24m", 0.0),
+            win_36m=prob_dict.get("36m", prob_dict.get("half_term", 0.0)),
+            expected_months=max(1, expected_month),
+            with_lance=(req.down_payment > 0),
         )
-        
+
         return {
             "type": "CONSORTIUM",
             "monthly_payment": sim.monthly_payment,
-            "min_cost": sim.total_cost * 0.95, 
+            "min_cost": round(sim.total_cost * 0.95, 2),
             "expected_cost": sim.total_cost,
-            "max_cost": sim.total_cost * 1.10, # Reajuste carta
+            "max_cost": round(sim.total_cost * 1.10, 2),
             "npv": npv_val,
-            "months": expected_month, # Tempo de espera esperado
+            "months": max(1, expected_month),
             "probability": prob,
-            "sim_obj": sim
         }
 
-    def _generate_action_plan(self, strategy: StrategyType, scenario: Dict, req: SimulationRequest) -> List[ActionStep]:
+    def _generate_action_plan(
+        self,
+        strategy: StrategyType,
+        scenario: Dict[str, Any],
+        req: SimulationRequest,
+    ) -> List[ActionStep]:
         """Gera passos práticos baseados na estratégia escolhida."""
-        steps = []
-        
+        steps: List[ActionStep] = []
+
         if strategy == StrategyType.FINANCING:
-            steps.append(ActionStep(
-                step=1, 
-                action=f"Reunir documentação para financiamento {req.asset_type.value.lower()}", 
-                is_critical=True
-            ))
-            steps.append(ActionStep(
-                step=2, 
-                action=f"Dar entrada de {format_currency(req.down_payment)}", 
-                amount=req.down_payment,
-                is_critical=True
-            ))
-            steps.append(ActionStep(
-                step=3,
-                action=f"Pagar parcelas mensais de aprox. {format_currency(scenario['monthly_payment'])}",
-                amount=scenario['monthly_payment']
-            ))
-            
-        elif strategy == StrategyType.CONSORTIUM:
-            steps.append(ActionStep(
-                step=1,
-                action="Aderir a um grupo de consórcio em andamento (média 60 meses)",
-                is_critical=True
-            ))
+            steps.append(
+                ActionStep(
+                    step=1,
+                    action=f"Reunir documentação para financiamento de {req.asset_type.value.lower()}",
+                    is_critical=True,
+                )
+            )
             if req.down_payment > 0:
-                steps.append(ActionStep(
+                steps.append(
+                    ActionStep(
+                        step=2,
+                        action=f"Separar entrada de {format_currency(req.down_payment)}",
+                        amount=req.down_payment,
+                        is_critical=True,
+                    )
+                )
+            steps.append(
+                ActionStep(
+                    step=len(steps) + 1,
+                    action=f"Pagar parcelas mensais de aprox. {format_currency(scenario['monthly_payment'])}",
+                    amount=scenario["monthly_payment"],
+                )
+            )
+
+        elif strategy == StrategyType.CONSORTIUM:
+            steps.append(
+                ActionStep(
+                    step=1,
+                    action="Aderir a um grupo de consórcio em andamento",
+                    is_critical=True,
+                )
+            )
+            if req.down_payment > 0:
+                steps.append(
+                    ActionStep(
+                        step=2,
+                        action=f"Ofertar lance de {format_currency(req.down_payment)} para antecipar contemplação",
+                        amount=req.down_payment,
+                        is_critical=True,
+                    )
+                )
+            steps.append(
+                ActionStep(
+                    step=len(steps) + 1,
+                    action=f"Aguardar contemplação (média esperada: {scenario['months']} meses)",
+                )
+            )
+
+        else:  # SAVE_INVEST
+            steps.append(
+                ActionStep(
+                    step=1,
+                    action="Abrir conta em corretora de taxa zero para investimentos",
+                    is_critical=True,
+                )
+            )
+            steps.append(
+                ActionStep(
                     step=2,
-                    action=f"Ofertá lance de {format_currency(req.down_payment)} logo no primeiro mês",
-                    amount=req.down_payment,
-                    is_critical=True
-                ))
-            steps.append(ActionStep(
-                step=3,
-                action="Aguardar contemplação (média esperada: {} meses)".format(scenario['months']),
-                is_critical=False
-            ))
-            
-        else: # SAVE_INVEST
-            steps.append(ActionStep(
-                step=1,
-                action="Abrir conta em corretora de taxa zero",
-                is_critical=True
-            ))
-            steps.append(ActionStep(
-                step=2,
-                action=f"Configurar aplicação automática mensal de {format_currency(scenario['monthly_payment'])} em CDB 100% CDI",
-                amount=scenario['monthly_payment'],
-                is_critical=True
-            ))
-            steps.append(ActionStep(
-                step=3,
-                action=f"Resgatar valor total em {scenario['months']} meses para compra à vista",
-                deadline=None # TODO: calc date
-            ))
-            
+                    action=f"Configurar aplicação automática mensal de {format_currency(scenario['monthly_payment'])} em CDB 100% CDI",
+                    amount=scenario["monthly_payment"],
+                    is_critical=True,
+                )
+            )
+            steps.append(
+                ActionStep(
+                    step=3,
+                    action=f"Resgatar valor total em {scenario['months']} meses para compra à vista",
+                )
+            )
+
         return steps
