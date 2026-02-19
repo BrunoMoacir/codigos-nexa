@@ -1979,9 +1979,9 @@ Devido ao limite de tokens, criei a **ESTRUTURA COMPLETA** com as seções mais 
 | DB Migrations | `app/db/migrations/003_create_architect_tables.sql` | 🔶 Stub (Pendente) | — |
 | DB Queries | `app/db/queries/architect_queries.py` | 🔶 Stub (Pendente) | — |
 | Cache | `app/architect/utils/cache.py` | 🔶 Stub (Fase 3) | — |
-| Testes | `tests/architect/` | 🔶 Stubs criados (14 arquivos) | — |
+| Testes | `tests/architect/` | ✅ Implementado (213 passando) | 11 arquivos |
 
-**Progresso geral da Fase 1:** ~45% completo (motores matematicos + conectores prontos; orquestracao + API pendentes)
+**Progresso geral da Fase 1:** ~90% completo — orquestração, API, validators, strategy engine e suíte de testes implementados; pendente persistência (migrations + queries)
 
 ---
 
@@ -2157,14 +2157,285 @@ cdi = connector.get_cdi()   # ex: 0.1315
 
 ---
 
+## REGISTRO DE IMPLEMENTACAO — SUITE DE TESTES
+
+**Ultima atualizacao:** 2026-02-19
+
+### Resultado Final do pytest
+
+```bash
+cd backend
+pytest tests/architect/ -v
+# ========== 213 passed, 5 warnings in 8.48s ==========
+```
+
+**213 testes passando, 0 falhas.**
+
+---
+
+### Tabela de Arquivos de Teste
+
+| Arquivo | Testes | Componente Coberto | Status |
+|---|---|---|---|
+| `conftest.py` | fixtures | Requests, ConnectorMocks, MarketRates | ✅ Implementado |
+| `test_models.py` | 30 | `models.py` — todos os schemas Pydantic | ✅ Implementado |
+| `test_npv.py` | 20 | `calculators/npv.py` — NPV, IRR, PV, FV | ✅ Implementado |
+| `test_financing.py` | 18 | `calculators/financing.py` — PRICE, SAC, CET | ✅ Implementado |
+| `test_investment.py` | 22 | `calculators/investment.py` — PMT, meses, schedule | ✅ Implementado |
+| `test_consortium.py` | 11 | `calculators/consortium.py` — Monte Carlo | ✅ Implementado |
+| `test_validators.py` | 22 | `validators/` — InputValidator + LiquidityValidator | ✅ Implementado |
+| `test_service.py` | 16 | `services/architect_service.py` — orquestrador | ✅ Implementado |
+| `test_connectors.py` | 14 | `connectors/` — BACEN, ANBIMA, MarketRates | ✅ Implementado |
+| `test_api.py` | 13 | `api/v1/routes/architect.py` — endpoints REST | ✅ Implementado |
+| `test_integration.py` | 17 | Pipeline E2E — request → SimulationResponse | ✅ Implementado |
+
+---
+
+### Detalhes por Arquivo de Teste
+
+#### 10. `tests/architect/conftest.py`
+
+**Fixtures compartilhadas por toda a suite:**
+- `valid_simulation_request` — `SimulationRequest` completo com todos os campos
+- `minimal_simulation_request` — apenas campos obrigatórios (`user_id`, `target_amount`)
+- `standard_market_rates` — dict com SELIC, CDI e CET para mocks
+- `mock_bacen_connector`, `mock_anbima_connector`, `mock_market_rates_connector` — connectors configurados com `MagicMock` e valores fixos
+- `mock_strategy_engine`, `mock_full_response` — mocks de engine e `SimulationResponse`
+
+**Decisoes de design:**
+- Fixtures de connector retornam valores fixos para isolar testes de rede
+- `mock_full_response` e `mock_strategy_engine` usados nos testes de service e API
+
+---
+
+#### 11. `tests/architect/test_models.py`
+
+**Classes testadas:**
+- `TestSimulationRequest` — validacao Pydantic, campos opcionais, `target_amount` e `down_payment`
+- `TestCostScenario` — ordenacao `min_cost <= expected_cost <= max_cost`
+- `TestNPVComparison` — campos obrigatórios e `discount_rate_used`
+- `TestConsortiumProbability` — ordenacao cumulativa das probabilidades
+- `TestActionStep` — `step` positivo, `is_critical` default False
+- `TestSimulationResponse` — construcao completa com todos os campos
+
+**Padroes testados:**
+- Rejeicao de `target_amount <= 0` e `down_payment < 0`
+- Validacao de `financing_months`, `risk_profile` e `asset_type`
+- Serializacao `.model_dump()` compativel com JSON
+
+---
+
+#### 12. `tests/architect/test_npv.py`
+
+**Atencao — assinaturas reais das funcoes:**
+```python
+calculate_npv(cashflows, discount_rate, initial_investment=0)
+calculate_irr(cashflows, initial_investment, guess=0.10)  # cashflows = apenas fluxos futuros
+present_value_annuity(payment, rate, periods)             # parametro: payment, nao pmt
+future_value_annuity(payment, rate, periods, initial_amount=0)
+```
+
+**Classes testadas:**
+- `TestCalculateNPV` — desconto correto, NPV positivo/negativo, taxa zero, `ValueError` para `rate <= -1`
+- `TestCalculateIRR` — convergencia Newton-Raphson, NPV(IRR) ≈ 0, `ValueError` para lista vazia ou `initial_investment <= 0`
+- `TestPresentValueAnnuity` — taxa zero = `payment * n`, valor exato R$11255.08, `ValueError` para inputs invalidos
+- `TestFutureValueAnnuity` — taxa zero = `payment * n`, FV com `initial_amount`, `ValueError` para inputs invalidos
+
+**Valores de referencia corrigidos (divergência de docstring):**
+- `future_value_annuity(2000, 0.008, 36)` = R$83057.46 (docstring dizia 83266.04 — corrigido no teste)
+
+---
+
+#### 13. `tests/architect/test_financing.py`
+
+**Classes testadas:**
+- `TestCalculatePrice` — parcela fixa, total pago = parcela × meses, soma de amortizacoes = principal, taxa zero sem juros, CET > taxa nominal
+- `TestCalculateSAC` — amortizacao constante, parcelas decrescentes, `first > last`, SAC mais barato que PRICE
+
+**Propriedades comparativas verificadas:**
+- `SAC.total_cost < PRICE.total_cost` para mesmos parametros
+- `SAC.total_interest < PRICE.total_interest`
+- PRICE: `schedule[0]["payment"] == schedule[-1]["payment"]`
+- SAC: `schedule[0]["payment"] > schedule[-1]["payment"]`
+
+---
+
+#### 14. `tests/architect/test_investment.py`
+
+**Atencao — assinaturas reais:**
+```python
+calculate_pmt_needed(target, annual_rate, months, initial_amount=0)     # nao initial_deposit
+calculate_months_needed(target, monthly_deposit, annual_rate, initial_amount=0)
+generate_accumulation_schedule(monthly_deposit, annual_rate, months, initial_amount=0)
+# → retorna InvestmentResult (nao lista), com .schedule e .final_amount
+```
+
+**Valores de referencia corrigidos (conversao composta, nao linear):**
+- `calculate_pmt_needed(100_000, 0.10, 36)` = R$2409.11 (docstring dizia 2385.86)
+- `calculate_months_needed(100_000, 2000, 0.10)` = 43 meses (docstring dizia 40)
+- Diferenca: a implementacao usa `(1+0.10)^(1/12)-1 ≈ 0.797%/mês` (capitalizacao composta)
+
+**Classes testadas:**
+- `TestCalculatePMTNeeded` — PMT > 0, `initial_amount` reduz PMT, taxa zero = meta/meses, invariancias (meta maior → PMT maior, mais meses → menor PMT)
+- `TestCalculateMonthsNeeded` — consistencia com PMT, deposito insuficiente (None ou > 600 meses), taxa zero
+- `TestGenerateAccumulationSchedule` — schedule com N entradas, saldo cresce, `final_amount` = ultimo saldo, campos obrigatorios por linha, numeracao sequencial
+
+---
+
+#### 15. `tests/architect/test_consortium.py`
+
+**Atencao — estrutura do ConsortiumResult:**
+```python
+result.contemplation_probability  # Dict[str, float] com chaves: '6m', '12m', '24m', 'half_term'
+result.contemplation_month_expected  # int
+result.total_cost                    # float
+result.monthly_payment               # float
+result.admin_fee_total               # float
+result.scenarios                     # int
+```
+
+**Classes testadas:**
+- `TestCalculateConsortiumMetrics` — retorno do tipo correto, dict de probabilidades com chaves, valores entre [0,1], probabilidades crescentes (apenas chaves numericas `Nm`, ignora `half_term`), `total_cost > letter_value`, custo maior com taxa maior, `contemplation_month_expected` dentro do prazo, `scenarios == num_simulations`
+
+**Decisoes de design:**
+- Sort das probabilidades filtra chaves nao-numericas (`half_term`) antes de ordenar
+
+---
+
+#### 16. `tests/architect/test_validators.py`
+
+**Atencao — mensagens de erro em portugues:**
+O `InputValidator` gera mensagens como `"O valor a financiar (R$ 800.00) é muito baixo."` — o teste aceita qualquer substring de `"financiar"`, `"baixo"`, `"1,000"` ou `"principal"`.
+
+**Classes testadas:**
+- `TestInputValidator` (7 regras de negocio):
+  - Principal < R$1.000 → erro bloqueante
+  - Principal == R$1.000 → aceito
+  - `down_payment > 90%` do valor → erro
+  - `down_payment == 90%` → aceito
+  - `max_monthly_budget < R$100` → erro
+  - `budget = None` → nao gera erro
+  - Prazo excessivo para `VIAGEM` → erro; prazo valido para `IMOVEL` → aceito
+  - `IMOVEL` abaixo do minimo → erro; `VEICULO` acima do minimo → aceito
+  - `prefers_consortium=True` sem `include_consortium=True` → warning
+  - Conflito entre `target_date` e `financing_months` → warning
+  - Request valido → sem erros
+- `TestLiquidityValidator` (4 niveis de risco + hierarquia de referencia):
+  - SAFE (parcela <= 25% da referencia), WARNING (26-40%), HIGH (41-70%), CRITICAL (> 70%)
+  - `liquidity_impact` e negativo por convencao (`-parcela / referencia`)
+  - Prioridade: `safe_to_spend` sobre `max_monthly_budget`
+  - Fallback para budget quando sem `safe_to_spend`
+  - Sem referencia → `impact=0.0`
+  - CRITICAL gera warning textual
+
+---
+
+#### 17. `tests/architect/test_service.py`
+
+**Estrategia:** `ArchitectService` instanciado com connectors e engine mockados via injecao de dependencia no `__init__`.
+
+**Fluxo testado:**
+```python
+service = ArchitectService(
+    bacen=mock_bacen_connector,
+    anbima=mock_anbima_connector,
+    market_rates=mock_market_rates_connector,
+    engine=mock_strategy_engine,
+)
+response = service.simulate(request, safe_to_spend=9000.0)
+```
+
+**Classes testadas:**
+- `TestArchitectServiceSimulate`:
+  - Retorna `SimulationResponse`
+  - `confidence_score` entre 0 e 1
+  - Formula de confianca: penaliza warnings, falta de F1, fallback de taxas
+  - `"f1_safe_to_spend"` aparece em `data_sources` quando `safe_to_spend` e fornecido
+  - `ValueError` raised para request invalido
+  - Degradacao gracil: sem `safe_to_spend` (F1 indisponivel) → `confidence_score` reduzido
+  - sem F1 + fallback de taxas → penalidade dupla no confidence
+
+---
+
+#### 18. `tests/architect/test_connectors.py`
+
+**Estrategia:** Usa apenas o caminho de fallback (sem rede) para garantir que os valores hardcoded sejam validos.
+
+**Classes testadas:**
+- `TestBacenConnector` — `fallback["selic_annual"]` presente, decimal valido (0 < x < 1), valor realista (5% < SELIC < 30%), `get_selic()` retorna float sem excecao
+- `TestAnbimaConnector` — `fallback["cdi_annual"]` presente, decimal valido, CDI proximo SELIC (|CDI-SELIC| < 1%), valor realista
+- `TestMarketRatesConnector` — CET para `VEICULO` e `IMOVEL` retornam float, `CET_imovel < CET_veiculo` (invariancia de mercado), CET acima da SELIC, todos os `AssetType` tem CET definido, fallback retorna dict, JSON local carregado sem excecao
+
+---
+
+#### 19. `tests/architect/test_api.py`
+
+**Estrategia:** `TestClient` do FastAPI (sem servidor HTTP). Singleton `_service` patcheado em `app.api.v1.routes.architect._service.simulate`.
+
+```python
+# Import correto (main.py esta em app/main.py, nao na raiz)
+from app.main import app as fastapi_app
+
+# Path correto do patch (singleton no modulo de rotas)
+_PATCH_SIMULATE = "app.api.v1.routes.architect._service.simulate"
+```
+
+**Classes testadas:**
+- `TestHealthEndpoint` — `GET /api/v1/architect/health` retorna `200`, `{"status": "ok"}`, `"module": "architect"`, `"timestamp"`
+- `TestSimulateEndpoint`:
+  - POST valido + mock → `200` com `recommended_strategy`, `action_plan`, `npv`, `confidence_score`
+  - `target_amount` negativo → `422` (validacao Pydantic)
+  - Sem `user_id` → `422`
+  - `ValueError` no service → `422`
+  - `RuntimeError` no service → `500`
+
+---
+
+#### 20. `tests/architect/test_integration.py`
+
+**Estrategia:** Usa `ArchitectService` real (sem mocks de connectors), apenas os fallbacks de API ficam ativos (sem rede). Testa o pipeline E2E.
+
+**Classes testadas:**
+- `TestIntegrationVeiculo` — SimulationRequest para veiculo (`VEICULO`, `PRICE`, 48m) → `SimulationResponse` completo, `recommended_strategy` valido, `confidence_score` entre 0 e 1, `action_plan` nao vazio
+- `TestIntegrationImovel` — SimulationRequest para imovel (240m) → resposta valida, `months_to_achieve >= 1`
+- `TestIntegrationSemF1` — simula cenario sem `safe_to_spend` (F1 indisponivel) → `confidence_score` reduzido (vs. com F1), `data_sources` sem `"f1_safe_to_spend"`
+- `TestIntegrationComF1` — `safe_to_spend` fornecido → `"f1_safe_to_spend"` em `data_sources`, `confidence_score` maior
+- `TestIntegrationConsorcio` — com `include_consortium=True` → `StrategyType.CONSORTIUM` possivel na recomendacao
+
+---
+
+### Como Executar os Testes
+
+```bash
+cd backend
+
+# Suite completa
+pytest tests/architect/ -v
+
+# Por arquivo
+pytest tests/architect/test_npv.py -v
+pytest tests/architect/test_financing.py -v
+pytest tests/architect/test_investment.py -v
+pytest tests/architect/test_consortium.py -v
+pytest tests/architect/test_validators.py -v
+pytest tests/architect/test_service.py -v
+pytest tests/architect/test_connectors.py -v
+pytest tests/architect/test_api.py -v
+pytest tests/architect/test_integration.py -v
+
+# Com cobertura
+pytest tests/architect/ --cov=app/architect --cov-report=term-missing
+```
+
+**Resultado esperado:**
+```
+213 passed, 5 warnings in 8.48s
+```
+
+---
+
 ### Proximos Passos (Fase 1 — Pendentes)
 
 Seguindo o roadmap da doc:
-1. `simulators/strategy_engine.py` — Motor de decisao: compara NPVs dos 3 cenarios e escolhe o melhor
-2. `validators/input_validator.py` — Valida campos do `SimulationRequest` alem do Pydantic
-3. `validators/liquidity_validator.py` — Calcula `liquidity_impact` com base no `safe_to_spend` do F1
-4. `services/architect_service.py` — Orquestrador: busca F1, chama connectors, roda engine, persiste
-5. `api/v1/routes/architect.py` — Endpoints REST: `POST /architect/simulate`, `GET /architect/simulations/{id}`
-6. `db/migrations/003_create_architect_tables.sql` — Schema SQL para `architect_simulations`
-7. `db/queries/architect_queries.py` — CRUD de simulacoes
-8. `tests/architect/` — Testes unitarios e de integracao para tudo acima
+1. `db/migrations/003_create_architect_tables.sql` — Schema SQL para `architect_simulations`
+2. `db/queries/architect_queries.py` — CRUD de simulacoes
