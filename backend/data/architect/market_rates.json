@@ -8,9 +8,9 @@
   "rates": {
     "IMOVEL": {
       "description": "Crédito imobiliário (SFH/SFI) — CAIXA, BB, Itaú, Bradesco",
-      "cet_min": 0.1050,
-      "cet_avg": 0.1240,
-      "cet_max": 0.1490,
+      "cet_min": 0.1475,
+      "cet_avg": 0.1525,
+      "cet_max": 0.1625,
       "typical_months_min": 120,
       "typical_months_max": 420
     },

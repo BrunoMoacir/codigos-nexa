@@ -36,7 +36,7 @@ from app.architect.connectors.base import BaseConnector, ConnectorError
 logger = logging.getLogger(__name__)
 
 # Caminho absoluto para o arquivo de dados
-_DATA_FILE = Path(__file__).resolve().parents[4] / "data" / "architect" / "market_rates.json"
+_DATA_FILE = Path(__file__).resolve().parents[3] / "data" / "architect" / "market_rates.json"
 
 
 class MarketRatesConnector(BaseConnector):
@@ -98,9 +98,9 @@ class MarketRatesConnector(BaseConnector):
         Returns:
             Dict com entradas no formato "cet_{ASSET_TYPE}_{cenario}":
             {
-                "cet_IMOVEL_min": 0.1050,
-                "cet_IMOVEL_avg": 0.1240,
-                "cet_IMOVEL_max": 0.1490,
+                "cet_IMOVEL_min": 0.1475,
+                "cet_IMOVEL_avg": 0.1525,
+                "cet_IMOVEL_max": 0.1625,
                 "cet_VEICULO_min": 0.1620,
                 ...
             }
@@ -150,10 +150,10 @@ class MarketRatesConnector(BaseConnector):
             Dict plano com cet_{ASSET_TYPE}_{min|avg|max}
         """
         return {
-            # Imóvel — SFH/SFI (CAIXA, BB, Itaú, Bradesco)
-            "cet_IMOVEL_min": 0.1050,
-            "cet_IMOVEL_avg": 0.1240,
-            "cet_IMOVEL_max": 0.1490,
+            # Imóvel — SFH/SFI (CAIXA, BB, Itaú, Bradesco) — SELIC 13.25% + spread 150-300bps
+            "cet_IMOVEL_min": 0.1475,
+            "cet_IMOVEL_avg": 0.1525,
+            "cet_IMOVEL_max": 0.1625,
             # Veículo — CDC, consórcio, leasing
             "cet_VEICULO_min": 0.1620,
             "cet_VEICULO_avg": 0.1950,
@@ -193,7 +193,7 @@ class MarketRatesConnector(BaseConnector):
         Example:
             >>> connector = MarketRatesConnector()
             >>> cet = connector.get_best_cet("VEICULO")  # 0.1620
-            >>> cet = connector.get_best_cet("IMOVEL")   # 0.1050
+            >>> cet = connector.get_best_cet("IMOVEL")   # 0.1475
         """
         asset_upper = asset_type.upper()
         if asset_upper not in self._VALID_ASSET_TYPES:

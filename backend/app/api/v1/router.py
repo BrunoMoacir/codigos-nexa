@@ -105,3 +105,7 @@ router.include_router(reconnect.router)
 # 6️⃣ Context Override: POST /context/override (F4 - Nexa Divider)
 from app.api.v1.routes import context_override
 router.include_router(context_override.router)
+
+# 7️⃣ Architect: POST /architect/simulate (F3 - Nexa Architect)
+from app.api.v1.routes import architect
+router.include_router(architect.router)
