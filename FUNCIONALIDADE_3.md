@@ -1976,12 +1976,12 @@ Devido ao limite de tokens, criei a **ESTRUTURA COMPLETA** com as seções mais 
 | Liquidity Validator | `app/architect/validators/liquidity_validator.py` | 🔶 Stub (Pendente) | — |
 | Service (orquestrador) | `app/architect/services/architect_service.py` | 🔶 Stub (Pendente) | — |
 | API Routes | `app/api/v1/routes/architect.py` | 🔶 Stub (Pendente) | — |
-| DB Migrations | `app/db/migrations/003_create_architect_tables.sql` | 🔶 Stub (Pendente) | — |
-| DB Queries | `app/db/queries/architect_queries.py` | 🔶 Stub (Pendente) | — |
+| DB Migrations | `app/db/migrations/003_create_architect_tables.sql` | ✅ Implementado | 1 arquivo |
+| DB Queries | `app/db/queries/architect_queries.py` | ✅ Implementado (6 funções) | 1 arquivo |
 | Cache | `app/architect/utils/cache.py` | 🔶 Stub (Fase 3) | — |
 | Testes | `tests/architect/` | ✅ Implementado (213 passando) | 11 arquivos |
 
-**Progresso geral da Fase 1:** ~90% completo — orquestração, API, validators, strategy engine e suíte de testes implementados; pendente persistência (migrations + queries)
+**Progresso geral da Fase 1:** ✅ 100% completo — todos os componentes implementados e testados (240 testes passando)
 
 ---
 
@@ -2422,6 +2422,7 @@ pytest tests/architect/test_service.py -v
 pytest tests/architect/test_connectors.py -v
 pytest tests/architect/test_api.py -v
 pytest tests/architect/test_integration.py -v
+pytest tests/architect/test_db.py -v
 
 # Com cobertura
 pytest tests/architect/ --cov=app/architect --cov-report=term-missing
@@ -2429,13 +2430,189 @@ pytest tests/architect/ --cov=app/architect --cov-report=term-missing
 
 **Resultado esperado:**
 ```
-213 passed, 5 warnings in 8.48s
+240 passed, 5 warnings in ~12s
 ```
 
 ---
 
-### Proximos Passos (Fase 1 — Pendentes)
+### Fase 1 — STATUS FINAL
 
-Seguindo o roadmap da doc:
-1. `db/migrations/003_create_architect_tables.sql` — Schema SQL para `architect_simulations`
-2. `db/queries/architect_queries.py` — CRUD de simulacoes
+**Fase 1 (MVP Determinístico) 100% concluída.** Todos os componentes implementados, testados e documentados.
+
+**Proximos passos (Fase 2):**
+- Cache em Redis para resultados de simulação (`app/architect/utils/cache.py`)
+- Endpoint `GET /api/v1/architect/simulations/{id}` para consultar histórico
+- Integração com o endpoint de F1 para busca automática do `safe_to_spend`
+
+---
+
+## REGISTRO DE IMPLEMENTACAO — PERSISTENCIA (DB)
+
+**Ultima atualizacao:** 2026-02-20
+
+### Resultado Final do pytest
+
+```bash
+cd backend
+pytest tests/architect/ -v
+# ========== 240 passed, 5 warnings in 12.87s ==========
+```
+
+**240 testes passando, 0 falhas** (+27 novos de `test_db.py`).
+
+---
+
+### Tabela de Arquivos Implementados
+
+| Arquivo | Tipo | O que faz | Status |
+|---|---|---|---|
+| `app/db/migrations/003_create_architect_tables.sql` | SQL | Cria `architect_simulations` e `architect_simulation_metrics` | ✅ Implementado |
+| `app/db/queries/architect_queries.py` | Python | 6 funções CRUD para simulações | ✅ Implementado |
+| `app/db/queries/__init__.py` | Python | Re-exporta funções legacy (compatibilidade) | ✅ Implementado |
+| `tests/architect/test_db.py` | Python | 27 testes isolados em DuckDB `:memory:` | ✅ Implementado |
+
+---
+
+### 21. `app/db/migrations/003_create_architect_tables.sql`
+
+**Tabelas criadas:**
+
+#### `architect_simulations`
+Uma linha por chamada a `POST /api/v1/architect/simulate`.
+
+```sql
+CREATE TABLE architect_simulations (
+    id                   VARCHAR(36) PRIMARY KEY,   -- UUID v4
+    user_id              VARCHAR(100) NOT NULL,
+    created_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    -- Campos indexáveis do request:
+    target_amount        DOUBLE NOT NULL,
+    asset_type           VARCHAR(20) NOT NULL,
+    amortization_type    VARCHAR(10),
+    financing_months     INTEGER,
+    down_payment         DOUBLE,
+    max_monthly_budget   DOUBLE,
+    -- Campos indexáveis do result:
+    recommended_strategy VARCHAR(20) NOT NULL,
+    confidence_score     FLOAT NOT NULL,
+    liquidity_impact     FLOAT,
+    months_to_achieve    INTEGER,
+    expected_cost        DOUBLE,
+    -- Payloads completos para auditoria:
+    request_json         TEXT NOT NULL,
+    response_json        TEXT NOT NULL
+);
+```
+
+#### `architect_simulation_metrics`
+Agregado por usuário — 1 linha por usuário, atualizado a cada simulação.
+
+```sql
+CREATE TABLE architect_simulation_metrics (
+    user_id               VARCHAR(100) PRIMARY KEY,
+    total_simulations     INTEGER NOT NULL DEFAULT 0,
+    last_simulated_at     TIMESTAMPTZ,
+    first_simulated_at    TIMESTAMPTZ,
+    favorite_strategy     VARCHAR(20),
+    avg_confidence_score  FLOAT
+);
+```
+
+**Índices criados:**
+- `idx_arch_sim_user_date` → `(user_id, created_at DESC)` — busca do histórico
+- `idx_arch_sim_user_asset` → `(user_id, asset_type)` — filtro por tipo de bem
+
+**Rollback:**
+```sql
+DROP TABLE IF EXISTS architect_simulation_metrics;
+DROP TABLE IF EXISTS architect_simulations;
+```
+
+---
+
+### 22. `app/db/queries/architect_queries.py`
+
+**Funções públicas:**
+
+| Função | Assinatura | O que faz |
+|---|---|---|
+| `save_simulation` | `(user_id, request, response, db_path) → str\|None` | INSERT + UPSERT de métricas; retorna simulation_id |
+| `get_simulation` | `(simulation_id, db_path) → dict\|None` | SELECT por ID; JSONs desserializados |
+| `get_user_simulations` | `(user_id, limit, asset_type, db_path) → list` | Histórico paginado com filtro opcional |
+| `get_user_latest_simulation` | `(user_id, db_path) → dict\|None` | Última simulação completa do usuário |
+| `update_simulation_metrics` | `(user_id, db_path) → bool` | Recalcula métricas (público) |
+| `get_user_metrics` | `(user_id, db_path) → dict\|None` | Métricas agregadas do usuário |
+
+**Helper interno:**
+- `_ensure_tables_exist(con)` → verifica guards antes de qualquer query; retorna `False` graciosamente se a migration não foi executada
+- `_update_simulation_metrics_internal(con, user_id)` → UPSERT de métricas na mesma conexão do `save_simulation`
+
+**Padrão de uso:**
+```python
+from app.db.queries.architect_queries import save_simulation, get_user_simulations
+
+# Após uma simulação bem-sucedida:
+sim_id = save_simulation(user_id=request.user_id, request=request, response=response)
+
+# Para o endpoint de histórico:
+history = get_user_simulations(user_id, limit=10, asset_type="IMOVEL")
+```
+
+**Injeção de banco para testes:**
+```python
+# Todos os parâmetros `db_path` aceitam ":memory:" para testes isolados
+sim_id = save_simulation("user_test", req, resp, db_path=":memory:")
+```
+
+**Diferença entre `app.db.queries` e `app.db.queries.architect_queries`:**
+- `from app.db.queries import save_context_override` → funções da F4 (context overrides)
+- `from app.db.queries.architect_queries import save_simulation` → funções da F3
+
+O `__init__.py` re-exporta as funções legacy via `importlib` para manter compatibilidade retroativa.
+
+---
+
+### 23. `tests/architect/test_db.py`
+
+**Estrategia:** DuckDB `:memory:` isolado — não toca o `finance.duckdb` de produção.
+A fixture `db_path` usa `tmp_path` do pytest (diretório temporário por teste) e executa a migration real antes de cada teste.
+
+**Classes testadas:**
+- `TestEnsureTablesExist` — guard retorna True com tabelas, False em banco vazio
+- `TestSaveSimulation` — UUID válido, INSERT no banco, campos indexáveis, JSON válido, graceful em banco inválido, métricas atualizadas automaticamente
+- `TestGetSimulation` — recupera por ID, response/request desserializados, None para ID inexistente
+- `TestGetUserSimulations` — lista de dicts, limit respeitado, lista vazia para novo usuário, isolamento entre usuários, filtro por asset_type
+- `TestGetUserLatestSimulation` — mais recente (ORDER BY DESC), None sem histórico, campos completos
+- `TestSimulationMetrics` — criação na primeira simulação, contador incremental, estratégia favorita (moda), média de confidence, None para usuário sem dados, update público retorna True/False
+
+### Como Executar os Testes de Persistencia
+
+```bash
+cd backend
+
+# Apenas os testes de banco (isolados em :memory:)
+pytest tests/architect/test_db.py -v
+
+# Suite completa do architect (inclui test_db.py)
+pytest tests/architect/ -v
+
+# Verificacao manual da migration no DuckDB real
+python -c "
+import duckdb, pathlib
+con = duckdb.connect(':memory:')
+sql = pathlib.Path('app/db/migrations/003_create_architect_tables.sql').read_text()
+con.execute(sql)
+tables = [t[0] for t in con.execute('SHOW TABLES').fetchall()]
+print('Tabelas criadas:', tables)
+assert 'architect_simulations' in tables
+assert 'architect_simulation_metrics' in tables
+print('OK')
+con.close()
+"
+```
+
+**Resultado esperado:**
+```
+27 passed in 5.43s   (test_db.py isolado)
+240 passed in 12.87s  (suite completa)
+```
