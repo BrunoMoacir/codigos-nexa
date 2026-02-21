@@ -263,17 +263,23 @@ class StrategyEngine:
     def _simulate_consortium(
         self, req: SimulationRequest, rates: Dict[str, float]
     ) -> Dict[str, Any]:
-        """Simula cenário de consórcio via Monte Carlo."""
+        """Simula cenário de consórcio via Monte Carlo.
+
+        Usa taxas reais da ABAC (injetadas pelo ArchitectService via market_rates
+        desde a Fase 2). Mantém fallbacks para retrocompatibilidade com Fase 1.
+        """
         selic_monthly = (1 + rates.get("selic_annual", 0.1075)) ** (1 / 12) - 1
 
-        admin_rate = 0.16
-        cons_months = 60
+        # Taxas ABAC (Fase 2) — fallback para valores de referência de mercado
+        admin_rate        = rates.get("consortium_admin_rate",        0.17)
+        cons_months       = int(rates.get("consortium_months",        72))
+        reserve_fund_rate = rates.get("consortium_reserve_fund_rate", 0.02)
 
         sim = cons_calc.calculate_consortium_metrics(
             letter_value=req.target_amount,
             months=cons_months,
             admin_rate=admin_rate,
-            reserve_fund_rate=0.02,
+            reserve_fund_rate=reserve_fund_rate,
             bid_amount=req.down_payment,
         )
 

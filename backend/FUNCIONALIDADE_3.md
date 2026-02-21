@@ -1,8 +1,8 @@
 # FUNCIONALIDADE 3: Nexa Architect - Documentação Técnica
 
-**Status:** Fase 1 - MVP Completo
+**Status:** Fase 2 - Monte Carlo e Consórcio Completos
 **Responsável:** Nexa AI Team
-**Última Atualização:** 19/02/2026
+**Última Atualização:** 21/02/2026
 
 ## 1. Visão Geral
 O módulo **Nexa Architect** é um motor de decisão financeira que compara três estratégias principais para aquisição de bens de alto valor:
@@ -32,15 +32,15 @@ O módulo **Nexa Architect** é um motor de decisão financeira que compara trê
 | Validator de liquidez | `app/architect/validators/liquidity_validator.py` | ✅ Completo | 4 níveis de risco |
 | Service orquestrador | `app/architect/services/architect_service.py` | ✅ Completo | Injeta safe_to_spend da F1 |
 | API Routes | `app/api/v1/routes/architect.py` | ✅ Completo | POST /architect/simulate |
-| ABAC (Consórcio stats) | `app/architect/connectors/abac.py` | 🔶 Stub | Fase 2 |
-| Monte Carlo engine | `app/architect/simulators/monte_carlo.py` | 🔶 Stub | Fase 2 |
+| ABAC (Consórcio stats) | `app/architect/connectors/abac.py` | ✅ Completo | Fase 2 — fallback fev/2026 |
+| Monte Carlo engine | `app/architect/simulators/monte_carlo.py` | ✅ Completo | Fase 2 — stdlib, sem numpy |
 | Sensitivity Analyzer | `app/architect/simulators/sensitivity_analyzer.py` | 🔶 Stub | Fase 3 |
 | Cache avançado | `app/architect/utils/cache.py` | 🔶 Stub | Fase 3 |
-| DB Migrations | `app/db/migrations/003_create_architect_tables.sql` | 🔶 Pendente | Fase 1 (próximo) |
-| DB Queries | `app/db/queries/architect_queries.py` | 🔶 Pendente | Fase 1 (próximo) |
-| Testes de integração | `tests/architect/` | 🔶 Pendente | Fase 1 (próximo) |
+| DB Migrations | `app/db/migrations/003_create_architect_tables.sql` | ✅ Completo | fix TIMESTAMPTZ → VARCHAR |
+| DB Queries | `app/db/queries/architect_queries.py` | ✅ Completo | fix pytz (CAST AS VARCHAR) |
+| Testes de integração | `tests/architect/` | ✅ Completo | 302 testes passando |
 
-**Progresso da Fase 1:** ~85% completo
+**Progresso da Fase 2:** ✅ 100% completo — 302 testes passando
 
 ---
 
@@ -215,15 +215,14 @@ Health check do módulo. Retorna `{"status": "ok", "module": "architect", "times
 
 ## 5. Próximos Passos
 
-### Fase 1 — Pendentes
-1. **DB Migrations** (`db/migrations/003_create_architect_tables.sql`) — tabela `architect_simulations`
-2. **DB Queries** (`db/queries/architect_queries.py`) — CRUD de simulações (persistência do histórico)
-3. **Testes de integração** (`tests/architect/`) — fluxo completo API → Service → Engine → Calculators
+### Fase 2 — Concluída (21/02/2026)
+1. ✅ **Monte Carlo engine** (`simulators/monte_carlo.py`) — motor genérico reutilizável (stdlib, sem numpy)
+2. ✅ **ABAC Connector** (`connectors/abac.py`) — estatísticas de consórcio com fallback fev/2026
+3. ✅ **Integração ABAC** — `architect_service.py` e `strategy_engine.py` usam taxas reais do ABAC
+4. ✅ **Testes Monte Carlo** (`tests/architect/test_monte_carlo.py`) — 46 testes (6 classes)
+5. ✅ **Fix DB** — queries TIMESTAMPTZ → `CAST(... AS VARCHAR)` (eliminado requisito de pytz)
 
-### Fase 2 (Dia 31–60)
-4. **Monte Carlo avançado** (`simulators/monte_carlo.py`) — simulador genérico reutilizável
-5. **ABAC Connector** (`connectors/abac.py`) — estatísticas reais de consórcio
-6. **Testes do consórcio** (`tests/architect/test_consortium.py`)
+### Fase 3 (Dia 61–90)
 
 ### Fase 3 (Dia 61–90)
 7. **Sensitivity Analyzer** (`simulators/sensitivity_analyzer.py`) — análise de sensibilidade

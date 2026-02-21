@@ -32,6 +32,7 @@ Usage:
 import logging
 from typing import Optional
 
+from app.architect.connectors.abac import AbacConnector
 from app.architect.connectors.anbima import AnbimaConnector
 from app.architect.connectors.bacen import BacenConnector
 from app.architect.connectors.market_rates import MarketRatesConnector
@@ -54,6 +55,7 @@ class ArchitectService:
         bacen:         Conector BACEN (SELIC). Injetável para testes.
         anbima:        Conector ANBIMA (CDI). Injetável para testes.
         market_rates:  Conector de CETs. Injetável para testes.
+        abac:          Conector ABAC (estatísticas de consórcio). Injetável para testes.
         engine:        StrategyEngine. Injetável para testes.
 
     Example:
@@ -67,11 +69,13 @@ class ArchitectService:
         bacen: Optional[BacenConnector] = None,
         anbima: Optional[AnbimaConnector] = None,
         market_rates: Optional[MarketRatesConnector] = None,
+        abac: Optional[AbacConnector] = None,
         engine: Optional[StrategyEngine] = None,
     ) -> None:
         self._bacen        = bacen        or BacenConnector()
         self._anbima       = anbima       or AnbimaConnector()
         self._market_rates = market_rates or MarketRatesConnector()
+        self._abac         = abac         or AbacConnector()
         self._engine       = engine       or StrategyEngine()
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -137,6 +141,9 @@ class ArchitectService:
         data_sources = list(base_response.data_sources)
         if safe_to_spend is not None:
             data_sources.append("f1_safe_to_spend")
+        # ABAC sempre consultado para simulações de consórcio (Fase 2)
+        if request.include_consortium and "abac" not in data_sources:
+            data_sources.append("abac")
 
         # ── 7. Montar resposta final ─────────────────────────────────
         return base_response.model_copy(
@@ -214,10 +221,26 @@ class ArchitectService:
             best_cet = fb.get(f"cet_{asset_type}_min", 0.15)
             warnings.append("CET de mercado obtido de dados de referência.")
 
+        # Estatísticas de consórcio da ABAC (Fase 2)
+        try:
+            cons_stats = self._abac.get_consortium_stats(asset_type)
+            consortium_admin_rate        = cons_stats["admin_rate"]
+            consortium_months            = float(cons_stats["typical_months"])
+            consortium_reserve_fund_rate = cons_stats["reserve_fund_rate"]
+        except Exception as exc:
+            logger.warning("ABAC indisponível: %s — usando fallback", exc)
+            consortium_admin_rate        = 0.17
+            consortium_months            = 72.0
+            consortium_reserve_fund_rate = 0.02
+            warnings.append("Estatísticas de consórcio obtidas de dados de referência (ABAC indisponível).")
+
         return {
-            "selic_annual":    selic,
-            "cdi_annual":      cdi,
-            "best_cet_annual": best_cet,
+            "selic_annual":                selic,
+            "cdi_annual":                  cdi,
+            "best_cet_annual":             best_cet,
+            "consortium_admin_rate":        consortium_admin_rate,
+            "consortium_months":            consortium_months,
+            "consortium_reserve_fund_rate": consortium_reserve_fund_rate,
         }, warnings
 
     @staticmethod

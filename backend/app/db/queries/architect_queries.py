@@ -253,7 +253,7 @@ def get_simulation(
             SELECT
                 id,
                 user_id,
-                created_at,
+                CAST(created_at AS VARCHAR),
                 target_amount,
                 asset_type,
                 amortization_type,
@@ -341,7 +341,7 @@ def get_user_simulations(
         query = """
             SELECT
                 id,
-                created_at,
+                CAST(created_at AS VARCHAR),
                 target_amount,
                 asset_type,
                 recommended_strategy,
@@ -511,10 +511,10 @@ def get_user_metrics(
             SELECT
                 user_id,
                 total_simulations,
-                last_simulated_at,
+                CAST(last_simulated_at AS VARCHAR),
                 favorite_strategy,
                 avg_confidence_score,
-                first_simulated_at
+                CAST(first_simulated_at AS VARCHAR)
             FROM architect_simulation_metrics
             WHERE user_id = ?
             """,
@@ -575,10 +575,10 @@ def _update_simulation_metrics_internal(
     metrics_row = con.execute(
         """
         SELECT
-            COUNT(*)                        AS total_simulations,
-            MAX(created_at)                 AS last_simulated_at,
-            MIN(created_at)                 AS first_simulated_at,
-            AVG(confidence_score)           AS avg_confidence_score
+            COUNT(*)                               AS total_simulations,
+            CAST(MAX(created_at) AS VARCHAR)       AS last_simulated_at,
+            CAST(MIN(created_at) AS VARCHAR)       AS first_simulated_at,
+            AVG(confidence_score)                  AS avg_confidence_score
         FROM architect_simulations
         WHERE user_id = ?
         """,
