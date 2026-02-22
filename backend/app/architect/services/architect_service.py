@@ -180,6 +180,24 @@ class ArchitectService:
             )
             raise ValueError(f"Request inválido: {'; '.join(result.errors)}")
 
+    def fetch_market_rates(
+        self, request: SimulationRequest
+    ) -> dict[str, float]:
+        """
+        Versão pública de _fetch_market_rates — retorna apenas as taxas (sem warnings).
+
+        Útil para endpoints que precisam das taxas sem executar a simulação completa
+        (ex: GET /architect/simulations/{id}/sensitivity).
+
+        Args:
+            request: SimulationRequest com asset_type para selecionar o CET correto.
+
+        Returns:
+            Dict com selic_annual, cdi_annual, best_cet_annual e estatísticas de consórcio.
+        """
+        rates, _ = self._fetch_market_rates(request)
+        return rates
+
     def _fetch_market_rates(
         self, request: SimulationRequest
     ) -> tuple[dict[str, float], list[str]]:

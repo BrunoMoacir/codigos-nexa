@@ -45,6 +45,7 @@ from pydantic import BaseModel, Field
 
 from app.architect.models import SimulationRequest, SimulationResponse
 from app.architect.services.architect_service import ArchitectService
+from app.architect.simulators.sensitivity_analyzer import SensitivityAnalyzer
 from app.db.queries.architect_queries import (
     get_simulation,
     get_user_latest_simulation,
@@ -59,6 +60,7 @@ router = APIRouter(prefix="/architect", tags=["Architect — F3"])
 
 # Instância singleton do service (stateless — conectores têm cache interno)
 _service = ArchitectService()
+_sensitivity_analyzer = SensitivityAnalyzer()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -423,6 +425,153 @@ async def get_simulation_by_id(
     # Normalizar created_at para ISO 8601
     sim["created_at"] = _to_iso(sim["created_at"])
     return sim
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ENDPOINT: GET /architect/simulations/{simulation_id}/sensitivity
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@router.get(
+    "/simulations/{simulation_id}/sensitivity",
+    response_model=Dict[str, Any],
+    status_code=status.HTTP_200_OK,
+    summary="Análise de sensibilidade de uma simulação",
+    description=(
+        "Analisa como variações nas variáveis-chave (**taxa de juros**, **prazo**, "
+        "**entrada** e **CDI**) afetam o NPV de cada estratégia para uma simulação "
+        "já realizada. Usa as taxas de mercado atuais. "
+        "Retorna a variável mais sensível e o perfil de risco da recomendação."
+    ),
+)
+async def get_sensitivity(
+    simulation_id: str,
+) -> Dict[str, Any]:
+    """
+    Executa análise de sensibilidade sobre os parâmetros de uma simulação existente.
+
+    Reconstrói o request original a partir do banco, busca as taxas de mercado
+    atuais e calcula como cada variável-chave afeta o NPV das 3 estratégias.
+
+    **Variáveis analisadas:**
+    - `interest_rate` — CET do financiamento: ±2 p.p. (9 pontos)
+    - `months` — Prazo do financiamento: ±6 meses (7 pontos)
+    - `down_payment` — Valor da entrada: ±10% (9 pontos)
+    - `cdi_rate` — Taxa CDI (rendimento do investimento): ±2 p.p. (9 pontos)
+
+    **Retorna:**
+    ```json
+    {
+      "most_sensitive_variable": "cdi_rate",
+      "strategy_stability": 1.0,
+      "risk_profile": "baixo",
+      "baseline_strategy": "SAVE_INVEST",
+      "variables": [
+        {
+          "variable": "cdi_rate",
+          "description": "Taxa CDI (Rendimento do Investimento)",
+          "unit": "p.p.",
+          "base_value": 0.1315,
+          "npv_range": 2364.03,
+          "elasticity": 118201.5,
+          "strategy_flips": 0,
+          "points": [
+            {"delta": -0.02, "param_value": 0.1115, "npv_financing": -42000,
+             "npv_invest": -40000, "npv_consortium": -45000, "recommended": "SAVE_INVEST"},
+            ...
+          ]
+        }
+      ],
+      "generated_at": "2026-02-22T10:00:00"
+    }
+    ```
+
+    **Retorna HTTP 404** se o `simulation_id` não existir no banco.
+
+    **Exemplo:**
+    ```
+    GET /api/v1/architect/simulations/550e8400-e29b-41d4-a716-446655440000/sensitivity
+    ```
+    """
+    logger.info("GET /architect/simulations/%s/sensitivity", simulation_id)
+
+    # ── 1. Buscar simulação no banco ──────────────────────────────────────
+    try:
+        sim = get_simulation(simulation_id)
+    except Exception as exc:
+        logger.error(
+            "GET /architect/simulations/%s/sensitivity | erro ao buscar: %s",
+            simulation_id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao buscar simulação.",
+        )
+
+    if sim is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Simulação '{simulation_id}' não encontrada.",
+        )
+
+    # ── 2. Reconstruir request e response a partir do JSON armazenado ────
+    try:
+        request = SimulationRequest.model_validate(sim["request"])
+        response = SimulationResponse.model_validate(sim["response"])
+    except Exception as exc:
+        logger.error(
+            "GET /architect/simulations/%s/sensitivity | erro ao reconstruir modelos: %s",
+            simulation_id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao processar dados da simulação.",
+        )
+
+    # ── 3. Buscar taxas de mercado atuais ─────────────────────────────────
+    try:
+        market_rates = _service.fetch_market_rates(request)
+    except Exception as exc:
+        logger.warning(
+            "GET /architect/simulations/%s/sensitivity | erro ao buscar taxas: %s — usando fallback",
+            simulation_id,
+            exc,
+        )
+        # Fallback com taxas de referência para não bloquear a resposta
+        market_rates = {
+            "selic_annual":                0.1325,
+            "cdi_annual":                  0.1315,
+            "best_cet_annual":             0.1950,
+            "consortium_admin_rate":        0.17,
+            "consortium_months":            72.0,
+            "consortium_reserve_fund_rate": 0.02,
+        }
+
+    # ── 4. Executar análise de sensibilidade ──────────────────────────────
+    try:
+        report = _sensitivity_analyzer.analyze(request, market_rates, response)
+    except Exception as exc:
+        logger.error(
+            "GET /architect/simulations/%s/sensitivity | erro na análise: %s",
+            simulation_id,
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao calcular análise de sensibilidade.",
+        )
+
+    logger.info(
+        "GET /architect/simulations/%s/sensitivity | variavel_critica=%s risco=%s estabilidade=%.2f",
+        simulation_id,
+        report.most_sensitive_variable,
+        report.risk_profile,
+        report.strategy_stability,
+    )
+
+    return report.to_dict()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
