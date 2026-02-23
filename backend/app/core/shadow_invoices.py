@@ -61,3 +61,30 @@ def detect_shadow_invoices(transactions: List[Dict]) -> List[Dict]:
         )
 
     return results
+
+
+class ShadowInvoiceDetector:
+    """
+    Detector de shadow invoices (cobranças ocultas/esquecidas).
+    Encapsula o motor principal de shadow invoices do core.
+
+    Aceita Polars DataFrame ou List[Dict] como entrada.
+    Retorna Polars DataFrame com os suspects detectados.
+    """
+
+    def run(self, transactions) -> "pl.DataFrame":
+        import polars as pl
+
+        data = transactions.to_dicts() if hasattr(transactions, "to_dicts") else transactions
+        results = detect_shadow_invoices(data)
+
+        if not results:
+            return pl.DataFrame(
+                schema={
+                    "description": pl.Utf8,
+                    "avg_amount": pl.Float64,
+                    "months": pl.Int64,
+                    "occurrences": pl.Int64,
+                }
+            )
+        return pl.DataFrame(results)

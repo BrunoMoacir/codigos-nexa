@@ -44,6 +44,9 @@ from app.etl.shadow_invoices.runner import run_shadow_invoice_detection
 # 🆕 F4: PF/PJ Classifier
 from app.etl.pf_pj_classifier import PFPJClassifier
 
+# Persistência
+from app.db.queries import save_transactions_clean
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # FUNÇÃO PRINCIPAL: ETL Pipeline Completo
@@ -231,11 +234,11 @@ def run_etl_pipeline(
     if "save_db" not in skip_steps:
         logger.info("💾 Step 8: Save to Database")
         try:
-            # await save_to_database(df, user_id, account_id)
-            # TODO: Implementar quando módulo estiver pronto
-            logger.info("   ⚠️  Step 8 pulado (módulo não implementado)")
+            rows_saved = save_transactions_clean(df, user_id=user_id, account_id=account_id)
+            logger.info(f"   ✅ Step 8 concluído: {rows_saved} linhas salvas em transactions_clean")
         except Exception as e:
             logger.error(f"   ❌ Erro no Step 8: {e}", exc_info=True)
+            logger.warning("   Continuando sem persistência")
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # CONCLUSÃO

@@ -128,7 +128,12 @@ class CashflowProjector:
                 raise ValueError(
                     "transactions_df não possui coluna 'balance' e current_balance não foi informado"
                 )
-            starting_balance = float(df_sorted["balance"][-1])
+            _last_balance = df_sorted["balance"][-1]
+            if _last_balance is None:
+                raise ValueError(
+                    "Última transação não possui 'balance' — informe current_balance explicitamente"
+                )
+            starting_balance = float(_last_balance)
 
         # Data base da projeção: dia seguinte à última transação real
         last_date = df_sorted["transaction_date"].max()
@@ -174,7 +179,7 @@ class CashflowProjector:
                 event = {
                     "type": row.get("type", "shadow"),
                     "merchant": row.get("merchant", "UNKNOWN"),
-                    "amount": float(row["amount"]),
+                    "amount": float(row["amount"] or 0.0),
                     "origin": row.get("origin", "shadow_invoice")
                 }
 
@@ -212,10 +217,11 @@ class CashflowProjector:
         # LOG FINAL
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+        worst_balance = projection_df['projected_balance'].min() or 0.0
         self.logger.info(
             f"Projeção finalizada: "
             f"Saldo final R$ {current_balance:,.2f} | "
-            f"Menor saldo R$ {projection_df['projected_balance'].min():,.2f}"
+            f"Menor saldo R$ {worst_balance:,.2f}"
         )
 
         return projection_df

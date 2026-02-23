@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from app.integrations.open_finance.pluggy_mock import MockPluggyClient
 from app.schemas.transaction import TransactionBatchResult
 from app.etl.ingestor import TransactionIngestor
-from app.analysis.recurring_detector import RecurringDetector
+from app.core.recurrence import RecurringDetector
 
 
 def test_recurring_detector():

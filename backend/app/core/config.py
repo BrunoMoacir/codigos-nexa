@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # URL base da Pluggy (sandbox ou produção)
     PLUGGY_BASE_URL: str = "https://api.pluggy.ai"
 
+    # URL base do frontend (usada como fallback no redirect de reconexão)
+    FRONTEND_BASE_URL: str = "http://localhost:3000"
+
     class Config:
         env_file = ".env"          # Arquivo de variáveis
         extra = "forbid"           # Proíbe variáveis não declaradas (bom!)

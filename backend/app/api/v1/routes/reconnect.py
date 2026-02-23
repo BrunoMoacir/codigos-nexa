@@ -42,6 +42,7 @@ from pydantic import BaseModel, Field
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 from app.integrations.open_finance.pluggy import PluggyClient
+from app.core.config import settings
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CONFIGURAÇÃO
@@ -129,10 +130,9 @@ async def create_reconnect_url(
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
         # URL para redirecionar após conexão
-        # TODO: Implementar fallback para prod (https://nexa.app/...)
         redirect_uri = request.redirect_uri if request else None
         if not redirect_uri:
-            redirect_uri = "http://localhost:3000/dashboard"  # TODO: parametrizar
+            redirect_uri = f"{settings.FRONTEND_BASE_URL}/dashboard"
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # STEP 2: Chamar Pluggy para criar conexão

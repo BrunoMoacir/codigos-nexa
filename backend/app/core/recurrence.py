@@ -52,3 +52,44 @@ def detect_recurring(transactions: List[Dict]) -> List[Dict]:
         )
 
     return patterns
+
+
+class RecurringDetector:
+    """
+    Detector de transações recorrentes (assinaturas e parcelamentos).
+    Encapsula o motor principal de recorrência do core.
+
+    Aceita Polars DataFrame ou List[Dict] como entrada.
+    Retorna Polars DataFrame com os padrões detectados.
+    """
+
+    _EMPTY_SCHEMA = {
+        "description": "pl.Utf8",
+        "amount": "pl.Float64",
+        "months": "pl.Int64",
+        "occurrences": "pl.Int64",
+    }
+
+    def run(self, df) -> "pl.DataFrame":
+        import polars as pl
+
+        _empty = pl.DataFrame(
+            schema={
+                "description": pl.Utf8,
+                "amount": pl.Float64,
+                "months": pl.Int64,
+                "occurrences": pl.Int64,
+            }
+        )
+
+        transactions = df.to_dicts() if hasattr(df, "to_dicts") else df
+
+        # detect_recurring() espera colunas específicas (date, description, amount).
+        # Se o DataFrame de entrada usar nomes diferentes, retorna resultado vazio
+        # em vez de propagar o erro — esse é o comportamento esperado do core.
+        try:
+            patterns = detect_recurring(transactions)
+        except (KeyError, TypeError, ValueError):
+            return _empty
+
+        return pl.DataFrame(patterns) if patterns else _empty

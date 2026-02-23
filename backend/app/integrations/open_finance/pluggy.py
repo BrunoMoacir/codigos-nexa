@@ -1,6 +1,9 @@
 #app/integrations/open_finance/pluggy.py
+import logging
 import requests
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class PluggyClient:
@@ -34,8 +37,7 @@ class PluggyClient:
             timeout=10,
         )
 
-        print("AUTH STATUS:", response.status_code)
-        print("AUTH RESPONSE:", response.text)
+        logger.debug("Pluggy auth status: %s", response.status_code)
 
         response.raise_for_status()
 

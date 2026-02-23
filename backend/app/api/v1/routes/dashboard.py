@@ -1,9 +1,6 @@
 #app/api/v1/routes/dashboard
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 from app.domain.finance_engine import FinanceEngine
-from app.cashflow.safe_to_spend import SafeToSpendCalculator
-from app.cashflow.projector import CashflowProjector
-from app.etl.shadow_invoices import run_shadow_invoice_detection
 
 router = APIRouter(
     prefix="/dashboard",
@@ -11,7 +8,6 @@ router = APIRouter(
 )
 
 finance_engine = FinanceEngine()
-# safe_engine = SafeToSpendEngine()
 
 
 @router.get("/summary")
@@ -25,11 +21,9 @@ def dashboard_summary():
 def safe_to_spend():
     """
     Quanto o usuário pode gastar com segurança hoje.
+    Use GET /api/v1/forecast/{user_id} para o cálculo completo.
     """
-
-    return safe_engine.calculate(
-        current_balance=3800,
-        upcoming_fixed_expenses=2100,
-        upcoming_subscriptions=180,
-        upcoming_installments=620
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Use GET /api/v1/forecast/{user_id} para obter o safe-to-spend calculado.",
     )
