@@ -35,7 +35,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # IMPORTS: Pluggy
@@ -62,16 +62,15 @@ class ConnectUrlResponse(BaseModel):
     connect_url: str = Field(..., description="URL para redirecionar o usuário")
     expires_at: datetime = Field(..., description="Quando a URL expira")
     redirect_back_uri: str = Field(..., description="URL for Pluggy redirect back")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "user_id": "user_123",
-                "connect_url": "https://pluggy.io/open-finance/connections/...",
-                "expires_at": "2025-02-12T15:30:00Z",
-                "redirect_back_uri": "https://nexa.app/dashboard"
-            }
+
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "user_id": "user_123",
+            "connect_url": "https://pluggy.io/open-finance/connections/...",
+            "expires_at": "2025-02-12T15:30:00Z",
+            "redirect_back_uri": "https://nexa.app/dashboard"
         }
+    })
 
 
 class ReconnectRequest(BaseModel):

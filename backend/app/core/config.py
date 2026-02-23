@@ -1,5 +1,5 @@
 #backend/app/core/config.py
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -17,8 +17,6 @@ class Settings(BaseSettings):
     # URL base do frontend (usada como fallback no redirect de reconexão)
     FRONTEND_BASE_URL: str = "http://localhost:3000"
 
-    class Config:
-        env_file = ".env"          # Arquivo de variáveis
-        extra = "forbid"           # Proíbe variáveis não declaradas (bom!)
+    model_config = SettingsConfigDict(env_file=".env", extra="forbid")
 
 settings = Settings()

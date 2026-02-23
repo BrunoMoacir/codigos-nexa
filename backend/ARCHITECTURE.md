@@ -20,9 +20,9 @@ O Nexa é um sistema de **inteligência financeira pessoal** baseado em dados ba
 | DataFrames | Polars (produção), Pandas (legado core/) |
 | Banco de dados | DuckDB (local, `finance.duckdb`) |
 | Validação | Pydantic v2 |
-| ML / Classificação | CatBoost, Scikit-learn (pf_pj) |
+| ML / Classificação | Scikit-learn — Random Forest (pf_pj) |
 | Open Finance | Pluggy API + MockPluggyClient |
-| Testes | pytest + pytest-asyncio (406 testes) |
+| Testes | pytest + pytest-asyncio (414 testes) |
 
 ---
 
@@ -84,7 +84,7 @@ backend/
 │   └── integrations/
 │       └── open_finance/
 │           ├── pluggy.py                 # PluggyClient (produção)
-│           └── mock_pluggy.py            # MockPluggyClient (desenvolvimento)
+│           └── pluggy_mock.py            # MockPluggyClient (desenvolvimento)
 │
 ├── tests/                                # 406 testes (pytest)
 ├── scripts/                              # Scripts auxiliares e debug
@@ -443,17 +443,19 @@ FRONTEND_BASE_URL=http://localhost:3000
 
 | Fase | Nome | Status |
 |------|------|--------|
-| F1 | Cashflow / Safe-to-Spend | Completo |
-| F2 | ETL Pipeline | Parcial (Steps 4, 5, 8 ativos) |
-| F3 | Nexa Architect (Simulações) | Esqueleto ativo (`/architect`) |
-| F4 | Nexa Divider (PF/PJ) | Ativo (`/context/override`) |
+| F1 | Cashflow / Safe-to-Spend | Completo — 414 testes passando |
+| F2 | Card Optimizer | Não iniciado |
+| F3 | Nexa Architect (Simulações) | Completo — 355 testes passando |
+| F4 | Nexa Divider (PF/PJ) | Completo (isolado) — integrado no NexaRunner |
 
 ---
 
 ## TODOs Conhecidos
 
-- ETL Steps 1, 2, 3, 6, 7 marcados como TODO em `etl/runner.py`
-- `GET /transactions/{user_id}` retorna 501 (aguarda integração Postgres)
-- LangGraph Agent (`routes/analyze.py`) — esqueleto pronto, integração LLM pendente
-- Cache de projeções (projeção muda pouco durante o dia)
-- Migração DuckDB → Postgres para multi-usuário em produção
+- ETL `run_etl_pipeline()` em `etl/runner.py`: steps 1, 2, 3, 6, 7 marcados como TODO (NexaRunner já os executa corretamente)
+- `GET /transactions/{user_id}` retorna 501 (sem persistência real ainda)
+- `GET /forecast/{user_id}` usa dados mock (NexaRunner mode="dev") — precisa buscar dados reais por user_id
+- Webhook `POST /transactions/webhook` não persiste no banco (step de save comentado como TODO)
+- LangGraph Agent (`routes/analyze.py`) — estrutura pronta, import desabilitado no router; sem LLM integrado
+- F2 Card Optimizer — não iniciado
+- Autenticação JWT — `security.py` vazio, nenhum endpoint protegido

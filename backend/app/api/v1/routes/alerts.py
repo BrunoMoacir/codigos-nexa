@@ -36,7 +36,7 @@ from datetime import datetime, timezone, timedelta
 from typing import List
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CONFIGURAÇÃO
@@ -59,19 +59,18 @@ class AlertItem(BaseModel):
     message: str = Field(..., description="Mensagem detalhada")
     due_date: datetime = Field(..., description="Data/hora do evento")
     action_url: str | None = Field(None, description="URL para ação (ex: /reconnect)")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "id": "alert_001",
-                "type": "TOKEN_EXPIRY",
-                "level": "CRITICAL",
-                "title": "Conexão vence em 7 dias",
-                "message": "Sua conexão com o Nubank vence em 7 dias. Reconecte para continuar recebendo dados.",
-                "due_date": "2025-02-18T15:30:00Z",
-                "action_url": "/api/v1/reconnect/user_123"
-            }
+
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "id": "alert_001",
+            "type": "TOKEN_EXPIRY",
+            "level": "CRITICAL",
+            "title": "Conexão vence em 7 dias",
+            "message": "Sua conexão com o Nubank vence em 7 dias. Reconecte para continuar recebendo dados.",
+            "due_date": "2025-02-18T15:30:00Z",
+            "action_url": "/api/v1/reconnect/user_123"
         }
+    })
 
 
 class AlertsResponse(BaseModel):
@@ -82,18 +81,17 @@ class AlertsResponse(BaseModel):
     critical_count: int
     warning_count: int
     generated_at: datetime
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "user_id": "user_123",
-                "alerts": [],
-                "total_count": 0,
-                "critical_count": 0,
-                "warning_count": 0,
-                "generated_at": "2025-02-11T15:30:00Z"
-            }
+
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "user_id": "user_123",
+            "alerts": [],
+            "total_count": 0,
+            "critical_count": 0,
+            "warning_count": 0,
+            "generated_at": "2025-02-11T15:30:00Z"
         }
+    })
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
