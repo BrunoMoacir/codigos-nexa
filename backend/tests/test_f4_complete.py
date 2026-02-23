@@ -23,6 +23,8 @@ from datetime import datetime
 import time
 import json
 
+import pytest
+
 # Adicionar backend ao path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -30,9 +32,26 @@ import polars as pl
 import joblib
 
 # Imports do sistema
-from backend.app.etl.runner import run_etl_pipeline
+from app.etl.runner import run_etl_pipeline
 from app.etl.pf_pj_classifier import PFPJClassifier, PFPJFallbackClassifier
 from app.integrations.open_finance.pluggy_mock import MockPluggyClient
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# FIXTURES
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@pytest.fixture(scope="module")
+def processed_df() -> pl.DataFrame:
+    """Roda o pipeline ETL com dados mock e retorna o DataFrame processado."""
+    client = MockPluggyClient()
+    response = client.get_transactions("acc_001")
+    df = pl.DataFrame(response["results"])
+    return run_etl_pipeline(
+        transactions_df=df,
+        user_id="test_user_f4",
+        account_id="acc_001"
+    )
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

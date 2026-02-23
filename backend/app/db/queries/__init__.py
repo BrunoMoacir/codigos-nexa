@@ -23,14 +23,16 @@ _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
 
 # Re-exportar funções usadas pelo código existente da aplicação
-get_connection        = _mod.get_connection
-get_context_overrides = _mod.get_context_overrides
-save_context_override = _mod.save_context_override
-get_override_stats    = _mod.get_override_stats
+get_connection          = _mod.get_connection
+get_context_overrides   = _mod.get_context_overrides
+save_context_override   = _mod.save_context_override
+get_override_stats      = _mod.get_override_stats
+save_transactions_clean = _mod.save_transactions_clean
 
 __all__ = [
     "get_connection",
     "get_context_overrides",
     "save_context_override",
     "get_override_stats",
+    "save_transactions_clean",
 ]

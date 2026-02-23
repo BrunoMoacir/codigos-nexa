@@ -32,11 +32,14 @@ logger = logging.getLogger(__name__)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 # Módulos existentes
-# from app.etl.ingestor import DataIngestor
-# from app.etl.classifier import TransactionClassifier
-# from app.etl.recurring_detector import RecurringDetector
-# from app.etl.data_quality import DataQualityValidator
-# from app.etl.profiles import UserProfileAnalyzer
+# Step 1 (Ingestor) não é chamado aqui: TransactionIngestor.process() espera
+# list[TransactionWebhook], não um DataFrame. Ele é chamado antes da pipeline,
+# na rota POST /transactions/webhook, que converte o payload para DataFrame
+# e só então chama run_etl_pipeline().
+from app.etl.classifier import TransactionClassifier
+from app.etl.recurring_detector import RecurringDetector
+from app.etl.data_quality import DataQualityValidator
+from app.etl.profiles import UserProfileAnalyzer
 
 # Shadow Invoice Detection (já implementado)
 from app.etl.shadow_invoices.runner import run_shadow_invoice_detection
@@ -115,14 +118,8 @@ def run_etl_pipeline(
     # STEP 1: DATA INGESTION
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
-    if "ingestor" not in skip_steps:
-        logger.info("📥 Step 1: Data Ingestion")
-        try:
-            # df = DataIngestor().process(df)
-            # TODO: Implementar quando módulo estiver pronto
-            logger.info("   ⚠️  Step 1 pulado (módulo não implementado)")
-        except Exception as e:
-            logger.error(f"   ❌ Erro no Step 1: {e}", exc_info=True)
+    # Step 1 (Ingestor) é executado antes desta função, na rota de webhook.
+    # O DataFrame já chega normalizado.
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # STEP 2: CATEGORY CLASSIFICATION
@@ -131,11 +128,11 @@ def run_etl_pipeline(
     if "classifier" not in skip_steps:
         logger.info("🏷️  Step 2: Category Classification")
         try:
-            # df = TransactionClassifier().classify(df)
-            # TODO: Implementar quando módulo estiver pronto
-            logger.info("   ⚠️  Step 2 pulado (módulo não implementado)")
+            df = TransactionClassifier().predict(df)
+            logger.info("   ✅ Step 2 concluído")
         except Exception as e:
             logger.error(f"   ❌ Erro no Step 2: {e}", exc_info=True)
+            logger.warning("   Continuando sem classificação de categorias")
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # STEP 3: RECURRING DETECTION
@@ -144,11 +141,11 @@ def run_etl_pipeline(
     if "recurring" not in skip_steps:
         logger.info("🔄 Step 3: Recurring Detection")
         try:
-            # df = RecurringDetector().detect(df)
-            # TODO: Implementar quando módulo estiver pronto
-            logger.info("   ⚠️  Step 3 pulado (módulo não implementado)")
+            df = RecurringDetector().detect(df)
+            logger.info("   ✅ Step 3 concluído")
         except Exception as e:
             logger.error(f"   ❌ Erro no Step 3: {e}", exc_info=True)
+            logger.warning("   Continuando sem detecção de recorrências")
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # 🆕 STEP 4: PF/PJ CONTEXT CLASSIFICATION (F4)
@@ -208,11 +205,12 @@ def run_etl_pipeline(
     if "data_quality" not in skip_steps:
         logger.info("✅ Step 6: Data Quality Validation")
         try:
-            # quality_report = DataQualityValidator().validate(df)
-            # TODO: Implementar quando módulo estiver pronto
-            logger.info("   ⚠️  Step 6 pulado (módulo não implementado)")
+            quality_report = DataQualityValidator().validate(df)
+            logger.info(f"   ✅ Step 6 concluído: confidence={quality_report.overall_confidence:.2f}, "
+                        f"level={quality_report.quality_level}, anomalias={quality_report.anomaly_count}")
         except Exception as e:
             logger.error(f"   ❌ Erro no Step 6: {e}", exc_info=True)
+            logger.warning("   Continuando sem validação de qualidade")
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # STEP 7: USER PROFILE ANALYSIS
@@ -221,11 +219,12 @@ def run_etl_pipeline(
     if "profile_analysis" not in skip_steps:
         logger.info("📊 Step 7: User Profile Analysis")
         try:
-            # profile = UserProfileAnalyzer().analyze(df)
-            # TODO: Implementar quando módulo estiver pronto
-            logger.info("   ⚠️  Step 7 pulado (módulo não implementado)")
+            profile = UserProfileAnalyzer().analyze(df)
+            logger.info(f"   ✅ Step 7 concluído: perfil={profile.profile_type}, "
+                        f"score={profile.health_score}")
         except Exception as e:
             logger.error(f"   ❌ Erro no Step 7: {e}", exc_info=True)
+            logger.warning("   Continuando sem análise de perfil")
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # STEP 8: SAVE TO DATABASE
