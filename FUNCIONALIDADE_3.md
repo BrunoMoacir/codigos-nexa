@@ -2729,3 +2729,122 @@ pytest tests/architect/ -v
 ```
 256 passed, 5 warnings in ~15s
 ```
+
+---
+
+## REGISTRO DE IMPLEMENTACAO — FASE 2 (MONTE CARLO E ABAC)
+
+**Ultima atualizacao:** 2026-02-21
+
+### Resultado Final do pytest
+
+```bash
+cd backend
+pytest tests/architect/ -v
+# ========== 302 passed, 5 warnings in 18.41s ==========
+```
+
+**302 testes passando, 0 falhas** (+46 novos de `test_monte_carlo.py`).
+
+---
+
+### Componentes Implementados
+
+| Arquivo | Tipo | O que faz | Status |
+|---|---|---|---|
+| `app/architect/simulators/monte_carlo.py` | Python | Motor genérico de Monte Carlo (stdlib, sem numpy) | ✅ Implementado |
+| `app/architect/connectors/abac.py` | Python | Estatísticas de consórcio com fallback fev/2026 | ✅ Implementado |
+| `app/architect/simulators/strategy_engine.py` | Python | Integração com taxas reais do ABAC | ✅ Atualizado |
+| `app/architect/services/architect_service.py` | Python | Passa estatísticas ABAC ao StrategyEngine | ✅ Atualizado |
+| `tests/architect/test_monte_carlo.py` | Python | 46 testes (6 classes) | ✅ Implementado |
+
+---
+
+### Decisões Técnicas da Fase 2
+
+1. **Monte Carlo sem numpy:** motor genérico usando `random.gauss` e `random.random` da stdlib.
+2. **ABAC com fallback:** dados de fev/2026 hardcoded (taxa admin 17%, prazo 72 meses, fundo reserva 2%).
+3. **Fix DB:** queries TIMESTAMPTZ → `CAST(... AS VARCHAR)` — elimina requisito da lib `pytz`.
+
+### Tabela de Testes por Classe (`test_monte_carlo.py`)
+
+| Classe | Testes | O que cobre |
+|---|---|---|
+| `TestSimularSorteio` | 8 | Probabilidade crescente a cada mês, range válido |
+| `TestSimularLance` | 7 | Distribuição normal, decaimento ao longo do tempo |
+| `TestMetricasConsorciadas` | 9 | P12, P24, P36, custo esperado, meses esperados |
+| `TestEdgeCases` | 7 | 1 participante, valor zero, grupo enorme |
+| `TestReproducibilidade` | 8 | Seed fixo → resultados idênticos; seed diferente → diferentes |
+| `TestIntegracao` | 7 | Pipeline E2E do Monte Carlo com parâmetros reais |
+
+---
+
+## REGISTRO DE IMPLEMENTACAO — FASE 3 (SENSIBILIDADE E CACHE)
+
+**Ultima atualizacao:** 2026-02-22
+
+### Resultado Final do pytest
+
+```bash
+cd backend
+pytest tests/architect/ -v
+# ========== 381 passed, 5 warnings in 22.14s ==========
+```
+
+**381 testes passando, 0 falhas** (+53 de `test_sensitivity.py` + +26 incrementais em outros arquivos).
+
+---
+
+### Componentes Implementados
+
+| Arquivo | Tipo | O que faz | Status |
+|---|---|---|---|
+| `app/architect/simulators/sensitivity_analyzer.py` | Python | Análise de sensibilidade sobre 4 variáveis; elasticidade e risk_profile | ✅ Implementado |
+| `app/architect/utils/cache.py` | Python | Cache L1 (memória) + L2 (disco); chaves SHA-256; singleton | ✅ Implementado |
+| `app/api/v1/routes/architect.py` | Python | `GET /architect/simulations/{id}/sensitivity` adicionado | ✅ Atualizado |
+| `app/architect/services/architect_service.py` | Python | `fetch_market_rates()` público exposto | ✅ Atualizado |
+| `tests/architect/test_sensitivity.py` | Python | 53 testes (8 classes) | ✅ Implementado |
+
+---
+
+### Variáveis Analisadas pelo Sensitivity Analyzer
+
+| Variável | Range | Pontos | Unidade |
+|---|---|---|---|
+| `interest_rate` | ±2 p.p. | 9 | decimal |
+| `months` | ±6 meses | 7 | meses |
+| `down_payment` | ±10% | 9 | R$ |
+| `cdi_rate` | ±2 p.p. | 9 | decimal |
+
+### Tabela de Testes por Classe (`test_sensitivity.py`)
+
+| Classe | Testes | O que cobre |
+|---|---|---|
+| `TestSensitivityReportStructure` | 8 | 4 variáveis, most_sensitive, risk_profile, ordenação |
+| `TestSensitivityPoints` | 7 | Pontos de cada variável (9/7/9/9), campos obrigatórios |
+| `TestSensitivityMetrics` | 5 | npv_range ≥ 0, elasticity ≥ 0, strategy_flips |
+| `TestEdgeCases` | 5 | down_payment=0, sem budget, IMOVEL caro, taxa mínima, sem consórcio |
+| `TestLinspace` | 4 | Implementação stdlib do numpy.linspace |
+| `TestPickStrategy` | 5 | Retorna estratégia com maior NPV; trata consórcio None |
+| `TestComputeRiskProfile` | 7 | Baixo/moderado/alto por flips e elasticidade |
+| `TestSensitivityToDict` | 5 | Serialização para dict, generated_at ISO, campos presentes |
+
+### Decisões Técnicas da Fase 3
+
+1. **Sensitivity com taxas atuais:** endpoint `/sensitivity` re-busca taxas no momento da chamada (não as da simulação original) — representa "como a recomendação estaria hoje".
+2. **Cache L1+L2 sem Redis:** `time.monotonic()` para TTL em memória; JSON em disco para L2. Sem infraestrutura externa.
+3. **SHA-256 truncado a 48 chars (sim) / 24 chars (sens):** 192 bits e 96 bits de entropia — risco de colisão desprezível.
+4. **`simulation_cache` não wired:** singleton definido em `utils/cache.py`, wire no endpoint será feito na Fase 4+.
+5. **`fetch_market_rates()` público:** expõe `_fetch_market_rates()` para uso no endpoint de sensibilidade sem duplicar lógica.
+
+### CETs de mercado corrigidos (19/02/2026)
+
+| Bem | min (antigo) | min (corrigido) | Motivo |
+|---|---|---|---|
+| IMOVEL | 10,50% | 14,75% | Spread negativo vs SELIC (bug corrigido) |
+
+### Próximos Passos (Fase 4+)
+
+- Wire `simulation_cache` no endpoint de sensibilidade (cache-aside pattern)
+- Migrar ANBIMA para ANBIMA Developer API (atualmente usa SGS/BCB como MVP)
+- Benchmark de performance — meta < 1s de resposta ponta a ponta
