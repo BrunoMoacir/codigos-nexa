@@ -13,6 +13,14 @@ O **Nexa Optimizer** analisa o padrão real de consumo do usuário (via dados do
 
 **Premissa central:** se a troca não for vantajosa numericamente, a Nexa diz para não trocar.
 
+### Princípio de adequação ao perfil
+
+Toda recomendação é **ancorada no perfil real do cliente**. O sistema não recomenda cartões genéricos — ele cruza o padrão de consumo observado com os benefícios de cada cartão e calcula o ganho específico para aquele usuário. A resposta ao usuário segue a lógica:
+
+> "Você gasta em média R$ X/mês no débito ou em cartões atuais. O cartão Z te daria R$ Y/ano em benefícios nesse padrão de consumo, com anuidade isenta. Por isso, vale trocar."
+
+Além da vantagem financeira, o sistema avalia **a chance real de o usuário conseguir o cartão** (elegibilidade), garantindo que só recomenda produtos acessíveis ao seu perfil de renda e comportamento. Um cartão com ótimo retorno teórico mas inacessível ao usuário não entra no ranking final.
+
 ---
 
 ## 2. Como se encaixa no projeto
@@ -135,6 +143,12 @@ CardSimulationResult:               # resultado por cartão
   liquidity_impact: float           # quanto da anuidade compromete o safe_to_spend
   liquidity_risk: LiquidityRisk
   confidence_score: float           # 0.0–1.0
+  eligibility_score: float          # 0.0–1.0 — probabilidade estimada de aprovação
+  eligibility_reasons: list[str]    # fatores que embasam (ou limitam) a elegibilidade
+  profile_match_reasons: list[str]  # por que este cartão se encaixa no perfil do usuário
+  spending_anchor: dict             # gasto observado usado como base da recomendação
+                                    # ex: {"debit_monthly": 1800, "credit_monthly": 1200,
+                                    #      "main_categories": ["alimentacao", "transporte"]}
   explanation_steps: list[str]      # raciocínio passo a passo
   benefit_highlights: list[str]     # benefícios relevantes para este usuário
 
@@ -194,6 +208,34 @@ class CardKnowledgeBase:
 **`filter_eligible` aplica hard constraints:**
 - `card.min_income <= profile.estimated_monthly_income × 12` → renda anual
 - Remove cartões que o usuário já possui (passados em `current_cards`)
+- Remove `secured_card=True` se `estimated_monthly_income` for suficiente para cartões convencionais
+- Remove `consigned=True` se não houver indicador de vínculo empregatício formal
+
+**`compute_eligibility_score` — score contínuo (0.0–1.0):**
+
+Diferente do filtro binário acima, o `eligibility_score` expressa a probabilidade estimada de aprovação e é exibido ao usuário como indicador de confiança na recomendação:
+
+```
+income_ratio = profile.estimated_monthly_income × 12 / card.min_income
+  Se income_ratio >= 2.0 → fator renda = 1.0   (renda muito acima do mínimo)
+  Se income_ratio >= 1.5 → fator renda = 0.85
+  Se income_ratio >= 1.0 → fator renda = 0.65  (renda no limite mínimo)
+  Se income_ratio < 1.0  → cartão removido pelo hard filter (não chega aqui)
+
+stability_factor = profile.spending_stability          # 0.0–1.0
+
+existing_relationship_bonus:
+  +0.10 se o usuário já tem outro produto do mesmo emissor (detectado via transactions)
+
+eligibility_score = income_ratio_factor × stability_factor + existing_relationship_bonus
+eligibility_score = min(eligibility_score, 1.0)
+```
+
+**`eligibility_reasons`** — lista de strings geradas para o LLM usar na justificativa:
+- `"Renda estimada de R$ X/mês está acima do mínimo exigido (R$ Y/mês)"`
+- `"Você já tem relacionamento com [Banco] — aumenta chance de aprovação"`
+- `"Histórico de gastos estável nos últimos N meses"`
+- `"Renda no limite mínimo — aprovação provável mas não garantida"`
 
 ---
 
@@ -239,6 +281,31 @@ class CardKnowledgeBase:
      × bank_trust_score       (data_trust_score do CardRecord)
 ```
 
+**`spending_anchor`** — ancora o cálculo no gasto real observado:
+
+O simulador extrai do `UserProfile` o gasto base que justifica a recomendação e o registra em `spending_anchor` para que o LLM construa a justificativa personalizada:
+
+```python
+spending_anchor = {
+    "debit_monthly": profile.spend_by_source.get("debit", 0),
+    "credit_monthly": profile.spend_by_source.get("credit", 0),
+    "total_monthly": profile.monthly_avg_spend,
+    "main_categories": top_3_categories(profile.spend_by_category),
+    "international_monthly": profile.international_spend_monthly,
+    "travel_monthly": profile.travel_spend_monthly,
+}
+```
+
+Isso permite que a `strategy_text` diga explicitamente: *"Com base nos R$ 1.800 que você gasta no débito e R$ 1.200 em cartões de crédito por mês..."*, ancorando a recomendação em dados reais do usuário.
+
+**`profile_match_reasons`** — justificativas de aderência ao perfil:
+
+O simulador gera automaticamente as razões pelas quais o cartão se encaixa no perfil, usadas tanto na `strategy_text` quanto no front-end:
+- `"Seu gasto mensal de R$ X é suficiente para isentar a anuidade de R$ Y"`
+- `"Você gasta R$ X/mês em [categoria] — o cashback diferenciado nessa categoria vale R$ Y/ano"`
+- `"Seu gasto internacional de R$ X/mês é alto — o cartão oferece zero IOF para compras no exterior"`
+- `"Você viaja frequentemente — o acesso a salas VIP (LoungeKey) incluso vale R$ X/ano"`
+
 **O sistema nunca retorna um número único** — sempre devolve faixa (min/expected/max) + confidence + explanation_steps.
 
 ---
@@ -262,11 +329,19 @@ Bônus de benefícios relevantes:
   Se usuário tem international_spend > 500/mês e cartão tem "INTERNACIONAL": +bônus
   Se usuário tem travel_spend > 800/mês e cartão tem "LOUNGE": +bônus
 
+Penalidade de elegibilidade (baseada no eligibility_score do card_loader):
+  Se eligibility_score < 0.5:  score × 0.4   (cartão provavelmente inacessível)
+  Se eligibility_score < 0.7:  score × 0.75  (aprovação incerta)
+  Se eligibility_score >= 0.7: sem penalidade
+
 Retorno: lista ordenada por score (decrescente)
 ```
 
 **Regra de não-recomendação:**
 Se o `net_gain_expected` do melhor cartão for negativo, `recommendation_type = KEEP_CURRENT`.
+
+**Regra de elegibilidade mínima:**
+Se o melhor cartão tiver `eligibility_score < 0.4`, o ranking promove o próximo cartão com `eligibility_score >= 0.6` como recomendação principal, mesmo que o retorno seja ligeiramente menor. Não adianta recomendar o cartão perfeito se o usuário provavelmente não vai conseguir a aprovação.
 
 ---
 
@@ -485,7 +560,87 @@ CREATE TABLE optimization_reports (
 
 ---
 
-## 7. Fórmulas e cálculos
+## 7. Perfil do cliente e elegibilidade
+
+### Por que o perfil é central
+
+O sistema nunca recomenda um cartão no vácuo. Cada recomendação parte de três perguntas:
+
+1. **O usuário consegue esse cartão?** — elegibilidade estimada por renda, estabilidade financeira e relacionamento com o emissor
+2. **O cartão faz sentido para o padrão de consumo?** — matching entre categorias de gasto e benefícios do cartão
+3. **O ganho é real, não teórico?** — cálculo ancorado no gasto observado (débito + crédito atual), não em médias genéricas
+
+### Fontes de dados do perfil usadas na recomendação
+
+| Dado do perfil | De onde vem | Usado para |
+|---|---|---|
+| `monthly_avg_spend` | `transactions_clean` (F1) | Base de cálculo de pontos/cashback |
+| `spend_by_category` | `transactions_clean` (F1) | Matching com cashback por categoria |
+| `estimated_monthly_income` | Créditos detectados pela F1 | Filtro de elegibilidade por renda mínima |
+| `international_spend_monthly` | `transactions_clean` (F1) | Bônus para cartões INTERNACIONAL |
+| `travel_spend_monthly` | `transactions_clean` (F1) | Bônus para cartões com LOUNGE |
+| `spending_stability` | Variância dos gastos mensais | Fator no `eligibility_score` |
+| `committed_percentage` | `shadow_invoice_events` (F1) | Penalidade no `confidence_score` |
+| `safe_to_spend` | `daily_forecast` (F1) | Cálculo de `liquidity_impact` |
+
+### Lógica de elegibilidade
+
+O `eligibility_score` (0.0–1.0) é calculado no `card_loader.py` e representa a probabilidade estimada de aprovação. É diferente do `confidence_score` — este mede a qualidade dos dados; aquele mede o fit do usuário com o produto.
+
+```
+Hard filter (remove da lista):
+  → renda anual < min_income do cartão
+
+Score contínuo para cartões que passam no hard filter:
+  income_ratio = renda_anual / min_income
+    >= 2.0  →  0.95  (renda muito acima)
+    >= 1.5  →  0.80
+    >= 1.2  →  0.70
+    >= 1.0  →  0.60  (renda no limite — aprovação provável, não garantida)
+
+  × spending_stability (histórico estável = menos risco de inadimplência)
+  + 0.10 se já tem produto do mesmo emissor detectado em transactions
+  = eligibility_score (máximo 1.0)
+```
+
+**Regras de exibição ao usuário:**
+
+| Faixa | Texto exibido |
+|---|---|
+| >= 0.80 | "Alta chance de aprovação" |
+| 0.60–0.79 | "Boa chance de aprovação" |
+| 0.40–0.59 | "Aprovação possível — verifique os requisitos" |
+| < 0.40 | Cartão removido do ranking principal (pode aparecer em "outros") |
+
+### Matching perfil-cartão
+
+O `profile_match_reasons` é gerado pelo simulador cruzando o `UserProfile` com os `benefit_tags` e regras do cartão. Exemplos de matching automático:
+
+```python
+# Gasto em alimentação + cashback diferenciado nessa categoria
+if "alimentacao" in top_categories and card.cashback_categories includes "alimentacao":
+    reasons.append(f"Seu gasto de R$ {spend_alimentacao}/mês em alimentação rende "
+                   f"{cashback_pct_categoria}% de cashback = R$ {valor}/ano")
+
+# Volume total garante isenção de anuidade
+if gasto_anual_projetado >= waiver_threshold:
+    reasons.append(f"Seu gasto anual projetado de R$ {gasto_anual:.0f} isenta a "
+                   f"anuidade de R$ {base_annuity:.0f}")
+
+# Gasto internacional expressivo
+if profile.international_spend_monthly > 300 and "INTERNACIONAL" in benefit_tags:
+    reasons.append(f"Seu gasto de R$ {international}/mês no exterior se beneficia "
+                   f"do câmbio diferenciado e zero IOF deste cartão")
+
+# Frequência de viagens
+if profile.travel_spend_monthly > 600 and "LOUNGE" in benefit_tags:
+    reasons.append(f"Com seus gastos em viagens, o acesso a salas VIP incluso "
+                   f"pode valer mais de R$ {lounge_value_estimated}/ano")
+```
+
+---
+
+## 8. Fórmulas e cálculos
 
 ### Valor anual dos pontos
 
@@ -563,17 +718,34 @@ O agente deve acionar `get_card_optimization` quando a pergunta do usuário cont
 
 ### Formato de resposta ao usuário (strategy_text)
 
-O LLM gera a `strategy_text` com base nos campos estruturados do `OptimizationReport`:
+O LLM gera a `strategy_text` com base nos campos estruturados do `OptimizationReport`. A resposta **deve sempre referenciar o gasto real observado** (do `spending_anchor`) como âncora da justificativa, e incluir a avaliação de elegibilidade:
 
 ```
 Exemplo de resposta esperada:
-"Com base no seu gasto médio de R$ 3.200/mês, o cartão X te geraria
-aproximadamente R$ 480/ano em pontos, com anuidade isenta (você já
-gasta acima do threshold de isenção). Ganho líquido esperado: R$ 480.
-No pior cenário (gasto 20% menor) ainda seria positivo: R$ 384.
-O impacto no seu caixa mensal seria de apenas 0%, pois a anuidade é isenta.
-Confiança da análise: 82% (baseada em 4 meses de histórico)."
+"Analisando seus dados: você gasta em média R$ 1.800/mês no débito e
+R$ 1.400/mês em cartões de crédito — total de R$ 3.200/mês. Com esse
+padrão, o cartão X te geraria aproximadamente R$ 480/ano em pontos, com
+anuidade isenta (seu gasto anual projetado de R$ 38.400 ultrapassa o
+threshold de isenção de R$ 36.000).
+
+Por que vale trocar: você está deixando de ganhar R$ 480/ano com o seu
+cartão atual. O cartão X acumula 2 pontos por real gasto — com seus
+R$ 3.200/mês, isso equivale a R$ 40/mês em pontos resgatáveis.
+
+Chance de aprovação: alta (sua renda está bem acima do mínimo exigido e
+você já tem histórico com o emissor).
+
+No pior cenário (gasto 20% menor) o ganho ainda seria positivo: R$ 384.
+Confiança da análise: 82% (baseada em 4 meses de histórico estável)."
 ```
+
+**Campos que o LLM deve consumir para gerar a justificativa:**
+- `spending_anchor` → âncora em valores reais do usuário
+- `profile_match_reasons` → por que o cartão se encaixa
+- `eligibility_reasons` → por que o usuário consegue (ou pode não conseguir)
+- `net_gain_min/expected/max` → faixa de ganho
+- `annuity_waived` + `waiver_rules.threshold` → argumento de isenção
+- `benefit_highlights` → benefícios específicos ao perfil
 
 ---
 
@@ -631,9 +803,14 @@ Confiança da análise: 82% (baseada em 4 meses de histórico)."
 - [ ] Resultado sempre inclui faixa (min/expected/max) e `confidence_score`
 - [ ] Sistema recomenda `KEEP_CURRENT` quando `net_gain_expected < 0`
 - [ ] Sistema recomenda `KEEP_CURRENT` quando `liquidity_risk == CRITICAL`
+- [ ] **Todo `CardSimulationResult` inclui `eligibility_score`, `eligibility_reasons`, `profile_match_reasons` e `spending_anchor`**
+- [ ] **`strategy_text` referencia sempre o gasto real observado (débito + crédito atual) como âncora da justificativa**
+- [ ] **Cartões com `eligibility_score < 0.4` não aparecem como recomendação principal**
+- [ ] **`filter_eligible` aplica hard filter de renda + remove cartões já possuídos**
+- [ ] **Ranking penaliza cartões com `eligibility_score < 0.7`**
 - [ ] Relatórios persistidos no DuckDB
 - [ ] Todos os endpoints documentados no Swagger (`/docs`)
-- [ ] Chat responde corretamente: `"Qual o melhor cartão para mim?"` com base em dados reais
+- [ ] Chat responde corretamente: `"Qual o melhor cartão para mim?"` com justificativa baseada no gasto real do usuário, chance de aprovação e ganho líquido calculado
 
 ---
 
