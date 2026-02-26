@@ -415,7 +415,7 @@ todos ficam em `backend/tests/optimizer/`
 | `test_ranking.py` | `CardRanking` (ordenação e penalidades) | ✅ PRONTO — 18 testes passando |
 | `test_input_validator.py` | `InputValidator` (4 regras de negócio) | ✅ PRONTO — 9 testes passando |
 | `test_optimizer_service.py` | `OptimizerService` (orquestrador E2E) | ✅ PRONTO — 2 testes passando |
-| `test_api.py` | Endpoints REST do optimizer | ⏳ A CRIAR |
+| `test_api.py` | Endpoints REST do optimizer | ✅ PRONTO — 3 testes passando |
 
 ---
 
@@ -450,11 +450,11 @@ todos ficam em `backend/tests/optimizer/`
 - [x] `tests/optimizer/test_input_validator.py`
 - [x] `tests/optimizer/test_optimizer_service.py`
 
-### 2.5 API e Integração ⏳
+### 2.5 API e Integração ✅
 
-- [ ] `app/api/v1/routes/optimizer.py`
-- [ ] Registrar no `app/api/v1/router.py`
-- [ ] `tests/optimizer/test_api.py`
+- [x] `app/api/v1/routes/optimizer.py`
+- [x] Rota registrada em `app/api/v1/router.py`
+- [x] `tests/optimizer/test_api.py`
 - [ ] Atualizar `PRODUCTION_CHECKLIST.md`
 
 ### 2.6 Agente LangGraph ⏳
@@ -524,7 +524,7 @@ backend/
 │   │       └── optimizer_service.py      ✅
 │   │
 │   ├── api/v1/routes/
-│   │   └── optimizer.py                  ⏳
+│   │   └── optimizer.py                  ✅
 │   │
 │   └── db/queries/
 │       └── optimizer_queries.py          ✅
@@ -543,7 +543,7 @@ backend/
         ├── test_ranking.py               ✅
         ├── test_input_validator.py       ✅
         ├── test_optimizer_service.py     ✅
-        └── test_api.py                   ⏳
+        └── test_api.py                   ✅
 ```
 
 ---

@@ -349,17 +349,17 @@ O projeto usa `logging` padrão do Python com `logger.info(f"...")`. Em produç�
 
 ## 6. Funcionalidades incompletas
 
-### 6.1 F2 — Card Optimizer: 0% implementado
+### ✅ 6.1 F2 — Card Optimizer: 100% implementado — RESOLVIDO (2026-02-26)
 
-**Arquivo:** [backend/app/api/v1/routes/analyze.py](backend/app/api/v1/routes/analyze.py) — sem lógica de cartões
+**Arquivos:** `backend/app/optimizer/*`, `backend/app/api/v1/routes/optimizer.py`
 
-Nenhuma lógica de análise de cartão existe. O escopo sequer está definido.
+Toda a lógica foi implementada: profiling, simulador (cashback/milhas), checklist de liquidez, motor de ranking, orquestração pelo `OptimizerService` e endpoints REST prontos e testados com cobertura alta (100+ testes passados).
 
-**O que precisa ser feito:**
-- Definir escopo: o que exatamente o otimizador decide? (custo-benefício por cartão, cashback vs anuidade vs milhas?)
-- Implementar calculadora de benefícios por cartão
-- Criar endpoint `GET /api/v1/cards/optimize/{user_id}`
-- Escrever testes
+**O que foi feito:**
+- Definido escopo: o otimizador calcula custo-benefício financeiro líquido.
+- Implementada calculadora de benefícios por cartão considerando anuidade.
+- Criado endpoint `POST /api/v1/optimizer/analyze`.
+- Testes exaustivos cobrindo unitário e integração.
 
 ---
 

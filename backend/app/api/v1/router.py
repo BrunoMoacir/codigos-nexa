@@ -109,3 +109,7 @@ router.include_router(context_override.router)
 # 7️⃣ Architect: POST /architect/simulate (F3 - Nexa Architect)
 from app.api.v1.routes import architect
 router.include_router(architect.router)
+
+# 8️⃣ Optimizer: POST /optimizer/analyze (F2 - Nexa Optimizer)
+from app.api.v1.routes import optimizer
+router.include_router(optimizer.router)
