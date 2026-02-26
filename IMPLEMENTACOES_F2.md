@@ -5,7 +5,7 @@
 >
 > **Dependência:** F1 (Nexa Core Engine) — obrigatório estar funcionando antes ✅
 >
-> **Status atual:** 🔄 Em andamento — Passo 2.1 concluído (16/16 testes passando)
+> **Status atual:** 🔄 Em andamento — Passo 2.4 em progresso (106/106 testes passando, input_validator.py criado)
 >
 > **Última atualização:** 2026-02-26
 
@@ -108,8 +108,8 @@ class CardKnowledgeBase:
 
 ---
 
-#### ⏳ `app/optimizer/profiler.py` — ConsumptionProfiler
-**Status:** A CRIAR
+#### ✅ `app/optimizer/profiler.py` — ConsumptionProfiler
+**Status:** PRONTO
 
 Analisa o histórico real de transações e monta o perfil de consumo do usuário.
 
@@ -409,10 +409,10 @@ todos ficam em `backend/tests/optimizer/`
 | Arquivo | O que cobre | Status |
 |---|---|---|
 | `test_card_loader.py` | `CardKnowledgeBase` (load, filter, eligibility) | ✅ PRONTO — 16 testes passando |
-| `test_profiler.py` | `ConsumptionProfiler` (cálculo de UserProfile) | ⏳ A CRIAR |
-| `test_liquidity_checker.py` | `LiquidityChecker` (4 faixas de risco) | ⏳ A CRIAR |
-| `test_simulator.py` | `CardSimulator` (cálculo de retorno e anuidade) | ⏳ A CRIAR |
-| `test_ranking.py` | `CardRanking` (ordenação e penalidades) | ⏳ A CRIAR |
+| `test_profiler.py` | `ConsumptionProfiler` (cálculo de UserProfile) | ✅ PRONTO — 36 testes passando |
+| `test_liquidity_checker.py` | `LiquidityChecker` (4 faixas de risco) | ✅ PRONTO — 8 testes passando |
+| `test_simulator.py` | `CardSimulator` (cálculo de retorno e anuidade) | ✅ PRONTO — 23 testes passando |
+| `test_ranking.py` | `CardRanking` (ordenação e penalidades) | ✅ PRONTO — 15 testes passando |
 | `test_input_validator.py` | `InputValidator` (4 regras de negócio) | ⏳ A CRIAR |
 | `test_optimizer_service.py` | `OptimizerService` (orquestrador E2E) | ⏳ A CRIAR |
 | `test_api.py` | Endpoints REST do optimizer | ⏳ A CRIAR |
@@ -429,23 +429,23 @@ todos ficam em `backend/tests/optimizer/`
 - [x] `app/db/queries/optimizer_queries.py` — queries DuckDB
 - [x] `tests/optimizer/test_card_loader.py` — 16/16 passando
 
-### 2.2 Profiler ⏳
+### 2.2 Profiler ✅
 
-- [ ] `app/optimizer/profiler.py` — ConsumptionProfiler
-- [ ] `tests/optimizer/test_profiler.py`
+- [x] `app/optimizer/profiler.py` — ConsumptionProfiler
+- [x] `tests/optimizer/test_profiler.py` — 36/36 passando
 
-### 2.3 Simulador e Ranking ⏳
+### 2.3 Simulador e Ranking ✅
 
-- [ ] `app/optimizer/validators/liquidity_checker.py`
-- [ ] `app/optimizer/simulator.py` — CardSimulator
-- [ ] `app/optimizer/ranking.py` — CardRanking
-- [ ] `tests/optimizer/test_liquidity_checker.py`
-- [ ] `tests/optimizer/test_simulator.py`
-- [ ] `tests/optimizer/test_ranking.py`
+- [x] `app/optimizer/validators/liquidity_checker.py`
+- [x] `app/optimizer/simulator.py` — CardSimulator
+- [x] `app/optimizer/ranking.py` — CardRanking
+- [x] `tests/optimizer/test_liquidity_checker.py` — 8/8 passando
+- [x] `tests/optimizer/test_simulator.py` — 23/23 passando
+- [x] `tests/optimizer/test_ranking.py` — 15/15 passando
 
 ### 2.4 Validação e Orquestrador ⏳
 
-- [ ] `app/optimizer/validators/input_validator.py`
+- [x] `app/optimizer/validators/input_validator.py`
 - [ ] `app/optimizer/services/optimizer_service.py`
 - [ ] `tests/optimizer/test_input_validator.py`
 - [ ] `tests/optimizer/test_optimizer_service.py`
@@ -512,13 +512,13 @@ backend/
 │   │   ├── __init__.py                   ✅
 │   │   ├── models.py                     ✅ (schemas Pydantic)
 │   │   ├── card_loader.py                ✅ (CardKnowledgeBase)
-│   │   ├── profiler.py                   ⏳ (ConsumptionProfiler)
-│   │   ├── simulator.py                  ⏳ (CardSimulator)
-│   │   ├── ranking.py                    ⏳ (CardRanking)
+│   │   ├── profiler.py                   ✅ (ConsumptionProfiler)
+│   │   ├── simulator.py                  ✅ (CardSimulator)
+│   │   ├── ranking.py                    ✅ (CardRanking)
 │   │   ├── validators/
 │   │   │   ├── __init__.py               ✅
-│   │   │   ├── input_validator.py        ⏳
-│   │   │   └── liquidity_checker.py      ⏳
+│   │   │   ├── input_validator.py        ✅
+│   │   │   └── liquidity_checker.py      ✅
 │   │   └── services/
 │   │       ├── __init__.py               ✅
 │   │       └── optimizer_service.py      ⏳
@@ -537,10 +537,10 @@ backend/
     └── optimizer/
         ├── __init__.py                   ✅
         ├── test_card_loader.py           ✅ (16 testes passando)
-        ├── test_profiler.py              ⏳
-        ├── test_liquidity_checker.py     ⏳
-        ├── test_simulator.py             ⏳
-        ├── test_ranking.py               ⏳
+        ├── test_profiler.py              ✅ (36 testes passando)
+        ├── test_liquidity_checker.py     ✅ (8 testes passando)
+        ├── test_simulator.py             ✅ (23 testes passando)
+        ├── test_ranking.py               ✅ (15 testes passando)
         ├── test_input_validator.py       ⏳
         ├── test_optimizer_service.py     ⏳
         └── test_api.py                   ⏳

@@ -128,6 +128,7 @@ class CardSimulationResult(BaseModel):
     spending_anchor: dict = {}
     explanation_steps: list[str] = []
     benefit_highlights: list[str] = []
+    benefit_tags: list[BenefitTag] = []
 
 
 class OptimizationReport(BaseModel):
