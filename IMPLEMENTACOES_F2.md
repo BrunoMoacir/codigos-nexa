@@ -137,8 +137,8 @@ class UserProfile:
 
 ---
 
-#### ⏳ `app/optimizer/simulator.py` — CardSimulator
-**Status:** A CRIAR
+#### ✅ `app/optimizer/simulator.py` — CardSimulator
+**Status:** PRONTO
 
 Calcula o retorno financeiro real de cada cartão para o perfil específico do usuário.
 
@@ -190,8 +190,8 @@ Calcula o retorno financeiro real de cada cartão para o perfil específico do u
 
 ---
 
-#### ⏳ `app/optimizer/ranking.py` — CardRanking
-**Status:** A CRIAR
+#### ✅ `app/optimizer/ranking.py` — CardRanking
+**Status:** PRONTO
 
 Ordena os cartões simulados aplicando penalidades de risco e elegibilidade.
 
@@ -225,8 +225,8 @@ Retorno: lista ordenada por score (decrescente)
 
 ---
 
-#### ⏳ `app/optimizer/validators/input_validator.py` — InputValidator
-**Status:** A CRIAR
+#### ✅ `app/optimizer/validators/input_validator.py` — InputValidator
+**Status:** PRONTO
 
 Valida regras de negócio do `OptimizationRequest`:
 
@@ -239,8 +239,8 @@ Valida regras de negócio do `OptimizationRequest`:
 
 ---
 
-#### ⏳ `app/optimizer/validators/liquidity_checker.py` — LiquidityChecker
-**Status:** A CRIAR
+#### ✅ `app/optimizer/validators/liquidity_checker.py` — LiquidityChecker
+**Status:** PRONTO
 
 Classifica o risco da anuidade para o caixa do usuário:
 
@@ -253,8 +253,8 @@ Classifica o risco da anuidade para o caixa do usuário:
 
 ---
 
-#### ⏳ `app/optimizer/services/optimizer_service.py` — OptimizerService
-**Status:** A CRIAR
+#### ✅ `app/optimizer/services/optimizer_service.py` — OptimizerService
+**Status:** PRONTO
 
 Ponto único de entrada. Orquestra tudo na sequência correta:
 
@@ -409,12 +409,12 @@ todos ficam em `backend/tests/optimizer/`
 | Arquivo | O que cobre | Status |
 |---|---|---|
 | `test_card_loader.py` | `CardKnowledgeBase` (load, filter, eligibility) | ✅ PRONTO — 16 testes passando |
-| `test_profiler.py` | `ConsumptionProfiler` (cálculo de UserProfile) | ✅ PRONTO — 36 testes passando |
-| `test_liquidity_checker.py` | `LiquidityChecker` (4 faixas de risco) | ✅ PRONTO — 8 testes passando |
-| `test_simulator.py` | `CardSimulator` (cálculo de retorno e anuidade) | ✅ PRONTO — 23 testes passando |
-| `test_ranking.py` | `CardRanking` (ordenação e penalidades) | ✅ PRONTO — 15 testes passando |
-| `test_input_validator.py` | `InputValidator` (4 regras de negócio) | ⏳ A CRIAR |
-| `test_optimizer_service.py` | `OptimizerService` (orquestrador E2E) | ⏳ A CRIAR |
+| `test_profiler.py` | `ConsumptionProfiler` (cálculo de UserProfile) | ✅ PRONTO — 31 testes passando |
+| `test_liquidity_checker.py` | `LiquidityChecker` (4 faixas de risco) | ✅ PRONTO — 4 testes passando |
+| `test_simulator.py` | `CardSimulator` (cálculo de retorno e anuidade) | ✅ PRONTO — 21 testes passando |
+| `test_ranking.py` | `CardRanking` (ordenação e penalidades) | ✅ PRONTO — 18 testes passando |
+| `test_input_validator.py` | `InputValidator` (4 regras de negócio) | ✅ PRONTO — 9 testes passando |
+| `test_optimizer_service.py` | `OptimizerService` (orquestrador E2E) | ✅ PRONTO — 2 testes passando |
 | `test_api.py` | Endpoints REST do optimizer | ⏳ A CRIAR |
 
 ---
@@ -432,23 +432,23 @@ todos ficam em `backend/tests/optimizer/`
 ### 2.2 Profiler ✅
 
 - [x] `app/optimizer/profiler.py` — ConsumptionProfiler
-- [x] `tests/optimizer/test_profiler.py` — 36/36 passando
+- [x] `tests/optimizer/test_profiler.py`
 
 ### 2.3 Simulador e Ranking ✅
 
 - [x] `app/optimizer/validators/liquidity_checker.py`
 - [x] `app/optimizer/simulator.py` — CardSimulator
 - [x] `app/optimizer/ranking.py` — CardRanking
-- [x] `tests/optimizer/test_liquidity_checker.py` — 8/8 passando
-- [x] `tests/optimizer/test_simulator.py` — 23/23 passando
-- [x] `tests/optimizer/test_ranking.py` — 15/15 passando
+- [x] `tests/optimizer/test_liquidity_checker.py`
+- [x] `tests/optimizer/test_simulator.py`
+- [x] `tests/optimizer/test_ranking.py`
 
-### 2.4 Validação e Orquestrador ⏳
+### 2.4 Validação e Orquestrador ✅
 
 - [x] `app/optimizer/validators/input_validator.py`
-- [ ] `app/optimizer/services/optimizer_service.py`
-- [ ] `tests/optimizer/test_input_validator.py`
-- [ ] `tests/optimizer/test_optimizer_service.py`
+- [x] `app/optimizer/services/optimizer_service.py`
+- [x] `tests/optimizer/test_input_validator.py`
+- [x] `tests/optimizer/test_optimizer_service.py`
 
 ### 2.5 API e Integração ⏳
 
@@ -521,7 +521,7 @@ backend/
 │   │   │   └── liquidity_checker.py      ✅
 │   │   └── services/
 │   │       ├── __init__.py               ✅
-│   │       └── optimizer_service.py      ⏳
+│   │       └── optimizer_service.py      ✅
 │   │
 │   ├── api/v1/routes/
 │   │   └── optimizer.py                  ⏳
@@ -537,12 +537,12 @@ backend/
     └── optimizer/
         ├── __init__.py                   ✅
         ├── test_card_loader.py           ✅ (16 testes passando)
-        ├── test_profiler.py              ✅ (36 testes passando)
-        ├── test_liquidity_checker.py     ✅ (8 testes passando)
-        ├── test_simulator.py             ✅ (23 testes passando)
-        ├── test_ranking.py               ✅ (15 testes passando)
-        ├── test_input_validator.py       ⏳
-        ├── test_optimizer_service.py     ⏳
+        ├── test_profiler.py              ✅
+        ├── test_liquidity_checker.py     ✅
+        ├── test_simulator.py             ✅
+        ├── test_ranking.py               ✅
+        ├── test_input_validator.py       ✅
+        ├── test_optimizer_service.py     ✅
         └── test_api.py                   ⏳
 ```
 

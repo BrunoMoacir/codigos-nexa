@@ -123,7 +123,7 @@ class CardSimulationResult(BaseModel):
     liquidity_risk: LiquidityRisk
     confidence_score: float
     eligibility_score: float
-    eligibility_reasons: list[str] = []
+    warnings: list[str] = []
     profile_match_reasons: list[str] = []
     spending_anchor: dict = {}
     explanation_steps: list[str] = []
