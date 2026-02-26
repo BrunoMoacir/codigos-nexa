@@ -379,7 +379,7 @@ CREATE TABLE IF NOT EXISTS optimization_reports (
 
 ### 🤖 Agente — `backend/app/agent/tools/get_card_optimization.py`
 
-**Status:** A CRIAR — depende do agente LangGraph estar ativo
+**Status:** ✅
 
 **Tool a criar:**
 ```python
@@ -457,9 +457,10 @@ todos ficam em `backend/tests/optimizer/`
 - [x] `tests/optimizer/test_api.py`
 - [ ] Atualizar `PRODUCTION_CHECKLIST.md`
 
-### 2.6 Agente LangGraph ⏳
+### 2.6 Agente LangGraph ✅
 
-- [ ] `app/agent/tools/get_card_optimization.py`
+- [x] Tool `@tool` `get_card_optimization` em `app/agent/tools/get_card_optimization.py`
+- [x] Tests unitários em `tests/agent/test_get_card_optimization.py`
 - [ ] Integrar no grafo LangGraph
 - [ ] Testar via `POST /chat`
 
