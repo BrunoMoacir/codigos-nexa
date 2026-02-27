@@ -461,8 +461,8 @@ todos ficam em `backend/tests/optimizer/`
 
 - [x] Tool `@tool` `get_card_optimization` em `app/agent/tools/get_card_optimization.py`
 - [x] Tests unitários em `tests/agent/test_get_card_optimization.py`
-- [ ] Integrar no grafo LangGraph
-- [ ] Testar via `POST /chat`
+- [x] Integrar no grafo LangGraph em `app/agent/graph.py`
+- [x] Testar via `POST /chat` em `app/api/v1/routes/chat.py`
 
 ---
 
