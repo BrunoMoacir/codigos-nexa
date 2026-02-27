@@ -113,3 +113,7 @@ router.include_router(architect.router)
 # 8️⃣ Optimizer: POST /optimizer/analyze (F2 - Nexa Optimizer)
 from app.api.v1.routes import optimizer
 router.include_router(optimizer.router)
+
+# 9️⃣ Agent Chat: POST /chat (F2/F3 - Nexa IA Chat)
+from app.api.v1.routes import chat
+router.include_router(chat.router)

@@ -16,7 +16,10 @@ class Settings(BaseSettings):
 
     # URL base do frontend (usada como fallback no redirect de reconexão)
     FRONTEND_BASE_URL: str = "http://localhost:3000"
+    
+    # LLM Settings
+    OPENAI_API_KEY: str | None = None
 
-    model_config = SettingsConfigDict(env_file=".env", extra="forbid")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 settings = Settings()
