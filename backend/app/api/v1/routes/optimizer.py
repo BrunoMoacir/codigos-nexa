@@ -29,16 +29,27 @@ async def analyze_cards(
     logger.info(f"[API] Solicitando otimização de cartões para user_id={request.user_id}")
     
     try:
-        # TODO: Integrar F1 verdadeira aqui através de dependência (ex: app.core.engine.UserPipeline)
-        # Por enquanto, fallback para Dataframe vazio para que o Optimizer ainda possa usar a renda manual
-        transactions_df = pl.DataFrame(schema={
-            "date": pl.Date,
-            "amount": pl.Float64,
-            "description": pl.Utf8,
-            "category": pl.Utf8,
-            "pf_pj_label": pl.Utf8,
-            "type": pl.Utf8
-        })
+        from app.db.queries import get_connection
+        import duckdb
+        
+        con = get_connection()
+        try:
+            transactions_df = con.execute(
+                "SELECT * FROM transactions_clean WHERE user_id = ?", 
+                [request.user_id]
+            ).pl()
+        except duckdb.CatalogException:
+            # Fallback se a tabela da F1 ainda não existir
+            logger.warning("[API] Tabela transactions_clean não encontrada. Usando DataFrame vazio.")
+            transactions_df = pl.DataFrame(schema={
+                "date": pl.Date, "amount": pl.Float64, "description": pl.Utf8,
+                "category": pl.Utf8, "pf_pj_label": pl.Utf8, "type": pl.Utf8
+            })
+        finally:
+            con.close()
+
+        # O shadow_invoices_df real depende do runner completo da F1. 
+        # Por enquanto, mantemos None; o profiler lida com isso perfeitamente.
         shadow_invoices_df = None
 
         service = OptimizerService()

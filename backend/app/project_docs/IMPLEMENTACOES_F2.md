@@ -293,7 +293,7 @@ class OptimizerService:
 
 **Responsabilidade da rota `POST /analyze/{user_id}`:**
 1. Buscar `safe_to_spend` e `shadow_invoices` da F1 via NexaRunner/DuckDB
-2. Buscar `transactions_clean` do DuckDB
+2. ✅ Buscar `transactions_clean` do DuckDB
 3. Remontar `OptimizationRequest` com os dados reais
 4. Chamar `OptimizerService.analyze()`
 5. Retornar `OptimizationReport`
