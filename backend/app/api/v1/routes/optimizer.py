@@ -59,3 +59,36 @@ async def analyze_cards(
     except Exception as e:
         logger.error(f"[API] Erro interno durante otimização: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno ao processar a otimização de cartões.")
+
+from app.db.queries.optimizer_queries import get_optimization_reports, get_optimization_report_by_id
+from app.optimizer.card_loader import CardKnowledgeBase
+
+@router.get("/reports/{user_id}")
+async def list_user_reports(user_id: str):
+    """Retorna o histórico resumido de otimizações de um usuário."""
+    reports = get_optimization_reports(user_id)
+    return {"reports": reports}
+
+@router.get("/reports/{report_id}/detail")
+async def get_report_detail(report_id: str):
+    """Retorna os detalhes completos de um relatório gerado."""
+    report = get_optimization_report_by_id(report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Relatório não encontrado")
+    return report
+
+@router.get("/cards")
+async def list_available_cards():
+    """Lista todos os cartões disponíveis na base de conhecimento do Nexa."""
+    loader = CardKnowledgeBase()
+    try:
+        cards = loader.load()
+        return {"total": len(cards), "cards": [c.model_dump() for c in cards]}
+    except Exception as e:
+        logger.error(f"[API] Erro ao carregar cartões: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro ao carregar base de cartões.")
+
+@router.get("/health")
+async def optimizer_health_check():
+    """Health check do módulo Optimizer."""
+    return {"status": "ok", "module": "optimizer"}

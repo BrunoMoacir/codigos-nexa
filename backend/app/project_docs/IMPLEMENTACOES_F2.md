@@ -286,10 +286,10 @@ class OptimizerService:
 | Método | Rota | O que faz |
 |---|---|---|
 | `POST` | `/api/v1/optimizer/analyze/{user_id}` | Análise completa — busca dados da F1. chama OptimizerService, retorna OptimizationReport |
-| `GET` | `/api/v1/optimizer/reports/{user_id}` | Lista relatórios salvos do usuário (DuckDB) |
-| `GET` | `/api/v1/optimizer/reports/{report_id}/detail` | Relatório completo por ID |
-| `GET` | `/api/v1/optimizer/cards` | Lista todos os cartões da base de conhecimento |
-| `GET` | `/api/v1/optimizer/health` | Health check do módulo |
+| `GET` | `/api/v1/optimizer/reports/{user_id}` | ✅ Lista relatórios salvos do usuário (DuckDB) |
+| `GET` | `/api/v1/optimizer/reports/{report_id}/detail` | ✅ Relatório completo por ID |
+| `GET` | `/api/v1/optimizer/cards` | ✅ Lista todos os cartões da base de conhecimento |
+| `GET` | `/api/v1/optimizer/health` | ✅ Health check do módulo |
 
 **Responsabilidade da rota `POST /analyze/{user_id}`:**
 1. Buscar `safe_to_spend` e `shadow_invoices` da F1 via NexaRunner/DuckDB
