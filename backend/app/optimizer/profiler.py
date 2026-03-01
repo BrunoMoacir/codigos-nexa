@@ -7,8 +7,11 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from typing import Optional
 
 import polars as pl
+
+from app.etl.income_profiler import IncomeProfile, IncomeProfiler
 
 # TODO: migrar para structlog (dependência já declarada em pyproject.toml)
 # quando o projeto configurar o handler global, substituir por:
@@ -41,9 +44,10 @@ class UserProfile:
     spend_by_source: dict = field(default_factory=dict)
     international_spend_monthly: float = 0.0
     travel_spend_monthly: float = 0.0
-    estimated_monthly_income: float = 0.0
+    estimated_monthly_income: float = 0.0   # legado: soma bruta de créditos
     data_coverage_months: int = 0
     spending_stability: float = 0.0
+    income_profile: Optional[IncomeProfile] = None  # renda filtrada e classificada (M1.x)
 
 
 class ConsumptionProfiler:
@@ -101,6 +105,9 @@ class ConsumptionProfiler:
         estimated_monthly_income = self._monthly_income(df)
         committed_percentage = self._committed_percentage(shadow_invoices_df, monthly_avg_spend)
 
+        # Renda filtrada e classificada (IncomeProfiler opera sobre o df já recortado)
+        income_profile = IncomeProfiler().build(df)
+
         profile = UserProfile(
             monthly_avg_spend=round(monthly_avg_spend, 2),
             committed_percentage=round(committed_percentage, 4),
@@ -111,11 +118,15 @@ class ConsumptionProfiler:
             estimated_monthly_income=round(estimated_monthly_income, 2),
             data_coverage_months=data_coverage_months,
             spending_stability=round(spending_stability, 4),
+            income_profile=income_profile,
         )
 
         logger.info(
             f"ConsumptionProfiler: avg_spend={profile.monthly_avg_spend:.2f}, "
-            f"income={profile.estimated_monthly_income:.2f}, "
+            f"income_net={income_profile.monthly_net_income:.2f} "
+            f"(raw={profile.estimated_monthly_income:.2f}, "
+            f"pattern={income_profile.income_pattern}, "
+            f"conf={income_profile.confidence:.2f}), "
             f"coverage={profile.data_coverage_months}m, "
             f"stability={profile.spending_stability:.2f}"
         )

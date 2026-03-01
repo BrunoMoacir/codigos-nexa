@@ -89,9 +89,30 @@ class OptimizerService:
             reference_date=reference_date,
         )
 
-        annual_income = profile.estimated_monthly_income * 12
+        # Hierarquia de renda (melhor estimativa disponível → menos confiável):
+        #   1. monthly_income declarado pelo usuário (fonte mais confiável)
+        #   2. income_profile.monthly_net_income com confidence ≥ 0.5 (IncomeProfiler)
+        #   3. estimated_monthly_income (soma bruta de créditos — pode estar inflado)
         if request.monthly_income:
             annual_income = request.monthly_income * 12
+        elif (
+            profile.income_profile is not None
+            and profile.income_profile.confidence >= 0.5
+            and profile.income_profile.monthly_net_income > 0
+        ):
+            annual_income = profile.income_profile.monthly_net_income * 12
+            logger.info(
+                f"Usando income_profile (net={profile.income_profile.monthly_net_income:.0f}/mês, "
+                f"pattern={profile.income_profile.income_pattern}, "
+                f"conf={profile.income_profile.confidence:.2f}) para elegibilidade"
+            )
+        else:
+            annual_income = profile.estimated_monthly_income * 12
+            if annual_income > 0:
+                logger.info(
+                    f"Usando estimated_monthly_income={profile.estimated_monthly_income:.0f}/mês "
+                    f"(IncomeProfiler conf={getattr(profile.income_profile, 'confidence', 0):.2f} < 0.5)"
+                )
 
         # 3. Filtrar cartões elegíveis
         eligible_cards = self.knowledge_base.filter_eligible(
@@ -151,6 +172,13 @@ class OptimizerService:
         if not request.safe_to_spend:
             warnings.append(
                 "O Safe to Spend não foi informado; o risco de anuidade não pôde ser avaliado com precisão."
+            )
+
+        income_conf = getattr(profile_data.income_profile, "confidence", 0.0)
+        if not request.monthly_income and income_conf < 0.5:
+            warnings.append(
+                "Não foi possível estimar sua renda com confiança a partir do histórico. "
+                "Informar a renda mensal melhora a precisão das recomendações de cartão."
             )
 
         if not ranked_results:

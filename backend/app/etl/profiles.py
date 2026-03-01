@@ -15,10 +15,16 @@ USAGE:
     print(profile.profile_type)  # "EQUILIBRADO"
 """
 
+from __future__ import annotations
+
 import logging
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Literal, Optional
+
 import polars as pl
-from dataclasses import dataclass
-from typing import Literal
+
+if TYPE_CHECKING:
+    from app.etl.income_profiler import IncomeProfile
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +76,14 @@ class UserProfile:
     savings_rate: float
     financial_health_score: int
     trend: TrendType
-    
+    # Renda mensal líquida usada para os ratios (filtrada via IncomeProfiler).
+    # None quando IncomeProfile não foi fornecido ou confidence < 0.5 —
+    # nesse caso savings_rate e health_score foram calculados com total_income bruto.
+    income_net_monthly: Optional[float] = field(default=None)
+
     def to_dict(self) -> dict:
         """Converte para dict (útil para JSON)."""
-        return {
+        d = {
             "profile_type": self.profile_type,
             "total_income": self.total_income,
             "total_expenses": self.total_expenses,
@@ -81,11 +91,14 @@ class UserProfile:
             "top_categories": self.top_categories,
             "savings_rate": self.savings_rate,
             "financial_health_score": self.financial_health_score,
-            "trend": self.trend
+            "trend": self.trend,
         }
-"""
-PARTE 2: Classe UserProfileAnalyzer
-"""
+        if self.income_net_monthly is not None:
+            d["income_net_monthly"] = self.income_net_monthly
+        return d
+
+
+# ── PARTE 2: Classe UserProfileAnalyzer ──────────────────────────────────────
 
 class UserProfileAnalyzer:
     """
@@ -104,20 +117,27 @@ class UserProfileAnalyzer:
         """Inicializa o analisador."""
         self.logger = logging.getLogger(__name__)
     
-    def analyze(self, df: pl.DataFrame) -> UserProfile:
+    def analyze(
+        self,
+        df: pl.DataFrame,
+        income_profile: Optional["IncomeProfile"] = None,
+    ) -> UserProfile:
         """
         Analisa DataFrame e retorna perfil completo.
-        
+
         Args:
-            df: DataFrame com transações
-                Colunas necessárias:
-                - amount (float)
-                - transaction_date (datetime)
-                - predicted_category (str) - opcional
-        
+            df: DataFrame com transações.
+                Colunas necessárias: amount (float), transaction_date (datetime).
+                Coluna opcional: predicted_category (str).
+            income_profile: IncomeProfile do IncomeProfiler (opcional).
+                Se fornecido e confidence ≥ 0.5, usa monthly_net_income como
+                referência de renda para savings_rate e health_score, eliminando
+                a inflação causada por transferências e estornos.
+                Quando None ou confidence < 0.5, usa a soma bruta de créditos.
+
         Returns:
-            UserProfile com todas as métricas calculadas
-        
+            UserProfile com todas as métricas calculadas.
+
         Example:
             >>> df = pl.DataFrame({
             ...     "amount": [-100, -50, 200, -30],
@@ -130,56 +150,62 @@ class UserProfileAnalyzer:
         if df.is_empty():
             self.logger.warning("DataFrame vazio. Retornando perfil padrão.")
             return self._get_empty_profile()
-        
+
         # Validação: Coluna amount obrigatória
         if "amount" not in df.columns:
             self.logger.error("Coluna 'amount' não encontrada no DataFrame")
             return self._get_empty_profile()
-        
+
         self.logger.info(f"Analisando perfil com {df.height} transações")
-        
+
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # CALCULAR MÉTRICAS
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
+
         # 1. Receitas e Despesas
         total_income = self._calculate_income(df)
         total_expenses = self._calculate_expenses(df)
-        
-        self.logger.debug(f"Receita: R$ {total_income:.2f}")
+
+        self.logger.debug(f"Receita bruta: R$ {total_income:.2f}")
         self.logger.debug(f"Despesa: R$ {total_expenses:.2f}")
-        
-        # 2. Média mensal
-        monthly_avg = self._calculate_monthly_avg(df, total_expenses)
-        
-        # 3. Top categorias
-        top_categories = self._get_top_categories(df)
-        
-        # 4. Taxa de poupança
-        savings_rate = self._calculate_savings_rate(total_income, total_expenses)
-        
-        # 5. Tendência
-        trend = self._calculate_trend(df)
-        
-        # 6. Health score
-        health_score = self._calculate_health_score(
-            savings_rate, 
-            total_expenses, 
-            total_income
+
+        # 2. Renda de referência para ratios (filtrada vs bruta)
+        income_for_ratios, income_net_monthly = self._resolve_income_reference(
+            df, total_income, income_profile
         )
-        
-        # 7. Tipo de perfil
-        profile_type = self._determine_profile_type(savings_rate, total_expenses)
-        
+
+        # 3. Média mensal
+        monthly_avg = self._calculate_monthly_avg(df, total_expenses)
+
+        # 4. Top categorias
+        top_categories = self._get_top_categories(df)
+
+        # 5. Taxa de poupança (usando renda de referência)
+        savings_rate = self._calculate_savings_rate(income_for_ratios, total_expenses)
+
+        # 6. Tendência
+        trend = self._calculate_trend(df)
+
+        # 7. Health score (usando renda de referência)
+        health_score = self._calculate_health_score(
+            savings_rate,
+            total_expenses,
+            income_for_ratios,
+        )
+
+        # 8. Tipo de perfil
+        profile_type = self._determine_profile_type(savings_rate)
+
         self.logger.info(
             f"Perfil calculado: {profile_type} "
-            f"(poupança: {savings_rate:.1f}%, score: {health_score})"
+            f"(poupança: {savings_rate:.1f}%, score: {health_score}, "
+            f"renda_ref={'filtrada' if income_net_monthly else 'bruta'})"
         )
-        
+
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # CRIAR PERFIL
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
+
         return UserProfile(
             profile_type=profile_type,
             total_income=total_income,
@@ -188,16 +214,70 @@ class UserProfileAnalyzer:
             top_categories=top_categories,
             savings_rate=savings_rate,
             financial_health_score=health_score,
-            trend=trend
+            trend=trend,
+            income_net_monthly=income_net_monthly,
         )
-    """
-    PARTE 3: Métodos de Cálculo (privados)
-    """
+
+    # ── PARTE 3: Métodos de Cálculo (privados) ───────────────────────────────
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # RENDA DE REFERÊNCIA
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _resolve_income_reference(
+        self,
+        df: pl.DataFrame,
+        total_income_raw: float,
+        income_profile: Optional["IncomeProfile"],
+    ) -> tuple[float, Optional[float]]:
+        """
+        Retorna a renda de referência para ratios e savings_rate.
+
+        Hierarquia:
+            1. income_profile.monthly_net_income × n_meses (se confidence ≥ 0.5)
+            2. total_income_raw (soma bruta — fallback)
+
+        Returns:
+            (income_for_ratios, income_net_monthly)
+            income_net_monthly: valor mensal filtrado se usado, None se fallback bruto.
+        """
+        _CONFIDENCE_THRESHOLD = 0.5
+
+        if (
+            income_profile is not None
+            and income_profile.confidence >= _CONFIDENCE_THRESHOLD
+            and income_profile.monthly_net_income > 0
+        ):
+            n_months = self._count_months(df)
+            period_net = income_profile.monthly_net_income * max(n_months, 1)
+            self.logger.debug(
+                f"Usando renda filtrada: R$ {income_profile.monthly_net_income:.0f}/mês "
+                f"× {n_months}m = R$ {period_net:.0f} "
+                f"(conf={income_profile.confidence:.2f}, padrão={income_profile.income_pattern})"
+            )
+            return period_net, income_profile.monthly_net_income
+
+        return total_income_raw, None
+
+    def _count_months(self, df: pl.DataFrame) -> int:
+        """Conta meses distintos no DataFrame (usando transaction_date ou date)."""
+        col = next(
+            (c for c in ("transaction_date", "date") if c in df.columns), None
+        )
+        if col is None:
+            return 1
+        return (
+            df.select(
+                (pl.col(col).dt.year() * 100 + pl.col(col).dt.month()).alias("ym")
+            )
+            .unique()
+            .height
+        ) or 1
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # CÁLCULO 1: RECEITA
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
+
     def _calculate_income(self, df: pl.DataFrame) -> float:
         """
         Calcula receita total (amount > 0).
@@ -313,9 +393,8 @@ class UserProfileAnalyzer:
         
         savings = income - expenses
         return (savings / income) * 100
-    """
-    PARTE 4: Cálculos Avançados
-    """
+
+    # ── PARTE 4: Cálculos Avançados ──────────────────────────────────────────
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # CÁLCULO 6: TENDÊNCIA
@@ -324,48 +403,55 @@ class UserProfileAnalyzer:
     def _calculate_trend(self, df: pl.DataFrame) -> TrendType:
         """
         Calcula tendência de gastos (CRESCENTE/ESTÁVEL/DECRESCENTE).
-        
-        Compara média dos últimos 30 registros vs 30 registros anteriores.
-        
+
+        Compara o total de despesas do mês mais recente contra a média dos
+        meses anteriores. Requer ao menos 2 meses distintos de dados.
+
         Args:
-            df: DataFrame com colunas 'transaction_date' e 'amount'
-        
+            df: DataFrame com colunas 'transaction_date' e 'amount'.
+
         Returns:
-            CRESCENTE: Gastos aumentando (>10%)
-            DECRESCENTE: Gastos diminuindo (<-10%)
-            ESTÁVEL: Variação entre -10% e +10%
+            CRESCENTE: Mês atual gasta >10% acima da média histórica.
+            DECRESCENTE: Mês atual gasta >10% abaixo da média histórica.
+            ESTÁVEL: Variação dentro de ±10%.
         """
-        # Validação
-        if "transaction_date" not in df.columns or "amount" not in df.columns:
+        col = next(
+            (c for c in ("transaction_date", "date") if c in df.columns), None
+        )
+        if col is None or "amount" not in df.columns:
             return "ESTÁVEL"
-        
-        if df.height < 10:
-            return "ESTÁVEL"  # Poucos dados
-        
-        # Ordenar por data (mais recente primeiro)
-        df_sorted = df.sort("transaction_date", descending=True)
-        
-        # Últimos 30 registros (período recente)
-        recent = df_sorted.head(30).filter(pl.col("amount") < 0)
-        
-        # 30 registros anteriores (período antigo)
-        older = df_sorted.slice(30, 30).filter(pl.col("amount") < 0)
-        
-        # Validação: precisa ter dados nos dois períodos
-        if recent.height == 0 or older.height == 0:
+
+        expenses = df.filter(pl.col("amount") < 0)
+        if expenses.is_empty():
             return "ESTÁVEL"
-        
-        # Calcular médias
-        recent_avg = float(abs(recent["amount"].mean() or 0))
-        older_avg = float(abs(older["amount"].mean() or 0))
-        
-        # Comparar (threshold: 10%)
-        if recent_avg > older_avg * 1.1:
-            return "CRESCENTE"  # Gastos aumentaram >10%
-        elif recent_avg < older_avg * 0.9:
-            return "DECRESCENTE"  # Gastos diminuíram >10%
+
+        # Total de despesas por mês (ym = ano×100 + mês → ordenação natural)
+        monthly = (
+            expenses
+            .with_columns(
+                (pl.col(col).dt.year() * 100 + pl.col(col).dt.month()).alias("ym")
+            )
+            .group_by("ym")
+            .agg(pl.col("amount").sum().abs().alias("total"))
+            .sort("ym")
+        )
+
+        if monthly.height < 2:
+            return "ESTÁVEL"  # dados de apenas 1 mês — tendência indefinida
+
+        # Mês mais recente vs média dos meses anteriores
+        recent_total = float(monthly[-1]["total"][0])
+        older_avg    = float(monthly[:-1]["total"].mean() or 0)
+
+        if older_avg == 0:
+            return "ESTÁVEL"
+
+        if recent_total > older_avg * 1.1:
+            return "CRESCENTE"
+        elif recent_total < older_avg * 0.9:
+            return "DECRESCENTE"
         else:
-            return "ESTÁVEL"  # Variação < 10%
+            return "ESTÁVEL"
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # CÁLCULO 7: HEALTH SCORE
@@ -428,16 +514,16 @@ class UserProfileAnalyzer:
             expense_ratio = expenses / income
             
             if expense_ratio < 0.6:
-                score += 20  # Gasta <50% da renda
+                score += 20  # Gasta <60% da renda
             elif expense_ratio < 0.75:
-                score += 15  # Gasta 50-70%
+                score += 15  # Gasta 60-75%
             elif expense_ratio < 0.85:
-                score += 10  # Gasta 70-90%
+                score += 10  # Gasta 75-85%
             elif expense_ratio < 0.95:
-                score += 7   # Gasta 90-100%
+                score += 7   # Gasta 85-95%
             elif expense_ratio < 1.0:
                 score += 5   # Gasta 95-100%
-            # Se gasta >90%, não ganha pontos
+            # Se gasta ≥100% da renda, não ganha pontos
         
         # Garantir que score não ultrapassa 100
         return min(100,max(0,score))
@@ -446,23 +532,18 @@ class UserProfileAnalyzer:
     # CÁLCULO 8: TIPO DE PERFIL
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
-    def _determine_profile_type(
-        self,
-        savings_rate: float,
-        expenses: float
-    ) -> ProfileType:
+    def _determine_profile_type(self, savings_rate: float) -> ProfileType:
         """
         Determina tipo de perfil baseado na taxa de poupança.
-        
+
         Critérios:
             - CONSERVADOR: Poupança ≥ 20%
             - EQUILIBRADO: Poupança 10-20%
             - GASTADOR: Poupança < 10%
-        
+
         Args:
-            savings_rate: Taxa de poupança (%)
-            expenses: Despesa total (não usado atualmente)
-        
+            savings_rate: Taxa de poupança (%).
+
         Returns:
             CONSERVADOR | EQUILIBRADO | GASTADOR
         """
@@ -491,6 +572,6 @@ class UserProfileAnalyzer:
             monthly_avg_expenses=0.0,
             top_categories=[],
             savings_rate=0.0,
-            financial_health_score=50,  # Neutro
+            financial_health_score=0,  # desconhecido — sem dados para calcular
             trend="ESTÁVEL"
         )

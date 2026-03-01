@@ -90,6 +90,22 @@ from .shadow_invoices import run_shadow_invoice_detection
 # PF/PJ Classifier (F4 - Divider PF/PJ)
 from .pf_pj_classifier import PFPJClassifier
 
+# Spending Anomaly Detection (M1.1)
+from .spending_anomaly_detector import (
+    SpendingAnomalyDetector,
+    Anomaly,
+    AnomalyType,
+    detect_spending_anomalies,
+)
+
+# Income Profiler (M1.x) — estimativa de renda real com exclusão de transferências
+from .income_profiler import (
+    IncomeProfiler,
+    IncomeProfile,
+    IncomePattern,
+    build_income_profile,
+)
+
 # TODO: Cashflow (próximo módulo)
 # from .cashflow import CashflowProjector, SafeToSpendCalculator
 
@@ -137,11 +153,29 @@ __all__ = [
     "run_shadow_invoice_detection",  # Detecta obrigações futuras (Subscriptions + Installments)
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # PF/PJ CLASSIFIER (F4 - Divider PF/PJ) ✅ NOVO
+    # PF/PJ CLASSIFIER (F4 - Divider PF/PJ)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
+
     "PFPJClassifier",  # Classifica transações PF vs PJ (ML + Rules Fallback)
-    
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # SPENDING ANOMALY DETECTION (M1.1)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    "SpendingAnomalyDetector",   # Detecta anomalias comportamentais por transação
+    "Anomaly",                   # Dataclass de resultado
+    "AnomalyType",               # Enum: UNUSUAL_AMOUNT | NEW_MERCHANT | FREQUENCY_SPIKE | DUPLICATE_SUSPECT
+    "detect_spending_anomalies", # Helper function (wrapper)
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # INCOME PROFILER (M1.x)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    "IncomeProfiler",            # Estima renda real (exclui transferências/estornos)
+    "IncomeProfile",             # Dataclass com monthly_net_income, pattern, confidence
+    "IncomePattern",             # Enum: CLT | PJ | MIXED | UNKNOWN
+    "build_income_profile",      # Helper function (wrapper)
+
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # TODO: CASHFLOW (próximo módulo)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

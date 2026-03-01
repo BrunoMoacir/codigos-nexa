@@ -73,6 +73,8 @@ async def analyze_cards(
 
 from app.db.queries.optimizer_queries import get_optimization_reports, get_optimization_report_by_id
 from app.optimizer.card_loader import CardKnowledgeBase
+from app.optimizer.opportunity_cost import OpportunityCostCalculator
+from app.optimizer.profiler import ConsumptionProfiler
 
 @router.get("/reports/{user_id}")
 async def list_user_reports(user_id: str):
@@ -98,6 +100,90 @@ async def list_available_cards():
     except Exception as e:
         logger.error(f"[API] Erro ao carregar cartões: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao carregar base de cartões.")
+
+@router.get("/opportunity-cost")
+async def get_opportunity_cost(
+    user_id: str,
+    current_card_id: str,
+    months: int = 3,
+):
+    """
+    Calcula quanto o usuário deixou de ganhar por usar o cartão atual
+    em vez dos melhores disponíveis na base.
+
+    **Parâmetros:**
+    - `user_id`: ID do usuário
+    - `current_card_id`: ID do cartão que o usuário usa hoje
+    - `months`: Janela de análise em meses (padrão: 3)
+
+    **Retorna:**
+    ```json
+    {
+      "current_card_name": "Nubank Roxinho",
+      "period_months": 3,
+      "total_spent": 9600.0,
+      "current_card_reward_value": 48.0,
+      "best_opportunity": {
+        "card_name": "C6 Carbon",
+        "difference": 144.0,
+        "difference_annualized": 576.0,
+        "explanation": "Nos últimos 3 meses você gastou R$ 9.600..."
+      },
+      "opportunities": [...]
+    }
+    ```
+    """
+    try:
+        from app.db.queries import get_connection
+        import duckdb
+
+        con = get_connection()
+        try:
+            transactions_df = con.execute(
+                "SELECT * FROM transactions_clean WHERE user_id = ?",
+                [user_id]
+            ).pl()
+        except duckdb.CatalogException:
+            logger.warning("[API] Tabela transactions_clean não encontrada.")
+            raise HTTPException(status_code=404, detail="Dados do usuário não encontrados.")
+        finally:
+            con.close()
+
+        if transactions_df.is_empty():
+            raise HTTPException(status_code=404, detail=f"Sem histórico para user_id={user_id}")
+
+        # Montar perfil de consumo
+        profile = ConsumptionProfiler().build(transactions_df=transactions_df)
+
+        # Carregar todos os cartões
+        all_cards = CardKnowledgeBase().load()
+
+        # Localizar cartão atual
+        current_card = next((c for c in all_cards if c.card_id == current_card_id), None)
+        if current_card is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Cartão '{current_card_id}' não encontrado na base de conhecimento."
+            )
+
+        # Candidatos = todos exceto o atual
+        candidates = [c for c in all_cards if c.card_id != current_card_id]
+
+        report = OpportunityCostCalculator().calculate(
+            profile=profile,
+            current_card=current_card,
+            candidate_cards=candidates,
+            months=months,
+        )
+
+        return report.to_dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Erro ao calcular custo de oportunidade: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro interno ao calcular custo de oportunidade.")
+
 
 @router.get("/health")
 async def optimizer_health_check():

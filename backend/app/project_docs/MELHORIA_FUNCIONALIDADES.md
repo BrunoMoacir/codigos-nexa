@@ -3,19 +3,20 @@
 > Propostas concretas para tornar cada funcionalidade mais completa e valiosa.
 > Organizadas por impacto ao usuário × esforço de implementação.
 >
-> Gerado em: 2026-02-28
+> Gerado em: 2026-02-28 — Atualizado em: 2026-03-01
 
 ---
 
 ## RESUMO EXECUTIVO
 
-| Funcionalidade | Melhorias propostas | Impacto estimado |
-|---|---|---|
-| **F2 — Optimizer** | 6 melhorias (incluindo custo de oportunidade e estratégia multi-cartão) | 🔴 Alto |
-| **F1 — Core Engine** | 5 melhorias (anomalias, alertas de velocidade, orçamento inteligente) | 🔴 Alto |
-| **F3 — Architect** | 4 melhorias (inflação, IR, custo de oportunidade cruzado) | 🟡 Médio |
-| **F4 — PF/PJ** | 3 melhorias (relatório fiscal, categorização PJ granular) | 🟡 Médio |
-| **Cross-functional** | 4 melhorias (score temporal, metas, notificações) | 🔴 Alto |
+| Funcionalidade | Melhorias propostas | Impacto estimado | Status |
+|---|---|---|---|
+| **F2 — Optimizer** | 6 melhorias (incluindo custo de oportunidade e estratégia multi-cartão) | 🔴 Alto | M2.1 ✅ |
+| **F1 — Core Engine** | 5 melhorias (anomalias, alertas de velocidade, orçamento inteligente) | 🔴 Alto | M1.1 ✅ M1.2 ✅ M1.4→IncomeProfiler ✅ |
+| **F3 — Architect** | 4 melhorias (inflação, IR, custo de oportunidade cruzado) | 🟡 Médio | M3.2 ✅ |
+| **F4 — PF/PJ** | 3 melhorias (relatório fiscal, categorização PJ granular) | 🟡 Médio | — |
+| **Cross-functional** | 4 melhorias (score temporal, metas, notificações) | 🔴 Alto | MX.1 pendente |
+| **IncomeProfile — Integração** | 8 oportunidades de precisão derivadas do IncomeProfiler | 🔴 Alto | 2/8 ✅ |
 
 ---
 
@@ -899,38 +900,232 @@ Compara o perfil do usuário com benchmarks agregados e anônimos.
 
 ---
 
+## INTEGRAÇÃO DO INCOMEPROFILE — Oportunidades de Precisão
+
+> **Contexto:** O `IncomeProfiler` (`app/etl/income_profiler.py`) foi implementado como módulo foundational. Ele filtra transferências, estornos e rendimentos, classifica o padrão de renda (CLT | PJ | MIXED | UNKNOWN) e retorna `confidence` (0–1). Abaixo, todas as integrações pendentes — ordenadas por impacto.
+
+---
+
+### MI.1 — Calibrar Thresholds de Anomalia por % da Renda ✅ PENDENTE
+
+**Arquivo:** `app/etl/spending_anomaly_detector.py`
+
+**O problema:** Thresholds fixos descontextualizados da renda:
+- `_NEW_MERCHANT_MIN_VALUE = R$ 200` — para renda de R$ 2k/mês é 10% (relevante); para R$ 15k/mês é 1,3% (ruído)
+- `_UNUSUAL_SIGMA = 2.0` — detecta desvios da média histórica de gastos, mas quem tem renda PJ variável tem gastos naturalmente mais voláteis → alertas em excesso
+
+**O que mudar:**
+```python
+# Aceitar monthly_income opcional em SpendingAnomalyDetector.detect()
+# Derivar threshold dinâmico:
+new_merchant_threshold = monthly_income * 0.05 if monthly_income else _NEW_MERCHANT_MIN_VALUE
+# → R$ 200 fixo se renda desconhecida
+# → R$ 500 para renda de R$ 10k/mês (5%)
+# → R$ 100 para renda de R$ 2k/mês (5%)
+```
+
+**Prioridade: 🔴 ALTA** — Reduz ruído de alertas para usuários de alta renda e aumenta sensibilidade para baixa renda.
+
+---
+
+### MI.2 — UserProfileAnalyzer: Renda Filtrada no Health Score ✅ FEITO
+
+**Arquivo:** `app/etl/profiles.py`
+
+**O problema:** `_calculate_health_score()` usava `total_income` (soma bruta de créditos), inflando savings_rate em 2-3× para usuários multi-banco.
+
+**O que foi feito (2026-03-01):**
+- `analyze()` aceita `income_profile: IncomeProfile | None = None`
+- Novo método `_resolve_income_reference()`: usa `income_profile.monthly_net_income × n_meses` se `confidence ≥ 0.5`, senão fallback bruto
+- `UserProfile` recebe campo `income_net_monthly: float | None` — `None` sinaliza que foi usado fallback bruto
+- `_calculate_trend()` reescrita para comparar totais mensais (não por transação)
+- Comentários de threshold no health_score corrigidos
+- `_determine_profile_type()` teve parâmetro morto `expenses` removido
+
+---
+
+### MI.3 — compute_eligibility_score: Penalizar Renda PJ Instável ✅ PENDENTE
+
+**Arquivo:** `app/optimizer/card_loader.py`
+
+**O problema:** `compute_eligibility_score()` trata renda CLT e PJ identicamente:
+```python
+income_ratio = annual_income / card.min_income
+# >= 2.0 → 0.95 pts  — igual para CLT fixo e PJ variável com mesma média
+```
+Para cartões com anuidade alta, PJ com `income_stability < 0.5` tem risco real de não conseguir pagar anuidade em meses ruins.
+
+**O que mudar:**
+```python
+# Receber income_profile opcional e aplicar penalidade ao score
+if income_profile and income_profile.income_pattern == IncomePattern.PJ:
+    stability_penalty = max(0.0, (0.5 - income_profile.income_stability) * 0.3)
+    eligibility_score -= stability_penalty
+    reason = f"Renda PJ com estabilidade {income_profile.income_stability:.0%} — risco de inadimplência em anuidade alta"
+```
+
+**Prioridade: 🔴 ALTA** — Evita recomendar cartões premium para usuários com renda variável que não conseguirão sustentar a anuidade.
+
+---
+
+### MI.4 — CardSimulator: income_stability no Confidence Score ✅ PENDENTE
+
+**Arquivo:** `app/optimizer/simulator.py`
+
+**O problema:** `_compute_confidence()` usa `spending_stability` e `coverage_months`, mas ignora `income_profile.income_stability`. Usuário com gasto estável e renda PJ errática (stability 0.3) parece confiável quando não é.
+
+**O que mudar:**
+```python
+# Adicionar income_stability ao cálculo de confidence
+income_weight = 0.20  # novo fator
+income_factor = income_profile.income_stability if income_profile else 0.5
+confidence = (
+    spending_stability * 0.40 +
+    bank_trust         * 0.40 +
+    income_factor      * income_weight  # renda instável → confidence baixa
+)
+```
+
+**Prioridade: 🟡 MÉDIA** — Melhora a qualidade das simulações para autônomos e freelancers.
+
+---
+
+### MI.5 — BurnRateAnalyzer: Alertar por % da Renda Real ✅ PENDENTE
+
+**Arquivo:** `app/cashflow/burn_rate.py`
+
+**O problema:** Os thresholds de alerta comparam gasto contra média histórica, não contra renda:
+```python
+_ATTENTION_RATIO = 1.10  # gasto > 110% da média histórica
+_WARNING_RATIO   = 1.30
+_CRITICAL_RATIO  = 1.50
+```
+Se `monthly_income` estiver disponível, faz muito mais sentido alertar quando `total_spent > monthly_income * ratio`.
+
+**O que mudar:** Quando `monthly_income` disponível, calcular `income_ratio = total_spent / monthly_income` e usar para o `alert_level` ao lado (ou no lugar) do ratio histórico. Já existe `income_ratio` no `BurnRateReport` — basta usá-lo para derivar o `alert_level` quando disponível.
+
+**Prioridade: 🟡 MÉDIA** — Alerta mais preciso para quem tem renda irregular.
+
+---
+
+### MI.6 — Alertas Contextualizados com Renda Real ✅ PENDENTE
+
+**Arquivo:** `app/api/v1/routes/alerts.py`
+
+**O problema:** O alerta de `HIGH_COMMITMENT` diz "X% do caixa comprometido", sem referência de renda.
+
+**O que mudar:** Quando `income_profile.confidence ≥ 0.5`, contextualizar os alertas:
+- Hoje: *"80% do caixa comprometido com shadow invoices"*
+- Com renda: *"R$ 3.400 em shadow invoices representa 40% da sua renda mensal estimada (R$ 8.500)"*
+
+**Prioridade: 🟡 MÉDIA** — Transforma alertas genéricos em insights acionáveis.
+
+---
+
+### MI.7 — forecast.py: Expor income_profile na Resposta ✅ PENDENTE
+
+**Arquivo:** `app/api/v1/routes/forecast.py`
+
+**O problema:** O endpoint `/forecast/{user_id}` retorna `total_income` e `savings_rate` mas não expõe `income_profile.confidence`. O frontend não sabe distinguir estimativa confiável de estimativa grosseira.
+
+**O que adicionar:**
+```json
+"income_estimate": {
+  "monthly_net_income": 8500.0,
+  "income_pattern": "CLT",
+  "confidence": 0.85,
+  "confidence_label": "Alta",
+  "note": null
+}
+// Quando confidence < 0.5:
+"income_estimate": {
+  "monthly_net_income": 4200.0,
+  "confidence": 0.28,
+  "confidence_label": "Baixa",
+  "note": "Informe sua renda mensal para melhorar a precisão das recomendações"
+}
+```
+
+**Prioridade: 🟢 BAIXA** — Melhora transparência para o frontend e usuário final.
+
+---
+
+### MI.8 — Agent Tool: LLM recebe confidence da Renda ✅ PENDENTE
+
+**Arquivo:** `app/agent/tools/get_card_optimization.py`
+
+**O problema:** A tool retorna a otimização mas não sinaliza ao LLM quando a renda usada tinha `confidence < 0.5`. O agente apresenta recomendações como se fossem certeiras quando a base de renda é frágil.
+
+**O que mudar:** Incluir no retorno da tool:
+```python
+"income_confidence": report.income_confidence,  # float ou None
+"income_warning": (
+    "Renda estimada com baixa confiança. Confirme sua renda mensal para recomendações mais precisas."
+    if income_confidence and income_confidence < 0.5 else None
+)
+```
+O LLM então pode perguntar ao usuário antes de apresentar as recomendações.
+
+**Prioridade: 🟢 BAIXA** — Melhora a qualidade da conversa do agente.
+
+---
+
+### Tabela de Status — Integrações do IncomeProfile
+
+| # | Arquivo | O que integrar | Status |
+|---|---|---|---|
+| MI.1 | `spending_anomaly_detector.py` | Thresholds dinâmicos por % da renda | ⏳ Pendente |
+| MI.2 | `etl/profiles.py` | Renda filtrada no health_score e savings_rate | ✅ **Feito** (2026-03-01) |
+| MI.3 | `optimizer/card_loader.py` | Penalizar score de PJ com income_stability < 0.5 | ⏳ Pendente |
+| MI.4 | `optimizer/simulator.py` | income_stability no confidence do cartão simulado | ⏳ Pendente |
+| MI.5 | `cashflow/burn_rate.py` | alert_level por % da renda quando disponível | ⏳ Pendente |
+| MI.6 | `api/v1/routes/alerts.py` | Contextualizar alertas com renda absoluta e % | ⏳ Pendente |
+| MI.7 | `api/v1/routes/forecast.py` | Expor income_profile (pattern + confidence) na resposta | ⏳ Pendente |
+| MI.8 | `agent/tools/get_card_optimization.py` | Sinalizar confidence ao LLM | ⏳ Pendente |
+
+---
+
 ## PRIORIZAÇÃO FINAL — Roadmap Sugerido
 
-### Sprint 1 (Impacto imediato — F2 + F1)
+### Sprint 1 (Impacto imediato — F2 + F1) — EM ANDAMENTO
 
-| # | Melhoria | Funcionalidade | Esforço |
-|---|---|---|---|
-| 1 | M2.1 — Custo de Oportunidade | F2 | 2-3 dias |
-| 2 | M1.1 — Detecção de Anomalias | F1 | 2-3 dias |
-| 3 | M3.2 — IR nos Investimentos | F3 | 1 dia |
-| 4 | M1.2 — Burn Rate | F1 | 1-2 dias |
-| 5 | MX.1 — Score com Evolução | Cross | 1-2 dias |
+| # | Melhoria | Funcionalidade | Esforço | Status |
+|---|---|---|---|---|
+| 1 | M2.1 — Custo de Oportunidade | F2 | 2-3 dias | ✅ Feito |
+| 2 | M1.1 — Detecção de Anomalias | F1 | 2-3 dias | ✅ Feito |
+| 3 | M3.2 — IR nos Investimentos | F3 | 1 dia | ✅ Feito |
+| 4 | M1.2 — Burn Rate | F1 | 1-2 dias | ✅ Feito |
+| 4b | M1.4→ IncomeProfiler (renda real filtrada) | F1/Cross | 2 dias | ✅ Feito |
+| 4c | MI.2 — Health score com renda filtrada | F1/IncomeProfile | 0.5 dia | ✅ Feito |
+| 5 | MX.1 — Score com Evolução | Cross | 1-2 dias | ⏳ Pendente |
 
-### Sprint 2 (Diferenciação — F2 avançado)
+### Sprint 2 (Diferenciação — F2 avançado + IncomeProfile cascade)
 
-| # | Melhoria | Funcionalidade | Esforço |
-|---|---|---|---|
-| 6 | M2.2 — Multi-Cartão | F2 | 3-4 dias |
-| 7 | M2.5 — Cashback por Categoria | F2 | 1-2 dias |
-| 8 | M2.4 — ROI do Cartão Atual | F2 | 1-2 dias |
-| 9 | M1.5 — Assinaturas Esquecidas | F1 | 1 dia |
-| 10 | MX.2 — Metas Financeiras | Cross | 2-3 dias |
+| # | Melhoria | Funcionalidade | Esforço | Status |
+|---|---|---|---|---|
+| 6 | MI.1 — Thresholds de anomalia por % da renda | F1/IncomeProfile | 0.5 dia | ⏳ Pendente |
+| 7 | MI.3 — Penalizar PJ instável em card_loader | F2/IncomeProfile | 0.5 dia | ⏳ Pendente |
+| 8 | MI.4 — income_stability no simulator confidence | F2/IncomeProfile | 0.5 dia | ⏳ Pendente |
+| 9 | MI.5 — BurnRate: alert_level por % da renda | F1/IncomeProfile | 0.5 dia | ⏳ Pendente |
+| 10 | MI.6 — Alertas contextualizados com renda | API/IncomeProfile | 1 dia | ⏳ Pendente |
+| 11 | M2.2 — Multi-Cartão | F2 | 3-4 dias | ⏳ Pendente |
+| 12 | M2.5 — Cashback por Categoria | F2 | 1-2 dias | ⏳ Pendente |
+| 13 | M2.4 — ROI do Cartão Atual | F2 | 1-2 dias | ⏳ Pendente |
+| 14 | M1.5 — Assinaturas Esquecidas | F1 | 1 dia | ⏳ Pendente |
+| 15 | MX.2 — Metas Financeiras | Cross | 2-3 dias | ⏳ Pendente |
 
 ### Sprint 3 (Completude)
 
-| # | Melhoria | Funcionalidade | Esforço |
-|---|---|---|---|
-| 11 | M2.3 — Valoração de Milhas | F2 | 1-2 dias |
-| 12 | M3.1 — Inflação (IPCA) | F3 | 1 dia |
-| 13 | M3.4 — "E se eu esperar?" | F3 | 2-3 dias |
-| 14 | M1.3 — Orçamento Inteligente | F1 | 2 dias |
-| 15 | M1.4 — Estabilidade de Renda | F1 | 1-2 dias |
-| 16 | MX.3 — Notificações Proativas | Cross | 2-3 dias |
+| # | Melhoria | Funcionalidade | Esforço | Status |
+|---|---|---|---|---|
+| 16 | MI.7 — forecast.py expõe income_profile | API/IncomeProfile | 0.5 dia | ⏳ Pendente |
+| 17 | MI.8 — Agent tool sinaliza confidence ao LLM | Agent/IncomeProfile | 0.5 dia | ⏳ Pendente |
+| 18 | MX.1 — Score com Evolução Temporal | Cross | 1-2 dias | ⏳ Pendente |
+| 19 | M2.3 — Valoração de Milhas | F2 | 1-2 dias | ⏳ Pendente |
+| 20 | M3.1 — Inflação (IPCA) | F3 | 1 dia | ⏳ Pendente |
+| 21 | M3.4 — "E se eu esperar?" | F3 | 2-3 dias | ⏳ Pendente |
+| 22 | M1.3 — Orçamento Inteligente | F1 | 2 dias | ⏳ Pendente |
+| 23 | MX.3 — Notificações Proativas | Cross | 2-3 dias | ⏳ Pendente |
 
 ### V2 (Futuro)
 

@@ -29,6 +29,7 @@ USAGE AVANÇADO (Componentes individuais):
 
 from .projector import CashflowProjector, ProjectionSummary
 from .safe_to_spend import SafeToSpendCalculator, SafeToSpendResult
+from .burn_rate import BurnRateAnalyzer, BurnRateReport, CategoryBurnRate
 from .engine import CashflowEngine
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -40,6 +41,9 @@ __all__ = [
     "ProjectionSummary",
     "SafeToSpendCalculator",
     "SafeToSpendResult",
+    "BurnRateAnalyzer",
+    "BurnRateReport",
+    "CategoryBurnRate",
     "CashflowEngine",
 ]
 
