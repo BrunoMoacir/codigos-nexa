@@ -69,12 +69,11 @@ def get_card_optimization(
         if report.best_card:
             c = report.best_card
             output.append(f"Card Vencedor: {c.card_name} (ID: {c.card_id})")
-            output.append(f"Motivo Elegibilidade: Renda OK, Risco Controlado")
-            output.append(f"Milhas Anuais Projetadas: {c.yearly_miles_expected:,.0f}")
-            output.append(f"Cashback Anual Projetado: R$ {c.yearly_cashback_expected:.2f}")
-            output.append(f"Ganho Bruto Anual (Moeda): R$ {c.gross_gain_expected:.2f}")
-            output.append(f"Anuidade Total: R$ {c.yearly_fee_final:.2f}")
+            output.append(f"Valor de Benefícios Projetado: R$ {c.points_value_expected:.2f}")
+            output.append(f"Anuidade Efetiva: R$ {c.annuity_effective:.2f}")
             output.append(f"> Lucro Líquido Anual: R$ {c.net_gain_expected:.2f} <")
+            if c.eligibility_reasons:
+                output.append(f"Elegibilidade: {'; '.join(c.eligibility_reasons[:2])}")
         
         if report.warnings:
             output.append("-" * 30)

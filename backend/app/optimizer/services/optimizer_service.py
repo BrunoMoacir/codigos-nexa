@@ -121,7 +121,7 @@ class OptimizerService:
             )
 
             result.eligibility_score = eligibility_score
-            result.warnings.extend(eligibility_reasons)
+            result.eligibility_reasons = eligibility_reasons
             simulated_results.append(result)
 
         # 5. Ranqueamento e Penalidades
