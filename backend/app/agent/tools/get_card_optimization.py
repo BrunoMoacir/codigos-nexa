@@ -53,18 +53,42 @@ def get_card_optimization(
         
         service = OptimizerService()
         report = service.analyze(
-            request=request, 
-            transactions_df=transactions_df, 
+            request=request,
+            transactions_df=transactions_df,
             shadow_invoices_df=None
         )
-        
+
+        # MI.8: contexto de renda para o LLM — sinaliza fonte e confiança
+        from app.etl.income_profiler import IncomeProfiler
+        income_context_lines = []
+        if monthly_income:
+            income_context_lines.append(
+                f"Renda: R$ {monthly_income:,.0f}/mês (declarada pelo usuário — alta confiança)"
+            )
+        else:
+            # Tenta estimar via IncomeProfiler no df vazio → UNKNOWN, mas traz o padrão de aviso
+            income_est = IncomeProfiler().build(transactions_df)
+            if income_est.confidence >= 0.5:
+                income_context_lines.append(
+                    f"Renda estimada: R$ {income_est.monthly_net_income:,.0f}/mês "
+                    f"(padrão {income_est.income_pattern.value}, "
+                    f"confiança {income_est.confidence:.0%})"
+                )
+            else:
+                income_context_lines.append(
+                    "Renda: não declarada e não foi possível estimar com confiança "
+                    "— recomendação pode ser menos precisa. "
+                    "Informe monthly_income para melhorar a análise."
+                )
+
         # Formata o output para o LLM ler e gerar resposta amigável
         output = [
             f"Relatório de Otimização (ID: {report.report_id})",
             f"Recomendação Principal: {report.recommendation_type.value}",
             f"Estratégia: {report.strategy_text}",
-            "-" * 30
         ]
+        output.extend(income_context_lines)
+        output.append("-" * 30)
         
         if report.best_card:
             c = report.best_card

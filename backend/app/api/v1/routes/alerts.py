@@ -33,10 +33,13 @@ Expõe GET /alerts/{user_id} que retorna alertas ativos:
 
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import List
+from typing import TYPE_CHECKING, List, Optional
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from app.etl.income_profiler import IncomeProfile
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CONFIGURAÇÃO
@@ -163,28 +166,54 @@ def generate_negative_balance_alert(negative_day: int | None) -> List[AlertItem]
     return []
 
 
-def generate_high_commitment_alert(safe_to_spend: float, current_balance: float) -> List[AlertItem]:
+def generate_high_commitment_alert(
+    safe_to_spend: float,
+    current_balance: float,
+    income_profile: Optional["IncomeProfile"] = None,
+) -> List[AlertItem]:
     """
     Alerta se > 80% do caixa está comprometido com obrigações futuras.
+
+    Quando income_profile disponível (confidence ≥ 0.5), enriquece a mensagem
+    com o valor absoluto comprometido como % da renda mensal estimada (MI.6).
     """
-    
+
     if current_balance <= 0:
         return []
-    
+
     commitment_rate = 1 - (safe_to_spend / current_balance)
-    
+
     if commitment_rate > 0.8:
         percentage = int(commitment_rate * 100)
+        message = (
+            f"{percentage}% de suas obrigações futuras já estão comprometidas. "
+            f"Cuidado com novos gastos."
+        )
+
+        # MI.6: contextualiza com renda real quando disponível
+        if (
+            income_profile is not None
+            and income_profile.confidence >= 0.5
+            and income_profile.monthly_net_income > 0
+        ):
+            committed_amount = current_balance - safe_to_spend
+            income_pct = committed_amount / income_profile.monthly_net_income * 100
+            message += (
+                f" Isso equivale a aproximadamente {income_pct:.0f}% "
+                f"da sua renda mensal estimada "
+                f"(R$ {income_profile.monthly_net_income:,.0f}/mês)."
+            )
+
         return [AlertItem(
             id="high_commitment",
             type="HIGH_COMMITMENT",
             level="WARNING",
             title=f"⚠️ {percentage}% do caixa comprometido",
-            message=f"{percentage}% de suas obrigações futuras já estão comprometidas. Cuidado com novos gastos.",
+            message=message,
             due_date=datetime.now(timezone.utc),
             action_url=None
         )]
-    
+
     return []
 
 
@@ -254,29 +283,74 @@ async def get_alerts(user_id: str) -> AlertsResponse:
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
         from app.runner import NexaRunner
+        from app.etl.income_profiler import IncomeProfiler
+        from app.etl.spending_anomaly_detector import SpendingAnomalyDetector
+        import polars as pl
+        from datetime import date as date_type
+
         runner = NexaRunner(mode="dev")
         runner_result = runner.run(horizon_days=30)
-        
+
+        # MI.6: Estimar renda a partir das transações para contextualizar alertas
+        income_profile = None
+        transactions_data = runner_result.get("transactions", {})
+        transactions_df = transactions_data.get("pf_pj_classified_df")
+        if transactions_df is not None and not transactions_df.is_empty():
+            income_profile = IncomeProfiler().build(transactions_df)
+
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # STEP 2: COLETAR ALERTAS
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
+
         alerts: List[AlertItem] = []
-        
-        # ✅ ALERTA 1: Token expirity (placeholder - 30 dias no futuro)
+
+        # ✅ ALERTA 1: Token expiry (placeholder - 30 dias no futuro)
         alerts.extend(generate_token_expiry_alerts(30))
-        
+
         # ✅ ALERTA 2: Negative balance
-        cashflow_data = runner_result.get("cashflow", {})
-        negative_day = cashflow_data.get("negative_day")
+        projections = runner_result.get("projections", {})
+        cashflow_forecast = projections.get("cashflow_forecast")
+        negative_day = None
+        if cashflow_forecast is not None and not cashflow_forecast.is_empty():
+            import polars as pl
+            neg_days = cashflow_forecast.filter(pl.col("projected_balance") < 0)
+            if not neg_days.is_empty():
+                from datetime import date
+                first_neg = neg_days.sort("date")[0]["date"][0]
+                negative_day = (first_neg - date.today()).days
         alerts.extend(generate_negative_balance_alert(negative_day))
-        
-        # ✅ ALERTA 3: High commitment
-        safe_spend_data = runner_result.get("safe_to_spend", {})
-        safe_to_spend = safe_spend_data.get("safe_to_spend_total", 0)
-        current_balance = safe_spend_data.get("current_balance", 0)
-        alerts.extend(generate_high_commitment_alert(safe_to_spend, current_balance))
-        
+
+        # ✅ ALERTA 3: High commitment (com contexto de renda — MI.6)
+        safe_to_spend_obj = projections.get("safe_to_spend")
+        current_balance = projections.get("current_balance", 0)
+        safe_to_spend_val = getattr(safe_to_spend_obj, "safe_to_spend_total", 0) if safe_to_spend_obj else 0
+        alerts.extend(generate_high_commitment_alert(safe_to_spend_val, current_balance, income_profile))
+
+        # ✅ ALERTA 4: Spending anomalies (MI.1 — ativa SpendingAnomalyDetector)
+        if transactions_df is not None and not transactions_df.is_empty():
+            today = date_type.today()
+            cutoff_recent = today - timedelta(days=30)
+            recent_df = transactions_df.filter(
+                pl.col("transaction_date").cast(pl.Date) >= cutoff_recent
+            )
+            if not recent_df.is_empty():
+                anomalies = SpendingAnomalyDetector().detect(
+                    transactions_df=recent_df,
+                    history_df=transactions_df,  # histórico completo (90 dias)
+                    income_profile=income_profile,
+                )
+                _sev_map = {"ALERT": "CRITICAL", "WARNING": "WARNING", "INFO": "INFO"}
+                for i, anomaly in enumerate(anomalies[:5]):  # limita a 5 por requisição
+                    alerts.append(AlertItem(
+                        id=f"anomaly_{i}_{anomaly.anomaly_type.lower()}",
+                        type="SPENDING_ANOMALY",
+                        level=_sev_map.get(anomaly.severity, "INFO"),
+                        title=f"Anomalia: {anomaly.anomaly_type.replace('_', ' ').title()}",
+                        message=anomaly.description,
+                        due_date=datetime.now(timezone.utc),
+                        action_url=None,
+                    ))
+
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # STEP 3: CONSOLIDAR RESPOSTA
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

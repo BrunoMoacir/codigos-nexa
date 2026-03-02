@@ -8,11 +8,19 @@ Orquestra:
 - risco financeiro
 """
 
+from __future__ import annotations
+
 from datetime import date
+from typing import TYPE_CHECKING, Optional
 
 from app.cashflow.projector import CashflowProjector
 from app.cashflow.safe_to_spend import SafeToSpendCalculator
 from app.cashflow.burn_rate import BurnRateAnalyzer
+
+if TYPE_CHECKING:
+    from app.etl.income_profiler import IncomeProfile
+
+_INCOME_CONFIDENCE_THRESHOLD = 0.5
 
 
 class CashflowEngine:
@@ -42,6 +50,7 @@ class CashflowEngine:
         reference_date: date | None = None,
         include_daily_data: bool = True,
         monthly_income: float | None = None,
+        income_profile: Optional["IncomeProfile"] = None,
     ):
         """
         Executa análise completa de cashflow.
@@ -74,6 +83,11 @@ class CashflowEngine:
             >>> print(result["safe_to_spend"]["safe_to_spend_daily"])
             2007.35
         """
+
+        # MI.5: fallback — extrai monthly_income do income_profile quando não declarado
+        if monthly_income is None and income_profile is not None:
+            if income_profile.confidence >= _INCOME_CONFIDENCE_THRESHOLD:
+                monthly_income = income_profile.monthly_net_income
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # GUARD: DataFrame vazio — .tail(1)["balance"][0] lançaria IndexError

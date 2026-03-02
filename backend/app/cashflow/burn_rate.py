@@ -51,6 +51,15 @@ _ATTENTION_RATIO = 1.10
 _WARNING_RATIO   = 1.30
 _CRITICAL_RATIO  = 1.50
 
+# Thresholds de alerta baseados em projeção mensal como % da renda (MI.5)
+# Projeção = (gasto_até_hoje / dia_atual) × dias_no_mês / renda_mensal
+_INCOME_ATTENTION_RATIO = 0.75   # Projetado gastar 75% da renda → ATTENTION
+_INCOME_WARNING_RATIO   = 0.90   # Projetado gastar 90% da renda → WARNING
+_INCOME_CRITICAL_RATIO  = 1.00   # Projetado gastar ≥ 100% da renda → CRITICAL
+
+# Ordem de severidade para escalar entre alertas
+_ALERT_ORDER: dict[str, int] = {"OK": 0, "ATTENTION": 1, "WARNING": 2, "CRITICAL": 3}
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # DATACLASSES
@@ -159,6 +168,11 @@ class BurnRateReport:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ANALYZER
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _max_alert_level(a: AlertLevel, b: AlertLevel) -> AlertLevel:
+    """Retorna o nível de alerta mais severo entre dois (MI.5)."""
+    return a if _ALERT_ORDER.get(a, 0) >= _ALERT_ORDER.get(b, 0) else b
+
 
 class BurnRateAnalyzer:
     """
@@ -399,6 +413,17 @@ class BurnRateAnalyzer:
             else None
         )
 
+        # MI.5 — escalada de alerta por % da renda real
+        # Quando a renda mensal está disponível, calcula a projeção de gasto do
+        # mês inteiro como % da renda. Permite detectar situações em que o usuário
+        # gasta dentro do padrão histórico (burn_rate_ratio OK), mas está a caminho
+        # de comprometer a maior parte da renda do mês.
+        if monthly_income and monthly_income > 0 and day >= _MIN_ALERT_DAY:
+            projected_month_total = (total_spent / day * days_in_month) if day > 0 else total_spent
+            projected_income_ratio = projected_month_total / monthly_income
+            income_alert = self._classify_income_alert(projected_income_ratio)
+            alert_level = _max_alert_level(alert_level, income_alert)
+
         self.logger.info(
             f"Burn rate: {overall_burn_rate:.1%} gasto vs {expected_burn_rate:.1%} esperado "
             f"(ratio {burn_rate_ratio:.2f}) → {alert_level} | "
@@ -456,6 +481,27 @@ class BurnRateAnalyzer:
         else:
             return "OK"
 
+    @staticmethod
+    def _classify_income_alert(projected_income_ratio: float) -> AlertLevel:
+        """
+        Classifica alerta com base na projeção de gasto mensal vs renda (MI.5).
+
+        projected_income_ratio = (gasto_até_hoje / dia_atual × dias_no_mês) / renda_mensal
+
+        OK:        projetado < 75% da renda
+        ATTENTION: 75–90% da renda
+        WARNING:   90–100% da renda
+        CRITICAL:  ≥ 100% da renda — vai gastar mais do que ganha no mês
+        """
+        if projected_income_ratio >= _INCOME_CRITICAL_RATIO:
+            return "CRITICAL"
+        elif projected_income_ratio >= _INCOME_WARNING_RATIO:
+            return "WARNING"
+        elif projected_income_ratio >= _INCOME_ATTENTION_RATIO:
+            return "ATTENTION"
+        else:
+            return "OK"
+
     def _empty_report(self, current_date: date) -> BurnRateReport:
         """Retorna relatório neutro quando não há dados suficientes."""
         days_in_month = calendar.monthrange(current_date.year, current_date.month)[1]
@@ -480,17 +526,18 @@ class BurnRateAnalyzer:
 def analyze_burn_rate(
     transactions_df: pl.DataFrame,
     current_date: date | None = None,
+    monthly_income: float | None = None,
 ) -> BurnRateReport:
     """
     Helper para uso direto sem instanciar BurnRateAnalyzer.
 
     Example:
         >>> from app.cashflow.burn_rate import analyze_burn_rate
-        >>> report = analyze_burn_rate(df)
+        >>> report = analyze_burn_rate(df, monthly_income=5000.0)
         >>> report.alert_level
         'OK'
     """
-    return BurnRateAnalyzer().analyze(transactions_df, current_date)
+    return BurnRateAnalyzer().analyze(transactions_df, current_date, monthly_income)
 
 
 __all__ = [

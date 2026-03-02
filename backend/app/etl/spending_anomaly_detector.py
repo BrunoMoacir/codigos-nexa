@@ -34,11 +34,25 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, Optional
 
 import polars as pl
 
+if TYPE_CHECKING:
+    from app.etl.income_profiler import IncomeProfile
+
 logger = logging.getLogger(__name__)
+
+# Limiar de confiança para usar income_profile nos thresholds
+_INCOME_CONFIDENCE_THRESHOLD: float = 0.5
+
+# UNUSUAL_AMOUNT: % da renda mensal que torna um gasto "incomum" em termos absolutos
+# Ex: 15% de R$8.000/mês = R$1.200 — mesmo que dentro do padrão histórico, é significativo
+_INCOME_PCT_UNUSUAL: float = 0.15
+
+# NEW_MERCHANT: % da renda mensal como threshold mínimo para alertar merchant novo
+# Ex: 2% de R$8.000/mês = R$160 (vs fixo R$200)
+_INCOME_PCT_NEW_MERCHANT: float = 0.02
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -161,6 +175,7 @@ class SpendingAnomalyDetector:
         self,
         transactions_df: pl.DataFrame,
         history_df: pl.DataFrame,
+        income_profile: Optional["IncomeProfile"] = None,
     ) -> list[Anomaly]:
         """
         Executa todos os detectores e agrega as anomalias encontradas.
@@ -170,6 +185,11 @@ class SpendingAnomalyDetector:
             history_df: Histórico de referência para construir baseline.
                 Deve incluir o mesmo período de transactions_df para que
                 DUPLICATE_SUSPECT não produza duplicatas do próprio histórico.
+            income_profile: IncomeProfile do IncomeProfiler (opcional).
+                Quando fornecido e confidence ≥ 0.5, calibra thresholds pelo
+                nível de renda real do usuário:
+                - UNUSUAL_AMOUNT: enriquece descrição com % da renda mensal.
+                - NEW_MERCHANT: threshold mínimo = max(100, 2% da renda).
 
         Returns:
             Lista de Anomaly ordenada por severity (ALERT → WARNING → INFO).
@@ -183,9 +203,18 @@ class SpendingAnomalyDetector:
         if recent.is_empty():
             return []
 
+        # Renda mensal confiável para calibrar thresholds (None = usar defaults fixos)
+        income_monthly: float | None = None
+        if (
+            income_profile is not None
+            and income_profile.confidence >= _INCOME_CONFIDENCE_THRESHOLD
+            and income_profile.monthly_net_income > 0
+        ):
+            income_monthly = income_profile.monthly_net_income
+
         anomalies: list[Anomaly] = []
-        anomalies.extend(self._detect_unusual_amount(recent, history))
-        anomalies.extend(self._detect_new_merchant(recent, history))
+        anomalies.extend(self._detect_unusual_amount(recent, history, income_monthly))
+        anomalies.extend(self._detect_new_merchant(recent, history, income_monthly))
         anomalies.extend(self._detect_frequency_spike(recent, history))
         anomalies.extend(self._detect_duplicate_suspect(recent))
 
@@ -226,6 +255,7 @@ class SpendingAnomalyDetector:
         self,
         recent: pl.DataFrame,
         history: pl.DataFrame,
+        income_monthly: float | None = None,
     ) -> list[Anomaly]:
         """
         Sinaliza transações com valor > avg + 2σ na categoria.
@@ -233,6 +263,10 @@ class SpendingAnomalyDetector:
         Baseline é calculado somente em categorias com ≥ _MIN_HISTORY_COUNT
         transações históricas para evitar baselines instáveis (ex: "Viagem"
         com 1 transação por ano produziria σ=0 e alertaria em qualquer gasto).
+
+        Quando income_monthly disponível, a descrição inclui "X% da renda mensal"
+        e transações > _INCOME_PCT_UNUSUAL × renda são sinalizadas mesmo que
+        dentro do padrão histórico (gasto absoluto alto para o nível de renda).
         """
         if "category" not in recent.columns or "category" not in history.columns:
             return []
@@ -262,12 +296,25 @@ class SpendingAnomalyDetector:
             .filter(pl.col("amount") > pl.col("threshold"))
         )
 
+        # Threshold absoluto por renda: gasto > 15% da renda mensal é relevante
+        # mesmo que não seja estatisticamente anômalo no histórico da categoria.
+        income_threshold = (
+            income_monthly * _INCOME_PCT_UNUSUAL if income_monthly else None
+        )
+
         anomalies: list[Anomaly] = []
         for row in flagged.iter_rows(named=True):
             avg    = row["avg"]
             amount = row["amount"]
             factor = round(amount / avg, 2) if avg > 0 else 0.0
             cat    = row["category"]
+
+            # Contexto de renda: só inclui se amount for significativo vs renda
+            income_context = ""
+            if income_monthly and income_threshold and amount >= income_threshold:
+                income_pct = amount / income_monthly * 100
+                income_context = f" ({income_pct:.0f}% da renda mensal)"
+
             anomalies.append(Anomaly(
                 transaction_id=self._tx_id(row),
                 anomaly_type=AnomalyType.UNUSUAL_AMOUNT,
@@ -275,6 +322,7 @@ class SpendingAnomalyDetector:
                 description=(
                     f"Gasto de R$ {amount:,.2f} em {cat} — "
                     f"{factor:.1f}x acima da sua média (R$ {avg:,.2f})"
+                    f"{income_context}"
                 ),
                 baseline_value=round(avg, 2),
                 actual_value=round(amount, 2),
@@ -290,16 +338,30 @@ class SpendingAnomalyDetector:
         self,
         recent: pl.DataFrame,
         history: pl.DataFrame,
+        income_monthly: float | None = None,
     ) -> list[Anomaly]:
         """
         Sinaliza transações de valor alto em estabelecimentos nunca vistos.
 
         Proxy de merchant = description normalizada (lowercase + strip).
-        Transações abaixo de _NEW_MERCHANT_MIN_VALUE são ignoradas para
-        reduzir ruído de pequenas compras avulsas (ex: estacionamento R$ 10).
+        Transações abaixo do threshold são ignoradas para reduzir ruído de
+        pequenas compras avulsas (ex: estacionamento R$ 10).
+
+        Threshold dinâmico quando income_monthly disponível:
+            max(100.0, income_monthly × _INCOME_PCT_NEW_MERCHANT)
+        Isso calibra o limite ao nível de renda — para quem ganha R$3.000/mês,
+        R$60 já pode ser relevante; para R$15.000/mês, R$300 faz mais sentido.
+        Caso contrário, usa _NEW_MERCHANT_MIN_VALUE (R$200 fixo).
         """
         if "description" not in recent.columns or "description" not in history.columns:
             return []
+
+        # Threshold calibrado pela renda quando disponível
+        min_value = (
+            max(100.0, income_monthly * _INCOME_PCT_NEW_MERCHANT)
+            if income_monthly
+            else _NEW_MERCHANT_MIN_VALUE
+        )
 
         # Série de merchants conhecidos mantida como pl.Series para is_in() direto
         # (evita roundtrip para Python set e de volta para list)
@@ -313,7 +375,7 @@ class SpendingAnomalyDetector:
         # Filtrar recentes de alto valor com merchant novo (vectorizado)
         flagged = (
             recent
-            .filter(pl.col("amount") >= _NEW_MERCHANT_MIN_VALUE)
+            .filter(pl.col("amount") >= min_value)
             .with_columns(
                 pl.col("description").str.to_lowercase().str.strip_chars().alias("_desc_norm")
             )
@@ -481,17 +543,19 @@ def detect_spending_anomalies(
     transactions_df: pl.DataFrame,
     history_df: pl.DataFrame,
     lookback_months: int = 3,
+    income_profile: Optional["IncomeProfile"] = None,
 ) -> list[Anomaly]:
     """
     Wrapper de conveniência para SpendingAnomalyDetector.detect().
 
     Example:
-        >>> anomalies = detect_spending_anomalies(recent_df, history_df)
+        >>> anomalies = detect_spending_anomalies(recent_df, history_df, income_profile=ip)
         >>> alerts = [a for a in anomalies if a.severity == "ALERT"]
     """
     return SpendingAnomalyDetector(lookback_months=lookback_months).detect(
         transactions_df=transactions_df,
         history_df=history_df,
+        income_profile=income_profile,
     )
 
 

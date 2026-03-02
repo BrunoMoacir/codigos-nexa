@@ -138,6 +138,7 @@ class OptimizerService:
                     annual_income=annual_income,
                     spending_stability=profile.spending_stability,
                     issuers_in_transactions=set(),  # TODO: Extrair da lista de transações se possível
+                    income_profile=profile.income_profile,  # MI.3: penalizar PJ instável
                 )
             )
 

@@ -55,6 +55,8 @@ from app.etl import (
 
 from app.cashflow.projector import CashflowProjector
 from app.cashflow.safe_to_spend import SafeToSpendCalculator
+from app.cashflow.burn_rate import BurnRateAnalyzer
+from app.etl.income_profiler import IncomeProfiler
 
 
 class NexaRunner:
@@ -98,6 +100,7 @@ class NexaRunner:
         self.recurring_detector = RecurringDetector()
         self.cashflow_projector = CashflowProjector()
         self.safe_calc = SafeToSpendCalculator()
+        self.burn_rate_analyzer = BurnRateAnalyzer()
 
         logger.info("✅ NexaRunner inicializado com sucesso")
 
@@ -187,6 +190,23 @@ class NexaRunner:
             logger.info(f"   ✅ PF/PJ Classifier completo")
 
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 5.5️⃣ INCOME PROFILER: Estima renda real líquida (MI.5)
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+            logger.info("💵 [5.5/9] Executando IncomeProfiler...")
+            income_profile = IncomeProfiler().build(transactions_pf_pj)
+            monthly_income_net = (
+                income_profile.monthly_net_income
+                if income_profile.confidence >= 0.5
+                else None
+            )
+            logger.info(
+                f"   ✅ IncomeProfiler: renda=R$ {income_profile.monthly_net_income:,.0f}/mês, "
+                f"padrão={income_profile.income_pattern.value}, "
+                f"confiança={income_profile.confidence:.0%}"
+            )
+
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 5️⃣ RECURRING DETECTOR: Detecta padrões (assinaturas/parcelamentos)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -250,6 +270,25 @@ class NexaRunner:
             )
 
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 9.5️⃣ BURN RATE: Velocidade de gasto + escalada por renda (MI.5)
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+            logger.info("🔥 [9.5/9] Calculando Burn Rate...")
+            burn_rate_result = self.burn_rate_analyzer.analyze(
+                transactions_df=transactions_pf_pj,
+                monthly_income=monthly_income_net,  # MI.5: escalada por renda
+            )
+            logger.info(
+                f"   ✅ Burn Rate: alert={burn_rate_result.alert_level}, "
+                f"ratio={burn_rate_result.burn_rate_ratio:.1%}"
+                + (
+                    f", income_ratio={burn_rate_result.income_ratio:.1%}"
+                    if burn_rate_result.income_ratio is not None
+                    else ""
+                )
+            )
+
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # RESULTADO FINAL
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -274,6 +313,8 @@ class NexaRunner:
                 "analysis": {
                     "recurring_patterns": recurring_patterns,
                     "quality_metrics": metrics,
+                    "income_profile": income_profile,         # MI.5: renda líquida estimada
+                    "burn_rate": burn_rate_result,            # MI.5: velocidade de gasto
                 },
                 "projections": {
                     "shadow_events": shadow_events,

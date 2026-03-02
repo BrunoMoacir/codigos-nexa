@@ -219,7 +219,15 @@ def run_etl_pipeline(
     if "profile_analysis" not in skip_steps:
         logger.info("📊 Step 7: User Profile Analysis")
         try:
-            profile = UserProfileAnalyzer().analyze(df)
+            # MI.2: rodar IncomeProfiler primeiro para filtrar renda real (sem transferências)
+            from app.etl.income_profiler import IncomeProfiler
+            income_profile = IncomeProfiler().build(df)
+            logger.info(
+                f"   ℹ️  IncomeProfiler: renda=R$ {income_profile.monthly_net_income:,.0f}/mês, "
+                f"padrão={income_profile.income_pattern.value}, "
+                f"confiança={income_profile.confidence:.0%}"
+            )
+            profile = UserProfileAnalyzer().analyze(df, income_profile=income_profile)
             logger.info(f"   ✅ Step 7 concluído: perfil={profile.profile_type}, "
                         f"score={profile.health_score}")
         except Exception as e:

@@ -3,7 +3,7 @@
 > Propostas concretas para tornar cada funcionalidade mais completa e valiosa.
 > Organizadas por impacto ao usuário × esforço de implementação.
 >
-> Gerado em: 2026-02-28 — Atualizado em: 2026-03-01
+> Gerado em: 2026-02-28 — Atualizado em: 2026-03-02
 
 ---
 
@@ -16,7 +16,7 @@
 | **F3 — Architect** | 4 melhorias (inflação, IR, custo de oportunidade cruzado) | 🟡 Médio | M3.2 ✅ |
 | **F4 — PF/PJ** | 3 melhorias (relatório fiscal, categorização PJ granular) | 🟡 Médio | — |
 | **Cross-functional** | 4 melhorias (score temporal, metas, notificações) | 🔴 Alto | MX.1 pendente |
-| **IncomeProfile — Integração** | 8 oportunidades de precisão derivadas do IncomeProfiler | 🔴 Alto | 2/8 ✅ |
+| **IncomeProfile — Integração** | 8 oportunidades de precisão derivadas do IncomeProfiler | 🔴 Alto | 8/8 ✅ |
 
 ---
 
@@ -906,7 +906,7 @@ Compara o perfil do usuário com benchmarks agregados e anônimos.
 
 ---
 
-### MI.1 — Calibrar Thresholds de Anomalia por % da Renda ✅ PENDENTE
+### MI.1 — Calibrar Thresholds de Anomalia por % da Renda ✅ FEITO
 
 **Arquivo:** `app/etl/spending_anomaly_detector.py`
 
@@ -944,7 +944,7 @@ new_merchant_threshold = monthly_income * 0.05 if monthly_income else _NEW_MERCH
 
 ---
 
-### MI.3 — compute_eligibility_score: Penalizar Renda PJ Instável ✅ PENDENTE
+### MI.3 — compute_eligibility_score: Penalizar Renda PJ Instável ✅ FEITO
 
 **Arquivo:** `app/optimizer/card_loader.py`
 
@@ -968,7 +968,7 @@ if income_profile and income_profile.income_pattern == IncomePattern.PJ:
 
 ---
 
-### MI.4 — CardSimulator: income_stability no Confidence Score ✅ PENDENTE
+### MI.4 — CardSimulator: income_stability no Confidence Score ✅ FEITO
 
 **Arquivo:** `app/optimizer/simulator.py`
 
@@ -990,7 +990,7 @@ confidence = (
 
 ---
 
-### MI.5 — BurnRateAnalyzer: Alertar por % da Renda Real ✅ PENDENTE
+### MI.5 — BurnRateAnalyzer: Alertar por % da Renda Real ✅ FEITO
 
 **Arquivo:** `app/cashflow/burn_rate.py`
 
@@ -1008,7 +1008,7 @@ Se `monthly_income` estiver disponível, faz muito mais sentido alertar quando `
 
 ---
 
-### MI.6 — Alertas Contextualizados com Renda Real ✅ PENDENTE
+### MI.6 — Alertas Contextualizados com Renda Real ✅ FEITO
 
 **Arquivo:** `app/api/v1/routes/alerts.py`
 
@@ -1022,7 +1022,7 @@ Se `monthly_income` estiver disponível, faz muito mais sentido alertar quando `
 
 ---
 
-### MI.7 — forecast.py: Expor income_profile na Resposta ✅ PENDENTE
+### MI.7 — forecast.py: Expor income_profile na Resposta ✅ FEITO
 
 **Arquivo:** `app/api/v1/routes/forecast.py`
 
@@ -1050,7 +1050,7 @@ Se `monthly_income` estiver disponível, faz muito mais sentido alertar quando `
 
 ---
 
-### MI.8 — Agent Tool: LLM recebe confidence da Renda ✅ PENDENTE
+### MI.8 — Agent Tool: LLM recebe confidence da Renda ✅ FEITO
 
 **Arquivo:** `app/agent/tools/get_card_optimization.py`
 
@@ -1074,14 +1074,14 @@ O LLM então pode perguntar ao usuário antes de apresentar as recomendações.
 
 | # | Arquivo | O que integrar | Status |
 |---|---|---|---|
-| MI.1 | `spending_anomaly_detector.py` | Thresholds dinâmicos por % da renda | ⏳ Pendente |
+| MI.1 | `spending_anomaly_detector.py` | Thresholds dinâmicos por % da renda | ✅ **Feito** (2026-03-02) |
 | MI.2 | `etl/profiles.py` | Renda filtrada no health_score e savings_rate | ✅ **Feito** (2026-03-01) |
-| MI.3 | `optimizer/card_loader.py` | Penalizar score de PJ com income_stability < 0.5 | ⏳ Pendente |
-| MI.4 | `optimizer/simulator.py` | income_stability no confidence do cartão simulado | ⏳ Pendente |
-| MI.5 | `cashflow/burn_rate.py` | alert_level por % da renda quando disponível | ⏳ Pendente |
-| MI.6 | `api/v1/routes/alerts.py` | Contextualizar alertas com renda absoluta e % | ⏳ Pendente |
-| MI.7 | `api/v1/routes/forecast.py` | Expor income_profile (pattern + confidence) na resposta | ⏳ Pendente |
-| MI.8 | `agent/tools/get_card_optimization.py` | Sinalizar confidence ao LLM | ⏳ Pendente |
+| MI.3 | `optimizer/card_loader.py` | Penalizar score de PJ com income_stability < 0.5 | ✅ **Feito** (2026-03-02) |
+| MI.4 | `optimizer/simulator.py` | income_stability no confidence do cartão simulado | ✅ **Feito** (2026-03-02) |
+| MI.5 | `cashflow/burn_rate.py` | alert_level por % da renda quando disponível | ✅ **Feito** (2026-03-02) |
+| MI.6 | `api/v1/routes/alerts.py` | Contextualizar alertas com renda absoluta e % | ✅ **Feito** (2026-03-02) |
+| MI.7 | `api/v1/routes/forecast.py` | Expor income_profile (pattern + confidence) na resposta | ✅ **Feito** (2026-03-02) |
+| MI.8 | `agent/tools/get_card_optimization.py` | Sinalizar confidence ao LLM | ✅ **Feito** (2026-03-02) |
 
 ---
 
@@ -1103,11 +1103,11 @@ O LLM então pode perguntar ao usuário antes de apresentar as recomendações.
 
 | # | Melhoria | Funcionalidade | Esforço | Status |
 |---|---|---|---|---|
-| 6 | MI.1 — Thresholds de anomalia por % da renda | F1/IncomeProfile | 0.5 dia | ⏳ Pendente |
-| 7 | MI.3 — Penalizar PJ instável em card_loader | F2/IncomeProfile | 0.5 dia | ⏳ Pendente |
-| 8 | MI.4 — income_stability no simulator confidence | F2/IncomeProfile | 0.5 dia | ⏳ Pendente |
-| 9 | MI.5 — BurnRate: alert_level por % da renda | F1/IncomeProfile | 0.5 dia | ⏳ Pendente |
-| 10 | MI.6 — Alertas contextualizados com renda | API/IncomeProfile | 1 dia | ⏳ Pendente |
+| 6 | MI.1 — Thresholds de anomalia por % da renda | F1/IncomeProfile | 0.5 dia | ✅ Feito |
+| 7 | MI.3 — Penalizar PJ instável em card_loader | F2/IncomeProfile | 0.5 dia | ✅ Feito |
+| 8 | MI.4 — income_stability no simulator confidence | F2/IncomeProfile | 0.5 dia | ✅ Feito |
+| 9 | MI.5 — BurnRate: alert_level por % da renda | F1/IncomeProfile | 0.5 dia | ✅ Feito |
+| 10 | MI.6 — Alertas contextualizados com renda | API/IncomeProfile | 1 dia | ✅ Feito |
 | 11 | M2.2 — Multi-Cartão | F2 | 3-4 dias | ⏳ Pendente |
 | 12 | M2.5 — Cashback por Categoria | F2 | 1-2 dias | ⏳ Pendente |
 | 13 | M2.4 — ROI do Cartão Atual | F2 | 1-2 dias | ⏳ Pendente |
@@ -1118,8 +1118,8 @@ O LLM então pode perguntar ao usuário antes de apresentar as recomendações.
 
 | # | Melhoria | Funcionalidade | Esforço | Status |
 |---|---|---|---|---|
-| 16 | MI.7 — forecast.py expõe income_profile | API/IncomeProfile | 0.5 dia | ⏳ Pendente |
-| 17 | MI.8 — Agent tool sinaliza confidence ao LLM | Agent/IncomeProfile | 0.5 dia | ⏳ Pendente |
+| 16 | MI.7 — forecast.py expõe income_profile | API/IncomeProfile | 0.5 dia | ✅ Feito |
+| 17 | MI.8 — Agent tool sinaliza confidence ao LLM | Agent/IncomeProfile | 0.5 dia | ✅ Feito |
 | 18 | MX.1 — Score com Evolução Temporal | Cross | 1-2 dias | ⏳ Pendente |
 | 19 | M2.3 — Valoração de Milhas | F2 | 1-2 dias | ⏳ Pendente |
 | 20 | M3.1 — Inflação (IPCA) | F3 | 1 dia | ⏳ Pendente |

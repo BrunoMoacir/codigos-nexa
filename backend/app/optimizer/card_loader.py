@@ -5,11 +5,18 @@ from __future__ import annotations
 
 import json
 import logging
-from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from app.optimizer.models import CardRecord, CardFlag, BenefitTag
+
+if TYPE_CHECKING:
+    from app.etl.income_profiler import IncomeProfile, IncomePattern
+
+# Limiar de estabilidade abaixo do qual renda PJ/MIXED é penalizada
+_PJ_INSTABILITY_THRESHOLD: float = 0.5
+# Fator de penalidade aplicado ao income_factor quando renda PJ é instável
+_PJ_INSTABILITY_PENALTY: float = 0.85
 
 logger = logging.getLogger(__name__)
 
@@ -110,9 +117,15 @@ class CardKnowledgeBase:
         annual_income: float,
         spending_stability: float = 1.0,
         issuers_in_transactions: set[str] | None = None,
+        income_profile: Optional["IncomeProfile"] = None,
     ) -> tuple[float, list[str]]:
         """
         Calcula eligibility_score (0.0–1.0) e lista de razões humanas.
+
+        Args:
+            income_profile: Quando fornecido e income_stability < 0.5 com padrão
+                PJ ou MIXED, aplica penalidade de 15% ao income_factor.
+                Renda variável aumenta o risco percebido de inadimplência pelo emissor.
 
         Retorna: (score, reasons)
         """
@@ -146,6 +159,20 @@ class CardKnowledgeBase:
                 reasons.append(
                     f"Renda no limite mínimo — aprovação provável mas não garantida "
                     f"(R$ {annual_income / 12:,.0f}/mês vs R$ {card.min_income / 12:,.0f}/mês)"
+                )
+
+        # --- Penalidade por instabilidade de renda PJ/MIXED (MI.3) ---
+        if income_profile is not None:
+            from app.etl.income_profiler import IncomePattern
+            is_variable_income = income_profile.income_pattern in (
+                IncomePattern.PJ, IncomePattern.MIXED
+            )
+            if is_variable_income and income_profile.income_stability < _PJ_INSTABILITY_THRESHOLD:
+                income_factor *= _PJ_INSTABILITY_PENALTY
+                reasons.append(
+                    f"Renda {income_profile.income_pattern.value} com variabilidade elevada "
+                    f"(estabilidade {income_profile.income_stability:.0%}) — "
+                    f"histórico irregular pode reduzir chances de aprovação"
                 )
 
         score = income_factor * spending_stability

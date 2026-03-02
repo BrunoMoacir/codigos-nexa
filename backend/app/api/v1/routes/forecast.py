@@ -184,12 +184,21 @@ async def get_forecast(
         # Cashflow (projeção + safe-to-spend)
         cashflow_data = runner_result.get("cashflow", {})
         safe_spend_data = runner_result.get("safe_to_spend", {})
-        
+
         # Shadow invoices (obrigações futuras)
         shadow_data = runner_result.get("shadow_invoices", {})
-        
+
         # Financial health (análise de saúde)
         profile_data = runner_result.get("profile", {})
+
+        # MI.7: Estimar income_profile a partir das transações para expor na resposta
+        from app.etl.income_profiler import IncomeProfiler
+        income_profile_dict: dict = {}
+        transactions_data = runner_result.get("transactions", {})
+        transactions_df_forecast = transactions_data.get("pf_pj_classified_df")
+        if transactions_df_forecast is not None and not transactions_df_forecast.is_empty():
+            income_profile_obj = IncomeProfiler().build(transactions_df_forecast)
+            income_profile_dict = income_profile_obj.to_dict()
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # STEP 3: CONVERTER PARA RESPONSE MODELS
@@ -221,7 +230,8 @@ async def get_forecast(
                 "total_expenses": profile_data.get("total_expenses", 0.0),
                 "monthly_avg_expenses": profile_data.get("monthly_avg_expenses", 0.0),
                 "top_categories": profile_data.get("top_categories", []),
-                "trend": profile_data.get("trend", "ESTÁVEL")
+                "trend": profile_data.get("trend", "ESTÁVEL"),
+                "income_profile": income_profile_dict,  # MI.7: renda filtrada e classificada
             },
             cashflow={
                 "horizon_days": horizon_days,

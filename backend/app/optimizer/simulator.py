@@ -203,6 +203,13 @@ class CardSimulator:
         if profile.committed_percentage > 0.8:
             score *= 0.7
 
+        # MI.4: renda instável → menor confiança na projeção de benefícios
+        # Renda PJ/MIXED com alta variabilidade torna incerta a projeção de
+        # gasto anual usada para calcular pontos/cashback acumulados.
+        income_stability = getattr(profile.income_profile, "income_stability", None)
+        if income_stability is not None and income_stability < 0.5:
+            score *= 0.85
+
         return min(score, 1.0)
 
     def _top_categories(self, profile: UserProfile, n: int = 3) -> list[str]:
