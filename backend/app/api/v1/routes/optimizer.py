@@ -446,3 +446,113 @@ async def get_card_roi(
 async def optimizer_health_check():
     """Health check do módulo Optimizer."""
     return {"status": "ok", "module": "optimizer"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# M2.6 — Alertas de Promoções de Transferência Bonificada
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/promotions")
+async def list_active_promotions(
+    include_expired: bool = Query(default=False, description="Incluir promoções encerradas"),
+):
+    """
+    M2.6 — Lista promoções de transferência de pontos em vigor.
+
+    Retorna todas as promoções ativas (ou todas incluindo encerradas).
+    Cada promoção inclui:
+    - Programa de fidelidade fonte e parceiro destino
+    - % de bônus e taxa efetiva por 1.000 pontos
+    - Janela de vigência e dias restantes
+    - Cartões elegíveis para participar
+
+    **Exemplo de uso:**
+    ```
+    GET /optimizer/promotions
+    GET /optimizer/promotions?include_expired=true
+    ```
+    """
+    from app.optimizer.promotion_tracker import PromotionTracker
+    tracker = PromotionTracker()
+    promotions = tracker.get_all_promotions(include_expired=include_expired)
+    return {
+        "total": len(promotions),
+        "include_expired": include_expired,
+        "promotions": [p.to_dict() for p in promotions],
+    }
+
+
+@router.get("/promotions/opportunities")
+async def check_promotion_opportunities(
+    user_id: str = Query(..., description="ID do usuário"),
+    cards: str = Query(
+        default="",
+        description="Cartões do usuário separados por vírgula (ex: 'Inter Black,Amex Gold')",
+    ),
+    points_balance: str = Query(
+        default="",
+        description="Saldo de pontos por programa no formato 'programa:quantidade' separados por vírgula "
+                    "(ex: 'smiles:15000,livelo:8000')",
+    ),
+):
+    """
+    M2.6 — Identifica oportunidades de promoção vantajosas para o usuário.
+
+    Recebe os cartões do usuário e seu saldo de pontos, e retorna alertas
+    classificados pelo valor financeiro extra obtido ao aproveitar cada promoção.
+
+    **Exemplo:**
+    ```
+    GET /optimizer/promotions/opportunities
+        ?user_id=u1
+        &cards=Inter Black,Amex Gold
+        &points_balance=smiles:15000,livelo:8000
+    ```
+
+    **Resposta:**
+    ```json
+    {
+      "alerted_count": 1,
+      "opportunities": [
+        {
+          "user_card": "Inter Black",
+          "extra_value": 272.0,
+          "alert_text": "🔥 Promoção ativa: Smiles → GOL Smiles com 80% de bônus..."
+        }
+      ]
+    }
+    ```
+    """
+    from app.optimizer.promotion_tracker import PromotionTracker
+
+    # Parse dos query params
+    user_cards: list[str] = [c.strip() for c in cards.split(",") if c.strip()]
+    user_points: dict[str, int] = {}
+    for item in points_balance.split(","):
+        item = item.strip()
+        if ":" in item:
+            prog, qty = item.split(":", 1)
+            try:
+                user_points[prog.strip()] = int(qty.strip())
+            except ValueError:
+                pass
+
+    if not user_cards:
+        raise HTTPException(
+            status_code=422,
+            detail="Informe ao menos um cartão via parâmetro 'cards' (ex: 'Inter Black,Amex Gold').",
+        )
+
+    tracker = PromotionTracker()
+    alerts = tracker.check_user_opportunities(
+        user_cards=user_cards,
+        user_points_balance=user_points,
+    )
+
+    return {
+        "user_id": user_id,
+        "user_cards": user_cards,
+        "user_points_balance": user_points,
+        "alerted_count": len(alerts),
+        "opportunities": [a.to_dict() for a in alerts],
+    }

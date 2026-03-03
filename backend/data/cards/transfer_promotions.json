@@ -1,0 +1,80 @@
+[
+    {
+        "id": "livelo-latam-mar26",
+        "loyalty_program": "livelo",
+        "partner": "LATAM Pass",
+        "bonus_pct": 100,
+        "normal_rate_per_1000": 16.0,
+        "effective_rate_per_1000": 32.0,
+        "start_date": "2026-03-01",
+        "end_date": "2026-03-31",
+        "min_points": 1000,
+        "max_points": null,
+        "eligible_cards": [
+            "Itaú Personnalité",
+            "Bradesco Livelo",
+            "Banco do Brasil Livelo"
+        ],
+        "description": "Transfira para LATAM Pass com 100% de bônus. Seus pontos valem o dobro!",
+        "source": "manual",
+        "last_verified": "2026-03-03"
+    },
+    {
+        "id": "amex-azul-mar26",
+        "loyalty_program": "amex_membership_rewards",
+        "partner": "TudoAzul",
+        "bonus_pct": 50,
+        "normal_rate_per_1000": 20.0,
+        "effective_rate_per_1000": 30.0,
+        "start_date": "2026-03-10",
+        "end_date": "2026-03-20",
+        "min_points": 5000,
+        "max_points": 250000,
+        "eligible_cards": [
+            "Amex Gold",
+            "Amex Platinum",
+            "Amex Green"
+        ],
+        "description": "50% de bônus na transferência Amex MR → TudoAzul. Janela curta, só 10 dias!",
+        "source": "manual",
+        "last_verified": "2026-03-03"
+    },
+    {
+        "id": "smiles-inter-abr26",
+        "loyalty_program": "smiles",
+        "partner": "GOL Smiles",
+        "bonus_pct": 80,
+        "normal_rate_per_1000": 22.0,
+        "effective_rate_per_1000": 39.6,
+        "start_date": "2026-04-01",
+        "end_date": "2026-04-15",
+        "min_points": 2000,
+        "max_points": null,
+        "eligible_cards": [
+            "Inter Black",
+            "Inter Gold"
+        ],
+        "description": "80% de bônus na transferência para Smiles. Ótimo para quem acumula pontos Inter.",
+        "source": "manual",
+        "last_verified": "2026-03-03"
+    },
+    {
+        "id": "pontos-multiplus-fev26-expired",
+        "loyalty_program": "pontos_itau",
+        "partner": "Multiplus",
+        "bonus_pct": 60,
+        "normal_rate_per_1000": 18.0,
+        "effective_rate_per_1000": 28.8,
+        "start_date": "2026-02-01",
+        "end_date": "2026-02-28",
+        "min_points": 1000,
+        "max_points": null,
+        "eligible_cards": [
+            "Itaú Personnalité",
+            "Itaú Platinum"
+        ],
+        "description": "60% de bônus para Multiplus — promoção encerrada.",
+        "source": "manual",
+        "last_verified": "2026-02-28"
+    }
+]
