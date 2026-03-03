@@ -72,6 +72,13 @@ class WaiverRules(BaseModel):
     count_monthly: Optional[int] = None
     description: str
 
+class CashbackCategoryRule(BaseModel):
+    """M2.5 — Regra de cashback diferenciado por categoria."""
+    category: str              # ex: "alimentacao", "farmacia", "transporte"
+    pct: float                 # percentual de cashback (0.02 = 2%)
+    cap_monthly: Optional[float] = None  # teto mensal em R$ (None = sem teto)
+
+
 
 class CardRecord(BaseModel):
     """Representa um cartão carregado do knowledge_cards.json"""
@@ -88,9 +95,10 @@ class CardRecord(BaseModel):
     consigned: bool
     base_annuity: float
     waiver_rules: WaiverRules
-    cashback_pct: Optional[float] = None
-    cashback_cap: Optional[float] = None
-    cashback_categories: list[str] = []
+    cashback_pct: Optional[float] = None    # cashback flat (fallback quando sem categoria)
+    cashback_cap: Optional[float] = None    # teto mensal geral do cashback flat
+    cashback_default_pct: Optional[float] = None   # M2.5: taxa padrão para categorias sem regra específica
+    cashback_categories: list[CashbackCategoryRule] = []  # M2.5: regras por categoria
     points_per_brl: Optional[float] = None
     points_currency: str = "pontos"
     points_conversion_rate: float = 0.0

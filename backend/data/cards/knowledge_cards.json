@@ -23,7 +23,13 @@
     "points_per_brl": 2.0,
     "points_currency": "pontos",
     "points_conversion_rate": 16.0,
-    "benefit_tags": ["TRAVEL", "LOUNGE", "INSURANCE", "INTERNACIONAL", "PREMIUM"],
+    "benefit_tags": [
+      "TRAVEL",
+      "LOUNGE",
+      "INSURANCE",
+      "INTERNACIONAL",
+      "PREMIUM"
+    ],
     "benefits_detail": [
       "Acesso a salas VIP em aeroportos (LoungeKey)",
       "Seguro viagem internacional",
@@ -95,7 +101,13 @@
     "points_per_brl": 2.5,
     "points_currency": "pontos Itaú",
     "points_conversion_rate": 20.0,
-    "benefit_tags": ["TRAVEL", "LOUNGE", "INSURANCE", "INTERNACIONAL", "PREMIUM"],
+    "benefit_tags": [
+      "TRAVEL",
+      "LOUNGE",
+      "INSURANCE",
+      "INTERNACIONAL",
+      "PREMIUM"
+    ],
     "benefits_detail": [
       "Acesso a salas VIP (Priority Pass)",
       "Seguro viagem premium",
@@ -132,7 +144,12 @@
     "points_per_brl": 2.5,
     "points_currency": "átomos",
     "points_conversion_rate": 14.0,
-    "benefit_tags": ["TRAVEL", "LOUNGE", "INSURANCE", "INTERNACIONAL"],
+    "benefit_tags": [
+      "TRAVEL",
+      "LOUNGE",
+      "INSURANCE",
+      "INTERNACIONAL"
+    ],
     "benefits_detail": [
       "Acesso a salas VIP (LoungeKey)",
       "Seguro viagem",
@@ -163,11 +180,36 @@
     },
     "cashback_pct": 0.005,
     "cashback_cap": null,
-    "cashback_categories": [],
+    "cashback_default_pct": 0.005,
+    "cashback_categories": [
+      {
+        "category": "alimentacao",
+        "pct": 0.015,
+        "cap_monthly": null
+      },
+      {
+        "category": "farmacia",
+        "pct": 0.020,
+        "cap_monthly": 40.0
+      },
+      {
+        "category": "transporte",
+        "pct": 0.010,
+        "cap_monthly": null
+      },
+      {
+        "category": "supermercado",
+        "pct": 0.015,
+        "cap_monthly": null
+      }
+    ],
     "points_per_brl": null,
     "points_currency": "cashback",
     "points_conversion_rate": 0.0,
-    "benefit_tags": ["CASHBACK", "LOUNGE"],
+    "benefit_tags": [
+      "CASHBACK",
+      "LOUNGE"
+    ],
     "benefits_detail": [
       "0,5% cashback em todas as compras",
       "Acesso a salas VIP (LoungeKey - 2/ano)",
@@ -203,7 +245,12 @@
     "points_per_brl": 2.5,
     "points_currency": "pontos XP",
     "points_conversion_rate": 15.0,
-    "benefit_tags": ["TRAVEL", "LOUNGE", "INSURANCE", "INTERNACIONAL"],
+    "benefit_tags": [
+      "TRAVEL",
+      "LOUNGE",
+      "INSURANCE",
+      "INTERNACIONAL"
+    ],
     "benefits_detail": [
       "Acesso a salas VIP (LoungeKey)",
       "Seguro viagem",
@@ -235,11 +282,30 @@
     },
     "cashback_pct": 0.005,
     "cashback_cap": 50.0,
-    "cashback_categories": [],
+    "cashback_default_pct": 0.005,
+    "cashback_categories": [
+      {
+        "category": "alimentacao",
+        "pct": 0.010,
+        "cap_monthly": 20.0
+      },
+      {
+        "category": "delivery",
+        "pct": 0.015,
+        "cap_monthly": 15.0
+      },
+      {
+        "category": "lazer",
+        "pct": 0.008,
+        "cap_monthly": null
+      }
+    ],
     "points_per_brl": null,
     "points_currency": "cashback",
     "points_conversion_rate": 0.0,
-    "benefit_tags": ["CASHBACK"],
+    "benefit_tags": [
+      "CASHBACK"
+    ],
     "benefits_detail": [
       "0,5% cashback (teto R$ 50/mês)",
       "Sem anuidade",
@@ -270,11 +336,30 @@
     },
     "cashback_pct": 0.003,
     "cashback_cap": null,
-    "cashback_categories": [],
+    "cashback_default_pct": 0.003,
+    "cashback_categories": [
+      {
+        "category": "alimentacao",
+        "pct": 0.005,
+        "cap_monthly": null
+      },
+      {
+        "category": "streaming",
+        "pct": 0.008,
+        "cap_monthly": 10.0
+      },
+      {
+        "category": "transporte",
+        "pct": 0.005,
+        "cap_monthly": null
+      }
+    ],
     "points_per_brl": null,
     "points_currency": "cashback",
     "points_conversion_rate": 0.0,
-    "benefit_tags": ["CASHBACK"],
+    "benefit_tags": [
+      "CASHBACK"
+    ],
     "benefits_detail": [
       "0,3% cashback em todas as compras",
       "Sem anuidade",

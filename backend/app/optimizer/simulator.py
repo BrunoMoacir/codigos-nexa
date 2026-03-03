@@ -68,7 +68,7 @@ class CardSimulator:
         annuity_effective, annuity_waived = self._compute_annuity(card, spend_annual)
 
         values = {
-            scenario: self._compute_benefit_value(card, spend_annual * factor)
+            scenario: self._compute_benefit_value(card, spend_annual * factor, profile)
             for scenario, factor in _SCENARIO_FACTORS.items()
         }
 
@@ -132,14 +132,22 @@ class CardSimulator:
         # "none" ou desconhecido: anuidade sempre cobrada
         return card.base_annuity, False
 
-    def _compute_benefit_value(self, card: CardRecord, spend_annual_scaled: float) -> float:
+    def _compute_benefit_value(
+        self,
+        card: CardRecord,
+        spend_annual_scaled: float,
+        profile: "UserProfile | None" = None,
+    ) -> float:
         """Calcula o valor monetário dos benefícios para um dado gasto anual.
+
+        M2.5: Se o cartão tem `cashback_categories` definidas, usa taxas por
+        categoria cruzando com o `profile.spend_by_category`. Para categorias
+        sem regra específica, aplica `cashback_default_pct` (ou `cashback_pct`
+        como fallback). Quando não há perfil disponível, distribui o gasto
+        total uniformemente como antes (compatibilidade retroativa).
 
         Convenção de unidade (obrigatória em knowledge_cards.json):
             points_conversion_rate = R$ por 1.000 pontos/milhas.
-            Exemplos corretos: 16.0 (R$16/mil pts), 25.0 (R$25/mil milhas).
-            Valores por ponto unitário (ex: 0.016) são incorretos no JSON e
-            produzem estimativas 1000× menores sem nenhum erro visível.
         """
         if card.card_type == CardType.POINTS:
             if not card.points_per_brl or card.points_conversion_rate == 0:
@@ -148,14 +156,68 @@ class CardSimulator:
             return (points / 1000) * card.points_conversion_rate
 
         if card.card_type in (CardType.CASHBACK, CardType.INVESTBACK):
-            if card.cashback_pct is None:
+            # M2.5: usar taxas por categoria quando disponíveis + perfil conhecido
+            if card.cashback_categories and profile is not None:
+                return self._compute_category_cashback(card, profile, spend_annual_scaled)
+
+            # Fallback: cashback flat (comportamento original)
+            flat_pct = card.cashback_pct
+            if flat_pct is None:
                 return 0.0
-            value = spend_annual_scaled * card.cashback_pct
+            value = spend_annual_scaled * flat_pct
             if card.cashback_cap:
                 value = min(value, card.cashback_cap * 12)
             return value
 
         return 0.0
+
+    def _compute_category_cashback(
+        self,
+        card: CardRecord,
+        profile: "UserProfile",
+        spend_annual_scaled: float,
+    ) -> float:
+        """M2.5 — Calcula cashback usando regras diferenciadas por categoria.
+
+        Para cada categoria no perfil do usuário:
+          1. Busca regra específica em card.cashback_categories
+          2. Se encontrar: aplica pct da regra, respeitando cap_monthly anualizado
+          3. Se não encontrar: aplica cashback_default_pct (ou cashback_pct como fallback)
+
+        O spend_annual_scaled é usado para escalar proporcionalmente o gasto
+        de cada categoria (mantém a distribuição relativa do perfil).
+        """
+        from app.optimizer.models import CashbackCategoryRule
+
+        # Fator de escala: spend_annual_scaled / soma real das categorias
+        total_category_spend = sum(profile.spend_by_category.values())
+        scale = (spend_annual_scaled / 12) / total_category_spend if total_category_spend > 0 else 1.0
+
+        # Índice de regras por categoria para lookup O(1)
+        category_rules: dict[str, CashbackCategoryRule] = {
+            rule.category: rule for rule in card.cashback_categories
+        }
+
+        # Taxa padrão para categorias não cobertas
+        default_pct = card.cashback_default_pct or card.cashback_pct or 0.0
+
+        total_cashback = 0.0
+        for category, monthly_spend in profile.spend_by_category.items():
+            scaled_monthly = monthly_spend * scale
+            rule = category_rules.get(category)
+            if rule:
+                monthly_cb = scaled_monthly * rule.pct
+                if rule.cap_monthly is not None:
+                    monthly_cb = min(monthly_cb, rule.cap_monthly)
+            else:
+                monthly_cb = scaled_monthly * default_pct
+            total_cashback += monthly_cb * 12  # anualizar
+
+        # Teto geral do cartão (se definido)
+        if card.cashback_cap:
+            total_cashback = min(total_cashback, card.cashback_cap * 12)
+
+        return total_cashback
 
     def _compute_liquidity_impact(
         self, annuity_effective: float, safe_to_spend: float | None
