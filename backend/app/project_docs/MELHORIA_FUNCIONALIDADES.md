@@ -11,7 +11,7 @@
 
 | Funcionalidade | Melhorias propostas | Impacto estimado | Status |
 |---|---|---|---|
-| **F2 — Optimizer** | 6 melhorias (incluindo custo de oportunidade e estratégia multi-cartão) | 🔴 Alto | M2.1 ✅ M2.2 ✅ M2.4 ✅ M2.5 ✅ |
+| **F2 — Optimizer** | 6 melhorias (incluindo custo de oportunidade e estratégia multi-cartão) | 🔴 Alto | M2.1 ✅ M2.2 ✅ M2.4 ✅ M2.5 ✅ M2.6 ✅ |
 | **F1 — Core Engine** | 5 melhorias (anomalias, alertas de velocidade, orçamento inteligente) | 🔴 Alto | M1.1 ✅ M1.2 ✅ M1.4→IncomeProfiler ✅ M1.5 ✅ |
 | **F3 — Architect** | 4 melhorias (inflação, IR, custo de oportunidade cruzado) | 🟡 Médio | M3.2 ✅ |
 | **F4 — PF/PJ** | 3 melhorias (relatório fiscal, categorização PJ granular) | 🟡 Médio | — |
@@ -1131,7 +1131,7 @@ O LLM então pode perguntar ao usuário antes de apresentar as recomendações.
 
 | # | Melhoria | Funcionalidade |
 |---|---|---|
-| 17 | M2.6 — Promoções de Transferência | F2 |
+| 17 | M2.6 — Promoções de Transferência | F2 | ✅ Feito (2026-03-03) |
 | 18 | M3.3 — Custo de Oportunidade Cruzado | F3 |
 | 19 | M4.1 — Relatório Fiscal | F4 |
 | 20 | M4.2 — Categorização PJ Granular | F4 |
