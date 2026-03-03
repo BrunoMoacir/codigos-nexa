@@ -3,7 +3,7 @@
 > Propostas concretas para tornar cada funcionalidade mais completa e valiosa.
 > Organizadas por impacto ao usuário × esforço de implementação.
 >
-> Gerado em: 2026-02-28 — Atualizado em: 2026-03-02
+> Gerado em: 2026-02-28 — Atualizado em: 2026-03-03
 
 ---
 
@@ -11,7 +11,7 @@
 
 | Funcionalidade | Melhorias propostas | Impacto estimado | Status |
 |---|---|---|---|
-| **F2 — Optimizer** | 6 melhorias (incluindo custo de oportunidade e estratégia multi-cartão) | 🔴 Alto | M2.1 ✅ M2.2 ✅ |
+| **F2 — Optimizer** | 6 melhorias (incluindo custo de oportunidade e estratégia multi-cartão) | 🔴 Alto | M2.1 ✅ M2.2 ✅ M2.4 ✅ |
 | **F1 — Core Engine** | 5 melhorias (anomalias, alertas de velocidade, orçamento inteligente) | 🔴 Alto | M1.1 ✅ M1.2 ✅ M1.4→IncomeProfiler ✅ |
 | **F3 — Architect** | 4 melhorias (inflação, IR, custo de oportunidade cruzado) | 🟡 Médio | M3.2 ✅ |
 | **F4 — PF/PJ** | 3 melhorias (relatório fiscal, categorização PJ granular) | 🟡 Médio | — |
@@ -1087,7 +1087,7 @@ O LLM então pode perguntar ao usuário antes de apresentar as recomendações.
 
 ## PRIORIZAÇÃO FINAL — Roadmap Sugerido
 
-### Sprint 1 (Impacto imediato — F2 + F1) — EM ANDAMENTO
+### Sprint 1 (Impacto imediato — F2 + F1) — ✅ CONCLUÍDA
 
 | # | Melhoria | Funcionalidade | Esforço | Status |
 |---|---|---|---|---|
@@ -1097,7 +1097,7 @@ O LLM então pode perguntar ao usuário antes de apresentar as recomendações.
 | 4 | M1.2 — Burn Rate | F1 | 1-2 dias | ✅ Feito |
 | 4b | M1.4→ IncomeProfiler (renda real filtrada) | F1/Cross | 2 dias | ✅ Feito |
 | 4c | MI.2 — Health score com renda filtrada | F1/IncomeProfile | 0.5 dia | ✅ Feito |
-| 5 | MX.1 — Score com Evolução | Cross | 1-2 dias | ⏳ Pendente |
+| 5 | MX.1 — Score com Evolução | Cross | 1-2 dias | ✅ Feito (2026-03-03) |
 
 ### Sprint 2 (Diferenciação — F2 avançado + IncomeProfile cascade)
 
@@ -1108,9 +1108,9 @@ O LLM então pode perguntar ao usuário antes de apresentar as recomendações.
 | 8 | MI.4 — income_stability no simulator confidence | F2/IncomeProfile | 0.5 dia | ✅ Feito |
 | 9 | MI.5 — BurnRate: alert_level por % da renda | F1/IncomeProfile | 0.5 dia | ✅ Feito |
 | 10 | MI.6 — Alertas contextualizados com renda | API/IncomeProfile | 1 dia | ✅ Feito |
-| 11 | M2.2 — Multi-Cartão | F2 | 3-4 dias | ⏳ Pendente |
+| 11 | M2.2 — Multi-Cartão | F2 | 3-4 dias | ✅ Feito |
 | 12 | M2.5 — Cashback por Categoria | F2 | 1-2 dias | ⏳ Pendente |
-| 13 | M2.4 — ROI do Cartão Atual | F2 | 1-2 dias | ⏳ Pendente |
+| 13 | M2.4 — ROI do Cartão Atual | F2 | 1-2 dias | ✅ Feito (2026-03-03) |
 | 14 | M1.5 — Assinaturas Esquecidas | F1 | 1 dia | ⏳ Pendente |
 | 15 | MX.2 — Metas Financeiras | Cross | 2-3 dias | ⏳ Pendente |
 
