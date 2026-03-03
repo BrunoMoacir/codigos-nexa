@@ -117,3 +117,7 @@ router.include_router(optimizer.router)
 # 9️⃣ Agent Chat: POST /chat (F2/F3 - Nexa IA Chat)
 from app.api.v1.routes import chat
 router.include_router(chat.router)
+
+# 🔟 Health Score History: GET /health-score/history/{user_id} (MX.1)
+from app.api.v1.routes import health_score
+router.include_router(health_score.router)

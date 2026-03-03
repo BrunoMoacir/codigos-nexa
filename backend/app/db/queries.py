@@ -13,7 +13,15 @@ _DB_PATH = str(Path(__file__).parent.parent.parent / "finance.duckdb")
 
 
 def get_connection():
-    """Retorna conexão com DuckDB usando caminho absoluto."""
+    """
+    Retorna conexão com DuckDB usando caminho absoluto.
+
+    ⚠️  SINGLE-WRITER: DuckDB embarcado não suporta múltiplos escritores
+    simultâneos. Este módulo pressupõe execução single-process (FastAPI com
+    1 worker ou Celery com concurrency=1). Em ambiente multi-worker, proteja
+    chamadas de escrita com um threading.Lock externo ou migre para DuckDB
+    server mode / outro banco.
+    """
     return duckdb.connect(_DB_PATH)
 
 def get_context_overrides(user_id: str) -> List[Dict[str, Any]]:
@@ -111,8 +119,11 @@ def save_context_override(
         return True
 
     except Exception as e:
-        con.execute("ROLLBACK")
         logger.error(f"Erro ao salvar override: {e}")
+        try:
+            con.execute("ROLLBACK")
+        except Exception as rb_err:
+            logger.error(f"Falha no ROLLBACK (conexão corrompida?): {rb_err}")
         return False
     finally:
         con.close()
@@ -183,13 +194,23 @@ def save_transactions_clean(
         cols_to_save = [c for c in schema_cols if c in df.columns]
         df_to_save = df.select(cols_to_save)
 
-        # Registrar DataFrame como view temporária e fazer upsert
+        # Registrar DataFrame como view temporária e fazer upsert atômico
         con.register("_txn_batch", df_to_save.to_arrow())
-        con.execute(f"""
-            INSERT OR REPLACE INTO transactions_clean ({', '.join(cols_to_save)})
-            SELECT {', '.join(cols_to_save)} FROM _txn_batch
-        """)
-        con.unregister("_txn_batch")
+        con.execute("BEGIN")
+        try:
+            con.execute(f"""
+                INSERT OR REPLACE INTO transactions_clean ({', '.join(cols_to_save)})
+                SELECT {', '.join(cols_to_save)} FROM _txn_batch
+            """)
+            con.execute("COMMIT")
+        except Exception:
+            try:
+                con.execute("ROLLBACK")
+            except Exception as rb_err:
+                logger.error(f"Falha no ROLLBACK de transactions_clean: {rb_err}")
+            raise
+        finally:
+            con.unregister("_txn_batch")
 
         rows = len(df_to_save)
         logger.info(f"transactions_clean: {rows} linhas salvas para user {user_id}")
@@ -198,6 +219,127 @@ def save_transactions_clean(
     except Exception as e:
         logger.error(f"Erro ao salvar transactions_clean: {e}")
         return 0
+    finally:
+        con.close()
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# MX.1 — Health Score History
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _ensure_health_score_history_table(con) -> None:
+    """Cria a tabela health_score_history se não existir."""
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS health_score_history (
+            user_id      VARCHAR NOT NULL,
+            date         VARCHAR NOT NULL,
+            health_score INTEGER NOT NULL,
+            savings_rate DOUBLE,
+            profile_type VARCHAR,
+            safe_to_spend DOUBLE,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (user_id, date)
+        )
+    """)
+
+
+def save_health_score_snapshot(
+    user_id: str,
+    health_score: int,
+    savings_rate: float,
+    profile_type: str,
+    safe_to_spend: Optional[float] = None,
+    date: Optional[str] = None,
+) -> bool:
+    """
+    Persiste um snapshot do health_score para o mês corrente (ou date informado).
+
+    Args:
+        user_id: ID do usuário.
+        health_score: Score 0-100 calculado pelo UserProfileAnalyzer.
+        savings_rate: Taxa de poupança (%).
+        profile_type: CONSERVADOR | EQUILIBRADO | GASTADOR.
+        safe_to_spend: Margem diária segura (opcional).
+        date: Mês no formato 'YYYY-MM'. Padrão: mês atual.
+
+    Returns:
+        True se salvou com sucesso.
+    """
+    if date is None:
+        date = datetime.now().strftime("%Y-%m")
+
+    # Garantir formato 'YYYY-MM' zero-padded para ordenação lexicográfica correta.
+    # Ex: '2026-3' → '2026-03'. Evita quebra silenciosa de ORDER BY date DESC.
+    try:
+        from datetime import datetime as _dt
+        date = _dt.strptime(date, "%Y-%m").strftime("%Y-%m")
+    except ValueError:
+        raise ValueError(f"Parâmetro 'date' deve estar no formato 'YYYY-MM', recebido: {date!r}")
+
+    con = get_connection()
+    try:
+        _ensure_health_score_history_table(con)
+
+        # INSERT OR REPLACE: atualiza se já existir registro para o mês
+        con.execute("""
+            INSERT OR REPLACE INTO health_score_history
+                (user_id, date, health_score, savings_rate, profile_type, safe_to_spend, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, NOW())
+        """, [user_id, date, health_score, savings_rate, profile_type, safe_to_spend])
+
+        logger.info(f"health_score_history: snapshot salvo para user={user_id} date={date} score={health_score}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Erro ao salvar health_score_history: {e}")
+        return False
+    finally:
+        con.close()
+
+
+def get_health_score_history(
+    user_id: str,
+    months: int = 6,
+) -> List[Dict[str, Any]]:
+    """
+    Retorna histórico mensal do health_score de um usuário.
+
+    Args:
+        user_id: ID do usuário.
+        months: Quantos meses de histórico retornar (padrão: 6).
+
+    Returns:
+        Lista de dicts com campos: date, health_score, savings_rate, profile_type, safe_to_spend.
+        Ordenado do mais antigo para o mais recente.
+    """
+    con = get_connection()
+    try:
+        _ensure_health_score_history_table(con)
+
+        rows = con.execute("""
+            SELECT date, health_score, savings_rate, profile_type, safe_to_spend
+            FROM health_score_history
+            WHERE user_id = ?
+            ORDER BY date DESC
+            LIMIT ?
+        """, [user_id, months]).fetchall()
+
+        # Retornar do mais antigo ao mais recente (para gráfico de linha)
+        history = [
+            {
+                "date": row[0],
+                "health_score": row[1],
+                "savings_rate": row[2],
+                "profile_type": row[3],
+                "safe_to_spend": row[4],
+            }
+            for row in reversed(rows)
+        ]
+        return history
+
+    except Exception as e:
+        logger.error(f"Erro ao buscar health_score_history: {e}")
+        return []
     finally:
         con.close()
 

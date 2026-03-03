@@ -11,11 +11,11 @@
 
 | Funcionalidade | Melhorias propostas | Impacto estimado | Status |
 |---|---|---|---|
-| **F2 — Optimizer** | 6 melhorias (incluindo custo de oportunidade e estratégia multi-cartão) | 🔴 Alto | M2.1 ✅ |
+| **F2 — Optimizer** | 6 melhorias (incluindo custo de oportunidade e estratégia multi-cartão) | 🔴 Alto | M2.1 ✅ M2.2 ✅ |
 | **F1 — Core Engine** | 5 melhorias (anomalias, alertas de velocidade, orçamento inteligente) | 🔴 Alto | M1.1 ✅ M1.2 ✅ M1.4→IncomeProfiler ✅ |
 | **F3 — Architect** | 4 melhorias (inflação, IR, custo de oportunidade cruzado) | 🟡 Médio | M3.2 ✅ |
 | **F4 — PF/PJ** | 3 melhorias (relatório fiscal, categorização PJ granular) | 🟡 Médio | — |
-| **Cross-functional** | 4 melhorias (score temporal, metas, notificações) | 🔴 Alto | MX.1 pendente |
+| **Cross-functional** | 4 melhorias (score temporal, metas, notificações) | 🔴 Alto | MX.1 ✅ |
 | **IncomeProfile — Integração** | 8 oportunidades de precisão derivadas do IncomeProfiler | 🔴 Alto | 8/8 ✅ |
 
 ---
