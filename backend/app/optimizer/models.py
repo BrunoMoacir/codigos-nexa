@@ -144,3 +144,27 @@ class OptimizationReport(BaseModel):
     data_sources: list[str] = []
     strategy_text: str = ""
     warnings: list[str] = []
+
+
+# ─── M2.4: ROI do Cartão Atual ────────────────────────────────────────────────
+
+class CardROIVerdict(str, Enum):
+    VALE_A_PENA = "VALE_A_PENA"        # net_roi positivo — anuidade se paga
+    MARGINAL = "MARGINAL"              # net_roi entre -R$200 e R$0 — depende de outros benefícios
+    NAO_VALE = "NAO_VALE"              # net_roi abaixo de -R$200 — troca recomendada
+
+
+class CurrentCardROI(BaseModel):
+    """M2.4 — Rastreamento de ROI do cartão atual do usuário."""
+    card_id: str
+    card_name: str
+    annuity_paid: float                      # anuidade anual que está pagando (R$/ano)
+    reward_value_generated: float            # valor de pontos/cashback gerado com gasto atual (R$/ano)
+    net_roi: float                           # reward - annuity (negativo = prejuízo)
+    annuity_waived: bool                     # anuidade está isenta pelo volume de gasto?
+    spend_needed_for_waiver: Optional[float] = None  # quanto gastar/mês p/ isentar (None se já isento ou sem threshold)
+    months_to_reach_waiver: Optional[float] = None   # meses no ritmo atual p/ alcançar threshold
+    benefits_used: list[str] = []            # benefícios que o perfil indica uso
+    benefits_unused: list[str] = []          # benefícios que o perfil NÃO usa
+    verdict: CardROIVerdict
+    explanation: str

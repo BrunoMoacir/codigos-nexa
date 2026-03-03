@@ -365,6 +365,83 @@ async def get_card_portfolio(
     )
 
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# M2.4 — ROI do Cartão Atual ("Sua anuidade está se pagando?")
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+from app.optimizer.models import CurrentCardROI
+from app.optimizer.simulator import CardSimulator
+
+
+@router.get("/roi/{card_id}", response_model=CurrentCardROI)
+async def get_card_roi(
+    card_id: str,
+    user_id: str = Query(..., description="ID do usuário"),
+    monthly_spend: Optional[float] = Query(
+        default=None,
+        description="Gasto mensal médio (R$). Se omitido, calculado a partir do histórico de transações."
+    ),
+):
+    """
+    M2.4 — Calcula se a anuidade do seu cartão atual está se pagando.
+
+    Compara o valor gerado em pontos/cashback com a anuidade paga.
+    Retorna diagnóstico, veredicto e explicação em linguagem natural.
+
+    **Parâmetros:**
+    - `card_id`: ID do cartão (ex: `nubank_roxinho`)
+    - `user_id`: ID do usuário
+    - `monthly_spend`: Opcional — gasto mensal. Se omitido, usa histórico real.
+    """
+    from app.db.queries import get_connection
+    import duckdb
+    from dataclasses import replace as _replace
+
+    # 1. Carregar o cartão
+    all_cards = CardKnowledgeBase().load()
+    card = next((c for c in all_cards if c.card_id == card_id), None)
+    if card is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cartão '{card_id}' não encontrado na base de conhecimento."
+        )
+
+    # 2. Montar perfil
+    if monthly_spend is not None and monthly_spend > 0:
+        profile = ConsumptionProfiler().build(pl.DataFrame())
+        profile = _replace(profile, monthly_avg_spend=monthly_spend)
+    else:
+        try:
+            con = get_connection()
+            try:
+                transactions_df = con.execute(
+                    "SELECT * FROM transactions_clean WHERE user_id = ?", [user_id]
+                ).pl()
+            except duckdb.CatalogException:
+                transactions_df = pl.DataFrame()
+            finally:
+                con.close()
+        except Exception as e:
+            logger.error(f"[API] Erro ao buscar transações para ROI: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Erro ao acessar dados do usuário.")
+
+        if transactions_df.is_empty():
+            raise HTTPException(
+                status_code=422,
+                detail="Sem histórico. Informe 'monthly_spend' como parâmetro para calcular sem histórico.",
+            )
+        profile = ConsumptionProfiler().build(transactions_df=transactions_df)
+
+    # 3. Calcular ROI
+    try:
+        roi = CardSimulator().calculate_current_card_roi(card=card, profile=profile)
+    except Exception as e:
+        logger.error(f"[API] Erro ao calcular ROI: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro ao calcular ROI do cartão.")
+
+    return roi
+
+
 @router.get("/health")
 async def optimizer_health_check():
     """Health check do módulo Optimizer."""

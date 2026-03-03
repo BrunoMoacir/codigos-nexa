@@ -9,8 +9,10 @@ import logging
 from app.optimizer.models import (
     BenefitTag,
     CardRecord,
+    CardROIVerdict,
     CardSimulationResult,
     CardType,
+    CurrentCardROI,
 )
 from app.optimizer.profiler import UserProfile
 from app.optimizer.validators.liquidity_checker import LiquidityChecker
@@ -349,3 +351,182 @@ class CardSimulator:
         )
 
         return steps
+
+    # ─── M2.4: ROI do Cartão Atual ────────────────────────────────────────────
+
+    def calculate_current_card_roi(
+        self,
+        card: CardRecord,
+        profile: UserProfile,
+    ) -> CurrentCardROI:
+        """
+        M2.4 — Calcula se o cartão atual do usuário está se pagando.
+
+        Args:
+            card: CardRecord do cartão que o usuário já possui.
+            profile: Perfil de consumo do usuário (output do ConsumptionProfiler).
+
+        Returns:
+            CurrentCardROI com ROI real, veredicto e explicação em linguagem natural.
+        """
+        spend_annual = profile.monthly_avg_spend * 12
+
+        # 1. Anuidade efetiva e isenção
+        annuity_paid, annuity_waived = self._compute_annuity(card, spend_annual)
+
+        # 2. Valor gerado em pontos/cashback com o gasto atual
+        reward_value = self._compute_benefit_value(card, spend_annual)
+        net_roi = reward_value - annuity_paid
+
+        # 3. Quanto falta gastar para isentar a anuidade
+        spend_needed_for_waiver: float | None = None
+        months_to_reach_waiver: float | None = None
+
+        if not annuity_waived and card.waiver_rules.type == "spend_threshold" and card.waiver_rules.threshold:
+            # threshold é anual na estrutura do card
+            monthly_needed = card.waiver_rules.threshold / 12
+            monthly_current = profile.monthly_avg_spend
+            if monthly_current > 0:
+                spend_needed_for_waiver = max(monthly_needed - monthly_current, 0)
+                months_to_reach_waiver = (
+                    None  # threshold é de gasto acumulado anual, não há prazo fixo
+                )
+            else:
+                spend_needed_for_waiver = monthly_needed
+
+        # 4. Auditoria de benefícios: quais o perfil usa vs. ignora
+        benefits_used, benefits_unused = self._audit_benefits(card, profile)
+
+        # 5. Veredicto
+        verdict = self._compute_roi_verdict(net_roi)
+
+        # 6. Explicação em linguagem natural
+        explanation = self._build_roi_explanation(
+            card, profile, spend_annual, annuity_paid, annuity_waived,
+            reward_value, net_roi, spend_needed_for_waiver, verdict,
+        )
+
+        return CurrentCardROI(
+            card_id=card.card_id,
+            card_name=card.name,
+            annuity_paid=round(annuity_paid, 2),
+            reward_value_generated=round(reward_value, 2),
+            net_roi=round(net_roi, 2),
+            annuity_waived=annuity_waived,
+            spend_needed_for_waiver=round(spend_needed_for_waiver, 2) if spend_needed_for_waiver is not None else None,
+            months_to_reach_waiver=months_to_reach_waiver,
+            benefits_used=benefits_used,
+            benefits_unused=benefits_unused,
+            verdict=verdict,
+            explanation=explanation,
+        )
+
+    def _audit_benefits(
+        self,
+        card: CardRecord,
+        profile: UserProfile,
+    ) -> tuple[list[str], list[str]]:
+        """Separa benefícios do cartão em usados e não usados com base no perfil."""
+        used: list[str] = []
+        unused: list[str] = []
+
+        for tag in card.benefit_tags:
+            if tag == BenefitTag.INTERNACIONAL:
+                if profile.international_spend_monthly > 100:
+                    used.append("Compras internacionais / IOF reduzido")
+                else:
+                    unused.append("Compras internacionais / IOF reduzido")
+
+            elif tag == BenefitTag.LOUNGE:
+                if profile.travel_spend_monthly > 300:
+                    used.append("Acesso a salas VIP (viagens recorrentes)")
+                else:
+                    unused.append("Acesso a salas VIP (você não viaja com frequência)")
+
+            elif tag == BenefitTag.TRAVEL:
+                if profile.travel_spend_monthly > 200:
+                    used.append("Benefícios de viagem (seguro, assistência)")
+                else:
+                    unused.append("Benefícios de viagem (pouco uso detectado)")
+
+            elif tag == BenefitTag.CASHBACK:
+                if profile.monthly_avg_spend > 500:
+                    used.append("Cashback sobre gastos mensais")
+                else:
+                    unused.append("Cashback (gasto muito baixo para usar bem)")
+
+        return used, unused
+
+    def _compute_roi_verdict(self, net_roi: float) -> CardROIVerdict:
+        """
+        Classifica o ROI:
+          VALE_A_PENA: net_roi ≥ 0 (anuidade se paga pelos benefícios)
+          MARGINAL:    -200 < net_roi < 0 (preju​ízo pequeno, pode valer pelos benefícios intangíveis)
+          NAO_VALE:    net_roi ≤ -200 (preju​ízo relevante — troca recomendada)
+        """
+        if net_roi >= 0:
+            return CardROIVerdict.VALE_A_PENA
+        if net_roi > -200:
+            return CardROIVerdict.MARGINAL
+        return CardROIVerdict.NAO_VALE
+
+    def _build_roi_explanation(
+        self,
+        card: CardRecord,
+        profile: UserProfile,
+        spend_annual: float,
+        annuity_paid: float,
+        annuity_waived: bool,
+        reward_value: float,
+        net_roi: float,
+        spend_needed_for_waiver: float | None,
+        verdict: CardROIVerdict,
+    ) -> str:
+        """Gera texto explicativo em português para apresentar ao usuário."""
+        parts: list[str] = []
+
+        monthly_spend = profile.monthly_avg_spend
+
+        if annuity_waived:
+            parts.append(
+                f"Sua anuidade do {card.name} está **isenta** — "
+                f"seu gasto anual (R$ {spend_annual:,.0f}) supera o threshold necessário."
+            )
+        else:
+            parts.append(
+                f"Você paga **R$ {annuity_paid:,.0f}/ano** de anuidade no {card.name}."
+            )
+
+        if reward_value > 0:
+            parts.append(
+                f"Com seu gasto médio de R$ {monthly_spend:,.0f}/mês, "
+                f"você gera **R$ {reward_value:,.0f}/ano** em pontos/cashback."
+            )
+        else:
+            parts.append("O cartão não gera retorno mensurável em pontos ou cashback.")
+
+        if verdict == CardROIVerdict.VALE_A_PENA:
+            parts.append(
+                f"Resultado: **ganho líquido de R$ {net_roi:,.0f}/ano** — "
+                "a anuidade está se pagando."
+            )
+        elif verdict == CardROIVerdict.MARGINAL:
+            parts.append(
+                f"Resultado: **prejuízo de R$ {abs(net_roi):,.0f}/ano** — "
+                "o cartão pode valer pelos benefícios extras (lounge, seguro, etc.), "
+                "mas em termos de pontos/cashback não cobre a anuidade."
+            )
+        else:
+            parts.append(
+                f"Resultado: **prejuízo de R$ {abs(net_roi):,.0f}/ano** — "
+                "a anuidade não está sendo justificada pelo uso atual. "
+                "Vale considerar um cartão sem anuidade ou com melhor retorno."
+            )
+
+        if spend_needed_for_waiver and spend_needed_for_waiver > 0:
+            parts.append(
+                f"Para isentar a anuidade, você precisaria gastar mais "
+                f"**R$ {spend_needed_for_waiver:,.0f}/mês** (hoje gasta R$ {monthly_spend:,.0f}/mês)."
+            )
+
+        return " ".join(parts)
