@@ -30,6 +30,7 @@ from app.architect.models import (
     NPVComparison,
     ConsortiumProbability,
     ActionStep,
+    TimingScenario,
 )
 from app.architect.calculators import financing as fin_calc
 from app.architect.calculators import investment as inv_calc
@@ -415,3 +416,109 @@ class StrategyEngine:
             )
 
         return steps
+
+    def simulate_timing_scenarios(
+        self,
+        request: SimulationRequest,
+        market_rates: Dict[str, float],
+        monthly_savings: float,
+        scenarios: list = None,
+    ) -> list:
+        """
+        M3.4 — Simula múltiplos timings: comprar agora vs esperar W meses.
+
+        Para cada janela de espera (wait_months), calcula:
+            - Entrada acumulada = original + mensal × meses
+            - Principal reduzido = target - nova entrada
+            - Simulação de financiamento com o novo principal
+            - NPV incluindo custo de oportunidade da espera
+            - Economia vs comprar agora (NPV)
+            - Texto comparativo em linguagem natural
+
+        Args:
+            request:         Dados do usuário.
+            market_rates:    Taxas de mercado (SELIC, CDI, CET, IPCA).
+            monthly_savings: Quanto o usuário pode poupar / mês (R$).
+            scenarios:       Lista de meses de espera. Padrão: [0, 3, 6, 12].
+
+        Returns:
+            Lista de TimingScenario ordenada pelo wait_months crescente.
+        """
+        if scenarios is None:
+            scenarios = [0, 3, 6, 12]
+
+        selic_monthly = (1 + market_rates.get("selic_annual", 0.1325)) ** (1 / 12) - 1
+        cet_annual    = market_rates.get("best_cet_annual", 0.20)
+        ipca_annual   = market_rates.get("ipca_annual", 0.045)
+
+        results = []
+        base_npv: float | None = None
+
+        for wait in sorted(set(scenarios)):
+            # ── 1. Calcular entrada acumulada após espera ──────────────
+            new_down = request.down_payment + monthly_savings * wait
+            new_down = min(new_down, request.target_amount * 0.95)  # teto: 95%
+            new_principal = request.target_amount - new_down
+
+            # ── 2. Simular financiamento com novo principal ────────────
+            sim = fin_calc.calculate_price(new_principal, cet_annual, request.financing_months)
+
+            # Fluxo NPV: custo de oportunidade da espera + financiamento
+            opp_cashflows  = [-monthly_savings] * wait
+            fin_cashflows  = [-new_down] + [-row["payment"] for row in sim.schedule]
+            all_cashflows  = opp_cashflows + fin_cashflows
+            npv_val = npv_calc.calculate_npv(all_cashflows, selic_monthly)
+
+            # ── 3. Base (comprar agora) para comparação ────────────────
+            if base_npv is None:
+                base_npv = npv_val
+            saving_vs_now = npv_val - base_npv
+
+            # ── 4. Nota de inflação ────────────────────────────────────
+            fv_real = (
+                request.target_amount / ((1 + ipca_annual) ** (wait / 12))
+                if wait > 0 else request.target_amount
+            )
+
+            # ── 5. Texto comparativo ───────────────────────────────────
+            fmt = format_currency
+            if wait == 0:
+                text = (
+                    f"Comprar agora: parcela de {fmt(sim.monthly_payment)}/mês "
+                    f"por {request.financing_months} meses. "
+                    f"Custo total: {fmt(sim.total_cost)}."
+                )
+            else:
+                eco_text = (
+                    f"Economia de {fmt(saving_vs_now)} (VPL)"
+                    if saving_vs_now > 0
+                    else f"Custo adicional de {fmt(-saving_vs_now)} vs comprar agora"
+                )
+                inflation_note = ""
+                if abs(fv_real - request.target_amount) > 500:
+                    inflation_note = (
+                        f" (Em poder de compra atual: {fmt(fv_real)} — "
+                        f"inflação de {ipca_annual:.1%} a.a.)"
+                    )
+                text = (
+                    f"Esperar {wait} meses poupando {fmt(monthly_savings)}/mês: "
+                    f"entrada de {fmt(new_down)} → "
+                    f"parcela de {fmt(sim.monthly_payment)}/mês "
+                    f"por {request.financing_months} meses. "
+                    f"{eco_text}.{inflation_note}"
+                )
+
+            results.append(TimingScenario(
+                wait_months=wait,
+                accumulated_down_payment=round(new_down, 2),
+                new_principal=round(new_principal, 2),
+                recommended_strategy=StrategyType.FINANCING,
+                total_cost_expected=round(sim.total_cost, 2),
+                total_cost_npv=round(npv_val, 2),
+                monthly_payment=round(sim.monthly_payment, 2),
+                saving_vs_now=round(saving_vs_now, 2),
+                comparison_text=text,
+            ))
+
+        return results
+

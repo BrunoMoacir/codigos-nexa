@@ -43,7 +43,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.architect.models import SimulationRequest, SimulationResponse
+from app.architect.models import SimulationRequest, SimulationResponse, TimingScenario
 from app.architect.services.architect_service import ArchitectService
 from app.architect.simulators.sensitivity_analyzer import SensitivityAnalyzer
 from app.db.queries.architect_queries import (
@@ -671,3 +671,116 @@ def _to_iso(value: Any) -> Optional[str]:
         return value.isoformat()
     # Já é string (ex: DuckDB retornou como str)
     return str(value)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ENDPOINT: POST /architect/timing-scenarios (M3.4)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@router.post(
+    "/timing-scenarios",
+    response_model=List[TimingScenario],
+    status_code=status.HTTP_200_OK,
+    summary="M3.4 — E se eu esperar X meses?",
+    description=(
+        "Simula múltiplos cenários de timing: comprar agora vs esperar 3/6/12 meses "
+        "acumulando mais entrada. Compara parcela, custo total (VPL) e economia "
+        "para cada janela, incluindo nota de inflação."
+    ),
+)
+async def timing_scenarios(
+    request: SimulationRequest,
+    monthly_savings: float = Query(
+        ...,
+        gt=0,
+        description="Quanto o usuário pode poupar por mês durante a espera (R$)",
+    ),
+    wait_months: Optional[str] = Query(
+        default=None,
+        description="Janelas de espera separadas por vírgula. Ex: '0,3,6,12'. Padrão: 0,3,6,12",
+    ),
+) -> List[TimingScenario]:
+    """
+    Responde: *"E se eu esperar X meses antes de comprar?"*
+
+    **Como usar:**
+    - Envie o mesmo `SimulationRequest` do endpoint `/simulate` no body.
+    - Passe `monthly_savings` como query parameter (o que economizará por mês).
+    - Opcionalmente, customize `wait_months` (CSV). Padrão: `0,3,6,12`.
+
+    **Retorna:** lista de `TimingScenario` com parcela, custo NPV e economia
+    para cada janela de espera, incluindo frase comparativa.
+
+    **Exemplo:**
+    ```
+    POST /api/v1/architect/timing-scenarios?monthly_savings=2000
+    Body: {"user_id": "u1", "target_amount": 80000, "down_payment": 10000, ...}
+    ```
+
+    **Resposta:**
+    ```json
+    [
+      {"wait_months": 0, "monthly_payment": 2800, "saving_vs_now": 0, "comparison_text": "Comprar agora..."},
+      {"wait_months": 6, "monthly_payment": 2350, "saving_vs_now": 8400, "comparison_text": "Esperar 6 meses..."}
+    ]
+    ```
+    """
+    logger.info(
+        "POST /architect/timing-scenarios | user=%s target=%.2f savings=%.2f",
+        request.user_id,
+        request.target_amount,
+        monthly_savings,
+    )
+
+    # Parsear janelas de espera customizadas
+    if wait_months:
+        try:
+            scenarios = [int(w.strip()) for w in wait_months.split(",") if w.strip()]
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="wait_months deve ser lista de inteiros separados por vírgula. Ex: '0,3,6,12'",
+            )
+    else:
+        scenarios = [0, 3, 6, 12]
+
+    # Buscar taxas de mercado
+    try:
+        market_rates = _service.fetch_market_rates(request)
+    except Exception as exc:
+        logger.warning("timing-scenarios | taxas indisponíveis: %s — usando fallback", exc)
+        market_rates = {
+            "selic_annual":    0.1325,
+            "cdi_annual":      0.1325,
+            "best_cet_annual": 0.20,
+            "ipca_annual":     0.045,
+        }
+
+    # Executar simulações de timing
+    try:
+        from app.architect.simulators.strategy_engine import StrategyEngine
+        engine = StrategyEngine()
+        timing_results = engine.simulate_timing_scenarios(
+            request=request,
+            market_rates=market_rates,
+            monthly_savings=monthly_savings,
+            scenarios=scenarios,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        logger.error("POST /architect/timing-scenarios | erro: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao calcular cenários de timing.",
+        )
+
+    logger.info(
+        "POST /architect/timing-scenarios | user=%s | %d cenários gerados",
+        request.user_id,
+        len(timing_results),
+    )
+    return timing_results

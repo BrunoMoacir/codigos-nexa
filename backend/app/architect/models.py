@@ -603,8 +603,78 @@ class SimulationResponse(BaseModel):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# REPORT — PERSISTÊNCIA NO BANCO
+# M3.4 — TIMING SCENARIO: "E SE EU ESPERAR?"
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class TimingScenario(BaseModel):
+    """
+    Resultado de simular esperar W meses antes de comprar (M3.4).
+
+    Ao esperar, o usuário acumula mais entrada, reduzindo o principal
+    financiado e a parcela mensal. Este modelo captura o custo desse
+    timing: quanto da recomendação muda e qual a economia potencial.
+
+    Attributes:
+        wait_months:              Meses de espera antes da compra (0 = comprar agora).
+        accumulated_down_payment: Entrada original + poupança mensal × meses.
+        new_principal:            target_amount − nova entrada (valor financiado reduzido).
+        recommended_strategy:     Melhor estratégia para este cenário.
+        total_cost_expected:      Custo total esperado (R$).
+        total_cost_npv:           Custo total em valor presente (NPV) — para comparar cenários.
+        monthly_payment:          Nova parcela mensal após aumento da entrada.
+        saving_vs_now:            Economia vs comprar agora (>0 = cenário melhor que agora).
+        comparison_text:          Texto comparativo em linguagem natural.
+    """
+
+    wait_months: int = Field(
+        ...,
+        description="Meses de espera antes da compra (0 = comprar agora)",
+        ge=0,
+        le=120,
+    )
+    accumulated_down_payment: float = Field(
+        ...,
+        description="Entrada disponível após espera: original + mensal × meses (R$)",
+        ge=0,
+    )
+    new_principal: float = Field(
+        ...,
+        description="Valor efetivamente financiado após aumento da entrada (R$)",
+        ge=0,
+    )
+    recommended_strategy: StrategyType = Field(
+        ...,
+        description="Estratégia recomendada para este cenário de timing",
+    )
+    total_cost_expected: float = Field(
+        ...,
+        description="Custo total esperado do cenário (R$)",
+        ge=0,
+    )
+    total_cost_npv: float = Field(
+        ...,
+        description="NPV do custo total do cenário — usado para comparar com outros timing",
+    )
+    monthly_payment: float = Field(
+        ...,
+        description="Parcela mensal da estratégia para este cenário (R$)",
+        ge=0,
+    )
+    saving_vs_now: float = Field(
+        ...,
+        description=(
+            "Economia vs comprar agora (R$). "
+            "Positivo = esperar é melhor. Negativo = comprar agora é melhor."
+        ),
+    )
+    comparison_text: str = Field(
+        ...,
+        description="Descrição comparativa do cenário em linguagem natural",
+        min_length=10,
+        max_length=400,
+    )
+
+
 
 class SimulationReport(BaseModel):
     """
@@ -679,6 +749,8 @@ __all__ = [
     "ActionStep",
     # Response
     "SimulationResponse",
+    # M3.4 — Timing
+    "TimingScenario",
     # Persistência
     "SimulationReport",
 ]
