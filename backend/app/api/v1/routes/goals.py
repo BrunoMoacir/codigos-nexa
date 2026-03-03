@@ -1,0 +1,179 @@
+# app/api/v1/routes/goals.py
+# MX.2 — Sistema de Metas Financeiras
+
+"""
+Endpoints para gerenciar metas financeiras:
+
+    POST   /goals/{user_id}              Criar nova meta
+    GET    /goals/{user_id}              Listar metas do usuário
+    GET    /goals/{user_id}/{goal_id}    Detalhe de uma meta + projeção
+    PATCH  /goals/{user_id}/{goal_id}/progress   Atualizar progresso
+    DELETE /goals/{user_id}/{goal_id}    Abandonar meta
+"""
+
+import logging
+from typing import Literal, Optional
+
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field, model_validator
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/goals", tags=["Metas Financeiras (MX.2)"])
+
+
+# ── Schemas de request ────────────────────────────────────────────────────────
+
+GOAL_TYPES = Literal["imovel", "viagem", "carro", "educacao", "emergencia", "outros"]
+
+
+class CreateGoalRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120, description="Nome da meta")
+    goal_type: GOAL_TYPES = Field(default="outros", description="Tipo da meta")
+    target_amount: float = Field(..., gt=0, description="Valor alvo em R$")
+    current_amount: float = Field(default=0.0, ge=0.0, description="Valor já acumulado em R$")
+    target_date: Optional[str] = Field(
+        default=None,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description="Data alvo no formato YYYY-MM-DD (opcional)",
+    )
+
+    @model_validator(mode="after")
+    def validate_target_date(self):
+        if self.target_date:
+            from datetime import date
+            try:
+                d = date.fromisoformat(self.target_date)
+            except ValueError:
+                raise ValueError("target_date inválida")
+            if d <= date.today():
+                raise ValueError("target_date deve ser uma data futura")
+        return self
+
+
+class UpdateProgressRequest(BaseModel):
+    amount_to_add: float = Field(..., gt=0, description="Valor a adicionar em R$")
+    monthly_actual: Optional[float] = Field(
+        default=None, ge=0.0,
+        description="Contribuição mensal atual detectada nas transações (opcional)",
+    )
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+
+@router.post("/{user_id}", status_code=201)
+async def create_goal(user_id: str, body: CreateGoalRequest):
+    """
+    MX.2 — Cria uma nova meta financeira para o usuário.
+
+    Calcula automaticamente a contribuição mensal necessária baseada
+    no valor restante e na data alvo.
+    """
+    from app.goals.tracker import GoalTracker
+    try:
+        goal = GoalTracker().create_goal(
+            user_id=user_id,
+            name=body.name,
+            goal_type=body.goal_type,
+            target_amount=body.target_amount,
+            current_amount=body.current_amount,
+            target_date=body.target_date,
+        )
+        return goal.to_dict()
+    except Exception as e:
+        logger.error(f"[Goals] Erro ao criar meta: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro ao criar meta financeira.")
+
+
+@router.get("/{user_id}")
+async def list_goals(
+    user_id: str,
+    status: str = Query(default="ACTIVE", description="Status: ACTIVE | COMPLETED | ABANDONED"),
+):
+    """
+    MX.2 — Lista as metas do usuário filtradas por status, com projeções.
+    """
+    from app.goals.tracker import GoalTracker
+    tracker = GoalTracker()
+    goals = tracker.list_goals(user_id=user_id, status=status)
+    return {
+        "user_id": user_id,
+        "status_filter": status,
+        "total": len(goals),
+        "goals": [
+            {
+                **g.to_dict(),
+                "projection": tracker.get_projection(g).to_dict(),
+            }
+            for g in goals
+        ],
+    }
+
+
+@router.get("/{user_id}/{goal_id}")
+async def get_goal(user_id: str, goal_id: str):
+    """
+    MX.2 — Detalhe de uma meta com projeção completa.
+    """
+    from app.goals.tracker import GoalTracker
+    tracker = GoalTracker()
+    try:
+        goal = tracker._load(goal_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail=f"Meta {goal_id} não encontrada.")
+
+    if goal.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Acesso negado.")
+
+    return {
+        **goal.to_dict(),
+        "projection": tracker.get_projection(goal).to_dict(),
+    }
+
+
+@router.patch("/{user_id}/{goal_id}/progress")
+async def update_progress(user_id: str, goal_id: str, body: UpdateProgressRequest):
+    """
+    MX.2 — Atualiza o progresso de uma meta (adiciona ao current_amount).
+
+    Se current_amount atingir target_amount, a meta é marcada como COMPLETED.
+    """
+    from app.goals.tracker import GoalTracker
+    tracker = GoalTracker()
+    try:
+        goal = tracker._load(goal_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail=f"Meta {goal_id} não encontrada.")
+
+    if goal.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Acesso negado.")
+    if goal.status != "ACTIVE":
+        raise HTTPException(status_code=422, detail=f"Meta com status '{goal.status}' não pode ser atualizada.")
+
+    updated = tracker.update_progress(
+        goal_id=goal_id,
+        amount_to_add=body.amount_to_add,
+        monthly_actual=body.monthly_actual,
+    )
+    return {
+        **updated.to_dict(),
+        "projection": tracker.get_projection(updated).to_dict(),
+    }
+
+
+@router.delete("/{user_id}/{goal_id}", status_code=200)
+async def abandon_goal(user_id: str, goal_id: str):
+    """
+    MX.2 — Abandona uma meta (marca como ABANDONED).
+    """
+    from app.goals.tracker import GoalTracker
+    tracker = GoalTracker()
+    try:
+        goal = tracker._load(goal_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail=f"Meta {goal_id} não encontrada.")
+
+    if goal.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Acesso negado.")
+
+    updated = tracker.abandon_goal(goal_id=goal_id)
+    return {"message": f"Meta '{updated.name}' abandonada.", "goal": updated.to_dict()}

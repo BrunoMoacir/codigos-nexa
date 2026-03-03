@@ -124,3 +124,7 @@ router.include_router(health_score.router)
 # 1️⃣1️⃣ Subscriptions: GET /subscriptions/{user_id} (M1.5)
 from app.api.v1.routes import subscriptions
 router.include_router(subscriptions.router)
+
+# 1️⃣2️⃣ Goals: /goals/{user_id} (MX.2)
+from app.api.v1.routes import goals
+router.include_router(goals.router)
