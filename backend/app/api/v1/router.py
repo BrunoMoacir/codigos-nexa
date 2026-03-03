@@ -121,3 +121,6 @@ router.include_router(chat.router)
 # 🔟 Health Score History: GET /health-score/history/{user_id} (MX.1)
 from app.api.v1.routes import health_score
 router.include_router(health_score.router)
+# 1️⃣1️⃣ Subscriptions: GET /subscriptions/{user_id} (M1.5)
+from app.api.v1.routes import subscriptions
+router.include_router(subscriptions.router)
