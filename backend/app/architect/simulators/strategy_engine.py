@@ -35,6 +35,7 @@ from app.architect.calculators import financing as fin_calc
 from app.architect.calculators import investment as inv_calc
 from app.architect.calculators import npv as npv_calc
 from app.architect.calculators import consortium as cons_calc
+from app.architect.connectors.ipca import deflate as ipca_deflate
 from app.architect.utils.formatters import format_currency
 
 logger = logging.getLogger(__name__)
@@ -219,9 +220,10 @@ class StrategyEngine:
     def _simulate_investment(
         self, req: SimulationRequest, rates: Dict[str, float]
     ) -> Dict[str, Any]:
-        """Simula cenário de poupar/investir (CDI)."""
-        cdi_annual = rates.get("cdi_annual", 0.1025)
+        """Simula cenário de poupar/investir (CDI) — M3.1: inclui FV real."""
+        cdi_annual    = rates.get("cdi_annual",    0.1025)
         selic_monthly = (1 + rates.get("selic_annual", 0.1075)) ** (1 / 12) - 1
+        ipca_annual   = rates.get("ipca_annual",   0.045)   # M3.1
 
         if req.max_monthly_budget:
             monthly_dep = req.max_monthly_budget
@@ -248,7 +250,9 @@ class StrategyEngine:
 
         npv_val = npv_calc.calculate_npv(cashflows, selic_monthly)
 
-        total_invested = req.down_payment + (monthly_dep * months)
+        # M3.1 — Valor futuro nominal vs. real (poder de compra de hoje)
+        fv_nominal = req.target_amount
+        fv_real    = ipca_deflate(fv_nominal, ipca_annual, years=months / 12)
 
         return {
             "type": "SAVE_INVEST",
@@ -258,6 +262,10 @@ class StrategyEngine:
             "max_cost": req.target_amount,
             "npv": npv_val,
             "months": months,
+            # M3.1 extras:
+            "fv_nominal":    round(fv_nominal, 2),
+            "fv_real":       round(fv_real, 2),
+            "ipca_annual":   ipca_annual,
         }
 
     def _simulate_consortium(
@@ -388,10 +396,21 @@ class StrategyEngine:
                     is_critical=True,
                 )
             )
+            # M3.1 — Adiciona nota sobre poder de compra real se disponível
+            months_label = scenario.get("months", req.financing_months)
+            fv_real   = scenario.get("fv_real")
+            fv_nominal = scenario.get("fv_nominal")
+            if fv_real and fv_nominal and abs(fv_real - fv_nominal) > 500:
+                inflation_note = (
+                    f" (Em poder de compra de hoje: {format_currency(fv_real)} — "
+                    f"a inflação corroi {format_currency(fv_nominal - fv_real)} do valor nominal.)"
+                )
+            else:
+                inflation_note = ""
             steps.append(
                 ActionStep(
                     step=3,
-                    action=f"Resgatar valor total em {scenario['months']} meses para compra à vista",
+                    action=f"Resgatar valor total em {months_label} meses para compra à vista{inflation_note}",
                 )
             )
 

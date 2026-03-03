@@ -35,6 +35,7 @@ from typing import Optional
 from app.architect.connectors.abac import AbacConnector
 from app.architect.connectors.anbima import AnbimaConnector
 from app.architect.connectors.bacen import BacenConnector
+from app.architect.connectors.ipca import IPCAConnector
 from app.architect.connectors.market_rates import MarketRatesConnector
 from app.architect.models import SimulationRequest, SimulationResponse, StrategyType
 from app.architect.simulators.strategy_engine import StrategyEngine
@@ -70,12 +71,14 @@ class ArchitectService:
         anbima: Optional[AnbimaConnector] = None,
         market_rates: Optional[MarketRatesConnector] = None,
         abac: Optional[AbacConnector] = None,
+        ipca: Optional[IPCAConnector] = None,
         engine: Optional[StrategyEngine] = None,
     ) -> None:
         self._bacen        = bacen        or BacenConnector()
         self._anbima       = anbima       or AnbimaConnector()
         self._market_rates = market_rates or MarketRatesConnector()
         self._abac         = abac         or AbacConnector()
+        self._ipca         = ipca         or IPCAConnector()
         self._engine       = engine       or StrategyEngine()
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -144,6 +147,9 @@ class ArchitectService:
         # ABAC sempre consultado para simulações de consórcio (Fase 2)
         if request.include_consortium and "abac" not in data_sources:
             data_sources.append("abac")
+        # IPCA — M3.1
+        if "ipca" not in data_sources:
+            data_sources.append("ipca")
 
         # ── 7. Montar resposta final ─────────────────────────────────
         return base_response.model_copy(
@@ -252,10 +258,19 @@ class ArchitectService:
             consortium_reserve_fund_rate = 0.02
             warnings.append("Estatísticas de consórcio obtidas de dados de referência (ABAC indisponível).")
 
+        # IPCA — M3.1: ajuste por inflação
+        try:
+            ipca_annual = self._ipca.get_ipca()
+        except Exception as exc:
+            logger.warning("IPCA indisponível: %s — usando fallback", exc)
+            ipca_annual = self._ipca.get_fallback_rates()["ipca_annual"]
+            warnings.append("IPCA obtido de dados de referência (BCB indisponível).")
+
         return {
             "selic_annual":                selic,
             "cdi_annual":                  cdi,
             "best_cet_annual":             best_cet,
+            "ipca_annual":                 ipca_annual,
             "consortium_admin_rate":        consortium_admin_rate,
             "consortium_months":            consortium_months,
             "consortium_reserve_fund_rate": consortium_reserve_fund_rate,
