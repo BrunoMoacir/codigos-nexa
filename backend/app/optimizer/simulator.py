@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 
+from app.optimizer.miles_valuator import get_valuator
 from app.optimizer.models import (
     BenefitTag,
     CardRecord,
@@ -68,7 +69,7 @@ class CardSimulator:
         annuity_effective, annuity_waived = self._compute_annuity(card, spend_annual)
 
         values = {
-            scenario: self._compute_benefit_value(card, spend_annual * factor, profile)
+            scenario: self._compute_benefit_value(card, spend_annual * factor, profile, scenario)
             for scenario, factor in _SCENARIO_FACTORS.items()
         }
 
@@ -137,8 +138,14 @@ class CardSimulator:
         card: CardRecord,
         spend_annual_scaled: float,
         profile: "UserProfile | None" = None,
+        scenario: str = "expected",
     ) -> float:
         """Calcula o valor monetário dos benefícios para um dado gasto anual.
+
+        M2.3: Para cartões POINTS com `loyalty_program` definido, usa o
+        MilesValuator para aplicar taxa de conversão dinâmica por cenário de
+        resgate (pessimistic/expected/optimistic). Sem loyalty_program, usa
+        points_conversion_rate fixo do CardRecord (compatibilidade retroativa).
 
         M2.5: Se o cartão tem `cashback_categories` definidas, usa taxas por
         categoria cruzando com o `profile.spend_by_category`. Para categorias
@@ -150,7 +157,17 @@ class CardSimulator:
             points_conversion_rate = R$ por 1.000 pontos/milhas.
         """
         if card.card_type == CardType.POINTS:
-            if not card.points_per_brl or card.points_conversion_rate == 0:
+            if not card.points_per_brl:
+                return 0.0
+            # M2.3: valoração dinâmica via programa de fidelidade
+            if card.loyalty_program:
+                value = get_valuator().compute_points_value(
+                    card.points_per_brl, spend_annual_scaled, card.loyalty_program, scenario
+                )
+                if value > 0:
+                    return value
+            # Fallback: taxa fixa do CardRecord
+            if card.points_conversion_rate == 0:
                 return 0.0
             points = spend_annual_scaled * card.points_per_brl
             return (points / 1000) * card.points_conversion_rate
@@ -437,7 +454,8 @@ class CardSimulator:
         annuity_paid, annuity_waived = self._compute_annuity(card, spend_annual)
 
         # 2. Valor gerado em pontos/cashback com o gasto atual
-        reward_value = self._compute_benefit_value(card, spend_annual)
+        # Passa profile (M2.5: cashback por categoria) e scenario="expected" (M2.3: taxa dinâmica)
+        reward_value = self._compute_benefit_value(card, spend_annual, profile, "expected")
         net_roi = reward_value - annuity_paid
 
         # 3. Quanto falta gastar para isentar a anuidade

@@ -11,7 +11,7 @@
 
 | Funcionalidade | Melhorias propostas | Impacto estimado | Status |
 |---|---|---|---|
-| **F2 — Optimizer** | 6 melhorias (incluindo custo de oportunidade e estratégia multi-cartão) | 🔴 Alto | M2.1 ✅ M2.2 ✅ M2.4 ✅ M2.5 ✅ M2.6 ✅ |
+| **F2 — Optimizer** | 6 melhorias (incluindo custo de oportunidade e estratégia multi-cartão) | 🔴 Alto | M2.1 ✅ M2.2 ✅ M2.3 ✅ M2.4 ✅ M2.5 ✅ M2.6 ✅ |
 | **F1 — Core Engine** | 5 melhorias (anomalias, alertas de velocidade, orçamento inteligente) | 🔴 Alto | M1.1 ✅ M1.2 ✅ M1.4→IncomeProfiler ✅ M1.5 ✅ |
 | **F3 — Architect** | 4 melhorias (inflação, IR, custo de oportunidade cruzado) | 🟡 Médio | M3.1 ✅ M3.2 ✅ M3.4 ✅ |
 | **F4 — PF/PJ** | 3 melhorias (relatório fiscal, categorização PJ granular) | 🟡 Médio | — |
@@ -1120,8 +1120,8 @@ O LLM então pode perguntar ao usuário antes de apresentar as recomendações.
 |---|---|---|---|---|
 | 16 | MI.7 — forecast.py expõe income_profile | API/IncomeProfile | 0.5 dia | ✅ Feito |
 | 17 | MI.8 — Agent tool sinaliza confidence ao LLM | Agent/IncomeProfile | 0.5 dia | ✅ Feito |
-| 18 | MX.1 — Score com Evolução Temporal | Cross | 1-2 dias | ⏳ Pendente |
-| 19 | M2.3 — Valoração de Milhas | F2 | 1-2 dias | ⏳ Pendente |
+| 18 | MX.1 — Score com Evolução Temporal | Cross | 1-2 dias | ✅ Feito |
+| 19 | M2.3 — Valoração de Milhas | F2 | 1-2 dias | ✅ Feito (2026-03-03) |
 | 20 | M3.1 — Inflação (IPCA) | F3 | 1 dia | ✅ Feito (2026-03-03) |
 | 21 | M3.4 — "E se eu esperar?" | F3 | 2-3 dias | ✅ Feito (2026-03-03) |
 | 22 | M1.3 — Orçamento Inteligente | F1 | 2 dias | ⏳ Pendente |

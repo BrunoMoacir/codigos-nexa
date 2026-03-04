@@ -1,0 +1,43 @@
+{
+  "_comment": "M2.3 — Valoração de milhas por programa de fidelidade. Valores em R$ por 1.000 pontos/milhas. Fonte: estimativas de mercado baseadas em pesquisas de resgate (Mar/2026).",
+  "livelo": {
+    "pessimistic_per_1000": 8.0,
+    "expected_per_1000": 16.0,
+    "optimistic_per_1000": 28.0,
+    "description": "Livelo — resgate pessimista: produtos no marketplace. Esperado: transferência para aéreas (LATAM, Azul). Otimista: promoção de transferência com bônus.",
+    "transfer_partners": ["LATAM Pass", "Azul Fidelidade", "GOL Smiles", "TAP Miles&Go"],
+    "last_updated": "2026-03-01"
+  },
+  "nu_pontos": {
+    "pessimistic_per_1000": 8.0,
+    "expected_per_1000": 14.0,
+    "optimistic_per_1000": 22.0,
+    "description": "Nu pontos (Nubank) — transferência 1:1 para Livelo e então para aéreas. Taxa levemente inferior ao Livelo nativo pela conversão intermediária.",
+    "transfer_partners": ["Livelo", "LATAM Pass", "Azul Fidelidade", "TAP Miles&Go"],
+    "last_updated": "2026-03-01"
+  },
+  "atomos": {
+    "pessimistic_per_1000": 7.0,
+    "expected_per_1000": 14.0,
+    "optimistic_per_1000": 24.0,
+    "description": "C6 Átomos — resgate pessimista: cashback no app. Esperado: transferência para LATAM Pass ou Azul. Otimista: promoções sazonais com bônus de transferência.",
+    "transfer_partners": ["LATAM Pass", "Azul Fidelidade"],
+    "last_updated": "2026-03-01"
+  },
+  "smiles": {
+    "pessimistic_per_1000": 12.0,
+    "expected_per_1000": 22.0,
+    "optimistic_per_1000": 40.0,
+    "description": "Smiles (GOL) — resgate pessimista: produtos/serviços. Esperado: passagens GOL. Otimista: passagens internacionais via parceiros (Air France, KLM) ou promoções.",
+    "transfer_partners": ["GOL", "Air France", "KLM", "Iberia"],
+    "last_updated": "2026-03-01"
+  },
+  "pontos_itau": {
+    "pessimistic_per_1000": 10.0,
+    "expected_per_1000": 20.0,
+    "optimistic_per_1000": 32.0,
+    "description": "Pontos Itaú — transferência para Livelo, LATAM Pass ou Azul via programa nativo. Boa relação custo-benefício para clientes Personnalité/Uniclass.",
+    "transfer_partners": ["Livelo", "LATAM Pass", "Azul Fidelidade"],
+    "last_updated": "2026-03-01"
+  }
+}

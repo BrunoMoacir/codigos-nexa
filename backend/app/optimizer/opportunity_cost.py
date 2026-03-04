@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from app.optimizer.miles_valuator import get_valuator
 from app.optimizer.models import CardRecord, CardType
 from app.optimizer.profiler import UserProfile
 
@@ -136,6 +137,9 @@ def _compute_card_reward(card: CardRecord, total_spend: float, months: int) -> f
     Espelha a lógica de CardSimulator._compute_benefit_value() mas opera sobre
     o gasto total do período (não anualizado), aplicando o cashback_cap por mês.
 
+    M2.3: Para cartões POINTS com loyalty_program, usa o cenário "expected"
+    do MilesValuator em vez da taxa fixa do CardRecord.
+
     Args:
         card: Cartão a simular
         total_spend: Gasto total no período (R$)
@@ -145,7 +149,17 @@ def _compute_card_reward(card: CardRecord, total_spend: float, months: int) -> f
         Valor total de recompensas no período (R$)
     """
     if card.card_type == CardType.POINTS:
-        if not card.points_per_brl or card.points_conversion_rate == 0:
+        if not card.points_per_brl:
+            return 0.0
+        # M2.3: valoração dinâmica via programa de fidelidade (cenário esperado)
+        if card.loyalty_program:
+            value = get_valuator().compute_points_value(
+                card.points_per_brl, total_spend, card.loyalty_program, "expected"
+            )
+            if value > 0:
+                return value
+        # Fallback: taxa fixa
+        if card.points_conversion_rate == 0:
             return 0.0
         points = total_spend * card.points_per_brl
         return (points / 1000) * card.points_conversion_rate

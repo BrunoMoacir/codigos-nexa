@@ -102,6 +102,8 @@ class CardRecord(BaseModel):
     points_per_brl: Optional[float] = None
     points_currency: str = "pontos"
     points_conversion_rate: float = 0.0
+    # M2.3: programa de fidelidade para valoração dinâmica (livelo, nu_pontos, atomos, smiles, pontos_itau)
+    loyalty_program: Optional[str] = None
     benefit_tags: list[BenefitTag] = []
     benefits_detail: list[str] = []
     revolving_interest_monthly: float = 0.0
@@ -170,7 +172,7 @@ class CurrentCardROI(BaseModel):
     reward_value_generated: float            # valor de pontos/cashback gerado com gasto atual (R$/ano)
     net_roi: float                           # reward - annuity (negativo = prejuízo)
     annuity_waived: bool                     # anuidade está isenta pelo volume de gasto?
-    spend_needed_for_waiver: Optional[float] = None  # quanto gastar/mês p/ isentar (None se já isento ou sem threshold)
+    spend_needed_for_waiver: Optional[float] = None  # gasto mensal adicional necessário para isentar (assume 12 meses uniformes; None se já isento ou sem threshold)
     months_to_reach_waiver: Optional[float] = None   # meses no ritmo atual p/ alcançar threshold
     benefits_used: list[str] = []            # benefícios que o perfil indica uso
     benefits_unused: list[str] = []          # benefícios que o perfil NÃO usa
