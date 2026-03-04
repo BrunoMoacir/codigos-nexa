@@ -66,14 +66,21 @@ async def get_subscriptions(
                 "SELECT * FROM transactions_clean WHERE user_id = ?",
                 [user_id],
             ).pl()
-        except duckdb.CatalogException:
-            logger.warning(f"[Subscriptions] transactions_clean não encontrada para user={user_id}")
-            transactions_df = pl.DataFrame()
+        except (duckdb.CatalogException, duckdb.BinderException):
+            # Tabela não existe ou não tem coluna user_id — busca sem filtro (modo dev)
+            try:
+                transactions_df = con.execute(
+                    "SELECT * FROM transactions_clean"
+                ).pl()
+            except duckdb.CatalogException:
+                logger.warning(f"[Subscriptions] transactions_clean não encontrada para user={user_id}")
+                transactions_df = pl.DataFrame()
         finally:
             con.close()
     except Exception as e:
         logger.error(f"[Subscriptions] Erro ao buscar transações: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao acessar dados do usuário.")
+
 
     if transactions_df.is_empty():
         raise HTTPException(
@@ -82,14 +89,13 @@ async def get_subscriptions(
         )
 
     # 2. Filtrar pela janela de meses solicitada
-    if "date" in transactions_df.columns:
-        from datetime import date as _date
-        from dateutil.relativedelta import relativedelta
-
-        cutoff = (_date.today()).replace(day=1)
-        for _ in range(months - 1):
-            cutoff = (cutoff - _date(cutoff.year, cutoff.month, 1) + _date(cutoff.year, cutoff.month, 1)).replace(day=1)
-            # relativedelta mais simples:
+    if "transaction_date" in transactions_df.columns:
+        import datetime
+        cutoff = datetime.date.today() - datetime.timedelta(days=months * 30)
+        transactions_df = transactions_df.filter(
+            pl.col("transaction_date").cast(pl.Date) >= cutoff
+        )
+    elif "date" in transactions_df.columns:
         import datetime
         cutoff = datetime.date.today() - datetime.timedelta(days=months * 30)
         transactions_df = transactions_df.filter(

@@ -257,6 +257,11 @@ class BurnRateAnalyzer:
         if df.schema.get("transaction_date") != pl.Datetime:
             df = df.with_columns(pl.col("transaction_date").cast(pl.Datetime))
 
+        # Garantir que 'category' seja sempre String (evita SchemaError com DB vazio / null-typed)
+        if "category" in df.columns and df.schema.get("category") == pl.Null:
+            df = df.with_columns(pl.col("category").cast(pl.Utf8))
+
+
         # Coluna year-month como string para uso com is_in() — mais idiomático
         # e eficiente do que construir máscaras booleanas aninhadas via loop.
         df = df.with_columns([
