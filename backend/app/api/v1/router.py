@@ -132,3 +132,8 @@ router.include_router(goals.router)
 # 1️⃣3️⃣ Budget: /budget/{user_id} (M1.3 — Orçamento Inteligente)
 from app.api.v1.routes import budget
 router.include_router(budget.router)
+
+# 1️⃣4️⃣ Notifications: /notifications/{user_id} (MX.3 — Notificações Proativas)
+from app.api.v1.routes import notifications
+router.include_router(notifications.router)
+

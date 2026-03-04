@@ -15,7 +15,7 @@
 | **F1 — Core Engine** | 5 melhorias (anomalias, alertas de velocidade, orçamento inteligente) | 🔴 Alto | M1.1 ✅ M1.2 ✅ M1.3 ✅ M1.4→IncomeProfiler ✅ M1.5 ✅ |
 | **F3 — Architect** | 4 melhorias (inflação, IR, custo de oportunidade cruzado) | 🟡 Médio | M3.1 ✅ M3.2 ✅ M3.4 ✅ |
 | **F4 — PF/PJ** | 3 melhorias (relatório fiscal, categorização PJ granular) | 🟡 Médio | — |
-| **Cross-functional** | 4 melhorias (score temporal, metas, notificações) | 🔴 Alto | MX.1 ✅ MX.2 ✅ |
+| **Cross-functional** | 4 melhorias (score temporal, metas, notificações) | 🔴 Alto | MX.1 ✅ MX.2 ✅ MX.3 ✅ |
 | **IncomeProfile — Integração** | 8 oportunidades de precisão derivadas do IncomeProfiler | 🔴 Alto | 8/8 ✅ |
 
 ---
@@ -1125,7 +1125,7 @@ O LLM então pode perguntar ao usuário antes de apresentar as recomendações.
 | 20 | M3.1 — Inflação (IPCA) | F3 | 1 dia | ✅ Feito (2026-03-03) |
 | 21 | M3.4 — "E se eu esperar?" | F3 | 2-3 dias | ✅ Feito (2026-03-03) |
 | 22 | M1.3 — Orçamento Inteligente | F1 | 2 dias | ✅ Feito (2026-03-04) |
-| 23 | MX.3 — Notificações Proativas | Cross | 2-3 dias | ⏳ Pendente |
+| 23 | MX.3 — Notificações Proativas | Cross | 2-3 dias | ✅ Feito (2026-03-04) |
 
 ### V2 (Futuro)
 
