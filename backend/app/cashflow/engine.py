@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Optional
 from app.cashflow.projector import CashflowProjector
 from app.cashflow.safe_to_spend import SafeToSpendCalculator
 from app.cashflow.burn_rate import BurnRateAnalyzer
+from app.cashflow.budget_advisor import BudgetAdvisor
 
 if TYPE_CHECKING:
     from app.etl.income_profiler import IncomeProfile
@@ -42,6 +43,7 @@ class CashflowEngine:
         self.projector = CashflowProjector(horizon_days=30)
         self.safe_to_spend = SafeToSpendCalculator(safety_buffer_pct=0.15)
         self.burn_rate = BurnRateAnalyzer()
+        self.budget_advisor = BudgetAdvisor()  # M1.3
 
     def analyze(
         self,
@@ -143,7 +145,7 @@ class CashflowEngine:
         # projection["data"] pode ser grande em horizon alto — omitível via flag
         projection_daily = projection_df.to_dicts() if include_daily_data else []
 
-        return {
+        result = {
             "projection": {
                 "summary": projection_summary.to_dict(),
                 "data": projection_daily,
@@ -157,3 +159,19 @@ class CashflowEngine:
             },
             "burn_rate": burn_rate_result.to_dict()
         }
+
+        # M1.3 — Orçamento inteligente: incluído quando renda mensal está disponível
+        if monthly_income and monthly_income > 0:
+            try:
+                budget_result = self.budget_advisor.suggest(
+                    transactions_df=transactions_df,
+                    monthly_income=monthly_income,
+                )
+                result["budget_advice"] = budget_result.to_dict()
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "BudgetAdvisor falhou — omitindo 'budget_advice': %s", exc
+                )
+
+        return result

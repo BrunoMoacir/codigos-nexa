@@ -6,6 +6,7 @@ COMPONENTES:
     - CashflowProjector: Projeção diária (30 dias)
     - SafeToSpendCalculator: Cálculo de gastos seguros  
     - CashflowEngine: Orquestrador completo
+    - BudgetAdvisor: Orçamento inteligente 50/30/20 (M1.3)
 
 USAGE BÁSICO (RECOMENDADO):
     from app.cashflow import CashflowEngine
@@ -14,13 +15,13 @@ USAGE BÁSICO (RECOMENDADO):
     result = engine.analyze(transactions_df, shadow_invoices_df)
 
 USAGE AVANÇADO (Componentes individuais):
-    from app.cashflow import CashflowProjector, SafeToSpendCalculator
+    from app.cashflow import CashflowProjector, SafeToSpendCalculator, BudgetAdvisor
     
     projector = CashflowProjector(horizon_days=30)
     projection_df = projector.project(transactions_df, shadow_df)
     
-    calculator = SafeToSpendCalculator()
-    sts = calculator.calculate(projection_df, 30)
+    advisor = BudgetAdvisor()
+    suggestion = advisor.suggest(transactions_df, monthly_income=8000.0)
 """
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -31,6 +32,14 @@ from .projector import CashflowProjector, ProjectionSummary
 from .safe_to_spend import SafeToSpendCalculator, SafeToSpendResult
 from .burn_rate import BurnRateAnalyzer, BurnRateReport, CategoryBurnRate
 from .engine import CashflowEngine
+from .budget_advisor import (
+    BudgetAdvisor,
+    BudgetSuggestion,
+    CategoryAllocation,
+    BudgetCut,
+    GroupSummary,
+    suggest_budget,
+)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # API PÚBLICA
@@ -45,7 +54,14 @@ __all__ = [
     "BurnRateReport",
     "CategoryBurnRate",
     "CashflowEngine",
+    # M1.3 — Orçamento Inteligente
+    "BudgetAdvisor",
+    "BudgetSuggestion",
+    "CategoryAllocation",
+    "BudgetCut",
+    "GroupSummary",
+    "suggest_budget",
 ]
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 __author__ = "Nexa AI Team"

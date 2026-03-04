@@ -128,3 +128,7 @@ router.include_router(subscriptions.router)
 # 1️⃣2️⃣ Goals: /goals/{user_id} (MX.2)
 from app.api.v1.routes import goals
 router.include_router(goals.router)
+
+# 1️⃣3️⃣ Budget: /budget/{user_id} (M1.3 — Orçamento Inteligente)
+from app.api.v1.routes import budget
+router.include_router(budget.router)
