@@ -1,51 +1,120 @@
+# app/agent/graph.py
+"""
+Agente ReAct Nexa — Inteligência Financeira Conversacional
+
+Ferramentas disponíveis:
+  1. get_financial_forecast   → Resumo financeiro, safe-to-spend, health score
+  2. get_budget_advice        → Plano 50/30/20, análise de gastos por categoria
+  3. get_card_optimization    → Melhor cartão de crédito para o perfil
+  4. get_spending_alerts      → Alertas ativos + notificações proativas
+  5. get_goals_summary        → Metas financeiras e progresso
+"""
 import logging
-from typing import TypedDict, Annotated, Sequence
 from langchain_core.messages import BaseMessage
-from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import create_react_agent
 from app.core.config import settings
 
-# Import the new tool for F2
 from app.agent.tools.get_card_optimization import get_card_optimization
+from app.agent.tools.get_financial_forecast import get_financial_forecast
+from app.agent.tools.get_budget_advice import get_budget_advice
+from app.agent.tools.get_spending_alerts import get_spending_alerts
+from app.agent.tools.get_goals_summary import get_goals_summary
 
 logger = logging.getLogger(__name__)
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# SYSTEM PROMPT — instrui o LLM a usar as ferramentas proativamente
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SYSTEM_PROMPT = """Você é o Nexa, um assistente de inteligência financeira pessoal altamente proativo e preciso.
+
+## REGRA PRINCIPAL — USE SEMPRE AS FERRAMENTAS ANTES DE PEDIR MAIS INFORMAÇÕES:
+Você TEM acesso a dados financeiros reais do usuário. SEMPRE tente chamar a ferramenta relevante primeiro.
+Só peça informações adicionais se a ferramenta retornar que os dados são insuficientes.
+
+## QUANDO USAR CADA FERRAMENTA:
+
+### `get_financial_forecast(user_id, monthly_income=None)`
+USE QUANDO o usuário perguntar sobre:
+- "Resumo do meu perfil / situação financeira"
+- "Como estão minhas finanças?"
+- "Quanto posso gastar este mês?"
+- "Qual minha saúde financeira / score?"
+- Qualquer pergunta geral sobre a situação financeira
+
+### `get_budget_advice(user_id, monthly_income)`
+USE QUANDO o usuário perguntar sobre:
+- "Como está meu orçamento?"
+- "Estou gastando bem?" / "Posso gastar mais em X?"
+- "Como dividir meu salário?"
+- "Regra 50/30/20" ou planejamento de gastos
+- Se o usuário MENCIONAR uma renda (ex: "minha renda é R$ 8.500"), USE IMEDIATAMENTE esta tool.
+
+### `get_card_optimization(user_id, monthly_income=None, safe_to_spend=None)`
+USE QUANDO o usuário perguntar sobre:
+- "Qual cartão devo pedir?"
+- "Qual cartão vale mais a pena para mim?"
+- Pontos, milhas, cashback, anuidade
+- Se o usuário mencionar gastos por categoria para indicação de cartão
+
+### `get_spending_alerts(user_id, monthly_income=None)`
+USE QUANDO o usuário perguntar sobre:
+- "Tem algum alerta / aviso nas minhas finanças?"
+- "Algum gasto estranho ou anormal?"
+- "O que devo me preocupar este mês?"
+- Notificações, anomalias, assinaturas esquecidas
+
+### `get_goals_summary(user_id, monthly_savings=None)`
+USE QUANDO o usuário perguntar sobre:
+- Metas financeiras (reserva de emergência, viagem, imóvel, etc.)
+- "Quanto falta para minha meta?"
+- Progresso de poupança
+
+## REGRAS DE COMPORTAMENTO:
+1. **NUNCA peça informações que já estão na mensagem do usuário** — se o usuário disse "minha renda é R$ 8.500", use esse valor diretamente na tool.
+2. **SEMPRE chame a ferramenta** quando a pergunta se encaixar nos critérios acima — mesmo sem dados explícitos.
+3. **Interprete os resultados das ferramentas** em linguagem natural, clara e objetiva em português brasileiro.
+4. **Seja direto**: dê a resposta principal na primeira frase, detalhes depois.
+5. **Nunca exiba JSON ou dados brutos** — sempre converta para texto amigável.
+6. Se a ferramenta retornar dados insuficientes, proponha ações concretas (conectar banco, informar renda, etc.).
+"""
+
+
 def build_financial_agent():
     """
-    Constrói o agente LangGraph usando um modelo pré-construído ReAct.
-    Este agente é capaz de "raciocinar" e invocar ferramentas iterativamente
-    baseado na pergunta do usuário.
+    Constrói o agente LangGraph ReAct com todas as ferramentas financeiras disponíveis.
     """
-    # 1. Lista de ferramentas disponíveis (Skills)
-    tools = [get_card_optimization]
-    
-    # 2. Inicializa o LLM (O Cérebro)
-    # Requer langchain-openai e a chave no .env
+    # 1. Todas as ferramentas disponíveis
+    tools = [
+        get_financial_forecast,
+        get_budget_advice,
+        get_card_optimization,
+        get_spending_alerts,
+        get_goals_summary,
+    ]
+
+    # 2. LLM
     from langchain_openai import ChatOpenAI
-    
+
     if not settings.OPENAI_API_KEY:
-        logger.warning("[Agent] OPENAI_API_KEY não configurada! O agente VAI falhar ao ser chamado se não estiver no teste unitário mockado.")
-        llm = ChatOpenAI(api_key="mock", model="gpt-4o-mini") # Placeholder to not break instantiation
+        logger.warning(
+            "[Agent] OPENAI_API_KEY não configurada! "
+            "O agente falhará ao ser chamado fora de testes mockados."
+        )
+        llm = ChatOpenAI(api_key="mock", model="gpt-4o-mini")
     else:
         llm = ChatOpenAI(
-            api_key=settings.OPENAI_API_KEY, 
-            model="gpt-4o-mini", 
-            temperature=0.0
+            api_key=settings.OPENAI_API_KEY,
+            model="gpt-4o-mini",
+            temperature=0.0,
         )
-    
-    # 3. Prompt do Sistema
-    system_message = (
-        "Você é o Nexa, um assistente de inteligência financeira corporativa de alto nível.\n"
-        "Seu objetivo é dar conselhos precisos sobre como o usuário pode otimizar as próprias finanças.\n\n"
-        "Quando perguntado sobre 'qual cartão de crédito obter', você DEVE SEMPRE:\n"
-        "1. Obter a renda mensal (monthly_income) ou os gastos mensais (safe_to_spend) do usuário conversionalmente SE NÃO foram informados logo de cara.\n"
-        "2. Chamar a ferramenta `get_card_optimization` passando estes parâmetros junto com o `user_id`.\n"
-        "3. Interpretar o output da ferramenta e devolver o resultado de forma clara, natural e elegante. Jamais despeje dados brutos de programação (como JSON)."
+
+    # 3. Agente ReAct
+    app = create_react_agent(llm, tools=tools, prompt=SYSTEM_PROMPT)
+
+    logger.info(
+        f"[Agent] Agente Nexa construído com {len(tools)} ferramentas: "
+        + ", ".join(t.name for t in tools)
     )
-    
-    # 4. Cria o Agente ReAct
-    # langgraph.prebuilt.create_react_agent faz o trabalho pesado de amarrar o StateGraph de chat sozinho!
-    # Nota: Em LangGraph 1.0.9+ usamos 'prompt' para o system prompt
-    app = create_react_agent(llm, tools=tools, prompt=system_message)
-    
+
     return app
