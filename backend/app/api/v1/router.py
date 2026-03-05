@@ -137,3 +137,7 @@ router.include_router(budget.router)
 from app.api.v1.routes import notifications
 router.include_router(notifications.router)
 
+# 1️⃣5️⃣ Fiscal Report: /fiscal-report/{user_id} (M4.1 — Relatório Fiscal PJ)
+from app.api.v1.routes import fiscal_report
+router.include_router(fiscal_report.router)
+

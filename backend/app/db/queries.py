@@ -164,9 +164,15 @@ def save_transactions_clean(
                 context_type             VARCHAR,
                 context_confidence       DOUBLE,
                 context_override_by_user BOOLEAN DEFAULT FALSE,
+                pj_subcategory           VARCHAR,
                 processed_at             TIMESTAMP DEFAULT current_timestamp
             )
         """)
+        # Adiciona coluna em tabelas existentes criadas antes dessa versão
+        try:
+            con.execute("ALTER TABLE transactions_clean ADD COLUMN IF NOT EXISTS pj_subcategory VARCHAR")
+        except Exception:
+            pass  # coluna ja existe
 
         # Adicionar colunas obrigatórias ausentes
         if "user_id" not in df.columns:
@@ -189,7 +195,7 @@ def save_transactions_clean(
             "transaction_id", "user_id", "account_id", "description",
             "amount", "date", "transaction_type", "category",
             "is_recurring", "is_installment", "context_type",
-            "context_confidence", "context_override_by_user",
+            "context_confidence", "context_override_by_user", "pj_subcategory",
         ]
         cols_to_save = [c for c in schema_cols if c in df.columns]
         df_to_save = df.select(cols_to_save)

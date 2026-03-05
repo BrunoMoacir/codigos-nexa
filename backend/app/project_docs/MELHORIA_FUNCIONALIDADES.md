@@ -3,7 +3,7 @@
 > Propostas concretas para tornar cada funcionalidade mais completa e valiosa.
 > Organizadas por impacto ao usuário × esforço de implementação.
 >
-> Gerado em: 2026-02-28 — Atualizado em: 2026-03-03
+> Gerado em: 2026-02-28 — Atualizado em: 2026-03-05
 
 ---
 
@@ -14,7 +14,7 @@
 | **F2 — Optimizer** | 6 melhorias (incluindo custo de oportunidade e estratégia multi-cartão) | 🔴 Alto | M2.1 ✅ M2.2 ✅ M2.3 ✅ M2.4 ✅ M2.5 ✅ M2.6 ✅ |
 | **F1 — Core Engine** | 5 melhorias (anomalias, alertas de velocidade, orçamento inteligente) | 🔴 Alto | M1.1 ✅ M1.2 ✅ M1.3 ✅ M1.4→IncomeProfiler ✅ M1.5 ✅ |
 | **F3 — Architect** | 4 melhorias (inflação, IR, custo de oportunidade cruzado) | 🟡 Médio | M3.1 ✅ M3.2 ✅ M3.4 ✅ |
-| **F4 — PF/PJ** | 3 melhorias (relatório fiscal, categorização PJ granular) | 🟡 Médio | — |
+| **F4 — PF/PJ** | 3 melhorias (relatório fiscal, categorização PJ granular) | 🟡 Médio | M4.1 ✅ M4.2 ✅ M4.3 ✅ |
 | **Cross-functional** | 4 melhorias (score temporal, metas, notificações) | 🔴 Alto | MX.1 ✅ MX.2 ✅ MX.3 ✅ |
 | **IncomeProfile — Integração** | 8 oportunidades de precisão derivadas do IncomeProfiler | 🔴 Alto | 8/8 ✅ |
 
@@ -1127,16 +1127,30 @@ O LLM então pode perguntar ao usuário antes de apresentar as recomendações.
 | 22 | M1.3 — Orçamento Inteligente | F1 | 2 dias | ✅ Feito (2026-03-04) |
 | 23 | MX.3 — Notificações Proativas | Cross | 2-3 dias | ✅ Feito (2026-03-04) |
 
+### Sprint 4 (F4 completo — 2026-03-05) — ✅ CONCLUÍDA
+
+| # | Melhoria | Funcionalidade | Esforço | Status |
+|---|---|---|---|---|
+| 24 | M4.2 — Categorização PJ Granular | F4 | 1 dia | ✅ Feito (2026-03-05) |
+| 25 | M4.1 — Relatório Fiscal Automatizado | F4 | 1-2 dias | ✅ Feito (2026-03-05) |
+| 26 | M4.3 — Detecção de Uso Misto | F4 | 1 dia | ✅ Feito (2026-03-05) |
+
+**Arquivos criados/modificados:**
+- `app/etl/pj_subcategory_classifier.py` — subcategorias granulares PJ (10 categorias, keywords + regex)
+- `app/etl/pf_pj_classifier.py` — integração: agora emite coluna `pj_subcategory` no batch
+- `app/etl/fiscal_report.py` — FiscalReportService: relatório mensal/anual com DAS (Simples Nacional Anexo III)
+- `app/etl/mixed_use_detector.py` — MixedUseDetector: 8 regras de uso misto com percentuais fiscais
+- `app/api/v1/routes/fiscal_report.py` — endpoints `GET /fiscal-report/{user_id}` e `/{user_id}/mixed-use`
+- `app/db/queries.py` — `transactions_clean` agora persiste `pj_subcategory`
+- `app/api/v1/router.py` — rota fiscal_report registrada
+
 ### V2 (Futuro)
 
 | # | Melhoria | Funcionalidade |
 |---|---|---|
-| 17 | M2.6 — Promoções de Transferência | F2 | ✅ Feito (2026-03-03) |
-| 18 | M3.3 — Custo de Oportunidade Cruzado | F3 |
-| 19 | M4.1 — Relatório Fiscal | F4 |
-| 20 | M4.2 — Categorização PJ Granular | F4 |
-| 21 | M4.3 — Uso Misto | F4 |
-| 22 | MX.4 — Comparação com Pares | Cross |
+| 27 | M2.6 — Promoções de Transferência | F2 | ✅ Feito (2026-03-03) |
+| 28 | M3.3 — Custo de Oportunidade Cruzado F3↔F2 | F3 |
+| 29 | MX.4 — Comparação com Pares | Cross |
 
 ---
 

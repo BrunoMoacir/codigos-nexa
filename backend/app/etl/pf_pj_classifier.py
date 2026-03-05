@@ -21,6 +21,8 @@ import re
 from typing import Dict, Any, Optional
 import math
 
+from app.etl.pj_subcategory_classifier import get_pj_subcategory_classifier
+
 logger = logging.getLogger(__name__)
 
 class PFPJClassifier:
@@ -70,34 +72,37 @@ class PFPJClassifier:
 
     def classify_batch(self, transactions_df: pl.DataFrame) -> pl.DataFrame:
         """
-        Classifica batch de transações PF/PJ.
+        Classifica batch de transações PF/PJ e adiciona subcategoria para PJ.
 
         Args:
             transactions_df: DataFrame com transações (depois do ETL Ingestor)
 
         Returns:
-            DataFrame com coluna 'pf_pj_label' adicionada
+            DataFrame com colunas 'pf_pj_label' e 'pj_subcategory' adicionadas.
+            'pj_subcategory' é None para transações PF/UNCERTAIN.
         """
-        logger.info(f"🏷️  Classificando {len(transactions_df)} transações PF/PJ...")
+        logger.info(f"Classificando {len(transactions_df)} transacoes PF/PJ...")
 
-        # Adiciona coluna de classificação
-        classifications = []
+        rows = list(transactions_df.iter_rows(named=True))
+        classifications = [self._classify_single(row) for row in rows]
 
-        for row in transactions_df.iter_rows(named=True):
-            classification = self._classify_single(row)
-            classifications.append(classification)
+        # Subcategoria PJ: só classifica quem foi rotulado PJ
+        pj_classifier = get_pj_subcategory_classifier()
+        subcategories = [
+            pj_classifier.classify(row) if label == "PJ" else None
+            for row, label in zip(rows, classifications)
+        ]
 
-        # Adiciona ao DataFrame
-        result_df = transactions_df.with_columns(
-            pl.Series("pf_pj_label", classifications)
-        )
+        result_df = transactions_df.with_columns([
+            pl.Series("pf_pj_label", classifications),
+            pl.Series("pj_subcategory", subcategories),
+        ])
 
-        # Conta resultados
-        pf_count = len(result_df.filter(pl.col("pf_pj_label") == "PF"))
-        pj_count = len(result_df.filter(pl.col("pf_pj_label") == "PJ"))
-        uncertain_count = len(result_df.filter(pl.col("pf_pj_label") == "UNCERTAIN"))
+        pf_count = classifications.count("PF")
+        pj_count = classifications.count("PJ")
+        uncertain_count = classifications.count("UNCERTAIN")
 
-        logger.info(f"   ✅ Classificação completa: PF={pf_count}, PJ={pj_count}, UNCERTAIN={uncertain_count}")
+        logger.info(f"Classificacao completa: PF={pf_count}, PJ={pj_count}, UNCERTAIN={uncertain_count}")
 
         return result_df
 
