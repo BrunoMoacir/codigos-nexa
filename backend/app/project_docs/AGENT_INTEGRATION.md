@@ -1,8 +1,9 @@
 # AGENT_INTEGRATION.md
 # Como toda a inteligência do projeto chega ao agente Nexa
 
-> Versão: 2026-03-05
+> Versão: 2026-03-05 (atualizado: 2026-03-05)
 > Escopo: Mapeamento completo de módulos → ferramentas do agente → resposta ao usuário
+> Status: COBERTURA COMPLETA — todas as features têm tool no agente
 
 ---
 
@@ -19,11 +20,14 @@ build_financial_agent()          ← app/agent/graph.py
     │  LangGraph ReAct (GPT-4o-mini)
     │  System prompt instrui quando usar cada tool
     │
-    ├─► get_financial_forecast    ← NexaRunner (pipeline F1 completo)
-    ├─► get_budget_advice         ← BudgetAdvisor (M1.3)
-    ├─► get_card_optimization     ← OptimizerService (F2)
-    ├─► get_spending_alerts       ← NexaRunner + ProactiveNotifier (MX.3)
-    └─► get_goals_summary         ← GoalTracker (MX.2)
+    ├─► get_financial_forecast      ← NexaRunner (pipeline F1 completo)
+    ├─► get_budget_advice           ← BudgetAdvisor (M1.3)
+    ├─► get_card_optimization       ← OptimizerService (F2)
+    ├─► get_spending_alerts         ← NexaRunner + ProactiveNotifier (MX.3)
+    ├─► get_goals_summary           ← GoalTracker (MX.2)
+    ├─► get_financing_simulation    ← ArchitectService (F3) + CardOptimizationBonus (M3.3)
+    ├─► get_fiscal_report           ← FiscalReportService (F4 / M4.1)
+    └─► get_peer_comparison         ← PeerComparator (MX.4)
 ```
 
 O agente é um **ReAct loop**: recebe a mensagem, decide qual ferramenta chamar (ou nenhuma), executa, lê o resultado em texto, e responde em linguagem natural. Cada ferramenta retorna uma **string formatada** — nunca JSON bruto — para o LLM interpretar.
@@ -211,41 +215,23 @@ Viagem Europa
 
 ---
 
-## 4. Features com Inteligência mas SEM Tool no Agente (Lacunas)
+## 4. Cobertura Completa — Todas as Features estão no Agente
 
-Estas features existem como endpoints REST, mas **o agente não as usa ainda**:
+Todas as features implementadas agora têm tool correspondente no agente:
 
-| Feature | Módulo | Endpoint REST | Tool Faltante |
-|---------|--------|---------------|---------------|
-| F3 — Architect | `app/architect/` | `POST /architect/simulate` | `get_financing_simulation` |
-| F4 — Fiscal PJ | `app/etl/fiscal_report.py` | `GET /fiscal-report/{user_id}` | `get_fiscal_report` |
-| MX.4 — Peers | `app/peers/peer_comparison.py` | `GET /peers/compare/{user_id}` | `get_peer_comparison` |
-| MX.1 — Health Score History | `app/db/queries.py` | `GET /health-score/history/{user_id}` | (integrar em `get_financial_forecast`) |
-| M1.5 — Subscriptions | `app/api/v1/routes/subscriptions.py` | `GET /subscriptions/{user_id}` | (integrar em `get_spending_alerts`) |
-| M3.3 — Card Optimization Bonus no Architect | `app/architect/services/architect_service.py` | resposta do `/architect/simulate` | (integrar em `get_financing_simulation`) |
-
-### Tools sugeridas para fechar as lacunas:
-
-```python
-# Tool 6 — F3 Architect
-@tool
-def get_financing_simulation(user_id, goal_amount, strategy="FINANCING"):
-    """Simula financiamento vs. poupança vs. consórcio para um objetivo."""
-    # Chama ArchitectService.simulate()
-    # Inclui card_optimization_bonus (M3.3) se strategy == FINANCING
-
-# Tool 7 — Fiscal PJ
-@tool
-def get_fiscal_report(user_id):
-    """Gera relatório fiscal para MEI/PJ: deduções, categorias PJ, impostos."""
-    # Chama FiscalReportService
-
-# Tool 8 — Peer Comparison
-@tool
-def get_peer_comparison(user_id, monthly_income):
-    """Compara gastos do usuário com benchmarks IBGE para a faixa de renda."""
-    # Chama PeerComparator.compare()
-```
+| Feature | Módulo | Tool no Agente | Arquivo |
+|---------|--------|----------------|---------|
+| F1 — Core Engine | `app/runner.py` | `get_financial_forecast` | `tools/get_financial_forecast.py` |
+| F2 — Optimizer | `app/optimizer/` | `get_card_optimization` | `tools/get_card_optimization.py` |
+| F3 — Architect | `app/architect/` | `get_financing_simulation` | `tools/get_financing_simulation.py` |
+| F4 — Fiscal PJ | `app/etl/fiscal_report.py` | `get_fiscal_report` | `tools/get_fiscal_report.py` |
+| M1.2 — BurnRate | `app/cashflow/burn_rate.py` | `get_spending_alerts` | integrado |
+| M1.3 — BudgetAdvisor | `app/cashflow/budget_advisor.py` | `get_budget_advice` | `tools/get_budget_advice.py` |
+| M3.3 — CardOptimizationBonus | `app/architect/services/` | `get_financing_simulation` | integrado |
+| MX.2 — GoalTracker | `app/goals/tracker.py` | `get_goals_summary` | `tools/get_goals_summary.py` |
+| MX.3 — ProactiveNotifier | `app/notifications/notifier.py` | `get_spending_alerts` | integrado |
+| MX.4 — PeerComparator | `app/peers/peer_comparison.py` | `get_peer_comparison` | `tools/get_peer_comparison.py` |
+| MI.1–MI.8 — Income Intelligence | `app/etl/income_profiler.py` | transversal em todas | via NexaRunner |
 
 ---
 
@@ -346,16 +332,19 @@ O sistema prompt instrui o LLM a extrair automaticamente:
 
 ## 9. Resumo: O que Está Wired vs. O que Falta
 
-### Completamente wired no agente (5 tools):
+### Completamente wired no agente (8 tools — COBERTURA TOTAL):
 - F1 (NexaRunner completo) via `get_financial_forecast`
 - M1.2 (BurnRate) via `get_spending_alerts`
 - M1.3 (BudgetAdvisor) via `get_budget_advice`
 - F2 completo (M2.1–M2.6) via `get_card_optimization`
+- F3 (ArchitectService) + M3.3 (CardOptimizationBonus) via `get_financing_simulation`
+- F4 / M4.1 (FiscalReportService) via `get_fiscal_report`
 - MX.2 (GoalTracker) via `get_goals_summary`
 - MX.3 (ProactiveNotifier, 9 tipos) via `get_spending_alerts`
+- MX.4 (PeerComparator IBGE/POF) via `get_peer_comparison`
 - MI.1–MI.8 (todos os melhoramentos de inteligência de renda) via tools acima
 
-### Existe como REST mas NÃO no agente (3 lacunas prioritárias):
-- F3 Architect → precisa de `get_financing_simulation`
-- F4 Fiscal PJ → precisa de `get_fiscal_report`
-- MX.4 Peers → precisa de `get_peer_comparison`
+### Lacunas resolvidas (2026-03-05):
+- ~~F3 Architect~~ → implementado: `get_financing_simulation`
+- ~~F4 Fiscal PJ~~ → implementado: `get_fiscal_report`
+- ~~MX.4 Peers~~ → implementado: `get_peer_comparison`

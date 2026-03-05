@@ -85,7 +85,12 @@ def get_financial_forecast(
 
         # Cashflow forecast
         cf = proj.get("cashflow_forecast")
-        if cf:
+        import polars as pl
+        cf_has_data = (
+            cf is not None
+            and not (isinstance(cf, pl.DataFrame) and cf.is_empty())
+        )
+        if cf_has_data:
             lines.append("📈 **Projeção de Cashflow (30 dias):**")
             if hasattr(cf, "expected_balance"):
                 lines.append(f"   • Saldo esperado ao fim: R$ {cf.expected_balance:,.2f}")

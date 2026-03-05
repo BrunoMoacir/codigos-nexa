@@ -3,11 +3,14 @@
 Agente ReAct Nexa — Inteligência Financeira Conversacional
 
 Ferramentas disponíveis:
-  1. get_financial_forecast   → Resumo financeiro, safe-to-spend, health score
-  2. get_budget_advice        → Plano 50/30/20, análise de gastos por categoria
-  3. get_card_optimization    → Melhor cartão de crédito para o perfil
-  4. get_spending_alerts      → Alertas ativos + notificações proativas
-  5. get_goals_summary        → Metas financeiras e progresso
+  1. get_financial_forecast      → Resumo financeiro, safe-to-spend, health score
+  2. get_budget_advice           → Plano 50/30/20, análise de gastos por categoria
+  3. get_card_optimization       → Melhor cartão de crédito para o perfil
+  4. get_spending_alerts         → Alertas ativos + notificações proativas
+  5. get_goals_summary           → Metas financeiras e progresso
+  6. get_financing_simulation    → Simula financiamento vs. poupança vs. consórcio (F3)
+  7. get_fiscal_report           → Relatório fiscal PJ/MEI com DAS estimado (F4)
+  8. get_peer_comparison         → Compara gastos com benchmarks IBGE/POF (MX.4)
 """
 import logging
 from langchain_core.messages import BaseMessage
@@ -19,6 +22,9 @@ from app.agent.tools.get_financial_forecast import get_financial_forecast
 from app.agent.tools.get_budget_advice import get_budget_advice
 from app.agent.tools.get_spending_alerts import get_spending_alerts
 from app.agent.tools.get_goals_summary import get_goals_summary
+from app.agent.tools.get_financing_simulation import get_financing_simulation
+from app.agent.tools.get_fiscal_report import get_fiscal_report
+from app.agent.tools.get_peer_comparison import get_peer_comparison
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +76,31 @@ USE QUANDO o usuário perguntar sobre:
 - "Quanto falta para minha meta?"
 - Progresso de poupança
 
+### `get_financing_simulation(user_id, target_amount, down_payment=0, max_monthly_budget=None, asset_type="OUTRO", financing_months=48, risk_profile="moderado")`
+USE QUANDO o usuário perguntar sobre:
+- Comprar um imóvel, carro, reforma ou bem de alto valor
+- "Vale a pena financiar ou poupar?"
+- Comparação entre financiamento, consórcio e poupança/investimento
+- Parcelas, juros totais, custo efetivo de aquisição
+- Se o usuário mencionar um valor de bem (ex: "quero comprar um carro de R$ 60.000"), USE IMEDIATAMENTE.
+- asset_type: IMOVEL, VEICULO, REFORMA, VIAGEM ou OUTRO
+
+### `get_fiscal_report(user_id, year=None, month=None)`
+USE QUANDO o usuário perguntar sobre:
+- Relatório fiscal, contábil ou de imposto
+- Quanto deve de DAS / Simples Nacional
+- Faturamento, receitas e despesas do negócio PJ ou MEI
+- Notas fiscais, deduções ou impostos da empresa
+- Se o usuário mencionar que é MEI, autônomo ou PJ e quiser saber sobre impostos
+
+### `get_peer_comparison(user_id, monthly_income, history_months=3)`
+USE QUANDO o usuário perguntar sobre:
+- Como seus gastos se comparam com outras pessoas
+- "Gasto mais ou menos que a média em alimentação / moradia / lazer?"
+- Percentil de poupança ou benchmarks financeiros
+- "Pessoas com minha renda gastam quanto em X?"
+- REQUER monthly_income — sempre extraia da mensagem ou peça antes de chamar.
+
 ## REGRAS DE COMPORTAMENTO:
 1. **NUNCA peça informações que já estão na mensagem do usuário** — se o usuário disse "minha renda é R$ 8.500", use esse valor diretamente na tool.
 2. **SEMPRE chame a ferramenta** quando a pergunta se encaixar nos critérios acima — mesmo sem dados explícitos.
@@ -91,6 +122,9 @@ def build_financial_agent():
         get_card_optimization,
         get_spending_alerts,
         get_goals_summary,
+        get_financing_simulation,
+        get_fiscal_report,
+        get_peer_comparison,
     ]
 
     # 2. LLM
@@ -110,7 +144,7 @@ def build_financial_agent():
         )
 
     # 3. Agente ReAct
-    app = create_react_agent(llm, tools=tools, prompt=SYSTEM_PROMPT)
+    app = create_react_agent(llm, tools=tools, state_modifier=SYSTEM_PROMPT)
 
     logger.info(
         f"[Agent] Agente Nexa construído com {len(tools)} ferramentas: "
