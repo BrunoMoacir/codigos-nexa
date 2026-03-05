@@ -37,7 +37,12 @@ from app.architect.connectors.anbima import AnbimaConnector
 from app.architect.connectors.bacen import BacenConnector
 from app.architect.connectors.ipca import IPCAConnector
 from app.architect.connectors.market_rates import MarketRatesConnector
-from app.architect.models import SimulationRequest, SimulationResponse, StrategyType
+from app.architect.models import (
+    CardOptimizationBonus,
+    SimulationRequest,
+    SimulationResponse,
+    StrategyType,
+)
 from app.architect.simulators.strategy_engine import StrategyEngine
 from app.architect.validators.input_validator import InputValidator
 from app.architect.validators.liquidity_validator import LiquidityValidator, RiskLevel
@@ -151,13 +156,25 @@ class ArchitectService:
         if "ipca" not in data_sources:
             data_sources.append("ipca")
 
-        # ── 7. Montar resposta final ─────────────────────────────────
+        # ── 7. M3.3 — Custo de oportunidade cruzado F3↔F2 ───────────
+        card_bonus: Optional[CardOptimizationBonus] = None
+        if base_response.recommended_strategy == StrategyType.FINANCING:
+            card_bonus = self._compute_card_optimization_bonus(
+                monthly_payment=monthly_payment,
+                financing_months=request.financing_months,
+            )
+            # "market_reference_estimate": valores de referência de mercado (2 pts/R$, R$ 0,016/pt).
+            # Não representa o cartão real do usuário — integração real com F2 é V2.
+            data_sources.append("market_reference_estimate")
+
+        # ── 8. Montar resposta final ─────────────────────────────────
         return base_response.model_copy(
             update={
                 "liquidity_impact": liquidity.impact,
                 "warnings": accumulated_warnings,
                 "confidence_score": round(confidence, 2),
                 "data_sources": data_sources,
+                "card_optimization_bonus": card_bonus,
             }
         )
 
@@ -290,6 +307,11 @@ class ArchitectService:
         - FINANCING:   custo total / prazo do financiamento (parcela fixa PRICE)
         - SAVE_INVEST: custo total / meses de acumulação (aporte mensal)
         - CONSORTIUM:  custo total / meses de acumulação (parcela mensal)
+
+        Limitação (MVP): para SAC, retorna a parcela média (custo_total / n_meses),
+        não a parcela inicial (a mais alta). O LiquidityValidator pode subestimar
+        o impacto real no mês 1 quando amortization_method=SAC. Aceitável enquanto
+        PRICE for o default, pois para PRICE custo_total / n_meses == parcela fixa.
         """
         expected_cost = response.costs.expected_cost
         months_to_achieve = max(response.months_to_achieve, 1)
@@ -302,6 +324,54 @@ class ArchitectService:
             denominator = months_to_achieve
 
         return round(expected_cost / denominator, 2)
+
+    @staticmethod
+    def _compute_card_optimization_bonus(
+        monthly_payment: float,
+        financing_months: int,
+        pts_per_brl: float = 2.0,
+        point_value_brl: float = 0.016,
+        best_card_name: str = "melhor cartão premium de mercado",
+    ) -> CardOptimizationBonus:
+        """
+        M3.3 — Calcula o retorno de pontos/cashback ao pagar parcelas no melhor cartão.
+
+        Usa valores de referência de mercado (2 pts/R$ × R$ 0,016/ponto ≈ 3,2% de retorno),
+        representativo de cartões como Itaucard Ultravioleta, C6 Carbon e similares.
+
+        Args:
+            monthly_payment:  Parcela mensal do financiamento (R$).
+            financing_months: Prazo do financiamento em meses.
+            pts_per_brl:      Pontos por R$ do melhor cartão simulado.
+            point_value_brl:  Valor de cada ponto em R$ (milhas Smiles, Livelo, etc.).
+            best_card_name:   Nome descritivo do cartão usado na narrativa.
+
+        Returns:
+            CardOptimizationBonus com retorno mensal, anual, total e % de redução.
+        """
+        monthly_bonus = round(monthly_payment * pts_per_brl * point_value_brl, 2)
+        annual_bonus  = round(monthly_bonus * 12, 2)
+        total_bonus   = round(monthly_bonus * financing_months, 2)
+        total_cost    = monthly_payment * financing_months
+        reduction_pct = round((total_bonus / total_cost * 100) if total_cost > 0 else 0.0, 2)
+
+        narrative = (
+            f"Se você pagar as parcelas de R$ {monthly_payment:,.2f}/mês no "
+            f"{best_card_name} ({pts_per_brl:.1f} pts/R$), gera aproximadamente "
+            f"R$ {annual_bonus:,.0f}/ano em pontos — reduzindo o custo efetivo "
+            f"do financiamento em {reduction_pct:.1f}% ao longo de {financing_months} meses."
+        )
+
+        return CardOptimizationBonus(
+            best_card_name=best_card_name,
+            pts_per_brl=pts_per_brl,
+            point_value_brl=point_value_brl,
+            monthly_bonus_brl=monthly_bonus,
+            annual_bonus_brl=annual_bonus,
+            total_bonus_brl=total_bonus,
+            effective_cost_reduction_pct=reduction_pct,
+            narrative=narrative,
+        )
 
     @staticmethod
     def _compute_confidence(

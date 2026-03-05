@@ -13,9 +13,9 @@
 |---|---|---|---|
 | **F2 — Optimizer** | 6 melhorias (incluindo custo de oportunidade e estratégia multi-cartão) | 🔴 Alto | M2.1 ✅ M2.2 ✅ M2.3 ✅ M2.4 ✅ M2.5 ✅ M2.6 ✅ |
 | **F1 — Core Engine** | 5 melhorias (anomalias, alertas de velocidade, orçamento inteligente) | 🔴 Alto | M1.1 ✅ M1.2 ✅ M1.3 ✅ M1.4→IncomeProfiler ✅ M1.5 ✅ |
-| **F3 — Architect** | 4 melhorias (inflação, IR, custo de oportunidade cruzado) | 🟡 Médio | M3.1 ✅ M3.2 ✅ M3.4 ✅ |
+| **F3 — Architect** | 4 melhorias (inflação, IR, custo de oportunidade cruzado) | 🟡 Médio | M3.1 ✅ M3.2 ✅ M3.3 ✅ M3.4 ✅ |
 | **F4 — PF/PJ** | 3 melhorias (relatório fiscal, categorização PJ granular) | 🟡 Médio | M4.1 ✅ M4.2 ✅ M4.3 ✅ |
-| **Cross-functional** | 4 melhorias (score temporal, metas, notificações) | 🔴 Alto | MX.1 ✅ MX.2 ✅ MX.3 ✅ |
+| **Cross-functional** | 4 melhorias (score temporal, metas, notificações) | 🔴 Alto | MX.1 ✅ MX.2 ✅ MX.3 ✅ MX.4 ✅ |
 | **IncomeProfile — Integração** | 8 oportunidades de precisão derivadas do IncomeProfiler | 🔴 Alto | 8/8 ✅ |
 
 ---
@@ -1149,8 +1149,8 @@ O LLM então pode perguntar ao usuário antes de apresentar as recomendações.
 | # | Melhoria | Funcionalidade |
 |---|---|---|
 | 27 | M2.6 — Promoções de Transferência | F2 | ✅ Feito (2026-03-03) |
-| 28 | M3.3 — Custo de Oportunidade Cruzado F3↔F2 | F3 |
-| 29 | MX.4 — Comparação com Pares | Cross |
+| 28 | M3.3 — Custo de Oportunidade Cruzado F3↔F2 | F3 | ✅ Feito (2026-03-05) |
+| 29 | MX.4 — Comparação com Pares | Cross | ✅ Feito (2026-03-05) |
 
 ---
 

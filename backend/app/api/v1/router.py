@@ -141,3 +141,7 @@ router.include_router(notifications.router)
 from app.api.v1.routes import fiscal_report
 router.include_router(fiscal_report.router)
 
+# 1️⃣6️⃣ Peers: /peers/compare/{user_id} (MX.4 — Comparação com Perfis Similares)
+from app.api.v1.routes import peers
+router.include_router(peers.router)
+

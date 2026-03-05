@@ -428,6 +428,59 @@ class ConsortiumProbability(BaseModel):
         return self
 
 
+class CardOptimizationBonus(BaseModel):
+    """
+    M3.3 — Retorno de cartão de crédito sobre as parcelas do financiamento.
+
+    O Architect cruza com o Optimizer (F2) para mostrar quanto o usuário
+    pode recuperar em pontos/cashback ao pagar as parcelas no melhor
+    cartão disponível, reduzindo o custo efetivo do financiamento.
+
+    Presente apenas quando recommended_strategy == FINANCING.
+    """
+
+    best_card_name: str = Field(
+        ...,
+        description="Nome ou descrição do cartão simulado",
+    )
+    pts_per_brl: float = Field(
+        ...,
+        description="Pontos por R$ gasto no cartão (ex: 2.0 = 2 pts/R$)",
+        ge=0,
+    )
+    point_value_brl: float = Field(
+        ...,
+        description="Valor de cada ponto em R$ (ex: 0.016 = R$ 0,016/ponto para milhas)",
+        ge=0,
+    )
+    monthly_bonus_brl: float = Field(
+        ...,
+        description="Retorno financeiro estimado por mês (R$)",
+        ge=0,
+    )
+    annual_bonus_brl: float = Field(
+        ...,
+        description="Retorno financeiro estimado por ano (R$)",
+        ge=0,
+    )
+    total_bonus_brl: float = Field(
+        ...,
+        description="Retorno total ao longo de todo o financiamento (R$)",
+        ge=0,
+    )
+    effective_cost_reduction_pct: float = Field(
+        ...,
+        description="Redução percentual no custo total do financiamento (ex: 3.2 = 3,2%)",
+        ge=0,
+    )
+    narrative: str = Field(
+        ...,
+        description="Frase explicativa em linguagem natural para o usuário",
+        min_length=10,
+        max_length=400,
+    )
+
+
 class ActionStep(BaseModel):
     """
     Passo individual do plano de ação recomendado.
@@ -601,6 +654,18 @@ class SimulationResponse(BaseModel):
         ),
     )
 
+    # ── M3.3 — Custo de oportunidade cruzado F3↔F2 ─────────────────
+
+    card_optimization_bonus: Optional[CardOptimizationBonus] = Field(
+        default=None,
+        description=(
+            "M3.3 — Retorno de cartão sobre as parcelas do financiamento. "
+            "Presente apenas quando recommended_strategy=FINANCING. "
+            "Mostra quanto o usuário pode recuperar em pontos/cashback "
+            "ao pagar as parcelas no melhor cartão disponível."
+        ),
+    )
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # M3.4 — TIMING SCENARIO: "E SE EU ESPERAR?"
@@ -747,6 +812,7 @@ __all__ = [
     "NPVComparison",
     "ConsortiumProbability",
     "ActionStep",
+    "CardOptimizationBonus",
     # Response
     "SimulationResponse",
     # M3.4 — Timing
