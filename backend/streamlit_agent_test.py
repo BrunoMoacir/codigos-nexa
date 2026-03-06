@@ -397,6 +397,11 @@ with tab_direct:
         arc_months = c5.number_input("financing_months", value=48, min_value=6, max_value=360)
         arc_asset = c6.selectbox("asset_type", ["VEICULO", "IMOVEL", "REFORMA", "OUTRO"])
         arc_consortium = st.checkbox("include_consortium", value=True)
+        arc_rental = st.number_input(
+            "expected_rental_income (R$/mes) — opcional, so para IMOVEL",
+            value=0.0, step=100.0, min_value=0.0,
+            help="Se informado e asset_type=IMOVEL, ativa o plano de alavancagem por aluguel.",
+        )
         submitted_arc = st.form_submit_button("Simular")
     if submitted_arc:
         payload = {
@@ -408,7 +413,94 @@ with tab_direct:
             "asset_type": arc_asset,
             "include_consortium": arc_consortium,
         }
+        if arc_rental > 0 and arc_asset == "IMOVEL":
+            payload["expected_rental_income"] = arc_rental
         body, lat, sc = _call("post", "/architect/simulate", json=payload)
+        _show_result(body, lat, sc)
+
+    st.divider()
+
+    # ── F3 — Historico de Simulacoes ─────────────────────────────────
+    st.subheader("F3 — Historico de Simulacoes")
+    st.code("GET /api/v1/architect/simulations?user_id=X&limit=N&asset_type=T")
+    c1, c2, c3 = st.columns(3)
+    hist_uid = c1.text_input("user_id", value=user_id, key="hist_uid")
+    hist_limit = c2.number_input("limit", value=10, min_value=1, max_value=100, key="hist_limit")
+    hist_asset = c3.selectbox(
+        "asset_type (vazio = todos)", ["", "IMOVEL", "VEICULO", "REFORMA", "VIAGEM", "OUTRO"],
+        key="hist_asset",
+    )
+    if st.button("Buscar historico", key="btn_hist"):
+        params: dict = {"user_id": hist_uid, "limit": hist_limit}
+        if hist_asset:
+            params["asset_type"] = hist_asset
+        body, lat, sc = _call("get", "/architect/simulations", params=params)
+        _show_result(body, lat, sc)
+
+    st.divider()
+
+    # ── F3 — Sensitivity Analysis ────────────────────────────────────
+    st.subheader("F3 — Sensitivity Analysis (analise de sensibilidade)")
+    st.code("GET /api/v1/architect/simulations/{simulation_id}/sensitivity")
+    sens_id = st.text_input(
+        "simulation_id (UUID da simulacao salva)",
+        placeholder="Ex: 550e8400-e29b-41d4-a716-446655440000",
+        key="sens_id",
+    )
+    if st.button("Analisar sensibilidade", key="btn_sens"):
+        if not sens_id.strip():
+            st.warning("Informe o simulation_id. Faca uma simulacao primeiro para obter o UUID.")
+        else:
+            body, lat, sc = _call("get", f"/architect/simulations/{sens_id.strip()}/sensitivity")
+            _show_result(body, lat, sc)
+
+    st.divider()
+
+    # ── F3 — Timing Scenarios (M3.4) ─────────────────────────────────
+    st.subheader("F3 — Timing Scenarios (M3.4 — e se eu esperar?)")
+    st.code("POST /api/v1/architect/timing-scenarios?monthly_savings=X&wait_months=0,3,6,12")
+    with st.form("form_timing"):
+        c1, c2 = st.columns(2)
+        tm_uid = c1.text_input("user_id", value=user_id, key="tm_uid")
+        tm_amount = c2.number_input("target_amount (R$)", value=80000.0, step=1000.0, key="tm_amount")
+        c3, c4 = st.columns(2)
+        tm_down = c3.number_input("down_payment (R$)", value=10000.0, step=1000.0, key="tm_down")
+        tm_savings = c4.number_input(
+            "monthly_savings (R$/mes)", value=2000.0, step=100.0, key="tm_savings",
+            help="Quanto voce pode poupar por mes durante o periodo de espera.",
+        )
+        c5, c6 = st.columns(2)
+        tm_months = c5.number_input("financing_months", value=60, min_value=6, max_value=360, key="tm_months")
+        tm_asset = c6.selectbox("asset_type", ["IMOVEL", "VEICULO", "REFORMA", "OUTRO"], key="tm_asset")
+        tm_wait = st.text_input(
+            "wait_months (CSV)", value="0,3,6,12",
+            help="Janelas de espera separadas por virgula. Ex: 0,3,6,12",
+            key="tm_wait",
+        )
+        submitted_tm = st.form_submit_button("Simular cenarios de timing")
+    if submitted_tm:
+        tm_payload = {
+            "user_id": tm_uid,
+            "target_amount": tm_amount,
+            "down_payment": tm_down,
+            "financing_months": tm_months,
+            "asset_type": tm_asset,
+        }
+        body, lat, sc = _call(
+            "post", "/architect/timing-scenarios",
+            json=tm_payload,
+            params={"monthly_savings": tm_savings, "wait_months": tm_wait},
+        )
+        _show_result(body, lat, sc)
+
+    st.divider()
+
+    # ── F3 — Metricas do Usuario ──────────────────────────────────────
+    st.subheader("F3 — Metricas do Usuario (Architect)")
+    st.code("GET /api/v1/architect/metrics?user_id=X")
+    met_uid = st.text_input("user_id", value=user_id, key="met_uid")
+    if st.button("Buscar metricas Architect", key="btn_met"):
+        body, lat, sc = _call("get", "/architect/metrics", params={"user_id": met_uid})
         _show_result(body, lat, sc)
 
     st.divider()

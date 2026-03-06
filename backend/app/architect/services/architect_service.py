@@ -127,6 +127,8 @@ class ArchitectService:
 
         # ── 3. Simular estratégias ───────────────────────────────────
         base_response = self._engine.simulate(request, market_rates)
+        # Preserva warnings gerados pelo engine (perfil de risco, depreciação, etc.)
+        accumulated_warnings.extend(base_response.warnings)
 
         # ── 4. Recalcular liquidez com safe_to_spend real ────────────
         monthly_payment = self._estimate_monthly_payment(base_response, request)

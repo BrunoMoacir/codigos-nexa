@@ -200,6 +200,17 @@ class SimulationRequest(BaseModel):
         description="Sistema de amortização para financiamento",
     )
 
+    expected_rental_income: Optional[float] = Field(
+        default=None,
+        description=(
+            "Renda de aluguel mensal estimada pelo usuário (R$). "
+            "Quando informado junto com asset_type=IMOVEL, ativa o plano de "
+            "alavancagem: usar o aluguel para cobrir (parcialmente ou totalmente) "
+            "as parcelas do consórcio ou financiamento."
+        ),
+        gt=0,
+    )
+
     # ── Validações de negócio ────────────────────────────────────────
 
     @field_validator("down_payment")
@@ -481,6 +492,69 @@ class CardOptimizationBonus(BaseModel):
     )
 
 
+class RentalLeveragePlan(BaseModel):
+    """
+    Plano de alavancagem por aluguel para aquisição de imóvel via consórcio ou financiamento.
+
+    Quando o usuário informa expected_rental_income, o Architect calcula se e quanto
+    o aluguel cobre as parcelas, reduzindo o custo efetivo da aquisição.
+
+    Attributes:
+        monthly_rental_income:  Renda de aluguel mensal estimada (R$).
+        monthly_payment:        Parcela mensal da estratégia recomendada (R$).
+        rental_coverage_pct:    Quanto % da parcela o aluguel cobre (ex: 72.5 = 72,5%).
+        monthly_out_of_pocket:  Desembolso real mensal do usuário = parcela − aluguel (R$).
+                                Zero ou negativo = aluguel cobre tudo (sobra).
+        total_rental_income:    Total acumulado de aluguel no período (R$).
+        net_acquisition_cost:   Custo líquido real = custo_total − total_rental_income (R$).
+        is_self_sustaining:     True se aluguel ≥ parcela (imóvel se paga sozinho).
+        months_covered:         Quantidade de meses em que o aluguel cobre a parcela inteira.
+        narrative:              Explicação em linguagem natural para o usuário.
+    """
+
+    monthly_rental_income: float = Field(
+        ..., description="Renda de aluguel mensal estimada (R$)", ge=0
+    )
+    monthly_payment: float = Field(
+        ..., description="Parcela mensal da estratégia recomendada (R$)", ge=0
+    )
+    rental_coverage_pct: float = Field(
+        ..., description="% da parcela coberta pelo aluguel (ex: 72.5 = 72,5%)", ge=0
+    )
+    monthly_out_of_pocket: float = Field(
+        ...,
+        description=(
+            "Desembolso real mensal do usuário após deduzir o aluguel (R$). "
+            "Negativo = aluguel supera a parcela (gera renda extra)."
+        ),
+    )
+    total_rental_income: float = Field(
+        ..., description="Total acumulado de aluguel no período (R$)", ge=0
+    )
+    net_acquisition_cost: float = Field(
+        ...,
+        description=(
+            "Custo líquido real da aquisição = custo_total − total_rental_income (R$). "
+            "Representa quanto o imóvel custou de fato considerando o aluguel recebido."
+        ),
+    )
+    is_self_sustaining: bool = Field(
+        ...,
+        description="True se aluguel ≥ parcela (o imóvel se paga sozinho com o aluguel).",
+    )
+    months_covered: int = Field(
+        ...,
+        description="Meses em que o aluguel cobre 100% da parcela",
+        ge=0,
+    )
+    narrative: str = Field(
+        ...,
+        description="Explicação do plano de alavancagem em linguagem natural",
+        min_length=20,
+        max_length=500,
+    )
+
+
 class ActionStep(BaseModel):
     """
     Passo individual do plano de ação recomendado.
@@ -666,6 +740,17 @@ class SimulationResponse(BaseModel):
         ),
     )
 
+    # ── Plano de alavancagem por aluguel (imóvel) ────────────────────
+
+    rental_leverage_plan: Optional[RentalLeveragePlan] = Field(
+        default=None,
+        description=(
+            "Plano de alavancagem por aluguel. Presente quando asset_type=IMOVEL "
+            "e expected_rental_income foi informado. Mostra quanto o aluguel cobre "
+            "das parcelas e o custo líquido real da aquisição."
+        ),
+    )
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # M3.4 — TIMING SCENARIO: "E SE EU ESPERAR?"
@@ -813,6 +898,7 @@ __all__ = [
     "ConsortiumProbability",
     "ActionStep",
     "CardOptimizationBonus",
+    "RentalLeveragePlan",
     # Response
     "SimulationResponse",
     # M3.4 — Timing

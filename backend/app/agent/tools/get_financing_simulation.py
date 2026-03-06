@@ -26,6 +26,7 @@ def get_financing_simulation(
     asset_type: str = "OUTRO",
     financing_months: int = 48,
     risk_profile: str = "moderado",
+    expected_rental_income: Optional[float] = None,
 ) -> str:
     """
     Simula e compara 3 estratégias para adquirir um bem de alto valor:
@@ -35,11 +36,16 @@ def get_financing_simulation(
     estratégia recomendada, plano de ação e — se financiamento — o bônus estimado
     de pontos ao pagar as parcelas no melhor cartão premium do mercado (M3.3).
 
+    Para imóveis, se o usuário mencionar que pretende alugar o imóvel após adquiri-lo,
+    use expected_rental_income para calcular o plano de alavancagem por aluguel:
+    quanto o aluguel cobre das parcelas e qual o custo líquido real da aquisição.
+
     Use esta ferramenta quando o usuário perguntar sobre:
     - Comprar imóvel, carro, reforma, viagem ou qualquer bem de alto valor
     - Se vale a pena financiar vs. poupar vs. fazer consórcio
     - Simulação de parcelas, juros totais e custo efetivo
     - Quanto vai pagar a mais no financiamento vs. poupar sozinho
+    - Se pode comprar um apartamento, alugar e usar o aluguel para pagar as parcelas
 
     Args:
         user_id: ID do usuário (obrigatório).
@@ -49,6 +55,8 @@ def get_financing_simulation(
         asset_type: Tipo de bem — IMOVEL, VEICULO, REFORMA, VIAGEM ou OUTRO (padrão: OUTRO).
         financing_months: Prazo do financiamento em meses (padrão: 48).
         risk_profile: Perfil de risco — conservador, moderado ou agressivo (padrão: moderado).
+        expected_rental_income: Renda mensal estimada de aluguel em R$ (opcional, só para IMOVEL).
+            Ativa o plano de alavancagem: calcula se o aluguel cobre as parcelas.
     """
     logger.info(
         "[Tool] get_financing_simulation user=%s target=R$%.0f asset=%s meses=%d",
@@ -75,7 +83,7 @@ def get_financing_simulation(
         }
         risk_enum = risk_map.get(risk_profile.lower(), RiskProfile.MODERADO)
 
-        request = SimulationRequest(
+        req_kwargs = dict(
             user_id=user_id,
             target_amount=target_amount,
             down_payment=down_payment,
@@ -85,6 +93,10 @@ def get_financing_simulation(
             risk_profile=risk_enum,
             include_consortium=True,
         )
+        if expected_rental_income and expected_rental_income > 0 and asset_enum == AssetType.IMOVEL:
+            req_kwargs["expected_rental_income"] = expected_rental_income
+
+        request = SimulationRequest(**req_kwargs)
 
         # Tentar buscar safe_to_spend da F1 para melhorar o cálculo de liquidez
         safe_to_spend_value: Optional[float] = None
@@ -149,10 +161,25 @@ def get_financing_simulation(
             lines.append(f"  Reducao efetiva de custo: {b.effective_cost_reduction_pct:.1f}%")
             lines.append("")
 
+        # Plano de alavancagem por aluguel (IMOVEL com expected_rental_income)
+        if response.rental_leverage_plan:
+            r = response.rental_leverage_plan
+            lines.append("Plano de Alavancagem por Aluguel:")
+            lines.append(f"  {r.narrative}")
+            lines.append(f"  Aluguel estimado: R$ {r.monthly_rental_income:,.0f}/mes")
+            lines.append(f"  Parcela da estrategia: R$ {r.monthly_payment:,.0f}/mes")
+            lines.append(f"  Cobertura do aluguel: {r.rental_coverage_pct:.0f}% da parcela")
+            if r.is_self_sustaining:
+                lines.append(f"  O imovel se paga sozinho — sobram R$ {abs(r.monthly_out_of_pocket):,.0f}/mes")
+            else:
+                lines.append(f"  Seu desembolso real: R$ {r.monthly_out_of_pocket:,.0f}/mes")
+            lines.append(f"  Custo liquido real da aquisicao: R$ {r.net_acquisition_cost:,.0f}")
+            lines.append("")
+
         # Plano de ação — ActionStep tem: step (int), action (str), deadline (date|None)
         if response.action_plan:
             lines.append("Plano de Acao:")
-            for s in response.action_plan[:4]:
+            for s in response.action_plan[:6]:
                 deadline_str = f" — ate {s.deadline}" if s.deadline else ""
                 lines.append(f"  {s.step}. {s.action}{deadline_str}")
             lines.append("")
@@ -160,7 +187,7 @@ def get_financing_simulation(
         # Avisos
         if response.warnings:
             lines.append("Avisos:")
-            for w in response.warnings[:3]:
+            for w in response.warnings[:4]:
                 lines.append(f"  - {w}")
 
         return "\n".join(lines)

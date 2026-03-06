@@ -26,10 +26,13 @@ from app.architect.models import (
     SimulationRequest,
     SimulationResponse,
     StrategyType,
+    AssetType,
+    RiskProfile,
     CostScenario,
     NPVComparison,
     ConsortiumProbability,
     ActionStep,
+    RentalLeveragePlan,
     TimingScenario,
 )
 from app.architect.calculators import financing as fin_calc
@@ -108,6 +111,11 @@ class StrategyEngine:
         ranked = sorted(strategies.items(), key=lambda x: x[1], reverse=True)
         best_strategy = ranked[0][0]
 
+        # ── 3.5. Ajuste por perfil de risco ─────────────────────────
+        best_strategy, profile_warnings = self._apply_risk_profile_adjustment(
+            request, best_strategy, strategies
+        )
+
         # ── 4. Validação de Restrições (Liquidez) ────────────────────
         budget_limit = request.max_monthly_budget or float("inf")
         final_strategy = best_strategy
@@ -151,10 +159,29 @@ class StrategyEngine:
         # Meses - financiamento é imediato, mas mínimo 1 pelo model
         months = max(1, selected["months"])
 
+        # ── 4.5. Aviso de depreciação para veículo ───────────────────
+        vehicle_warn = self._vehicle_depreciation_warning(request, final_strategy)
+        if vehicle_warn:
+            profile_warnings.append(vehicle_warn)
+
         # Action Plan
         action_plan = self._generate_action_plan(
             final_strategy, selected, request
         )
+
+        # Plano de alavancagem por aluguel (apenas imóvel com renda informada)
+        rental_leverage_plan: Optional[RentalLeveragePlan] = None
+        if (
+            request.asset_type == AssetType.IMOVEL
+            and request.expected_rental_income is not None
+            and request.expected_rental_income > 0
+        ):
+            rental_leverage_plan = self._compute_rental_leverage_plan(
+                monthly_rental_income=request.expected_rental_income,
+                monthly_payment=monthly_cost,
+                total_cost=float(selected["expected_cost"]),
+                months=months,
+            )
 
         return SimulationResponse(
             recommended_strategy=final_strategy,
@@ -177,6 +204,8 @@ class StrategyEngine:
             action_plan=action_plan,
             confidence_score=0.85,
             data_sources=["bacen", "anbima", "market_rates", "internal_models"],
+            rental_leverage_plan=rental_leverage_plan,
+            warnings=profile_warnings,
         )
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -356,6 +385,28 @@ class StrategyEngine:
                     amount=scenario["monthly_payment"],
                 )
             )
+            if req.asset_type == AssetType.IMOVEL and req.expected_rental_income:
+                rental = req.expected_rental_income
+                payment = scenario["monthly_payment"]
+                coverage = rental / payment * 100 if payment > 0 else 0
+                out_of_pocket = max(payment - rental, 0.0)
+                if rental >= payment:
+                    rental_action = (
+                        f"Alugar o imóvel por {format_currency(rental)}/mês — cobre 100% da parcela "
+                        f"e gera {format_currency(rental - payment)}/mês de renda extra enquanto quita o financiamento"
+                    )
+                else:
+                    rental_action = (
+                        f"Alugar o imóvel por {format_currency(rental)}/mês — cobre {coverage:.0f}% da parcela. "
+                        f"Seu custo real mensal cai para {format_currency(out_of_pocket)}"
+                    )
+                steps.append(
+                    ActionStep(
+                        step=len(steps) + 1,
+                        action=rental_action,
+                        amount=rental,
+                    )
+                )
 
         elif strategy == StrategyType.CONSORTIUM:
             steps.append(
@@ -380,6 +431,30 @@ class StrategyEngine:
                     action=f"Aguardar contemplação (média esperada: {scenario['months']} meses)",
                 )
             )
+            if req.asset_type == AssetType.IMOVEL and req.expected_rental_income:
+                rental = req.expected_rental_income
+                payment = scenario["monthly_payment"]
+                coverage = rental / payment * 100 if payment > 0 else 0
+                out_of_pocket = max(payment - rental, 0.0)
+                if rental >= payment:
+                    rental_action = (
+                        f"Após contemplação, colocar o imóvel para alugar por "
+                        f"{format_currency(rental)}/mês — o aluguel cobre 100% da parcela "
+                        f"e ainda gera {format_currency(rental - payment)}/mês de renda extra"
+                    )
+                else:
+                    rental_action = (
+                        f"Após contemplação, colocar o imóvel para alugar por "
+                        f"{format_currency(rental)}/mês — cobre {coverage:.0f}% da parcela. "
+                        f"Seu desembolso real cai para {format_currency(out_of_pocket)}/mês"
+                    )
+                steps.append(
+                    ActionStep(
+                        step=len(steps) + 1,
+                        action=rental_action,
+                        amount=rental,
+                    )
+                )
 
         else:  # SAVE_INVEST
             steps.append(
@@ -416,6 +491,178 @@ class StrategyEngine:
             )
 
         return steps
+
+    @staticmethod
+    def _apply_risk_profile_adjustment(
+        request: SimulationRequest,
+        best_strategy: StrategyType,
+        strategies: Dict[StrategyType, float],
+    ) -> tuple[StrategyType, list[str]]:
+        """
+        Ajusta a estratégia recomendada com base no perfil de risco declarado.
+
+        Regras:
+        - CONSERVADOR:
+            · Veículo (ativo depreciativo): nunca recomenda FINANCING —
+              substitui por CONSORTIUM (se disponível e melhor NPV) ou SAVE_INVEST.
+            · Outros bens: só mantém FINANCING se a vantagem de NPV sobre
+              SAVE_INVEST for >= 20%; abaixo disso prefere SAVE_INVEST.
+        - MODERADO: sem ajuste — NPV puro decide.
+        - AGRESSIVO: sem ajuste — NPV puro decide (aceita risco maior).
+
+        Returns:
+            (estratégia_ajustada, lista_de_warnings)
+        """
+        if request.risk_profile != RiskProfile.CONSERVADOR:
+            return best_strategy, []
+
+        if best_strategy != StrategyType.FINANCING:
+            return best_strategy, []
+
+        warnings: list[str] = []
+        npv_fin = strategies.get(StrategyType.FINANCING, 0.0)
+        npv_inv = strategies.get(StrategyType.SAVE_INVEST, float("-inf"))
+        npv_cons = strategies.get(StrategyType.CONSORTIUM)
+
+        # Veículo + conservador → nunca financia (bem depreciativo)
+        if request.asset_type == AssetType.VEICULO:
+            if npv_cons is not None and npv_cons > npv_inv:
+                adjusted = StrategyType.CONSORTIUM
+                reason = "consórcio (sem juros bancários)"
+            else:
+                adjusted = StrategyType.SAVE_INVEST
+                reason = "Poupar/Investir (sem endividamento)"
+            warnings.append(
+                f"Perfil conservador: financiamento de veículo evitado "
+                f"(bem depreciativo — perde ~15-20% ao ano). Recomendado: {reason}."
+            )
+            return adjusted, warnings
+
+        # Outros bens: substitui se vantagem do financiamento for < 20%
+        if npv_inv == float("-inf"):
+            return best_strategy, warnings
+
+        # NPVs são negativos (custos). Financing é melhor quando mais próximo de 0.
+        abs_diff = abs(npv_inv) - abs(npv_fin)   # positivo = financing mais barato
+        ref = abs(npv_inv) if npv_inv != 0 else 1.0
+        advantage_pct = abs_diff / ref
+
+        if advantage_pct < 0.20:
+            warnings.append(
+                f"Perfil conservador: vantagem do financiamento sobre Poupar/Investir "
+                f"é de apenas {advantage_pct:.0%} — preferindo Poupar/Investir "
+                "para evitar endividamento."
+            )
+            return StrategyType.SAVE_INVEST, warnings
+
+        return best_strategy, warnings
+
+    @staticmethod
+    def _vehicle_depreciation_warning(
+        request: SimulationRequest,
+        final_strategy: StrategyType,
+    ) -> Optional[str]:
+        """
+        Gera aviso de risco de depreciação para financiamento longo de veículo.
+
+        Um veículo perde ~15-20% de valor por ano. Com entrada baixa e prazo longo,
+        o saldo devedor pode superar o valor de mercado do bem nos primeiros anos
+        ('ficar de cabeça pra baixo').
+
+        Retorna a string de aviso ou None se não aplicável.
+        """
+        if request.asset_type != AssetType.VEICULO:
+            return None
+        if final_strategy != StrategyType.FINANCING:
+            return None
+        if request.financing_months <= 36:
+            return None
+
+        down_pct = request.down_payment / request.target_amount if request.target_amount > 0 else 0.0
+
+        if down_pct < 0.20 and request.financing_months > 48:
+            return (
+                f"Atenção: financiamento de veículo por {request.financing_months} meses "
+                f"com entrada de apenas {down_pct:.0%} — o carro pode valer menos que o saldo "
+                "devedor nos primeiros 2-3 anos. Considere aumentar a entrada ou reduzir o prazo."
+            )
+        elif request.financing_months > 48:
+            return (
+                f"Veículo financiado em {request.financing_months} meses: "
+                f"veículos depreciam ~15-20% ao ano. Com entrada de {down_pct:.0%}, "
+                "verifique se o prazo não ultrapassa a vida útil econômica do bem."
+            )
+        return None
+
+    @staticmethod
+    def _compute_rental_leverage_plan(
+        monthly_rental_income: float,
+        monthly_payment: float,
+        total_cost: float,
+        months: int,
+    ) -> RentalLeveragePlan:
+        """
+        Calcula o plano de alavancagem por aluguel para imóveis.
+
+        Determina quanto o aluguel estimado cobre das parcelas e qual o
+        custo líquido real da aquisição após descontar a renda de aluguel.
+
+        Args:
+            monthly_rental_income: Renda mensal estimada de aluguel (R$).
+            monthly_payment:       Parcela mensal da estratégia (R$).
+            total_cost:            Custo total da estratégia (R$).
+            months:                Prazo total em meses.
+
+        Returns:
+            RentalLeveragePlan com todos os indicadores calculados.
+        """
+        rental_coverage_pct = round(
+            (monthly_rental_income / monthly_payment * 100) if monthly_payment > 0 else 0.0, 1
+        )
+        monthly_out_of_pocket = round(monthly_payment - monthly_rental_income, 2)
+        total_rental_income = round(monthly_rental_income * months, 2)
+        net_acquisition_cost = round(total_cost - total_rental_income, 2)
+        is_self_sustaining = monthly_rental_income >= monthly_payment
+        months_covered = months if is_self_sustaining else 0
+
+        fmt = format_currency
+        if is_self_sustaining:
+            surplus = round(monthly_rental_income - monthly_payment, 2)
+            narrative = (
+                f"O aluguel estimado de {fmt(monthly_rental_income)}/mês cobre 100% da parcela "
+                f"de {fmt(monthly_payment)}/mês — o imóvel se paga sozinho. "
+                f"Você ainda tem {fmt(surplus)}/mês de renda extra. "
+                f"Ao longo de {months} meses, o aluguel gera {fmt(total_rental_income)}, "
+                f"reduzindo seu custo real de aquisição para {fmt(max(net_acquisition_cost, 0.0))}."
+            )
+        elif rental_coverage_pct >= 50:
+            narrative = (
+                f"O aluguel estimado de {fmt(monthly_rental_income)}/mês cobre "
+                f"{rental_coverage_pct:.1f}% da parcela de {fmt(monthly_payment)}/mês. "
+                f"Seu desembolso real mensal será apenas {fmt(monthly_out_of_pocket)}. "
+                f"Ao longo de {months} meses, o aluguel contribui com {fmt(total_rental_income)}, "
+                f"reduzindo o custo efetivo da aquisição para {fmt(net_acquisition_cost)}."
+            )
+        else:
+            narrative = (
+                f"O aluguel estimado de {fmt(monthly_rental_income)}/mês cobre "
+                f"{rental_coverage_pct:.1f}% da parcela de {fmt(monthly_payment)}/mês. "
+                f"Ainda há um desembolso mensal de {fmt(monthly_out_of_pocket)}. "
+                f"Mesmo assim, ao longo de {months} meses o aluguel economiza "
+                f"{fmt(total_rental_income)}, baixando o custo total para {fmt(net_acquisition_cost)}."
+            )
+
+        return RentalLeveragePlan(
+            monthly_rental_income=round(monthly_rental_income, 2),
+            monthly_payment=round(monthly_payment, 2),
+            rental_coverage_pct=rental_coverage_pct,
+            monthly_out_of_pocket=monthly_out_of_pocket,
+            total_rental_income=total_rental_income,
+            net_acquisition_cost=net_acquisition_cost,
+            is_self_sustaining=is_self_sustaining,
+            months_covered=months_covered,
+            narrative=narrative,
+        )
 
     def simulate_timing_scenarios(
         self,
