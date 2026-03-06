@@ -145,3 +145,7 @@ router.include_router(fiscal_report.router)
 from app.api.v1.routes import peers
 router.include_router(peers.router)
 
+# 1️⃣7️⃣ Safe-to-Spend: /safe-to-spend/{user_id} (F1 — Gauge + Ritmo de Gastos)
+from app.api.v1.routes import safe_to_spend
+router.include_router(safe_to_spend.router)
+

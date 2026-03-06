@@ -29,10 +29,11 @@ Pluggy → POST /api/v1/transactions/webhook
 """
 
 import logging
+import os
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.schemas.transaction import TransactionBatchResult
 from app.etl import TransactionIngestor, TransactionClassifier
@@ -43,6 +44,15 @@ from app.etl import TransactionIngestor, TransactionClassifier
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 logger = logging.getLogger(__name__)
+
+# Mapeamento Pluggy connector_id → institution_id
+# Adicionar novos bancos aqui conforme integração for expandida
+_CONNECTOR_MAP: dict[str, str] = {
+    "201": "nubank",
+    "202": "itau",
+    "203": "bradesco",
+    "204": "inter",
+}
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -86,18 +96,14 @@ async def receive_transaction_webhook(payload: dict[str, Any]):
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
     try:
-        # Inferir institution_id a partir do connector_id
-        # Mapeamento Pluggy: connector_id → institution_id
-        CONNECTOR_MAP = {
-            "201": "nubank",
-            "202": "itau",
-            "203": "bradesco",
-            "204": "inter",
-            # Adicione outros conforme necessário
-        }
-        
         connector_id = str(payload.get("connector", {}).get("id", "unknown"))
-        institution_id = CONNECTOR_MAP.get(connector_id, "unknown")
+        institution_id = _CONNECTOR_MAP.get(connector_id, "unknown")
+        if institution_id == "unknown":
+            logger.warning(
+                "Webhook recebido com connector_id desconhecido: %s. "
+                "Adicionar ao _CONNECTOR_MAP se for um banco válido.",
+                connector_id,
+            )
         
         item_id = payload.get("item", {}).get("id", "unknown")
         raw_transactions = payload.get("results", [])
@@ -243,17 +249,196 @@ async def receive_transaction_webhook(payload: dict[str, Any]):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ENDPOINT DE TESTE: Buscar transações processadas (futuro)
+# ENDPOINT: Buscar transações processadas
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-@router.get("/{user_id}")
-async def get_user_transactions(user_id: str, limit: int = 100):
+@router.get("/{user_id}", status_code=status.HTTP_200_OK)
+async def get_user_transactions(
+    user_id: str,
+    start_date: Optional[str] = Query(
+        default=None,
+        description="Data inicial no formato YYYY-MM-DD. Sem filtro se omitido.",
+    ),
+    end_date: Optional[str] = Query(
+        default=None,
+        description="Data final no formato YYYY-MM-DD. Sem filtro se omitido.",
+    ),
+    category: Optional[str] = Query(
+        default=None,
+        description="Filtrar por categoria (ex: alimentacao, transporte).",
+    ),
+    transaction_type: Optional[str] = Query(
+        default=None,
+        description="Filtrar por tipo: 'debit' ou 'credit'.",
+    ),
+    limit: int = Query(
+        default=200,
+        ge=1,
+        le=1000,
+        description="Máximo de transações retornadas (padrão: 200).",
+    ),
+) -> dict:
     """
-    Retorna transações processadas de um usuário.
-    
-    TODO: Implementar query no Postgres.
+    Retorna transações processadas de um usuário com filtros opcionais.
+
+    Fonte primária: tabela `transactions_clean` no DuckDB.
+    Fallback (dev): pipeline NexaRunner com dados mock Pluggy.
+
+    **Campos por transação:**
+    - `transaction_id`, `description`, `amount`, `date`, `category`,
+      `transaction_type`, `is_recurring`, `is_installment`
+
+    **Nota:** o campo `time` (hora da transação) não está disponível no schema
+    atual — `date` é do tipo DATE. O agrupamento por hora no gráfico de colunas
+    não pode ser feito com esses dados. Será suportado quando a Pluggy fornecer
+    datetime completo e o ETL for atualizado.
+
+    **Exemplo de resposta:**
+    ```json
+    {
+      "user_id": "user_123",
+      "total": 47,
+      "debit_count": 38,
+      "credit_count": 9,
+      "filters": {"start_date": "2026-03-01", "end_date": "2026-03-06"},
+      "transactions": [
+        {
+          "transaction_id": "txn_abc",
+          "description": "UBER VIAGEM",
+          "amount": -25.90,
+          "date": "2026-03-05",
+          "category": "transporte",
+          "transaction_type": "debit",
+          "is_recurring": false,
+          "is_installment": false
+        }
+      ]
+    }
+    ```
     """
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Endpoint ainda não implementado. Aguardando integração com Postgres."
+    import duckdb
+    import polars as pl
+    from app.db.queries import get_connection
+
+    # ── 1. Tentar DuckDB (transactions_clean) ─────────────────────────
+    try:
+        con = get_connection()
+        try:
+            query = "SELECT * FROM transactions_clean WHERE user_id = ?"
+            params: list = [user_id]
+
+            if start_date:
+                query += " AND date >= ?"
+                params.append(start_date)
+            if end_date:
+                query += " AND date <= ?"
+                params.append(end_date)
+            if category:
+                query += " AND lower(category) = lower(?)"
+                params.append(category)
+            if transaction_type:
+                type_filter = "debit" if transaction_type.lower() == "debit" else "credit"
+                amount_op = "<" if type_filter == "debit" else ">="
+                query += f" AND amount {amount_op} 0"
+
+            query += " ORDER BY date DESC LIMIT ?"
+            params.append(limit)
+
+            result_df = con.execute(query, params).pl()
+        except (duckdb.CatalogException, duckdb.BinderException):
+            result_df = pl.DataFrame()
+        finally:
+            con.close()
+    except Exception as exc:
+        logger.warning("Erro ao consultar DuckDB: %s", exc)
+        result_df = pl.DataFrame()
+
+    # ── 2. Fallback: NexaRunner (dev mode / tabela vazia) ─────────────
+    if result_df.is_empty():
+        logger.info("transactions_clean vazia para %s — usando pipeline", user_id)
+        try:
+            from app.runner import NexaRunner
+            runner_mode = os.getenv("RUNNER_MODE", "dev")
+            result = NexaRunner(mode=runner_mode).run(horizon_days=30)
+            if result.get("status") == "success":
+                txns: pl.DataFrame = result["transactions"]["pf_pj_classified_df"]
+                if not txns.is_empty():
+                    # Normalizar nomes de colunas para o schema de transactions_clean
+                    rename = {
+                        "predicted_category": "category",
+                        "pf_pj_label": "context_type",
+                        "transaction_date": "date",
+                    }
+                    for old, new in rename.items():
+                        if old in txns.columns and new not in txns.columns:
+                            txns = txns.rename({old: new})
+
+                    # Aplicar filtros de data
+                    if "date" in txns.columns:
+                        txns = txns.with_columns(pl.col("date").cast(pl.Date))
+                        if start_date:
+                            from datetime import date as dt_date
+                            txns = txns.filter(pl.col("date") >= dt_date.fromisoformat(start_date))
+                        if end_date:
+                            from datetime import date as dt_date
+                            txns = txns.filter(pl.col("date") <= dt_date.fromisoformat(end_date))
+
+                    if category and "category" in txns.columns:
+                        txns = txns.filter(pl.col("category").str.to_lowercase() == category.lower())
+
+                    if transaction_type and "amount" in txns.columns:
+                        if transaction_type.lower() == "debit":
+                            txns = txns.filter(pl.col("amount") < 0)
+                        else:
+                            txns = txns.filter(pl.col("amount") >= 0)
+
+                    result_df = txns.head(limit)
+        except Exception as exc:
+            logger.error("Fallback pipeline falhou para %s: %s", user_id, exc)
+
+    if result_df.is_empty():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Nenhuma transação encontrada para user_id='{user_id}'.",
+        )
+
+    # ── 3. Serializar ──────────────────────────────────────────────────
+    output_cols = [
+        c for c in (
+            "transaction_id", "description", "amount", "date",
+            "category", "transaction_type", "is_recurring", "is_installment",
+        )
+        if c in result_df.columns
+    ]
+    serialized = result_df.select(output_cols).to_dicts()
+
+    # Converter date para string
+    for row in serialized:
+        if "date" in row and hasattr(row["date"], "isoformat"):
+            row["date"] = row["date"].isoformat()
+
+    # ── 4. Estatísticas agregadas ──────────────────────────────────────
+    debit_count = 0
+    credit_count = 0
+    if "amount" in result_df.columns:
+        debit_count = result_df.filter(pl.col("amount") < 0).height
+        credit_count = result_df.filter(pl.col("amount") >= 0).height
+
+    logger.info(
+        "GET /transactions/%s | total=%d | debit=%d | credit=%d",
+        user_id, len(serialized), debit_count, credit_count,
     )
+
+    return {
+        "user_id": user_id,
+        "total": len(serialized),
+        "debit_count": debit_count,
+        "credit_count": credit_count,
+        "filters": {
+            "start_date": start_date,
+            "end_date": end_date,
+            "category": category,
+            "transaction_type": transaction_type,
+        },
+        "transactions": serialized,
+    }
