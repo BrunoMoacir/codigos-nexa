@@ -144,7 +144,7 @@ def build_financial_agent():
         )
 
     # 3. Agente ReAct
-    app = create_react_agent(llm, tools=tools, state_modifier=SYSTEM_PROMPT)
+    app = create_react_agent(llm, tools=tools, prompt=SYSTEM_PROMPT)
 
     logger.info(
         f"[Agent] Agente Nexa construído com {len(tools)} ferramentas: "

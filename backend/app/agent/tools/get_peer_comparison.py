@@ -44,6 +44,9 @@ def get_peer_comparison(
         "[Tool] get_peer_comparison user=%s income=R$%.0f history=%dm",
         user_id, monthly_income, history_months,
     )
+    if monthly_income <= 0:
+        return "FALHA: Para usar o get_peer_comparison, você precisa saber a renda mensal do usuário (monthly_income > 0). PERGUNTE ao usuário qual é a sua faixa de renda ou salário mensal para poder compará-lo aos pares."
+        
     try:
         from app.peers.peer_comparison import PeerComparator
         from app.db.queries import get_connection
