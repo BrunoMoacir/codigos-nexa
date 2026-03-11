@@ -68,30 +68,50 @@ logger = logging.getLogger(__name__)
 # HELPER: Buscar transações por usuário
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async def fetch_user_transactions(user_id: str):
+async def fetch_user_transactions(user_id: str, horizon_days: int = 30):
     """
-    Busca transações do usuário no banco de dados.
-    
-    📌 TODO: Implementar query real no Postgres
-    
-    Por enquanto, retorna dados mock para teste.
+    Busca transações do usuário e executa o pipeline financeiro.
+
+    Estratégia:
+      1. Tenta carregar dados REAIS do DuckDB (transactions_clean)
+      2. Se não houver dados E APP_MODE=dev, usa MockPluggy (fallback)
+      3. Em produção sem dados, retorna erro claro
     """
+    import os
+
     logger.info(f"🔍 Buscando transações para user_id={user_id}")
-    
-    # ⚠️ PLACEHOLDER: Aqui entraria a query real no Postgres
-    # SELECT * FROM transactions_clean WHERE user_id = ? AND date >= now() - interval 90 days
-    
-    # Por enquanto, usar NexaRunner para teste
+
     try:
         from app.runner import NexaRunner
-        runner = NexaRunner(mode="dev")  # Usa Pluggy mock para teste
-        
-        # Executar pipeline completo (vai usar dados mock)
-        logger.info("📊 Executando pipeline financeiro... (usando Pluggy mock)")
-        result = runner.run(horizon_days=30)
-        
-        return result
-        
+
+        # ── 1. Tentar dados reais do DuckDB ──────────────────────
+        runner = NexaRunner(mode="dev")  # mode não importa para run_from_db
+        result = runner.run_from_db(user_id=user_id, horizon_days=horizon_days)
+
+        if result is not None and result.get("status") == "success":
+            logger.info("✅ Pipeline executado com dados REAIS do DuckDB para user=%s", user_id)
+            return result
+
+        # ── 2. Fallback: mock APENAS em dev ──────────────────────
+        app_mode = os.getenv("APP_MODE", "dev")
+        if app_mode == "dev":
+            logger.warning(
+                "⚠️ Sem dados reais para user=%s — usando Pluggy mock (APP_MODE=dev)",
+                user_id,
+            )
+            runner_dev = NexaRunner(mode="dev")
+            result = runner_dev.run(horizon_days=horizon_days)
+            return result
+        else:
+            logger.error("❌ Sem dados reais para user=%s em modo PRODUÇÃO", user_id)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Nenhum dado financeiro encontrado para o usuário {user_id}. "
+                       "Conecte suas contas via Open Finance.",
+            )
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"❌ Erro ao buscar transações: {e}", exc_info=True)
         raise HTTPException(
@@ -168,7 +188,7 @@ async def get_forecast(
         # STEP 1: BUSCAR DADOS DO USUÁRIO
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
-        runner_result = await fetch_user_transactions(user_id)
+        runner_result = await fetch_user_transactions(user_id, horizon_days=horizon_days)
         
         if not runner_result:
             logger.warning(f"⚠️ Nenhum dado encontrado para user_id={user_id}")

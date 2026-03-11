@@ -332,3 +332,145 @@ class NexaRunner:
                 "status": "error",
                 "error": str(e),
             }
+
+    def run_from_db(
+        self,
+        user_id: str,
+        horizon_days: int = 30,
+        current_balance: float = 5000.0,
+    ) -> dict:
+        """
+        Executa o pipeline financeiro usando dados REAIS do DuckDB.
+
+        Em vez de buscar do Pluggy, carrega `transactions_clean` para o
+        user_id informado e roda os estágios analíticos downstream:
+            IncomeProfiler → RecurringDetector → ShadowInvoice →
+            CashflowProjector → SafeToSpend → BurnRate
+
+        Args:
+            user_id: ID do usuário cujas transações estão no DuckDB.
+            horizon_days: Dias para projetar no futuro.
+            current_balance: Saldo atual da conta (fallback se não houver no DB).
+
+        Returns:
+            dict com mesma estrutura de `run()`, ou None se não houver dados.
+        """
+        from app.db.queries import get_connection
+
+        logger.info("📡 [run_from_db] Buscando transações reais para user=%s", user_id)
+
+        try:
+            con = get_connection()
+            try:
+                df = con.execute(
+                    "SELECT * FROM transactions_clean WHERE user_id = ? ORDER BY date",
+                    [user_id],
+                ).pl()
+            finally:
+                con.close()
+
+            if df.is_empty():
+                logger.warning("⚠️ Nenhum dado no DuckDB para user=%s", user_id)
+                return None  # sinaliza para o caller usar fallback
+
+            logger.info("   ✅ %d transações carregadas do DuckDB", len(df))
+
+            # Garantir tipos corretos para o pipeline downstream
+            if "date" in df.columns:
+                df = df.with_columns(pl.col("date").cast(pl.Date))
+
+            # ── Income Profiler ──────────────────────────────────
+            income_profile = IncomeProfiler().build(df)
+            monthly_income_net = (
+                income_profile.monthly_net_income
+                if income_profile.confidence >= 0.5
+                else None
+            )
+            logger.info(
+                "   ✅ IncomeProfiler: renda=R$ %.0f/mês, confiança=%.0f%%",
+                income_profile.monthly_net_income,
+                income_profile.confidence * 100,
+            )
+
+            # ── Recurring Detector ───────────────────────────────
+            recurring_patterns = self.recurring_detector.detect(df)
+            logger.info("   ✅ Recurring Detector: %d padrões", len(recurring_patterns))
+
+            # ── Shadow Invoice ───────────────────────────────────
+            shadow_events = run_shadow_invoice_detection(df)
+            shadow_events_df = (
+                shadow_events
+                if isinstance(shadow_events, pl.DataFrame)
+                else pl.DataFrame(shadow_events)
+            )
+            logger.info("   ✅ Shadow Invoice: %d eventos futuros", len(shadow_events_df))
+
+            # ── Cashflow Projector ───────────────────────────────
+            cashflow_forecast = self.cashflow_projector.project(
+                transactions_df=df,
+                shadow_invoices_df=shadow_events_df,
+                current_balance=current_balance,
+            )
+            logger.info(
+                "   ✅ Cashflow: %d dias, saldo min R$ %.2f",
+                len(cashflow_forecast),
+                cashflow_forecast.select("projected_balance").min().item(),
+            )
+
+            # ── Safe-to-Spend ────────────────────────────────────
+            safe_to_spend = self.safe_calc.calculate(
+                projection_df=cashflow_forecast,
+                horizon_days=horizon_days,
+            )
+            logger.info(
+                "   ✅ Safe-to-Spend: R$ %.2f (risk=%s)",
+                safe_to_spend.safe_to_spend_total,
+                safe_to_spend.risk_level,
+            )
+
+            # ── Burn Rate ────────────────────────────────────────
+            burn_rate_result = self.burn_rate_analyzer.analyze(
+                transactions_df=df,
+                monthly_income=monthly_income_net,
+            )
+
+            logger.info("✨ Pipeline (DB) concluído para user=%s", user_id)
+
+            return {
+                "status": "success",
+                "metadata": {
+                    "institution": "duckdb",
+                    "item_id": "db",
+                    "account_id": "db",
+                    "horizon_days": horizon_days,
+                },
+                "transactions": {
+                    "raw_count": len(df),
+                    "valid_count": len(df),
+                    "rejected_count": 0,
+                    "clean_df": df,
+                    "categorized_df": df,
+                    "pf_pj_classified_df": df,
+                },
+                "analysis": {
+                    "recurring_patterns": recurring_patterns,
+                    "quality_metrics": None,
+                    "income_profile": income_profile,
+                    "burn_rate": burn_rate_result,
+                },
+                "projections": {
+                    "shadow_events": shadow_events,
+                    "cashflow_forecast": cashflow_forecast,
+                    "safe_to_spend": safe_to_spend,
+                    "current_balance": current_balance,
+                    "min_projected_balance": cashflow_forecast.select("projected_balance").min().item(),
+                    "max_projected_balance": cashflow_forecast.select("projected_balance").max().item(),
+                },
+            }
+
+        except Exception as e:
+            logger.error("❌ Erro no pipeline (DB): %s", e, exc_info=True)
+            return {
+                "status": "error",
+                "error": str(e),
+            }
