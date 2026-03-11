@@ -132,6 +132,23 @@ class FinancialHealthResponse(BaseModel):
         description="Tendência dos gastos recentes"
     )
 
+    # Campos adicionais (opcionais) — só presentes quando pipeline real é executado
+    income_profile: dict = Field(
+        default_factory=dict,
+        description="Perfil de renda (IncomeProfiler): padrão, renda líquida, confiança"
+    )
+
+    burn_rate_alert: str = Field(
+        default="NORMAL",
+        description="Nível de alerta do burn rate (NORMAL / WARNING / CRITICAL)"
+    )
+
+    burn_rate_ratio: float = Field(
+        default=0.0,
+        description="Razão burn rate: total_expenses / monthly_income",
+        ge=0.0
+    )
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # MONTHLY FORECAST (Previsão Mensal)

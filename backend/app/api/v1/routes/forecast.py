@@ -246,42 +246,94 @@ async def get_forecast(
         # ── Shadow Invoices ───────────────────────────────────────
         shadow_events = projections.get("shadow_events")
         if shadow_events is not None and isinstance(shadow_events, pl.DataFrame) and not shadow_events.is_empty():
+            # Serialize each shadow event into a dict for the API response
+            invoices_list = []
+            for row in shadow_events.to_dicts():
+                invoices_list.append({
+                    "type":           row.get("type", "unknown"),
+                    "amount":         round(float(row.get("amount", 0)), 2),
+                    "next_due_date":  str(row.get("next_due_date", "")),
+                    "confidence":     round(float(row.get("confidence", 0)), 2),
+                    "description":    (row.get("metadata") or {}).get("description", ""),
+                })
             shadow_data = {
-                "invoices":             [],
+                "invoices":             invoices_list,
                 "total_count":          len(shadow_events),
-                "total_monthly_impact": float(shadow_events.select("amount").sum().item()) if "amount" in shadow_events.columns else 0.0,
-                "subscriptions_count":  shadow_events.filter(pl.col("type") == "subscription").height if "type" in shadow_events.columns else 0,
-                "installments_count":   shadow_events.filter(pl.col("type") == "installment").height if "type" in shadow_events.columns else 0,
+                "total_monthly_impact": -round(abs(float(shadow_events.select("amount").sum().item())), 2) if "amount" in shadow_events.columns else 0.0,
+                "subscriptions_count":  shadow_events.filter(pl.col("type").str.to_uppercase() == "SUBSCRIPTION").height if "type" in shadow_events.columns else 0,
+                "installments_count":   shadow_events.filter(pl.col("type").str.to_uppercase() == "INSTALLMENT").height if "type" in shadow_events.columns else 0,
             }
         else:
             shadow_data = runner_result.get("shadow_invoices", {})
 
         # ── Income Profile / Financial Health ─────────────────────
         income_profile_obj = analysis.get("income_profile")
+        burn_rate_obj = analysis.get("burn_rate")
+
+        # Compute real expenses + top categories from transactions DataFrame
+        txns_df = transactions.get("pf_pj_classified_df")
+        monthly_expenses = 0.0
+        top_categories_list = []
+
+        if txns_df is not None and not txns_df.is_empty() and "amount" in txns_df.columns:
+            # Get expense transactions (negative amounts) in last 90 days
+            expense_df = txns_df.filter(pl.col("amount") < 0)
+            if not expense_df.is_empty():
+                # Compute monthly average expenses from distinct months in data
+                expense_with_month = expense_df.with_columns(
+                    pl.col("transaction_date").dt.truncate("1mo").alias("_month")
+                )
+                n_months = expense_with_month.select("_month").n_unique()
+                if n_months > 0:
+                    monthly_expenses = abs(expense_df.select("amount").sum().item()) / n_months
+                # Top categories by total absolute spend
+                if "category" in txns_df.columns:
+                    cat_df = (
+                        expense_df
+                        .group_by("category")
+                        .agg(pl.col("amount").sum().abs().alias("total"))
+                        .sort("total", descending=True)
+                        .head(5)
+                    )
+                    top_categories_list = [
+                        row["category"]
+                        for row in cat_df.to_dicts()
+                    ]
+
         if income_profile_obj is not None and hasattr(income_profile_obj, "to_dict"):
             income_profile_dict = income_profile_obj.to_dict()
-            monthly_income      = income_profile_obj.monthly_net_income
-            monthly_expenses    = income_profile_obj.monthly_avg_expenses if hasattr(income_profile_obj, "monthly_avg_expenses") else 0.0
-            savings_rate        = ((monthly_income - monthly_expenses) / monthly_income) if monthly_income > 0 else 0.0
+            monthly_income   = income_profile_obj.monthly_net_income
+            savings_rate = max(0.0, min(1.0, (monthly_income - monthly_expenses) / monthly_income)) if monthly_income > 0 else 0.0
+
+            # Determine profile type from savings_rate + burn_rate
+            if burn_rate_obj and hasattr(burn_rate_obj, "burn_rate_ratio"):
+                ratio = burn_rate_obj.burn_rate_ratio
+                if ratio > 1.5:
+                    profile_type_calc = "GASTADOR"
+                elif savings_rate > 0.3:
+                    profile_type_calc = "CONSERVADOR"
+                else:
+                    profile_type_calc = "EQUILIBRADO"
+            else:
+                profile_type_calc = "EQUILIBRADO"
+
+            # Health score: 0-100 based on savings_rate + burn_rate
+            health_score = min(100, max(0, int(savings_rate * 60 + (1 - min(1, burn_rate_obj.burn_rate_ratio / 3.0)) * 40))) if burn_rate_obj else int(savings_rate * 100)
+
             profile_data = {
-                "profile_type":        "EQUILIBRADO",
-                "health_score":        50,
+                "profile_type":        profile_type_calc,
+                "health_score":        health_score,
                 "savings_rate":        round(savings_rate, 4),
-                "total_income":        monthly_income,
-                "total_expenses":      monthly_expenses,
-                "monthly_avg_expenses": monthly_expenses,
-                "top_categories":      [],
-                "trend":               "ESTÁVEL",
+                "total_income":        round(monthly_income, 2),
+                "total_expenses":      round(monthly_expenses, 2),
+                "monthly_avg_expenses": round(monthly_expenses, 2),
+                "top_categories":      top_categories_list,
+                "trend":               "DECRESCENTE" if getattr(burn_rate_obj, "alert_level", "") == "CRITICAL" else "ESTÁVEL",
+                "burn_rate_alert":     getattr(burn_rate_obj, "alert_level", "NORMAL"),
+                "burn_rate_ratio":     round(getattr(burn_rate_obj, "burn_rate_ratio", 0.0), 2),
             }
         else:
-            txns_df = transactions.get("pf_pj_classified_df")
             income_profile_dict = {}
-            if txns_df is not None and not txns_df.is_empty():
-                try:
-                    ip = IncomeProfiler().build(txns_df)
-                    income_profile_dict = ip.to_dict()
-                except Exception:
-                    pass
             profile_data = runner_result.get("profile", {})
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -308,6 +360,8 @@ async def get_forecast(
                 "top_categories":      profile_data.get("top_categories", []),
                 "trend":               profile_data.get("trend", "ESTÁVEL"),
                 "income_profile":      income_profile_dict,
+                "burn_rate_alert":     profile_data.get("burn_rate_alert", "NORMAL"),
+                "burn_rate_ratio":     profile_data.get("burn_rate_ratio", 0.0),
             },
             cashflow={
                 "horizon_days":        horizon_days,
@@ -337,8 +391,7 @@ async def get_forecast(
                 "subscriptions_count":  shadow_data.get("subscriptions_count", 0),
                 "installments_count":   shadow_data.get("installments_count", 0)
             },
-            monthly_forecasts=[]
-        )
+            monthly_forecasts=[])
         
         return forecast_response
         
