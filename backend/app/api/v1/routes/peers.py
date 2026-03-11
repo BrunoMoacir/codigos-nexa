@@ -105,10 +105,10 @@ async def compare_peers(
         rows = con.execute(
             """
             SELECT amount, category
-            FROM transactions
+            FROM transactions_clean
             WHERE user_id = ?
               AND amount < 0
-              AND transaction_date >= current_date - INTERVAL (?) MONTH
+              AND date >= current_date - INTERVAL (?) MONTH
             """,
             [user_id, history_months],
         ).fetchall()

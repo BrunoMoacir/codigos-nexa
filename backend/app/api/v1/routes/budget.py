@@ -79,10 +79,10 @@ async def get_budget_advice(
         con = get_connection()
         rows = con.execute(
             """
-            SELECT transaction_date, amount, category
-            FROM transactions
+            SELECT date as transaction_date, amount, category
+            FROM transactions_clean
             WHERE user_id = ?
-            ORDER BY transaction_date DESC
+            ORDER BY date DESC
             """,
             [user_id],
         ).fetchall()
