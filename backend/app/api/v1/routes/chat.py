@@ -6,6 +6,8 @@ from typing import List
 # Assume agent is accessible here
 from app.agent.graph import build_financial_agent
 from langchain_core.messages import HumanMessage, SystemMessage
+from fastapi import APIRouter, HTTPException, Depends
+from app.core.security import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Agent Chat"])
@@ -21,7 +23,13 @@ class ChatResponse(BaseModel):
     response: str
     
 @router.post("/", response_model=ChatResponse)
-async def chat_with_agent(request: ChatRequest):
+async def chat_with_agent(
+    request: ChatRequest,
+    current_user: str = Depends(get_current_user)
+):
+    if request.user_id != current_user:
+        raise HTTPException(status_code=403, detail="Não autorizado (token não pertence a este user_id)")
+
     """
     Endpoint principal para conversar com a Inteligência Nexa.
     O LLM vai interpretar a mensagem, decidir se precisa chamar alguma Ferramenta (ex: Optimizer de Cartão)

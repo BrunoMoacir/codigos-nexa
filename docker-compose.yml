@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nexa-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/:/app/backend/
+      - nexa-db-data:/app/backend/ # Monta o diretorio para persistir o DuckDB
+    env_file:
+      - ./backend/.env
+    environment:
+      - APP_MODE=prod
+    restart: unless-stopped
+
+volumes:
+  nexa-db-data:

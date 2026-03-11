@@ -53,6 +53,9 @@ from app.api.v1.routes import bank_simulation
 # Transações: webhook + get
 from app.api.v1.routes import transactions
 
+# ✨ NOVO: Auth (Login e Register)
+from app.api.v1.routes import auth
+
 # ✨ NOVO: Forecast (previsão consolidada)
 from app.api.v1.routes import forecast
 
@@ -85,6 +88,9 @@ router.include_router(bank_simulation.router)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # REGISTRAR ROTAS: CORE ENGINE (PRODUÇÃO)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# 0️⃣ Auth: POST /auth/register, POST /auth/token
+router.include_router(auth.router)
 
 # 1️⃣ Transações: POST /transactions/webhook (ingestão de dados)
 #    GET  /transactions/{user_id} (buscar dados)
