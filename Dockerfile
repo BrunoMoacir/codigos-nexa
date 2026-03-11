@@ -3,9 +3,9 @@ FROM python:3.12-slim
 # Definir variaveis de ambiente
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app/backend
 
-WORKDIR /app
+WORKDIR /app/backend
 
 # Instalar dependencias do sistema necessarias
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -22,4 +22,4 @@ RUN pip install --upgrade pip && \
 COPY backend/ /app/backend/
 
 # Comando de inicializacao da API (porta 8000)
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
