@@ -305,20 +305,38 @@ async def get_forecast(
             monthly_income   = income_profile_obj.monthly_net_income
             savings_rate = max(0.0, min(1.0, (monthly_income - monthly_expenses) / monthly_income)) if monthly_income > 0 else 0.0
 
-            # Determine profile type from savings_rate + burn_rate
-            if burn_rate_obj and hasattr(burn_rate_obj, "burn_rate_ratio"):
-                ratio = burn_rate_obj.burn_rate_ratio
-                if ratio > 1.5:
-                    profile_type_calc = "GASTADOR"
-                elif savings_rate > 0.3:
-                    profile_type_calc = "CONSERVADOR"
-                else:
-                    profile_type_calc = "EQUILIBRADO"
-            else:
-                profile_type_calc = "EQUILIBRADO"
+            # income_ratio = expenses / income — o indicador correto de saúde de gasto
+            # (burn_rate_ratio é a *taxa de consumo do orçamento no ritmo atual*, outro conceito)
+            income_ratio = monthly_expenses / monthly_income if monthly_income > 0 else 1.0
+            income_ratio = round(min(income_ratio, 1.0), 4)  # cap em 1.0 (nunca negativo)
 
-            # Health score: 0-100 based on savings_rate + burn_rate
-            health_score = min(100, max(0, int(savings_rate * 60 + (1 - min(1, burn_rate_obj.burn_rate_ratio / 3.0)) * 40))) if burn_rate_obj else int(savings_rate * 100)
+            # ── 1. PROFILE TYPE — baseado em savings_rate ─────────────
+            # savings_rate > 40% → POUPADOR
+            # savings_rate 5–40% → EQUILIBRADO
+            # savings_rate < 5%  → GASTADOR
+            if savings_rate > 0.40:
+                profile_type_calc = "POUPADOR"
+            elif savings_rate >= 0.05:
+                profile_type_calc = "EQUILIBRADO"
+            else:
+                profile_type_calc = "GASTADOR"
+
+            # ── 2. HEALTH SCORE — savings_rate (70%) + gasto/renda (30%) ─
+            # savings_rate: >=20% dá 70 pontos (pontuação máxima nessa frente)
+            # income_ratio: quanto mais baixo melhor (expenses/income)
+            savings_score  = min(70.0, savings_rate * 5.0 * 70.0)  # 0–70 pts
+            spending_score = (1.0 - income_ratio) * 30.0           # 0–30 pts (0 se gasta = renda)
+            health_score   = min(100, max(0, round(savings_score + spending_score)))
+
+            # ── 3. TREND — baseado na estabilidade de renda histórica ────
+            # 0.65 é um bom limiar para ESTÁVEL (renda PJ varia um pouco)
+            income_stability = getattr(income_profile_obj, "income_stability", 1.0) or 0.0
+            if income_stability >= 0.65:
+                trend_calc = "ESTÁVEL"
+            elif income_stability >= 0.4:
+                trend_calc = "CRESCENTE"  # instável mas não crítico
+            else:
+                trend_calc = "DECRESCENTE"  # alta volatilidade
 
             profile_data = {
                 "profile_type":        profile_type_calc,
@@ -328,9 +346,11 @@ async def get_forecast(
                 "total_expenses":      round(monthly_expenses, 2),
                 "monthly_avg_expenses": round(monthly_expenses, 2),
                 "top_categories":      top_categories_list,
-                "trend":               "DECRESCENTE" if getattr(burn_rate_obj, "alert_level", "") == "CRITICAL" else "ESTÁVEL",
+                "trend":               trend_calc,
+                # burn_rate: expõe income_ratio (expenses/income) — a métrica correta
+                # burn_rate_ratio (pace ratio) fica disponível só para debug
                 "burn_rate_alert":     getattr(burn_rate_obj, "alert_level", "NORMAL"),
-                "burn_rate_ratio":     round(getattr(burn_rate_obj, "burn_rate_ratio", 0.0), 2),
+                "burn_rate_ratio":     round(income_ratio, 4),  # expenses/income, não pace ratio
             }
         else:
             income_profile_dict = {}
@@ -343,7 +363,7 @@ async def get_forecast(
         logger.info(f"✅ Forecast gerado com sucesso para user_id={user_id}")
 
         profile_type = profile_data.get("profile_type", "EQUILIBRADO")
-        if profile_type not in ["CONSERVADOR", "EQUILIBRADO", "GASTADOR"]:
+        if profile_type not in ["CONSERVADOR", "EQUILIBRADO", "GASTADOR", "POUPADOR"]:
             profile_type = "EQUILIBRADO"
 
         forecast_response = ForecastResponse(

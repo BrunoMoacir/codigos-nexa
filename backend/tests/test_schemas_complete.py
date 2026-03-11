@@ -526,7 +526,7 @@ def test_forecast_schemas():
         
         # Validações
         assert 0 <= health.health_score <= 100
-        assert health.profile_type in ["CONSERVADOR", "EQUILIBRADO", "GASTADOR"]
+        assert health.profile_type in ["CONSERVADOR", "EQUILIBRADO", "GASTADOR", "POUPADOR"]
         assert health.trend in ["CRESCENTE", "ESTÁVEL", "DECRESCENTE"]
         
     except Exception as e:

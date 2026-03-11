@@ -31,7 +31,7 @@ from app.schemas.shadow_invoice import ShadowInvoiceListResponse
 # TYPES
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-ProfileType = Literal["CONSERVADOR", "EQUILIBRADO", "GASTADOR"]
+ProfileType = Literal["CONSERVADOR", "EQUILIBRADO", "GASTADOR", "POUPADOR"]
 TrendType = Literal["CRESCENTE", "ESTÁVEL", "DECRESCENTE"]
 RiskLevel = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 
