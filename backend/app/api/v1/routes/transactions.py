@@ -60,7 +60,10 @@ _CONNECTOR_MAP: dict[str, str] = {
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.post("/webhook", status_code=status.HTTP_200_OK)
-async def receive_transaction_webhook(payload: dict[str, Any]):
+async def receive_transaction_webhook(
+    payload: dict[str, Any],
+    user_id: str = Query("golden_user_777", description="ID mapeado do item_id (mock para o MVP)")
+):
     """
     Recebe webhook de transações da Pluggy.
     
@@ -196,16 +199,26 @@ async def receive_transaction_webhook(payload: dict[str, Any]):
             logger.info("ETL Classifier concluído")
             
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # PASSO 3: SALVAR NO POSTGRES (TODO)
+            # PASSO 3: SALVAR NO DUCKDB
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             
-            # TODO: Implementar salvamento no Postgres
-            # await save_to_postgres(categorized_df)
+            from app.db.queries import save_transactions_clean
+            
+            account_id = None
+            if "account_id" in categorized_df.columns and not categorized_df.is_empty():
+                account_id = categorized_df["account_id"][0]
+                
+            saved_rows = save_transactions_clean(
+                df=categorized_df,
+                user_id=user_id,
+                account_id=account_id
+            )
             
             logger.info(
                 "ETL Pipeline completo",
                 extra={
-                    "final_records": len(categorized_df)
+                    "final_records": len(categorized_df),
+                    "saved_rows": saved_rows
                 }
             )
             

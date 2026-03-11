@@ -143,8 +143,10 @@ def build_financial_agent():
             temperature=0.0,
         )
 
-    # 3. Agente ReAct
-    app = create_react_agent(llm, tools=tools, prompt=SYSTEM_PROMPT)
+    # 3. Memória (checkpointer) e Agente ReAct
+    from langgraph.checkpoint.memory import MemorySaver
+    memory = MemorySaver()
+    app = create_react_agent(llm, tools=tools, prompt=SYSTEM_PROMPT, checkpointer=memory)
 
     logger.info(
         f"[Agent] Agente Nexa construído com {len(tools)} ferramentas: "

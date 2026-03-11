@@ -338,6 +338,17 @@ async def get_forecast(
             else:
                 trend_calc = "DECRESCENTE"  # alta volatilidade
 
+            # ── 4. BURN RATE ALERT — baseado em expenses / income ─────────
+            # < 60% = NORMAL | 60-80% = ATTENTION | 80-100% = WARNING | > 100% = CRITICAL
+            if income_ratio >= 1.0:
+                burn_alert = "CRITICAL"
+            elif income_ratio >= 0.80:
+                burn_alert = "WARNING"
+            elif income_ratio >= 0.60:
+                burn_alert = "ATTENTION"
+            else:
+                burn_alert = "NORMAL"
+
             profile_data = {
                 "profile_type":        profile_type_calc,
                 "health_score":        health_score,
@@ -349,7 +360,7 @@ async def get_forecast(
                 "trend":               trend_calc,
                 # burn_rate: expõe income_ratio (expenses/income) — a métrica correta
                 # burn_rate_ratio (pace ratio) fica disponível só para debug
-                "burn_rate_alert":     getattr(burn_rate_obj, "alert_level", "NORMAL"),
+                "burn_rate_alert":     burn_alert,
                 "burn_rate_ratio":     round(income_ratio, 4),  # expenses/income, não pace ratio
             }
         else:

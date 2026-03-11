@@ -5,7 +5,7 @@ from typing import List
 
 # Assume agent is accessible here
 from app.agent.graph import build_financial_agent
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Agent Chat"])
@@ -30,11 +30,16 @@ async def chat_with_agent(request: ChatRequest):
     logger.info(f"Recebida mensagem do usuário {request.user_id}: {request.message[:50]}...")
     
     try:
+        # Injetamos um SystemMessage com o ID do usuário para o LLM não precisar perguntar.
+        # Assim ele repassa corretamente para as tools.
         inputs = {
-            "messages": [HumanMessage(content=request.message)]
+            "messages": [
+                SystemMessage(content=f"[SYSTEM HIDDEN CONTEXT] O ID interno deste usuário é '{request.user_id}'. ASSUMA este user_id ao chamar QUALQUER ferramenta de dados."),
+                HumanMessage(content=request.message)
+            ]
         }
         
-        # Invocando o agent. (Em prod, deve-se habilitar memória entre mensagens!)
+        # O thread_id agrupa o histórico na memória do agente
         config = {"configurable": {"thread_id": request.user_id}}
         
         result = agent_app.invoke(inputs, config=config)
