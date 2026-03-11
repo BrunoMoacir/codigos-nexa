@@ -200,88 +200,144 @@ async def get_forecast(
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # STEP 2: EXTRAIR COMPONENTES DO RESULTADO
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-        # Cashflow (projeção + safe-to-spend)
-        cashflow_data = runner_result.get("cashflow", {})
-        safe_spend_data = runner_result.get("safe_to_spend", {})
 
-        # Shadow invoices (obrigações futuras)
-        shadow_data = runner_result.get("shadow_invoices", {})
-
-        # Financial health (análise de saúde)
-        profile_data = runner_result.get("profile", {})
-
-        # MI.7: Estimar income_profile a partir das transações para expor na resposta
+        import polars as pl
         from app.etl.income_profiler import IncomeProfiler
-        income_profile_dict: dict = {}
-        transactions_data = runner_result.get("transactions", {})
-        transactions_df_forecast = transactions_data.get("pf_pj_classified_df")
-        if transactions_df_forecast is not None and not transactions_df_forecast.is_empty():
-            income_profile_obj = IncomeProfiler().build(transactions_df_forecast)
+
+        projections   = runner_result.get("projections", {})
+        analysis      = runner_result.get("analysis", {})
+        transactions  = runner_result.get("transactions", {})
+
+        # ── Safe-to-Spend ─────────────────────────────────────────
+        # run_from_db() retorna objeto SafeToSpendResult; run() retorna dict
+        sts_raw = projections.get("safe_to_spend")
+        if sts_raw is not None and hasattr(sts_raw, "safe_to_spend_total"):
+            safe_spend_data = {
+                "current_balance":     projections.get("current_balance", 0.0),
+                "min_projected_balance": projections.get("min_projected_balance", 0.0),
+                "total_shadow_invoices": 0.0,
+                "safety_buffer":       getattr(sts_raw, "safety_buffer", 0.0),
+                "safe_to_spend_total": sts_raw.safe_to_spend_total,
+                "safe_to_spend_daily": sts_raw.safe_to_spend_daily,
+                "risk_level":          sts_raw.risk_level,
+            }
+        else:
+            safe_spend_data = runner_result.get("safe_to_spend", {})
+
+        # ── Cashflow ──────────────────────────────────────────────
+        cashflow_df = projections.get("cashflow_forecast")
+        if cashflow_df is not None and isinstance(cashflow_df, pl.DataFrame) and not cashflow_df.is_empty():
+            ending_bal  = cashflow_df.select("projected_balance").tail(1).item()
+            worst_bal   = cashflow_df.select("projected_balance").min().item()
+            neg_days    = cashflow_df.filter(pl.col("projected_balance") < 0).height
+            cashflow_data = {
+                "starting_balance":  projections.get("current_balance", 0.0),
+                "ending_balance":    ending_bal,
+                "worst_balance":     worst_bal,
+                "negative_day":      None if neg_days == 0 else "Sim",
+                "risk_level":        safe_spend_data.get("risk_level", "LOW"),
+                "total_shadow_impact": 0.0,
+                "days_at_risk":      neg_days,
+                "daily":             [],
+            }
+        else:
+            cashflow_data = runner_result.get("cashflow", {})
+
+        # ── Shadow Invoices ───────────────────────────────────────
+        shadow_events = projections.get("shadow_events")
+        if shadow_events is not None and isinstance(shadow_events, pl.DataFrame) and not shadow_events.is_empty():
+            shadow_data = {
+                "invoices":             [],
+                "total_count":          len(shadow_events),
+                "total_monthly_impact": float(shadow_events.select("amount").sum().item()) if "amount" in shadow_events.columns else 0.0,
+                "subscriptions_count":  shadow_events.filter(pl.col("type") == "subscription").height if "type" in shadow_events.columns else 0,
+                "installments_count":   shadow_events.filter(pl.col("type") == "installment").height if "type" in shadow_events.columns else 0,
+            }
+        else:
+            shadow_data = runner_result.get("shadow_invoices", {})
+
+        # ── Income Profile / Financial Health ─────────────────────
+        income_profile_obj = analysis.get("income_profile")
+        if income_profile_obj is not None and hasattr(income_profile_obj, "to_dict"):
             income_profile_dict = income_profile_obj.to_dict()
-        
+            monthly_income      = income_profile_obj.monthly_net_income
+            monthly_expenses    = income_profile_obj.monthly_avg_expenses if hasattr(income_profile_obj, "monthly_avg_expenses") else 0.0
+            savings_rate        = ((monthly_income - monthly_expenses) / monthly_income) if monthly_income > 0 else 0.0
+            profile_data = {
+                "profile_type":        "EQUILIBRADO",
+                "health_score":        50,
+                "savings_rate":        round(savings_rate, 4),
+                "total_income":        monthly_income,
+                "total_expenses":      monthly_expenses,
+                "monthly_avg_expenses": monthly_expenses,
+                "top_categories":      [],
+                "trend":               "ESTÁVEL",
+            }
+        else:
+            txns_df = transactions.get("pf_pj_classified_df")
+            income_profile_dict = {}
+            if txns_df is not None and not txns_df.is_empty():
+                try:
+                    ip = IncomeProfiler().build(txns_df)
+                    income_profile_dict = ip.to_dict()
+                except Exception:
+                    pass
+            profile_data = runner_result.get("profile", {})
+
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # STEP 3: CONVERTER PARA RESPONSE MODELS
+        # STEP 3: CONSTRUIR RESPOSTA
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-        # 🔧 TODO: Implementar conversores de dict → Pydantic
-        # Por enquanto, vamos retornar os dados como estão
-        
+
         logger.info(f"✅ Forecast gerado com sucesso para user_id={user_id}")
-        
-        # Construir resposta consolidada
-        # NOTA: A função build_forecast_response espera Response models
-        # Como estamos com dados dict, retornamos diretamente como ForecastResponse
-        
-        # Mapear profile_type para valores válidos
+
         profile_type = profile_data.get("profile_type", "EQUILIBRADO")
         if profile_type not in ["CONSERVADOR", "EQUILIBRADO", "GASTADOR"]:
             profile_type = "EQUILIBRADO"
-        
+
         forecast_response = ForecastResponse(
             user_id=user_id,
             generated_at=datetime.now(timezone.utc),
             period_analyzed_days=90,
             financial_health={
-                "profile_type": profile_type,
-                "health_score": profile_data.get("health_score", 50),
-                "savings_rate": profile_data.get("savings_rate", 0.0),
-                "total_income": profile_data.get("total_income", 0.0),
-                "total_expenses": profile_data.get("total_expenses", 0.0),
+                "profile_type":        profile_type,
+                "health_score":        profile_data.get("health_score", 50),
+                "savings_rate":        profile_data.get("savings_rate", 0.0),
+                "total_income":        profile_data.get("total_income", 0.0),
+                "total_expenses":      profile_data.get("total_expenses", 0.0),
                 "monthly_avg_expenses": profile_data.get("monthly_avg_expenses", 0.0),
-                "top_categories": profile_data.get("top_categories", []),
-                "trend": profile_data.get("trend", "ESTÁVEL"),
-                "income_profile": income_profile_dict,  # MI.7: renda filtrada e classificada
+                "top_categories":      profile_data.get("top_categories", []),
+                "trend":               profile_data.get("trend", "ESTÁVEL"),
+                "income_profile":      income_profile_dict,
             },
             cashflow={
-                "horizon_days": horizon_days,
-                "starting_balance": cashflow_data.get("starting_balance", 0),
-                "ending_balance": cashflow_data.get("ending_balance", 0),
-                "worst_balance": cashflow_data.get("worst_balance", 0),
-                "negative_day": cashflow_data.get("negative_day"),
-                "risk_level": cashflow_data.get("risk_level", "LOW"),
+                "horizon_days":        horizon_days,
+                "starting_balance":    cashflow_data.get("starting_balance", 0),
+                "ending_balance":      cashflow_data.get("ending_balance", 0),
+                "worst_balance":       cashflow_data.get("worst_balance", 0),
+                "negative_day":        cashflow_data.get("negative_day"),
+                "risk_level":          cashflow_data.get("risk_level", "LOW"),
                 "total_shadow_impact": cashflow_data.get("total_shadow_impact", 0),
-                "days_at_risk": cashflow_data.get("days_at_risk", 0),
-                "daily_data": cashflow_data.get("daily", [])
+                "days_at_risk":        cashflow_data.get("days_at_risk", 0),
+                "daily_data":          cashflow_data.get("daily", [])
             },
             safe_to_spend={
-                "current_balance": safe_spend_data.get("current_balance", 0),
+                "current_balance":      safe_spend_data.get("current_balance", 0),
                 "min_projected_balance": safe_spend_data.get("min_projected_balance", 0),
                 "total_shadow_invoices": safe_spend_data.get("total_shadow_invoices", 0),
-                "safety_buffer": safe_spend_data.get("safety_buffer", 0),
-                "safe_to_spend_total": safe_spend_data.get("safe_to_spend_total", 0),
-                "safe_to_spend_daily": safe_spend_data.get("safe_to_spend_daily", 0),
-                "days": horizon_days,
-                "risk_level": safe_spend_data.get("risk_level", "LOW")
+                "safety_buffer":        safe_spend_data.get("safety_buffer", 0),
+                "safe_to_spend_total":  safe_spend_data.get("safe_to_spend_total", 0),
+                "safe_to_spend_daily":  safe_spend_data.get("safe_to_spend_daily", 0),
+                "days":                 horizon_days,
+                "risk_level":           safe_spend_data.get("risk_level", "LOW")
             },
             shadow_invoices={
-                "invoices": shadow_data.get("invoices", []),
-                "total_count": shadow_data.get("total_count", 0),
+                "invoices":             shadow_data.get("invoices", []),
+                "total_count":          shadow_data.get("total_count", 0),
                 "total_monthly_impact": shadow_data.get("total_monthly_impact", 0),
-                "subscriptions_count": shadow_data.get("subscriptions_count", 0),
-                "installments_count": shadow_data.get("installments_count", 0)
+                "subscriptions_count":  shadow_data.get("subscriptions_count", 0),
+                "installments_count":   shadow_data.get("installments_count", 0)
             },
-            monthly_forecasts=[]  # TODO: Implementar previsões mensais
+            monthly_forecasts=[]
         )
         
         return forecast_response

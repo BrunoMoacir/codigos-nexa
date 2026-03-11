@@ -375,7 +375,13 @@ class NexaRunner:
 
             logger.info("   ✅ %d transações carregadas do DuckDB", len(df))
 
-            # Garantir tipos corretos para o pipeline downstream
+            # Normalizar tipos e nomes de colunas para o pipeline downstream.
+            # DuckDB salva como `date`, mas RecurringDetector / CashflowProjector
+            # / BurnRate / ShadowInvoice esperam `transaction_date`.
+            if "date" in df.columns and "transaction_date" not in df.columns:
+                df = df.with_columns(
+                    pl.col("date").cast(pl.Date).alias("transaction_date")
+                )
             if "date" in df.columns:
                 df = df.with_columns(pl.col("date").cast(pl.Date))
 
