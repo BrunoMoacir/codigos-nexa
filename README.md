@@ -474,3 +474,5 @@ python scripts/test_api.py
 | [backend/app/project_docs/HOW_TO_TEST.md](backend/app/project_docs/HOW_TO_TEST.md) | Guia de testes (6 metodos) |
 | [backend/app/project_docs/PRODUCTION_CHECKLIST.md](backend/app/project_docs/PRODUCTION_CHECKLIST.md) | Checklist para ir a producao |
 | [backend/docs/pf_pj_validation_report.md](backend/docs/pf_pj_validation_report.md) | Relatorio de validacao do classificador PF/PJ |
+
+
