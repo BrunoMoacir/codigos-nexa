@@ -39,6 +39,7 @@ from app.architect.calculators import financing as fin_calc
 from app.architect.calculators import investment as inv_calc
 from app.architect.calculators import npv as npv_calc
 from app.architect.calculators import consortium as cons_calc
+from app.architect.connectors.consortium_rate_provider import ConsortiumRateProvider
 from app.architect.connectors.ipca import deflate as ipca_deflate
 from app.architect.utils.formatters import format_currency
 
@@ -303,15 +304,26 @@ class StrategyEngine:
     ) -> Dict[str, Any]:
         """Simula cenário de consórcio via Monte Carlo.
 
-        Usa taxas reais da ABAC (injetadas pelo ArchitectService via market_rates
-        desde a Fase 2). Mantém fallbacks para retrocompatibilidade com Fase 1.
+        Usa parâmetros reais produzidos pelo ConsortiumRateProvider:
+        - AbacConnector: admin_rate, months, group_size, reserve_fund_rate
+        - IPCAConnector: annual_adjustment_rate (IPCA ou INCC≈IPCA×1.5 p/ imóvel)
+
+        Todos os campos lêem do dict `rates` via .get() com fallback seguro,
+        garantindo retrocompatibilidade com fixtures de teste que não incluem
+        as chaves novas.
         """
         selic_monthly = (1 + rates.get("selic_annual", 0.1075)) ** (1 / 12) - 1
 
-        # Taxas ABAC (Fase 2) — fallback para valores de referência de mercado
-        admin_rate        = rates.get("consortium_admin_rate",        0.17)
-        cons_months       = int(rates.get("consortium_months",        72))
-        reserve_fund_rate = rates.get("consortium_reserve_fund_rate", 0.02)
+        # Parâmetros do grupo — injetados pelo ConsortiumRateProvider via ArchitectService
+        admin_rate            = rates.get("consortium_admin_rate",             0.17)
+        cons_months           = int(rates.get("consortium_months",             72))
+        reserve_fund_rate     = rates.get("consortium_reserve_fund_rate",      0.02)
+        group_size            = int(rates.get("consortium_group_size",         100))
+        contemplated_per_m    = int(rates.get("consortium_contemplated_per_month", 2))
+        annual_adj_rate       = rates.get("consortium_annual_adjustment_rate", 0.045)
+
+        # Mapeamento de tipo de bem: AssetType enum → formato consortium.py
+        calc_asset_type = ConsortiumRateProvider.map_asset_type(req.asset_type.value)
 
         sim = cons_calc.calculate_consortium_metrics(
             letter_value=req.target_amount,
@@ -319,6 +331,10 @@ class StrategyEngine:
             admin_rate=admin_rate,
             reserve_fund_rate=reserve_fund_rate,
             bid_amount=req.down_payment,
+            asset_type=calc_asset_type,
+            annual_adjustment_rate=annual_adj_rate,
+            group_size=group_size,
+            contemplated_per_month=contemplated_per_m,
         )
 
         # Fluxo: -Parcelas por N meses

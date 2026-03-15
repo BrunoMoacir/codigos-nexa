@@ -87,10 +87,15 @@ class TestCalculateConsortiumMetrics:
         assert res.total_cost > _VALOR
 
     def test_taxa_zero_custo_proximo_ao_valor(self):
-        """Com taxa adm = 0, custo ≈ valor do bem."""
+        """Com taxa adm = 0, custo nominal ≈ valor do bem.
+
+        O custo *real* (total_cost_real) será maior devido ao reajuste anual
+        da carta (IPCA/INCC). O custo *nominal* (total_cost_nominal) deve
+        ser igual ao letter_value quando as taxas são zero.
+        """
         res = calculate_consortium_metrics(_VALOR, _MESES, 0.0)
-        # Com taxa zero, custo ≈ valor (pequena variação de fundo de reserva)
-        assert abs(res.total_cost - _VALOR) / _VALOR < 0.10  # máx 10%
+        # Sem taxas, o custo nominal = letter_value (sem reajuste)
+        assert abs(res.total_cost_nominal - _VALOR) / _VALOR < 0.01
 
     def test_maior_taxa_adm_maior_custo(self):
         """Taxa administrativa maior → custo total maior."""
@@ -115,8 +120,14 @@ class TestCalculateConsortiumMetrics:
         assert res.scenarios == n
 
     def test_admin_fee_total_proporcional(self):
-        """Taxa adm total ≈ admin_rate * letter_value (fundo de reserva separado)."""
+        """Taxa adm total >= admin_rate * letter_value (reajuste eleva a base).
+
+        Com reajuste anual, a carta cresce ao longo do prazo e as parcelas
+        de taxa administrativa são calculadas sobre o valor corrigido.
+        Por isso admin_fee_total >= admin_rate * letter_value.
+        O valor nominal (sem reajuste) seria exatamente admin_rate * letter_value.
+        """
         res = calculate_consortium_metrics(_VALOR, _MESES, _TAXA_ADM)
-        expected_fee = _VALOR * _TAXA_ADM
-        # Com pequena tolerância (arredondamento)
-        assert abs(res.admin_fee_total - expected_fee) < expected_fee * 0.01
+        expected_fee_nominal = _VALOR * _TAXA_ADM
+        # Com reajuste, taxa adm real >= nominal
+        assert res.admin_fee_total >= expected_fee_nominal

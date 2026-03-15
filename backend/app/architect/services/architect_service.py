@@ -35,6 +35,7 @@ from typing import Optional
 from app.architect.connectors.abac import AbacConnector
 from app.architect.connectors.anbima import AnbimaConnector
 from app.architect.connectors.bacen import BacenConnector
+from app.architect.connectors.consortium_rate_provider import ConsortiumRateProvider
 from app.architect.connectors.ipca import IPCAConnector
 from app.architect.connectors.market_rates import MarketRatesConnector
 from app.architect.models import (
@@ -77,6 +78,7 @@ class ArchitectService:
         market_rates: Optional[MarketRatesConnector] = None,
         abac: Optional[AbacConnector] = None,
         ipca: Optional[IPCAConnector] = None,
+        consortium_provider: Optional[ConsortiumRateProvider] = None,
         engine: Optional[StrategyEngine] = None,
     ) -> None:
         self._bacen        = bacen        or BacenConnector()
@@ -84,6 +86,12 @@ class ArchitectService:
         self._market_rates = market_rates or MarketRatesConnector()
         self._abac         = abac         or AbacConnector()
         self._ipca         = ipca         or IPCAConnector()
+        # ConsortiumRateProvider recebe as mesmas instâncias de abac e ipca
+        # para compartilhar o cache — sem duplo fetch
+        self._consortium_provider = consortium_provider or ConsortiumRateProvider(
+            abac=self._abac,
+            ipca=self._ipca,
+        )
         self._engine       = engine       or StrategyEngine()
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -264,20 +272,7 @@ class ArchitectService:
             best_cet = fb.get(f"cet_{asset_type}_min", 0.15)
             warnings.append("CET de mercado obtido de dados de referência.")
 
-        # Estatísticas de consórcio da ABAC (Fase 2)
-        try:
-            cons_stats = self._abac.get_consortium_stats(asset_type)
-            consortium_admin_rate        = cons_stats["admin_rate"]
-            consortium_months            = float(cons_stats["typical_months"])
-            consortium_reserve_fund_rate = cons_stats["reserve_fund_rate"]
-        except Exception as exc:
-            logger.warning("ABAC indisponível: %s — usando fallback", exc)
-            consortium_admin_rate        = 0.17
-            consortium_months            = 72.0
-            consortium_reserve_fund_rate = 0.02
-            warnings.append("Estatísticas de consórcio obtidas de dados de referência (ABAC indisponível).")
-
-        # IPCA — M3.1: ajuste por inflação
+        # IPCA — M3.1: ajuste por inflação (também usado pelo ConsortiumRateProvider)
         try:
             ipca_annual = self._ipca.get_ipca()
         except Exception as exc:
@@ -285,14 +280,31 @@ class ArchitectService:
             ipca_annual = self._ipca.get_fallback_rates()["ipca_annual"]
             warnings.append("IPCA obtido de dados de referência (BCB indisponível).")
 
+        # Parâmetros de consórcio — ConsortiumRateProvider (ABAC + IPCA)
+        # O provider usa as mesmas instâncias de _abac e _ipca (cache compartilhado).
+        try:
+            cons_params = self._consortium_provider.get_params(asset_type)
+            if cons_params.using_incc_approximation:
+                logger.info(
+                    "ConsortiumRateProvider: reajuste IMOVEL via INCC≈IPCA×1.5 (%.2f%%)",
+                    cons_params.annual_adjustment_rate * 100,
+                )
+        except Exception as exc:
+            logger.warning(
+                "ConsortiumRateProvider falhou: %s — usando fallback hardcoded", exc
+            )
+            cons_params = self._consortium_provider.get_fallback_params(asset_type)
+            warnings.append(
+                "Parâmetros de consórcio obtidos de dados de referência "
+                "(ABAC/IPCA indisponíveis)."
+            )
+
         return {
-            "selic_annual":                selic,
-            "cdi_annual":                  cdi,
-            "best_cet_annual":             best_cet,
-            "ipca_annual":                 ipca_annual,
-            "consortium_admin_rate":        consortium_admin_rate,
-            "consortium_months":            consortium_months,
-            "consortium_reserve_fund_rate": consortium_reserve_fund_rate,
+            "selic_annual":    selic,
+            "cdi_annual":      cdi,
+            "best_cet_annual": best_cet,
+            "ipca_annual":     ipca_annual,
+            **cons_params.to_rates_dict(),
         }, warnings
 
     @staticmethod
