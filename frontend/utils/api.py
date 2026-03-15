@@ -23,7 +23,7 @@ class NexaAPIClient:
             if resp.status_code == 200:
                 payload = resp.json()
                 st.session_state["jwt_token"] = payload.get("access_token")
-                return {"success": True}
+                return {"success": True, "user_id": payload.get("user_id")}
             
             # Tenta pegar erro do JSON, se falhar pega o texto bruto
             try:
