@@ -17,6 +17,8 @@ if "jwt_token" not in st.session_state:
     st.session_state.jwt_token = None
 if "username" not in st.session_state:
     st.session_state.username = None
+if "user_id" not in st.session_state:
+    st.session_state.user_id = None
 
 api = NexaAPIClient()
 
@@ -60,6 +62,7 @@ def login_screen():
                     resp = api.login(username, password)
                 if resp.get("success"):
                     st.session_state.username = username
+                    st.session_state.user_id = resp.get("user_id")
                     st.success("✅ Bem-vindo! Abrindo seu painel…")
                     time.sleep(0.8)
                     st.rerun()

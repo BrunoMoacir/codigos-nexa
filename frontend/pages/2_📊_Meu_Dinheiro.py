@@ -14,7 +14,7 @@ st.set_page_config(page_title="Meu Dinheiro · Nexa", page_icon="📊", layout="
 load_css()
 
 api = NexaAPIClient()
-user_id = st.session_state.username
+user_id = st.session_state.user_id or st.session_state.username
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:

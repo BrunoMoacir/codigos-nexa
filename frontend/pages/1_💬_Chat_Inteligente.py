@@ -17,7 +17,7 @@ st.set_page_config(
 load_css()
 
 api = NexaAPIClient()
-user_id = st.session_state.username
+user_id = st.session_state.user_id or st.session_state.username
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
