@@ -9,8 +9,10 @@ Ferramentas disponíveis:
   4. get_spending_alerts         → Alertas ativos + notificações proativas
   5. get_goals_summary           → Metas financeiras e progresso
   6. get_financing_simulation    → Simula financiamento vs. poupança vs. consórcio (F3)
-  7. get_fiscal_report           → Relatório fiscal PJ/MEI com DAS estimado (F4)
-  8. get_peer_comparison         → Compara gastos com benchmarks IBGE/POF (MX.4)
+  7. get_timing_scenarios        → M3.4 — "E se eu esperar X meses?" — timing de compra (F3)
+  8. get_leverage_simulation     → F3.5 — Alavancagem via consórcio: aluguel + SELIC pagam parcelas (F3)
+  9. get_fiscal_report           → Relatório fiscal PJ/MEI com DAS estimado (F4)
+ 10. get_peer_comparison         → Compara gastos com benchmarks IBGE/POF (MX.4)
 """
 import logging
 from langchain_core.messages import BaseMessage
@@ -23,6 +25,8 @@ from app.agent.tools.get_budget_advice import get_budget_advice
 from app.agent.tools.get_spending_alerts import get_spending_alerts
 from app.agent.tools.get_goals_summary import get_goals_summary
 from app.agent.tools.get_financing_simulation import get_financing_simulation
+from app.agent.tools.get_timing_scenarios import get_timing_scenarios
+from app.agent.tools.get_leverage_simulation import get_leverage_simulation
 from app.agent.tools.get_fiscal_report import get_fiscal_report
 from app.agent.tools.get_peer_comparison import get_peer_comparison
 
@@ -85,6 +89,29 @@ USE QUANDO o usuário perguntar sobre:
 - Se o usuário mencionar um valor de bem (ex: "quero comprar um carro de R$ 60.000"), USE IMEDIATAMENTE.
 - asset_type: IMOVEL, VEICULO, REFORMA, VIAGEM ou OUTRO
 
+### `get_leverage_simulation(user_id, city=None, neighborhood=None, sqm=None, asset_value=None, monthly_rent=None, consortium_months=180, admin_rate=None, annual_adjustment_rate=0.0)`
+USE QUANDO o usuário perguntar sobre:
+- "Consigo comprar imóvel sem gastar nada por mês?"
+- "Vale a pena fazer consórcio maior e investir o surplus?"
+- "O aluguel paga as parcelas do consórcio?"
+- "Como alavanco patrimônio com imóvel + SELIC?"
+- Qualquer estratégia de alavancagem imobiliária via consórcio
+- MODO 1 (preferencial): Se o usuário mencionar cidade + bairro + m², use city/neighborhood/sqm
+  → A Nexa busca preço/m² e aluguel/m² do FipeZAP automaticamente.
+  → Ex: "apê de 70m² no Buritis em BH" → city="BH", neighborhood="Buritis", sqm=70
+- MODO 2: Se o usuário informar asset_value e monthly_rent diretamente, use esses valores.
+- Usa SELIC e taxas de consórcio reais de mercado automaticamente.
+
+### `get_timing_scenarios(user_id, target_amount, monthly_savings, down_payment=0, asset_type="OUTRO", financing_months=48, risk_profile="moderado", wait_months=None)`
+USE QUANDO o usuário perguntar sobre:
+- "Vale a pena esperar para comprar?" / "E se eu esperar mais alguns meses?"
+- "Se eu juntar mais entrada, quanto economizo?"
+- "Compro agora ou espero para ter entrada maior?"
+- "Quanto economizo esperando 3, 6 ou 12 meses?"
+- Qualquer comparação de timing de compra vs. acumulação de entrada
+- REQUER monthly_savings (quanto pode poupar/mês durante a espera) — extraia da mensagem ou pergunte.
+- wait_months: CSV de janelas de espera, ex: "0,3,6,12" (padrão: 0,3,6,12)
+
 ### `get_fiscal_report(user_id, year=None, month=None)`
 USE QUANDO o usuário perguntar sobre:
 - Relatório fiscal, contábil ou de imposto
@@ -123,6 +150,8 @@ def build_financial_agent():
         get_spending_alerts,
         get_goals_summary,
         get_financing_simulation,
+        get_timing_scenarios,
+        get_leverage_simulation,
         get_fiscal_report,
         get_peer_comparison,
     ]
