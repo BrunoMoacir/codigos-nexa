@@ -35,6 +35,37 @@ class NexaAPIClient:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    def register(self, username: str, password: str, full_name: str, email: str = "") -> dict:
+        """Registra um novo usuário na API."""
+        try:
+            payload = {
+                "username": username,
+                "password": password,
+                "full_name": full_name,
+                "email": email
+            }
+            resp = requests.post(f"{self.base_url}/auth/register", json=payload, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                return {"success": True, "token": data.get("access_token"), "user_id": data.get("user_id")}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.json().get('detail', resp.text)}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def create_pluggy_token(self) -> dict:
+        """Gera um connect token da Pluggy para o frontend exibir o widget."""
+        try:
+            resp = requests.post(
+                f"{self.base_url}/pluggy/connect-token",
+                headers=self._headers(),
+                timeout=10
+            )
+            if resp.status_code == 200:
+                return {"success": True, "token": resp.json().get("connect_token")}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def get_forecast_summary(self, user_id: str) -> dict:
         try:
             url = f"{self.base_url}/forecast/{user_id}"

@@ -43,31 +43,65 @@ def login_screen():
     # Card central de login
     st.markdown('<div class="glass-card" style="max-width:420px; margin:0 auto;">', unsafe_allow_html=True)
 
-    st.markdown('<p style="font-size:0.8rem;color:#64748b;text-align:center;margin-bottom:1.2rem;">ACESSE SUA CONTA</p>', unsafe_allow_html=True)
+    st.markdown('<p style="font-size:0.8rem;color:#64748b;text-align:center;margin-bottom:1.2rem;">ACESSE OU CRIE SUA CONTA</p>', unsafe_allow_html=True)
 
-    with st.form("login_form", clear_on_submit=False):
-        username = st.text_input("", placeholder="🪪  Usuário  (ex: golden_user_777)", label_visibility="collapsed")
-        password = st.text_input("", placeholder="🔑  Senha", type="password", label_visibility="collapsed")
+    tab_login, tab_register = st.tabs(["Entrar", "Criar Conta"])
 
-        col_btn, _ = st.columns([3, 1])
-        with col_btn:
-            submit = st.form_submit_button("Entrar no Nexa →", use_container_width=True)
+    with tab_login:
+        with st.form("login_form", clear_on_submit=False):
+            username = st.text_input("Usuário", placeholder="🪪  ex: golden_user_777", label_visibility="collapsed")
+            password = st.text_input("Senha", placeholder="🔑  Senha", type="password", label_visibility="collapsed")
 
-        if submit:
-            if not username or not password:
-                st.error("Preencha usuário e senha.")
-            else:
-                with st.spinner("Autenticando…"):
-                    time.sleep(0.4)
-                    resp = api.login(username, password)
-                if resp.get("success"):
-                    st.session_state.username = username
-                    st.session_state.user_id = resp.get("user_id")
-                    st.success("✅ Bem-vindo! Abrindo seu painel…")
-                    time.sleep(0.8)
-                    st.rerun()
+            col_btn, _ = st.columns([3, 1])
+            with col_btn:
+                submit = st.form_submit_button("Entrar no Nexa →", use_container_width=True)
+
+            if submit:
+                if not username or not password:
+                    st.error("Preencha usuário e senha.")
                 else:
-                    st.error(f"❌ {resp.get('error', 'Credenciais inválidas')}")
+                    with st.spinner("Autenticando…"):
+                        time.sleep(0.4)
+                        resp = api.login(username, password)
+                    if resp.get("success"):
+                        st.session_state.username = username
+                        st.session_state.user_id = resp.get("user_id")
+                        st.success("✅ Bem-vindo! Abrindo seu painel…")
+                        time.sleep(0.8)
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {resp.get('error', 'Credenciais inválidas')}")
+
+    with tab_register:
+        with st.form("register_form", clear_on_submit=True):
+            reg_name = st.text_input("Nome Completo", placeholder="👤 Seu nome completo", label_visibility="collapsed")
+            reg_user = st.text_input("Usuário", placeholder="🪪  Escolha um nome de usuário (ex: joao123)", label_visibility="collapsed")
+            reg_email = st.text_input("E-mail", placeholder="📧 Seu e-mail", label_visibility="collapsed")
+            reg_pass = st.text_input("Senha", placeholder="🔑  Crie uma senha (mín. 6 chars)", type="password", label_visibility="collapsed")
+
+            col_btn2, _ = st.columns([3, 1])
+            with col_btn2:
+                submit_reg = st.form_submit_button("Criar minha conta ✦", use_container_width=True)
+
+            if submit_reg:
+                if not reg_name or not reg_user or not reg_pass:
+                    st.error("Preencha nome, usuário e senha.")
+                elif len(reg_pass) < 6:
+                    st.error("A senha deve ter pelo menos 6 caracteres.")
+                else:
+                    with st.spinner("Criando sua conta Nexa…"):
+                        resp = api.register(reg_user, reg_pass, reg_name, reg_email)
+                        
+                    if resp.get("success"):
+                        st.success("🎉 Conta criada com sucesso! Faça login abaixo ou aguarde o redirecionamento...")
+                        # Auto-login após register
+                        st.session_state.username = reg_user
+                        st.session_state.user_id = resp.get("user_id")
+                        st.session_state.jwt_token = resp.get("token")
+                        time.sleep(1.5)
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Erro ao criar conta: {resp.get('error')}")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
