@@ -54,9 +54,30 @@ class PluggyClient:
             self.authenticate()
 
         return {
-            "Authorization": f"Bearer {self.access_token}",
+            "X-API-KEY": self.access_token, # Pluggy v1 auth header
             "Content-Type": "application/json",
         }
+
+    def create_connect_token(self, clientUserId: str) -> dict:
+        url = f"{self.BASE_URL}/connect_token"
+
+        payload = {
+            "clientUserId": clientUserId,
+            "options": {
+                "clientCustomColor": "#6366f1",
+                "clientCustomName": "Nexa Finance"
+            }
+        }
+
+        response = requests.post(
+            url,
+            json=payload,
+            headers=self._headers(),
+            timeout=10,
+        )
+
+        response.raise_for_status()
+        return response.json()
 
     def create_sandbox_item(self) -> dict:
         url = f"{self.BASE_URL}/items"

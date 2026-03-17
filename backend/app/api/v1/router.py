@@ -59,6 +59,9 @@ from app.api.v1.routes import auth
 # ✨ NOVO: Forecast (previsão consolidada)
 from app.api.v1.routes import forecast
 
+# ✨ NOVO: Conexões Open Finance (Widget Pluggy)
+from app.api.v1.routes import pluggy
+
 # ✨ NOVO: Shadow Invoices (obrigações futuras)
 from app.api.v1.routes import shadow_invoice
 
@@ -98,6 +101,9 @@ router.include_router(transactions.router)
 
 # 2️⃣ Forecast: GET /forecast/{user_id} (previsão consolidada)
 router.include_router(forecast.router)
+
+# ✨ NOVO: Conexões Open Finance (Widget Pluggy)
+router.include_router(pluggy.router, prefix="/pluggy", tags=["Pluggy Analytics"])
 
 # 3️⃣ Shadow Invoice: GET /shadow_invoice/{user_id} (obrigações futuras)
 router.include_router(shadow_invoice.router)
