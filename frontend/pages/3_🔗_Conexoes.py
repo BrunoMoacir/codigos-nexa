@@ -83,7 +83,7 @@ else:
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <script src="https://cdn.pluggy.ai/pluggy-connect/v1.0.0/pluggy-connect.js"></script>
+        <script src="https://cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js"></script>
         <style>
             body {{ margin: 0; padding: 0; background: transparent; display: flex; justify-content: center; align-items: center; height: 100vh; }}
             #pluggy-container {{ width: 100%; max-width: 400px; height: 600px; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }}
