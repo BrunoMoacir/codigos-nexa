@@ -46,11 +46,12 @@ def get_spending_alerts(
         lines = ["🔔 **Alertas e Notificações Financeiras**", ""]
         total_alerts = 0
 
-        # 1. NexaRunner alerts
+        # 1. NexaRunner alerts — usando dados REAIS do DuckDB
         try:
             runner = NexaRunner(mode="dev")
-            result = runner.run(horizon_days=30)
-
+            result = runner.run_from_db(user_id=user_id, horizon_days=30)
+            if result is None:
+                result = runner.run(horizon_days=30)  # fallback para mock
 
             alerts = result.get("alerts", [])
             if alerts:

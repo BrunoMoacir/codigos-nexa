@@ -3,12 +3,6 @@
 Tool: get_financial_forecast
 Retorna o resumo financeiro completo do usuário — cashflow, safe-to-spend,
 health score, alertas ativos e padrão de renda estimado.
-
-Use SEMPRE que o usuário pedir:
-- Resumo do perfil / situação financeira
-- Quanto pode gastar esse mês
-- Como estão as finanças
-- Saldo seguro / margem disponível
 """
 from langchain_core.tools import tool
 from typing import Optional
@@ -43,26 +37,35 @@ def get_financial_forecast(
         from app.runner import NexaRunner
 
         runner = NexaRunner(mode="dev")
-        result = runner.run(horizon_days=horizon_days)
 
-        if result.get("status") != "success":
+        # Tentar dados REAIS do DuckDB primeiro
+        result = runner.run_from_db(user_id=user_id, horizon_days=horizon_days)
+
+        if result is None:
+            # Fallback para dados mock se não houver dados no banco
+            logger.warning(f"[Tool] Sem dados no DuckDB para user={user_id}, usando mock")
+            result = runner.run(horizon_days=horizon_days)
+
+        if not result or result.get("status") != "success":
             return (
                 "Não consegui carregar dados financeiros para este usuário no momento. "
                 "Verifique se há transações conectadas via Open Finance."
             )
 
-        proj = result.get("projections", {})
-        safe = proj.get("safe_to_spend")
-        profile = result.get("user_profile")
-        income_profile = result.get("income_profile")
+        proj          = result.get("projections", {})
+        safe          = proj.get("safe_to_spend")
+        analysis      = result.get("analysis", {})
+        income_profile = analysis.get("income_profile")
+        profile        = result.get("user_profile")  # disponível no run() mock
 
         lines = ["📊 **Diagnóstico Financeiro Nexa**", ""]
 
         # Safe-to-spend
         if safe:
-            lines.append(f"💰 **Margem disponível para gastar:**")
+            lines.append("💰 **Margem disponível para gastar:**")
             lines.append(f"   • Este mês: R$ {safe.safe_to_spend_total:,.2f}")
             lines.append(f"   • Por dia com segurança: R$ {safe.safe_to_spend_daily:,.2f}")
+            lines.append(f"   • Nível de risco: {safe.risk_level}")
             lines.append("")
 
         # Renda
@@ -79,8 +82,9 @@ def get_financial_forecast(
         if profile:
             score = profile.financial_health_score
             trend = profile.trend
+            profile_type = getattr(profile, "profile_type", "EQUILIBRADO")
             lines.append(f"🏥 Health Score: {score}/100 (tendência: {trend})")
-            lines.append(f"   Perfil: {profile.summary if hasattr(profile, 'summary') else profile.profile_type}")
+            lines.append(f"   Perfil: {profile_type}")
             lines.append("")
 
         # Cashflow forecast
@@ -92,13 +96,27 @@ def get_financial_forecast(
         )
         if cf_has_data:
             lines.append("📈 **Projeção de Cashflow (30 dias):**")
-            if hasattr(cf, "expected_balance"):
+            if hasattr(cf, "ending_balance"):
+                lines.append(f"   • Saldo esperado ao fim: R$ {cf.ending_balance:,.2f}")
+            elif hasattr(cf, "expected_balance"):
                 lines.append(f"   • Saldo esperado ao fim: R$ {cf.expected_balance:,.2f}")
             if hasattr(cf, "monthly_income"):
                 lines.append(f"   • Receita estimada: R$ {cf.monthly_income:,.2f}")
             if hasattr(cf, "monthly_expense"):
                 lines.append(f"   • Despesas estimadas: R$ {cf.monthly_expense:,.2f}")
+            if hasattr(cf, "worst_balance"):
+                lines.append(f"   • Pior saldo projetado: R$ {cf.worst_balance:,.2f}")
             lines.append("")
+
+        # Shadow invoices
+        shadow = result.get("shadow_invoices", {})
+        if shadow:
+            total_impact = shadow.get("total_monthly_impact", 0)
+            count = shadow.get("total_count", 0)
+            if count > 0:
+                lines.append(f"👻 **Obrigações futuras:** {count} itens detectados")
+                lines.append(f"   • Impacto mensal: R$ {abs(total_impact):,.2f}")
+                lines.append("")
 
         return "\n".join(lines) if len(lines) > 2 else (
             "Diagnóstico calculado, mas sem dados históricos suficientes para montar o relatório completo. "

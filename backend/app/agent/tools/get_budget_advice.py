@@ -2,12 +2,6 @@
 """
 Tool: get_budget_advice
 Gera sugestões de orçamento baseadas na regra 50/30/20 (M1.3).
-
-Use SEMPRE que o usuário perguntar sobre:
-- Como organizar / distribuir o orçamento
-- Quanto deveria gastar em cada categoria
-- Se está gastando demais em alguma área
-- Planejamento financeiro / metas de gastos
 """
 from langchain_core.tools import tool
 from typing import Optional
@@ -23,7 +17,8 @@ def get_budget_advice(
 ) -> str:
     """
     Gera um plano de orçamento personalizado baseado na regra 50/30/20.
-    Analisa os gastos reais do usuário e compara com os limites recomendados.
+    Analisa os gastos REAIS do usuário (do banco de dados) e compara com os
+    limites recomendados por categoria.
 
     Use esta ferramenta quando o usuário perguntar sobre:
     - Como deve dividir o orçamento
@@ -41,14 +36,22 @@ def get_budget_advice(
         from app.runner import NexaRunner
         import polars as pl
 
-        # Tentar buscar transações reais
-        try:
-            runner = NexaRunner(mode="dev")
-            result = runner.run(horizon_days=30)
-            transactions_df = result.get("transactions_df", pl.DataFrame())
-        except Exception:
-            transactions_df = pl.DataFrame()
+        # Buscar transações REAIS do DuckDB
+        runner = NexaRunner(mode="dev")
+        transactions_df = pl.DataFrame()
 
+        result = runner.run_from_db(user_id=user_id, horizon_days=30)
+        if result and result.get("status") == "success":
+            transactions_df = result.get("transactions", {}).get("clean_df", pl.DataFrame())
+            logger.info(f"[Tool] Usando {len(transactions_df)} transações reais do DuckDB")
+
+            # Tentar pegar renda real do perfil se não foi informada
+            income_profile = result.get("analysis", {}).get("income_profile")
+            if not monthly_income and income_profile and income_profile.confidence >= 0.5:
+                monthly_income = income_profile.monthly_net_income
+                logger.info(f"[Tool] Renda estimada pelo IncomeProfiler: R$ {monthly_income:.0f}")
+        else:
+            logger.warning(f"[Tool] Sem dados no DuckDB para user={user_id}")
 
         advisor = BudgetAdvisor()
         suggestion = advisor.suggest(
@@ -56,8 +59,11 @@ def get_budget_advice(
             monthly_income=monthly_income,
         )
 
+        data_source = "💾 *Análise baseada nos seus gastos reais*" if not transactions_df.is_empty() else "📊 *Análise teórica (sem transações conectadas)*"
+
         lines = [
             f"📋 **Plano de Orçamento 50/30/20 — Renda: R$ {monthly_income:,.0f}/mês**",
+            data_source,
             "",
         ]
 
@@ -69,7 +75,7 @@ def get_budget_advice(
         }
 
         for g in suggestion.group_summary:
-            label = group_labels.get(g.group, g.group)
+            label  = group_labels.get(g.group, g.group)
             status = "✅" if g.on_track else "⚠️"
             lines.append(
                 f"{status} {label}: "
@@ -97,14 +103,13 @@ def get_budget_advice(
 
     except Exception as e:
         logger.error(f"[Tool] get_budget_advice erro: {e}", exc_info=True)
-        # Resposta manual sem dados
         essenciais = monthly_income * 0.50
-        desejos = monthly_income * 0.30
-        poupanca = monthly_income * 0.20
+        desejos    = monthly_income * 0.30
+        poupanca   = monthly_income * 0.20
         return (
             f"📋 **Plano 50/30/20 para renda de R$ {monthly_income:,.0f}/mês:**\n\n"
             f"🏠 Essenciais (moradia, alimentação, saúde, transporte): até R$ {essenciais:,.0f}/mês\n"
             f"🎯 Desejos (lazer, assinaturas, vestuário): até R$ {desejos:,.0f}/mês\n"
             f"💰 Poupança e investimentos: R$ {poupanca:,.0f}/mês\n\n"
-            "Para uma análise personalizada com seus gastos reais, conecte suas contas bancárias via Open Finance."
+            "Para uma análise com seus dados reais, as transações precisam estar disponíveis."
         )

@@ -29,19 +29,7 @@ def get_card_optimization(
     """
     logger.info(f"[Tool] Chamando get_card_optimization para {user_id}")
     try:
-        if not monthly_income and not safe_to_spend:
-            # Requeremos pelo menos um para o simulador não estourar Exception
-            # Em prod, a LangGraph ou a F1 injetaria o safe_to_spend real.
-            return "Preciso saber sua renda mensal ou quanto você gasta por mês no cartão para fazer uma recomendação precisa."
-
-        request = OptimizationRequest(
-            user_id=user_id,
-            monthly_income=monthly_income,
-            safe_to_spend=safe_to_spend,
-            current_cards=[] # TODO: Expandir para ler cartões atuais do banco
-        )
-        
-        # Fallback empty dataframe se não tiver F1 rodando
+        # Buscar transações REAIS do DuckDB para recomendar cartão pelo perfil real
         transactions_df = pl.DataFrame(schema={
             "date": pl.Date,
             "amount": pl.Float64,
@@ -50,6 +38,46 @@ def get_card_optimization(
             "pf_pj_label": pl.Utf8,
             "type": pl.Utf8
         })
+        try:
+            from app.runner import NexaRunner
+            runner = NexaRunner(mode="dev")
+            result = runner.run_from_db(user_id=user_id, horizon_days=30)
+            if result and result.get("status") == "success":
+                raw_df = result.get("transactions", {}).get("clean_df", pl.DataFrame())
+                if not raw_df.is_empty():
+                    # Mapear colunas para o schema do optimizer
+                    needed = {"date", "amount", "description", "category", "pf_pj_label", "type"}
+                    if "context_type" in raw_df.columns and "pf_pj_label" not in raw_df.columns:
+                        raw_df = raw_df.rename({"context_type": "pf_pj_label"})
+                    if "transaction_type" in raw_df.columns and "type" not in raw_df.columns:
+                        raw_df = raw_df.rename({"transaction_type": "type"})
+                    available = set(raw_df.columns) & needed
+                    if available:
+                        transactions_df = raw_df.select(list(available))
+                        logger.info(f"[Tool] {len(transactions_df)} transações reais carregadas para otimização de cartão")
+                # Pegar renda real se não informada
+                if not monthly_income:
+                    income_profile = result.get("analysis", {}).get("income_profile")
+                    if income_profile and income_profile.confidence >= 0.5:
+                        monthly_income = income_profile.monthly_net_income
+                # Pegar safe_to_spend real se não informado
+                if not safe_to_spend:
+                    proj = result.get("projections", {})
+                    safe = proj.get("safe_to_spend")
+                    if safe:
+                        safe_to_spend = safe.safe_to_spend_total
+        except Exception as e:
+            logger.debug(f"[Tool] Erro ao carregar dados reais para cartão (usando fallback): {e}")
+
+        if not monthly_income and not safe_to_spend:
+            return "Preciso saber sua renda mensal ou quanto você gasta por mês no cartão para fazer uma recomendação precisa."
+
+        request = OptimizationRequest(
+            user_id=user_id,
+            monthly_income=monthly_income,
+            safe_to_spend=safe_to_spend,
+            current_cards=[]
+        )
         
         service = OptimizerService()
         report = service.analyze(
