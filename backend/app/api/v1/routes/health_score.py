@@ -23,14 +23,15 @@ import logging
 from typing import List, Literal, Optional
 
 import polars as pl
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
+from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from app.db.queries import (
-    get_connection,
     get_health_score_history,
     save_health_score_snapshot,
 )
+from app.core.database import get_db
 from app.etl.profiles import UserProfileAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -98,27 +99,35 @@ def _get_change(history: list[dict], months_back: int) -> Optional[int]:
     return current - reference
 
 
-def _fetch_transactions_sync(user_id: str) -> pl.DataFrame:
-    """
-    Busca transações limpas do usuário no DuckDB (síncrono).
-    Deve ser chamado via asyncio.to_thread() para não bloquear o event loop.
-    """
-    con = get_connection()
+def _fetch_transactions_sync(db: Session, user_id: str) -> pl.DataFrame:
+    from app.models.transaction import Transaction
+    import polars as pl
     try:
-        import duckdb
-        df = con.execute(
-            "SELECT * FROM transactions_clean WHERE user_id = ?",
-            [user_id]
-        ).pl()
-        return df
-    except duckdb.CatalogException:
-        logger.warning(f"[health-score] transactions_clean não encontrada para user={user_id}")
-        return pl.DataFrame()
+        transactions = db.query(Transaction).filter(Transaction.user_id == user_id).all()
+        if not transactions:
+            return pl.DataFrame()
+            
+        return pl.DataFrame([
+            {
+                "transaction_id": tx.transaction_id,
+                "user_id": tx.user_id,
+                "account_id": tx.account_id,
+                "description": tx.description,
+                "amount": tx.amount,
+                "date": tx.date,
+                "transaction_type": tx.transaction_type,
+                "category": tx.category,
+                "is_recurring": tx.is_recurring,
+                "is_installment": tx.is_installment,
+                "context_type": tx.context_type,
+                "context_confidence": tx.context_confidence,
+                "context_override_by_user": tx.context_override_by_user,
+                "pj_subcategory": tx.pj_subcategory
+            } for tx in transactions
+        ])
     except Exception as e:
         logger.error(f"[health-score] Erro ao buscar transações: {e}")
         return pl.DataFrame()
-    finally:
-        con.close()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -126,9 +135,10 @@ def _fetch_transactions_sync(user_id: str) -> pl.DataFrame:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.get("/history/{user_id}", response_model=HealthScoreHistoryResponse)
-async def get_health_score_history_endpoint(
+def get_health_score_history_endpoint(
     user_id: str,
     months: int = Query(default=6, ge=1, le=24, description="Meses de histórico"),
+    db: Session = Depends(get_db)
 ) -> HealthScoreHistoryResponse:
     """
     Retorna o histórico do score de saúde financeira do usuário.
@@ -157,8 +167,8 @@ async def get_health_score_history_endpoint(
     """
     logger.info(f"[health-score] Solicitado histórico para user={user_id} months={months}")
 
-    # ── 1. Buscar transações (I/O bloqueante → thread pool) ─────────
-    transactions_df = await asyncio.to_thread(_fetch_transactions_sync, user_id)
+    # ── 1. Buscar transações (Direto pela Sessão/Thread do FastAPI) ─
+    transactions_df = _fetch_transactions_sync(db, user_id)
 
     data_quality = "OK"
     current_score: Optional[int] = None
@@ -196,6 +206,7 @@ async def get_health_score_history_endpoint(
 
         # ── 3. Persistir snapshot do mês corrente ──────────────────
         saved = save_health_score_snapshot(
+            db=db,
             user_id=user_id,
             health_score=current_score,
             savings_rate=current_savings_rate,
@@ -205,7 +216,7 @@ async def get_health_score_history_endpoint(
             logger.warning(f"[health-score] Snapshot não persistido para user={user_id}")
 
     # ── 4. Ler histórico ────────────────────────────────────────────
-    raw_history = get_health_score_history(user_id=user_id, months=months)
+    raw_history = get_health_score_history(db=db, user_id=user_id, months=months)
 
     history_points = [
         HealthScorePoint(

@@ -55,7 +55,10 @@ from app.db.queries import save_transactions_clean
 # FUNÇÃO PRINCIPAL: ETL Pipeline Completo
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+from sqlalchemy.orm import Session
+
 def run_etl_pipeline(
+    db: Session,
     transactions_df: pl.DataFrame,
     user_id: str,
     account_id: str | None = None,
@@ -162,7 +165,7 @@ def run_etl_pipeline(
             df = pf_pj_classifier.classify_batch(df)
             
             # Aplica user overrides (se disponíveis no banco)
-            df = apply_user_overrides(df, user_id)
+            df = apply_user_overrides(db, df, user_id)
             
             # Log de resultados
             pf_count = len(df.filter(pl.col("pf_pj_label") == "PF")) if "pf_pj_label" in df.columns else 0
@@ -241,7 +244,7 @@ def run_etl_pipeline(
     if "save_db" not in skip_steps:
         logger.info("💾 Step 8: Save to Database")
         try:
-            rows_saved = save_transactions_clean(df, user_id=user_id, account_id=account_id)
+            rows_saved = save_transactions_clean(db, df, user_id=user_id, account_id=account_id)
             logger.info(f"   ✅ Step 8 concluído: {rows_saved} linhas salvas em transactions_clean")
         except Exception as e:
             logger.error(f"   ❌ Erro no Step 8: {e}", exc_info=True)
@@ -260,7 +263,7 @@ def run_etl_pipeline(
 # HELPER: Aplicar User Overrides (F4)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def apply_user_overrides(df: pl.DataFrame, user_id: str) -> pl.DataFrame:
+def apply_user_overrides(db: Session, df: pl.DataFrame, user_id: str) -> pl.DataFrame:
     """
     Aplica correções manuais do usuário sobre classificações PF/PJ.
     
@@ -332,7 +335,7 @@ def apply_user_overrides(df: pl.DataFrame, user_id: str) -> pl.DataFrame:
     try:
         # 1. BUSCAR OVERRIDES DO BANCO
         # get_context_overrides retorna list[dict] com keys: transaction_id, corrected_context, ...
-        overrides = get_context_overrides(user_id)
+        overrides = get_context_overrides(db, user_id)
         
         if not overrides:
             logger.info("   ℹ️  Nenhum override encontrado no banco para este usuário")

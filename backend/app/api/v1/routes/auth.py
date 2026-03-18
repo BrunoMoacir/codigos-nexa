@@ -10,6 +10,8 @@ from app.core.security import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
 from app.db.users import get_user_by_email, create_user
+from app.core.database import get_db
+from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -24,8 +26,8 @@ class Token(BaseModel):
     user_id: str
 
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
-async def register(user: UserCreate):
-    db_user = get_user_by_email(user.email)
+async def register(user: UserCreate, db: Session = Depends(get_db)):
+    db_user = get_user_by_email(db, user.email)
     if db_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -34,6 +36,7 @@ async def register(user: UserCreate):
     
     hashed_password = get_password_hash(user.password)
     new_user = create_user(
+        db=db,
         email=user.email,
         hashed_password=hashed_password,
         full_name=user.full_name
@@ -49,8 +52,8 @@ async def register(user: UserCreate):
 
 
 @router.post("/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = get_user_by_email(form_data.username)
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = get_user_by_email(db, form_data.username)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

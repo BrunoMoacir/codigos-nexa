@@ -3,9 +3,11 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
 from typing import List, Literal, Optional
+from sqlalchemy.orm import Session
 import logging
 
 from app.db.queries import save_context_override, get_context_overrides, get_override_stats
+from app.core.database import get_db
 
 router = APIRouter(prefix="/context", tags=["Context Override"])
 logger = logging.getLogger(__name__)
@@ -34,14 +36,16 @@ class OverrideItem(BaseModel):
 # --- Endpoints ---
 
 @router.post("/override", response_model=ContextOverrideResponse)
-async def override_transaction_context(
+def override_transaction_context(
     request: ContextOverrideRequest,
-    user_id: str = Query(..., description="ID do usuário") # Em prod, isso viria do Token JWT
+    user_id: str = Query(..., description="ID do usuário"), # Em prod, isso viria do Token JWT
+    db: Session = Depends(get_db)
 ):
     logger.info(f"Recebido override user={user_id} txn={request.transaction_id} -> {request.corrected_context}")
     
     try:
         success = save_context_override(
+            db=db,
             user_id=user_id,
             transaction_id=request.transaction_id,
             corrected_context=request.corrected_context,
@@ -64,14 +68,15 @@ async def override_transaction_context(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/overrides", response_model=List[OverrideItem])
-async def list_user_overrides(
-    user_id: str = Query(..., description="ID do usuário")
+def list_user_overrides(
+    user_id: str = Query(..., description="ID do usuário"),
+    db: Session = Depends(get_db)
 ):
     """
     Lista histórico de correções manuais do usuário.
     """
     try:
-        overrides_data = get_context_overrides(user_id)
+        overrides_data = get_context_overrides(db, user_id)
         
         # Converter datetime para string se necessário (Pydantic faz auto, mas explicito é bom)
         results = []
@@ -91,14 +96,15 @@ async def list_user_overrides(
         raise HTTPException(status_code=500, detail="Erro ao buscar histórico.")
 
 @router.get("/overrides/stats")
-async def get_stats(
-    user_id: str = Query(..., description="ID do usuário")
+def get_stats(
+    user_id: str = Query(..., description="ID do usuário"),
+    db: Session = Depends(get_db)
 ):
     """
     Retorna contagem de overrides (ex: {"PF": 5, "PJ": 2}).
     """
     try:
-        return get_override_stats(user_id)
+        return get_override_stats(db, user_id)
     except Exception as e:
         logger.error(f"Erro ao obter stats: {e}")
         raise HTTPException(status_code=500, detail="Erro ao calcular estatísticas.")
