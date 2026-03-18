@@ -33,6 +33,7 @@ from app.architect.models import (
     ConsortiumProbability,
     ActionStep,
     RentalLeveragePlan,
+    CompoundStrategyLeg,
     TimingScenario,
 )
 from app.architect.calculators import financing as fin_calc
@@ -96,18 +97,60 @@ class StrategyEngine:
         if request.include_consortium:
             cons_result = self._simulate_consortium(request, market_rates)
 
+        # ── 1.5. Estratégias compostas (apenas imóvel com renda de aluguel) ──
+        has_rental = (
+            request.asset_type == AssetType.IMOVEL
+            and request.expected_rental_income is not None
+            and request.expected_rental_income > 0
+        )
+        comp4_result: Optional[Dict[str, Any]] = None
+        comp5_result: Optional[Dict[str, Any]] = None
+        if has_rental:
+            comp4_result = self._simulate_financing_rental(request, market_rates, fin_result)
+            if cons_result:
+                comp5_result = self._simulate_consortium_selic_rental(
+                    request, market_rates, cons_result
+                )
+
         # ── 2. Comparar NPVs ────────────────────────────────────────
         npv_fin = _safe_float(fin_result["npv"])
         npv_inv = _safe_float(inv_result["npv"])
         npv_cons = _safe_float(cons_result["npv"]) if cons_result else None
 
+        # ── 2.5. Custo de oportunidade do aluguel perdido (SAVE_INVEST) ──
+        #
+        # Quando o usuário informa expected_rental_income, comparar Poupar/Investir
+        # com estratégias compostas sem ajuste é injusto: ao esperar N meses acumulando,
+        # o usuário abre mão de N × aluguel/mês que poderia estar recebendo.
+        #
+        # Ajuste: o NPV do SAVE_INVEST usado na COMPARAÇÃO é penalizado pelo
+        # valor presente do fluxo de aluguel perdido durante a acumulação.
+        # O valor bruto (sem penalidade) ainda vai para NPVComparison.save_invest
+        # para transparência.
+        #
+        # Fórmula: PV_aluguel_perdido = rental × [(1 − (1+r)^(−n)) / r]
+        #          npv_inv_adj = npv_inv − PV_aluguel_perdido
+        foregone_rental_pv = 0.0
+        if has_rental:
+            inv_months = inv_result["months"]
+            rental = request.expected_rental_income
+            if selic_monthly > 0:
+                foregone_rental_pv = rental * (1 - (1 + selic_monthly) ** (-inv_months)) / selic_monthly
+            else:
+                foregone_rental_pv = rental * inv_months
+        npv_inv_for_comparison = npv_inv - foregone_rental_pv
+
         # ── 3. Decisão: maior NPV = menor custo presente ────────────
         strategies: Dict[StrategyType, float] = {
             StrategyType.FINANCING: npv_fin,
-            StrategyType.SAVE_INVEST: npv_inv,
+            StrategyType.SAVE_INVEST: npv_inv_for_comparison,
         }
         if cons_result and npv_cons is not None:
             strategies[StrategyType.CONSORTIUM] = npv_cons
+        if comp4_result:
+            strategies[StrategyType.FINANCING_RENTAL] = _safe_float(comp4_result["npv"])
+        if comp5_result:
+            strategies[StrategyType.CONSORTIUM_SELIC_RENTAL] = _safe_float(comp5_result["npv"])
 
         ranked = sorted(strategies.items(), key=lambda x: x[1], reverse=True)
         best_strategy = ranked[0][0]
@@ -141,8 +184,26 @@ class StrategyEngine:
         ):
             final_strategy = StrategyType.SAVE_INVEST
 
+        elif (
+            best_strategy == StrategyType.FINANCING_RENTAL
+            and comp4_result
+            and comp4_result["monthly_net_cost"] > budget_limit
+        ):
+            final_strategy = StrategyType.SAVE_INVEST
+
+        elif (
+            best_strategy == StrategyType.CONSORTIUM_SELIC_RENTAL
+            and comp5_result
+            and comp5_result["monthly_net_cost"] > budget_limit
+        ):
+            final_strategy = StrategyType.SAVE_INVEST
+
         # ── 5. Montar resposta ────────────────────────────────────────
-        if final_strategy == StrategyType.FINANCING:
+        if final_strategy == StrategyType.FINANCING_RENTAL and comp4_result:
+            selected = comp4_result
+        elif final_strategy == StrategyType.CONSORTIUM_SELIC_RENTAL and comp5_result:
+            selected = comp5_result
+        elif final_strategy == StrategyType.FINANCING:
             selected = fin_result
         elif final_strategy == StrategyType.CONSORTIUM and cons_result:
             selected = cons_result
@@ -150,20 +211,34 @@ class StrategyEngine:
             final_strategy = StrategyType.SAVE_INVEST
             selected = inv_result
 
-        # Liquidez
-        monthly_cost = selected["monthly_payment"]
-        liquidity_base = request.max_monthly_budget or monthly_cost
+        # Liquidez — usa custo líquido para estratégias compostas
+        if final_strategy in (StrategyType.FINANCING_RENTAL, StrategyType.CONSORTIUM_SELIC_RENTAL):
+            monthly_cost_for_liquidity = selected.get("monthly_net_cost", selected["monthly_payment"])
+        else:
+            monthly_cost_for_liquidity = selected["monthly_payment"]
+
+        liquidity_base = request.max_monthly_budget or monthly_cost_for_liquidity
         liquidity_impact = (
-            -(monthly_cost / liquidity_base) if liquidity_base > 0 else 0.0
+            -(monthly_cost_for_liquidity / liquidity_base) if liquidity_base > 0 else 0.0
         )
 
-        # Meses - financiamento é imediato, mas mínimo 1 pelo model
-        months = max(1, selected["months"])
+        # Meses — financial é imediato; compound consortium usa duração total para rental plan
+        months = max(1, selected.get("full_months", selected["months"]))
 
-        # ── 4.5. Aviso de depreciação para veículo ───────────────────
+        # ── 4.5. Avisos contextuais ──────────────────────────────────
         vehicle_warn = self._vehicle_depreciation_warning(request, final_strategy)
         if vehicle_warn:
             profile_warnings.append(vehicle_warn)
+
+        # Aviso quando custo de oportunidade de aluguel é significativo
+        if has_rental and foregone_rental_pv > 10_000:
+            fmt = format_currency
+            inv_months = inv_result["months"]
+            profile_warnings.append(
+                f"Custo de oportunidade incluído na comparação: aguardar {inv_months} meses "
+                f"para comprar à vista significa abrir mão de {fmt(foregone_rental_pv)} "
+                f"em aluguel (valor presente). As estratégias compostas já incluem essa renda."
+            )
 
         # Action Plan
         action_plan = self._generate_action_plan(
@@ -172,17 +247,40 @@ class StrategyEngine:
 
         # Plano de alavancagem por aluguel (apenas imóvel com renda informada)
         rental_leverage_plan: Optional[RentalLeveragePlan] = None
-        if (
-            request.asset_type == AssetType.IMOVEL
-            and request.expected_rental_income is not None
-            and request.expected_rental_income > 0
-        ):
+        if has_rental:
             rental_leverage_plan = self._compute_rental_leverage_plan(
                 monthly_rental_income=request.expected_rental_income,
-                monthly_payment=monthly_cost,
+                monthly_payment=selected["monthly_payment"],  # parcela bruta
                 total_cost=float(selected["expected_cost"]),
                 months=months,
             )
+
+        # Estratégias compostas — lista detalhada para comparação
+        compound_strategies_list = None
+        if has_rental:
+            legs = []
+            for result in [comp4_result, comp5_result]:
+                if result is None:
+                    continue
+                leg_months = max(1, result.get("full_months", result["months"]))
+                legs.append(CompoundStrategyLeg(
+                    strategy_type=StrategyType(result["type"]),
+                    monthly_gross_payment=round(result["monthly_payment"], 2),
+                    monthly_rental_income=round(result["monthly_rental_income"], 2),
+                    monthly_selic_contribution=round(result.get("monthly_selic_contribution", 0.0), 2),
+                    monthly_net_cost=round(result["monthly_net_cost"], 2),
+                    total_gross_cost=round(result["expected_cost"], 2),
+                    total_rental_income=round(result["total_rental_income"], 2),
+                    net_acquisition_cost=round(result["net_acquisition_cost"], 2),
+                    npv=round(result["npv"], 2),
+                    months=leg_months,
+                    is_self_sustaining=result["is_self_sustaining"],
+                    narrative=result["narrative"],
+                ))
+            compound_strategies_list = legs if legs else None
+
+        # months_to_achieve: para compound consortium usa contemplação esperada, não duração total
+        months_to_achieve = max(1, selected["months"])
 
         return SimulationResponse(
             recommended_strategy=final_strategy,
@@ -196,16 +294,19 @@ class StrategyEngine:
                 consortium=float(npv_cons) if npv_cons is not None else None,
                 save_invest=float(npv_inv),
                 discount_rate_used=selic_monthly,
+                financing_rental=float(comp4_result["npv"]) if comp4_result else None,
+                consortium_selic_rental=float(comp5_result["npv"]) if comp5_result else None,
             ),
             consortium_probability=(
                 cons_result["probability"] if cons_result else None
             ),
             liquidity_impact=round(float(liquidity_impact), 4),
-            months_to_achieve=months,
+            months_to_achieve=months_to_achieve,
             action_plan=action_plan,
             confidence_score=0.85,
             data_sources=["bacen", "anbima", "market_rates", "internal_models"],
             rental_leverage_plan=rental_leverage_plan,
+            compound_strategies=compound_strategies_list,
             warnings=profile_warnings,
         )
 
@@ -246,6 +347,7 @@ class StrategyEngine:
             "max_cost": round(sim.total_cost * 1.05, 2),
             "npv": npv_val,
             "months": 1,  # Aquisição imediata (ge=1 no model)
+            "cashflows": cashflows,  # Preservado para estratégias compostas
         }
 
     def _simulate_investment(
@@ -368,6 +470,174 @@ class StrategyEngine:
             "probability": prob,
         }
 
+    def _simulate_financing_rental(
+        self,
+        req: SimulationRequest,
+        rates: Dict[str, float],
+        fin_result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Estratégia 4 — Financiamento + aluguel do imóvel.
+
+        O cashflow de cada mês é reduzido pela renda de aluguel.
+        NPV reflete o custo real líquido da aquisição.
+        is_self_sustaining = True quando aluguel >= parcela bruta.
+        """
+        rental = req.expected_rental_income  # já garantido > 0 pelo gate has_rental
+        selic_monthly = (1 + rates.get("selic_annual", 0.1075)) ** (1 / 12) - 1
+        gross_cashflows = fin_result["cashflows"]  # [-entrada, -p1, -p2, ...]
+        months = req.financing_months
+
+        # Cashflows líquidos: entrada inalterada; parcelas reduzidas pelo aluguel
+        net_cashflows = [gross_cashflows[0]]
+        for cf in gross_cashflows[1:]:
+            net_cashflows.append(cf + rental)  # cf < 0; rental > 0 → reduz custo
+
+        npv_val = npv_calc.calculate_npv(net_cashflows, selic_monthly)
+
+        gross_payment = fin_result["monthly_payment"]
+        net_monthly = max(gross_payment - rental, 0.0)
+        total_rental = round(rental * months, 2)
+        net_acquisition = round(fin_result["expected_cost"] - total_rental, 2)
+        is_self_sustaining = rental >= gross_payment
+
+        fmt = format_currency
+        if is_self_sustaining:
+            surplus = rental - gross_payment
+            narrative = (
+                f"O aluguel de {fmt(rental)}/mês cobre 100% da parcela de "
+                f"{fmt(gross_payment)}/mês — o imóvel se paga sozinho e ainda "
+                f"gera {fmt(surplus)}/mês de renda extra."
+            )
+        else:
+            coverage_pct = rental / gross_payment * 100 if gross_payment > 0 else 0
+            narrative = (
+                f"O aluguel de {fmt(rental)}/mês cobre {coverage_pct:.0f}% da parcela "
+                f"de {fmt(gross_payment)}/mês. Seu desembolso real cai para "
+                f"{fmt(net_monthly)}/mês ao longo de {months} meses."
+            )
+
+        return {
+            "type": "FINANCING_RENTAL",
+            "monthly_payment": gross_payment,
+            "monthly_net_cost": net_monthly,
+            "monthly_rental_income": rental,
+            "monthly_selic_contribution": 0.0,
+            "min_cost": fin_result["min_cost"],
+            "expected_cost": fin_result["expected_cost"],
+            "max_cost": fin_result["max_cost"],
+            "npv": npv_val,
+            "months": months,
+            "is_self_sustaining": is_self_sustaining,
+            "total_rental_income": total_rental,
+            "net_acquisition_cost": net_acquisition,
+            "narrative": narrative,
+        }
+
+    def _simulate_consortium_selic_rental(
+        self,
+        req: SimulationRequest,
+        rates: Dict[str, float],
+        cons_result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Estratégia 5 — Consórcio + entrada investida na SELIC + aluguel.
+
+        Lógica mês a mês:
+        1. Rendimento SELIC sobre o saldo investido (inicia com req.down_payment)
+        2. + Aluguel recebido
+        3. - Parcela do consórcio (com reajuste anual)
+        4. = Saldo líquido reinvestido (ou aporte do bolso se negativo)
+
+        is_self_sustaining = True se o saldo nunca fica negativo.
+        """
+        rental = req.expected_rental_income
+        selic_annual = rates.get("selic_annual", 0.1075)
+        selic_monthly = (1 + selic_annual) ** (1 / 12) - 1
+
+        cons_months = int(rates.get("consortium_months", 72))
+        admin_rate = rates.get("consortium_admin_rate", 0.17)
+        reserve_fund_rate = rates.get("consortium_reserve_fund_rate", 0.02)
+        annual_adj_rate = rates.get("consortium_annual_adjustment_rate", 0.045)
+        adj_monthly = (1 + annual_adj_rate) ** (1 / 12) - 1
+        total_rate = admin_rate + reserve_fund_rate
+
+        invested = req.down_payment  # entrada investida na SELIC desde o início
+        current_letter = req.target_amount  # carta sem alavancagem
+
+        net_cashflows: list = []  # fluxo líquido mês a mês (positivo = excedente)
+        total_paid = 0.0
+        total_rent = 0.0
+        total_selic = 0.0
+        months_negative = 0
+
+        for month in range(1, cons_months + 1):
+            if month > 1 and annual_adj_rate > 0:
+                current_letter *= (1 + adj_monthly)
+
+            payment = current_letter * (1 + total_rate) / cons_months
+            selic_income = max(invested, 0) * selic_monthly
+            net = rental + selic_income - payment
+
+            invested += net
+            total_paid += payment
+            total_rent += rental
+            total_selic += selic_income
+
+            if invested < 0:
+                months_negative += 1
+
+            net_cashflows.append(net)
+
+        # NPV: mês 0 = saída da entrada (investida mas comprometida); meses 1..N = fluxos líquidos
+        npv_cashflows = [-req.down_payment] + net_cashflows
+        npv_val = npv_calc.calculate_npv(npv_cashflows, selic_monthly)
+
+        is_self_sustaining = months_negative == 0
+
+        # Métricas do mês 1 (para narrativa)
+        gross_payment_m1 = round(req.target_amount * (1 + total_rate) / cons_months, 2)
+        selic_m1 = round(req.down_payment * selic_monthly, 2)
+        monthly_net_cost = max(gross_payment_m1 - rental - selic_m1, 0.0)
+        total_rental_income = round(rental * cons_months, 2)
+        net_acquisition_cost = round(max(total_paid - total_rental_income - total_selic, 0), 2)
+
+        fmt = format_currency
+        if is_self_sustaining:
+            narrative = (
+                f"Operação auto-sustentável: aluguel ({fmt(rental)}/mês) + "
+                f"SELIC sobre entrada ({fmt(selic_m1)}/mês) cobrem as parcelas "
+                f"({fmt(gross_payment_m1)}/mês) durante todos os {cons_months} meses. "
+                f"Imóvel quitado sem desembolso mensal."
+            )
+        else:
+            narrative = (
+                f"Aluguel ({fmt(rental)}/mês) + SELIC sobre entrada ({fmt(selic_m1)}/mês) "
+                f"cobrem parcialmente as parcelas ({fmt(gross_payment_m1)}/mês). "
+                f"Desembolso real estimado: {fmt(monthly_net_cost)}/mês "
+                f"({months_negative} meses com déficit de {cons_months} no total)."
+            )
+
+        return {
+            "type": "CONSORTIUM_SELIC_RENTAL",
+            "monthly_payment": gross_payment_m1,
+            "monthly_net_cost": monthly_net_cost,
+            "monthly_rental_income": rental,
+            "monthly_selic_contribution": selic_m1,
+            "min_cost": cons_result["min_cost"],
+            "expected_cost": cons_result["expected_cost"],
+            "max_cost": cons_result["max_cost"],
+            "npv": npv_val,
+            "months": cons_result["months"],        # contemplação esperada
+            "full_months": cons_months,             # duração total do grupo
+            "is_self_sustaining": is_self_sustaining,
+            "total_rental_income": total_rental_income,
+            "net_acquisition_cost": net_acquisition_cost,
+            "months_negative": months_negative,
+            "narrative": narrative,
+            "probability": cons_result["probability"],
+        }
+
     def _generate_action_plan(
         self,
         strategy: StrategyType,
@@ -377,7 +647,97 @@ class StrategyEngine:
         """Gera passos práticos baseados na estratégia escolhida."""
         steps: List[ActionStep] = []
 
-        if strategy == StrategyType.FINANCING:
+        if strategy == StrategyType.FINANCING_RENTAL:
+            steps.append(ActionStep(
+                step=1,
+                action=f"Reunir documentação para financiamento de {req.asset_type.value.lower()} com plano de aluguel",
+                is_critical=True,
+            ))
+            if req.down_payment > 0:
+                steps.append(ActionStep(
+                    step=2,
+                    action=f"Separar entrada de {format_currency(req.down_payment)}",
+                    amount=req.down_payment,
+                    is_critical=True,
+                ))
+            gross = scenario["monthly_payment"]
+            rental = scenario["monthly_rental_income"]
+            net = scenario["monthly_net_cost"]
+            coverage_pct = rental / gross * 100 if gross > 0 else 0
+            if scenario["is_self_sustaining"]:
+                steps.append(ActionStep(
+                    step=len(steps) + 1,
+                    action=(
+                        f"Financiar e imediatamente colocar o imóvel para alugar — "
+                        f"aluguel de {format_currency(rental)}/mês cobre 100% da parcela de "
+                        f"{format_currency(gross)}/mês. Imóvel se paga sozinho."
+                    ),
+                    amount=gross,
+                ))
+            else:
+                steps.append(ActionStep(
+                    step=len(steps) + 1,
+                    action=(
+                        f"Financiar e colocar o imóvel para alugar por {format_currency(rental)}/mês — "
+                        f"cobre {coverage_pct:.0f}% da parcela. "
+                        f"Seu desembolso real: {format_currency(net)}/mês"
+                    ),
+                    amount=net,
+                ))
+            steps.append(ActionStep(
+                step=len(steps) + 1,
+                action=(
+                    f"Custo líquido real da aquisição após {scenario['months']} meses de aluguel: "
+                    f"{format_currency(scenario['net_acquisition_cost'])}"
+                ),
+            ))
+
+        elif strategy == StrategyType.CONSORTIUM_SELIC_RENTAL:
+            selic_m = scenario.get("monthly_selic_contribution", 0.0)
+            rental = scenario["monthly_rental_income"]
+            gross = scenario["monthly_payment"]
+            net = scenario["monthly_net_cost"]
+            steps.append(ActionStep(
+                step=1,
+                action="Aderir ao consórcio e investir a entrada disponível na SELIC enquanto aguarda contemplação",
+                is_critical=True,
+            ))
+            if req.down_payment > 0:
+                steps.append(ActionStep(
+                    step=2,
+                    action=(
+                        f"Aplicar {format_currency(req.down_payment)} em Tesouro Selic — "
+                        f"rende aprox. {format_currency(selic_m)}/mês para complementar o aluguel"
+                    ),
+                    amount=req.down_payment,
+                    is_critical=True,
+                ))
+            if scenario["is_self_sustaining"]:
+                steps.append(ActionStep(
+                    step=len(steps) + 1,
+                    action=(
+                        f"Aluguel ({format_currency(rental)}/mês) + SELIC ({format_currency(selic_m)}/mês) "
+                        f"cobrem 100% das parcelas do consórcio ({format_currency(gross)}/mês) — "
+                        f"operação AUTO-SUSTENTÁVEL sem desembolso mensal"
+                    ),
+                    amount=gross,
+                ))
+            else:
+                steps.append(ActionStep(
+                    step=len(steps) + 1,
+                    action=(
+                        f"Aluguel ({format_currency(rental)}/mês) + SELIC ({format_currency(selic_m)}/mês) "
+                        f"cobrem parcialmente as parcelas ({format_currency(gross)}/mês). "
+                        f"Desembolso real: {format_currency(net)}/mês"
+                    ),
+                    amount=net,
+                ))
+            steps.append(ActionStep(
+                step=len(steps) + 1,
+                action=f"Aguardar contemplação no consórcio (média esperada: {scenario['months']} meses) e usar a carta para comprar o imóvel",
+            ))
+
+        elif strategy == StrategyType.FINANCING:
             steps.append(
                 ActionStep(
                     step=1,
@@ -532,7 +892,7 @@ class StrategyEngine:
         if request.risk_profile != RiskProfile.CONSERVADOR:
             return best_strategy, []
 
-        if best_strategy != StrategyType.FINANCING:
+        if best_strategy not in (StrategyType.FINANCING, StrategyType.FINANCING_RENTAL):
             return best_strategy, []
 
         warnings: list[str] = []

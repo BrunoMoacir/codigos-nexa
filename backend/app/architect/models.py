@@ -36,13 +36,17 @@ class StrategyType(str, Enum):
     """
     Estratégia de aquisição recomendada ou simulada.
 
-    FINANCING    → Comprar agora via crédito bancário (PRICE ou SAC)
-    CONSORTIUM   → Entrar em grupo de consórcio (menor custo total)
-    SAVE_INVEST  → Poupar e investir até atingir o valor (sem dívida)
+    FINANCING               → Comprar agora via crédito bancário (PRICE ou SAC)
+    CONSORTIUM              → Entrar em grupo de consórcio (menor custo total)
+    SAVE_INVEST             → Poupar e investir até atingir o valor (sem dívida)
+    FINANCING_RENTAL        → Financiamento + aluguel do imóvel (parcela líquida = parcela - aluguel)
+    CONSORTIUM_SELIC_RENTAL → Consórcio + entrada investida na SELIC + aluguel cobrindo parcelas
     """
-    FINANCING   = "FINANCING"
-    CONSORTIUM  = "CONSORTIUM"
-    SAVE_INVEST = "SAVE_INVEST"
+    FINANCING               = "FINANCING"
+    CONSORTIUM              = "CONSORTIUM"
+    SAVE_INVEST             = "SAVE_INVEST"
+    FINANCING_RENTAL        = "FINANCING_RENTAL"
+    CONSORTIUM_SELIC_RENTAL = "CONSORTIUM_SELIC_RENTAL"
 
 
 class AmortizationMethod(str, Enum):
@@ -402,6 +406,14 @@ class NPVComparison(BaseModel):
         description="Taxa de desconto mensal utilizada (decimal). Ex: 0.00896 = SELIC/12",
         ge=0,
     )
+    financing_rental: Optional[float] = Field(
+        default=None,
+        description="NPV do financiamento + aluguel (R$). None se não calculado.",
+    )
+    consortium_selic_rental: Optional[float] = Field(
+        default=None,
+        description="NPV do consórcio + SELIC + aluguel (R$). None se não calculado.",
+    )
 
 
 class ConsortiumProbability(BaseModel):
@@ -550,6 +562,90 @@ class RentalLeveragePlan(BaseModel):
     narrative: str = Field(
         ...,
         description="Explicação do plano de alavancagem em linguagem natural",
+        min_length=20,
+        max_length=500,
+    )
+
+
+class CompoundStrategyLeg(BaseModel):
+    """
+    Resultado detalhado de uma estratégia composta (Estratégia 4 ou 5).
+
+    Presente em SimulationResponse.compound_strategies quando
+    asset_type=IMOVEL e expected_rental_income foi informado.
+
+    Estratégia 4 — FINANCING_RENTAL:
+        Financiamento bancário cujo custo mensal líquido é reduzido pelo aluguel.
+        monthly_selic_contribution = 0.0
+
+    Estratégia 5 — CONSORTIUM_SELIC_RENTAL:
+        Consórcio onde a entrada é investida na SELIC enquanto aguarda contemplação.
+        Aluguel + rendimento SELIC cobrem (total ou parcialmente) as parcelas.
+
+    Attributes:
+        strategy_type:              Tipo da estratégia composta
+        monthly_gross_payment:      Parcela bruta (sem descontar aluguel), R$
+        monthly_rental_income:      Renda de aluguel mensal estimada, R$
+        monthly_selic_contribution: Rendimento SELIC mensal sobre a entrada (só Estratégia 5), R$
+        monthly_net_cost:           Desembolso real mensal = parcela − aluguel − SELIC, R$
+        total_gross_cost:           Custo total bruto da estratégia base (sem aluguel), R$
+        total_rental_income:        Total acumulado de aluguel no período, R$
+        net_acquisition_cost:       Custo líquido real = total_gross_cost − total_rental_income, R$
+        npv:                        Valor presente líquido do fluxo composto (SELIC como desconto), R$
+        months:                     Prazo relevante (financiamento ou contemplação esperada)
+        is_self_sustaining:         True se aluguel + SELIC cobrem 100% das parcelas sem aporte
+        narrative:                  Explicação em linguagem natural
+    """
+
+    strategy_type: StrategyType = Field(
+        ..., description="Tipo da estratégia composta"
+    )
+    monthly_gross_payment: float = Field(
+        ..., description="Parcela bruta (antes de descontar aluguel), R$", ge=0
+    )
+    monthly_rental_income: float = Field(
+        ..., description="Renda de aluguel mensal estimada, R$", ge=0
+    )
+    monthly_selic_contribution: float = Field(
+        default=0.0,
+        description="Rendimento SELIC mensal sobre a entrada investida (Estratégia 5), R$",
+        ge=0,
+    )
+    monthly_net_cost: float = Field(
+        ...,
+        description="Desembolso real mensal após aluguel e SELIC (R$). Zero = auto-sustentável.",
+        ge=0,
+    )
+    total_gross_cost: float = Field(
+        ..., description="Custo total bruto da estratégia base (R$)", ge=0
+    )
+    total_rental_income: float = Field(
+        ..., description="Total acumulado de aluguel no período (R$)", ge=0
+    )
+    net_acquisition_cost: float = Field(
+        ...,
+        description=(
+            "Custo líquido real da aquisição = total_gross_cost − total_rental_income (R$). "
+            "Pode ser negativo se o aluguel superar o custo total."
+        ),
+    )
+    npv: float = Field(
+        ...,
+        description=(
+            "NPV do fluxo composto usando SELIC como desconto. "
+            "Mais alto (menos negativo) = melhor. Auto-sustentável → NPV próximo de 0 ou positivo."
+        ),
+    )
+    months: int = Field(
+        ..., description="Prazo relevante em meses", ge=1
+    )
+    is_self_sustaining: bool = Field(
+        ...,
+        description="True se aluguel + SELIC cobrem 100% das parcelas em todos os meses.",
+    )
+    narrative: str = Field(
+        ...,
+        description="Explicação da estratégia composta em linguagem natural",
         min_length=20,
         max_length=500,
     )
@@ -751,6 +847,18 @@ class SimulationResponse(BaseModel):
         ),
     )
 
+    # ── Estratégias compostas (imóvel + aluguel) ─────────────────────
+
+    compound_strategies: Optional[list[CompoundStrategyLeg]] = Field(
+        default=None,
+        description=(
+            "Estratégias compostas calculadas quando asset_type=IMOVEL e "
+            "expected_rental_income foi informado. Contém FINANCING_RENTAL e/ou "
+            "CONSORTIUM_SELIC_RENTAL com seus NPVs e análise de auto-sustentabilidade. "
+            "None se asset_type != IMOVEL ou expected_rental_income não informado."
+        ),
+    )
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # M3.4 — TIMING SCENARIO: "E SE EU ESPERAR?"
@@ -899,6 +1007,7 @@ __all__ = [
     "ActionStep",
     "CardOptimizationBonus",
     "RentalLeveragePlan",
+    "CompoundStrategyLeg",
     # Response
     "SimulationResponse",
     # M3.4 — Timing

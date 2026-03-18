@@ -168,7 +168,7 @@ class ArchitectService:
 
         # ── 7. M3.3 — Custo de oportunidade cruzado F3↔F2 ───────────
         card_bonus: Optional[CardOptimizationBonus] = None
-        if base_response.recommended_strategy == StrategyType.FINANCING:
+        if base_response.recommended_strategy in (StrategyType.FINANCING, StrategyType.FINANCING_RENTAL):
             card_bonus = self._compute_card_optimization_bonus(
                 monthly_payment=monthly_payment,
                 financing_months=request.financing_months,
@@ -327,6 +327,18 @@ class ArchitectService:
         o impacto real no mês 1 quando amortization_method=SAC. Aceitável enquanto
         PRICE for o default, pois para PRICE custo_total / n_meses == parcela fixa.
         """
+        # Estratégias compostas: usar custo líquido (após aluguel/SELIC)
+        if response.recommended_strategy in (
+            StrategyType.FINANCING_RENTAL,
+            StrategyType.CONSORTIUM_SELIC_RENTAL,
+        ):
+            if response.compound_strategies:
+                for leg in response.compound_strategies:
+                    if leg.strategy_type == response.recommended_strategy:
+                        return leg.monthly_net_cost
+            # Fallback improvável: usa custo bruto do contrato
+            return round(response.costs.expected_cost / max(request.financing_months, 1), 2)
+
         expected_cost = response.costs.expected_cost
         months_to_achieve = max(response.months_to_achieve, 1)
 
