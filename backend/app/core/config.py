@@ -18,7 +18,8 @@ class Settings(BaseSettings):
     FRONTEND_BASE_URL: str = "http://localhost:3000"
     
     # LLM Settings
-    OPENAI_API_KEY: str | None = None
+    # DB
+    DATABASE_URL: str
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
