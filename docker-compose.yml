@@ -15,3 +15,21 @@ services:
     environment:
       - APP_MODE=prod
     restart: unless-stopped
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: nexa-postgres
+    environment:
+      - POSTGRES_USER=nexa_user
+      - POSTGRES_PASSWORD=nexa_secret
+      - POSTGRES_DB=nexa_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
