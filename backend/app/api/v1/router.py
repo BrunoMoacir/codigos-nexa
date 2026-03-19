@@ -165,3 +165,7 @@ router.include_router(safe_to_spend.router)
 from app.api.v1.routes import purchase
 router.include_router(purchase.router)
 
+# 1️⃣9️⃣ Custos Bancários: GET /costs/raio-x/{user_id} (F5 — Raio-X de Custos)
+from app.api.v1.routes import costs
+router.include_router(costs.router)
+

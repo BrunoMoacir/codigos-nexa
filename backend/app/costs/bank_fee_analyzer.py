@@ -1,0 +1,253 @@
+"""
+app/costs/bank_fee_analyzer.py — F5: Agregador de Custos Bancários
+
+Responsabilidades:
+  1. Delegar detecção de tarifas ao FeeDetector
+  2. Agregar FeeEntry por banco e por tipo de tarifa
+  3. Calcular média mensal e projeção anual (CBT — Custo Bancário Total)
+  4. Comparar com benchmarks de mercado via MarketFeesDB
+  5. Calcular economia potencial e retornar BankCostReport
+
+Usage:
+    analyzer = BankFeeAnalyzer()
+    report   = analyzer.analyze(transactions_df, user_id="user_123")
+"""
+
+from __future__ import annotations
+
+import logging
+from collections import defaultdict
+from datetime import date
+
+import polars as pl
+
+from app.costs.fee_detector import FeeDetector
+from app.costs.models import (
+    BankCostReport,
+    BankFeeSummary,
+    FeeEntry,
+    FeeType,
+    MarketBenchmark,
+)
+
+logger = logging.getLogger(__name__)
+
+# Meses mínimos de histórico para calcular média confiável
+_MIN_MONTHS_FOR_AVG = 1
+
+
+class BankFeeAnalyzer:
+    """
+    Orquestra a análise completa de custos bancários.
+
+    Usage:
+        report = BankFeeAnalyzer().analyze(transactions_df, user_id)
+    """
+
+    def __init__(self, detector: FeeDetector | None = None) -> None:
+        self._detector = detector or FeeDetector()
+
+    def analyze(
+        self,
+        transactions_df: pl.DataFrame,
+        user_id: str,
+    ) -> BankCostReport:
+        logger.info("BankFeeAnalyzer | user=%s rows=%d", user_id, len(transactions_df))
+
+        warnings: list[str] = []
+        data_sources: list[str] = []
+
+        # ── 1. Detectar tarifas ───────────────────────────────────────
+        fees = self._detector.detect(transactions_df)
+        if not fees:
+            warnings.append("Nenhuma tarifa bancária detectada no histórico disponível.")
+
+        # ── 2. Calcular período analisado ─────────────────────────────
+        period_start, period_end, analysis_months = self._calc_period(transactions_df)
+        data_sources.append("transactions_db")
+
+        # ── 3. Agregar por banco ──────────────────────────────────────
+        by_bank = self._aggregate_by_bank(fees, analysis_months)
+
+        # ── 4. Agregar por tipo de tarifa ─────────────────────────────
+        by_fee_type = self._aggregate_by_type(fees)
+
+        # ── 5. Totais ─────────────────────────────────────────────────
+        total_paid   = round(sum(f.amount for f in fees), 2)
+        monthly_avg  = round(total_paid / max(analysis_months, 1), 2)
+        annual_proj  = round(monthly_avg * 12, 2)
+
+        # ── 6. Benchmarks de mercado ──────────────────────────────────
+        from app.costs.market_fees_db import MarketFeesDB
+        market_db = MarketFeesDB()
+        benchmarks = market_db.get_benchmarks(by_bank)
+        data_sources.append("market_fees_db")
+
+        savings = self._calc_savings_opportunity(by_bank, benchmarks)
+
+        # ── 7. Confidence ─────────────────────────────────────────────
+        confidence = self._compute_confidence(
+            analysis_months=analysis_months,
+            fee_count=len(fees),
+            has_institution_id=self._has_institution_id(transactions_df),
+        )
+
+        if analysis_months < 3:
+            warnings.append(
+                f"Histórico de apenas {analysis_months} mês(es) — "
+                "médias podem não refletir o custo real anual."
+            )
+
+        return BankCostReport(
+            user_id=user_id,
+            analysis_months=analysis_months,
+            period_start=period_start,
+            period_end=period_end,
+            total_paid=total_paid,
+            monthly_avg=monthly_avg,
+            annual_projection=annual_proj,
+            by_bank=by_bank,
+            by_fee_type=by_fee_type,
+            market_benchmarks=benchmarks,
+            savings_opportunity=savings,
+            fees_detected=fees,
+            confidence_score=round(confidence, 2),
+            warnings=warnings,
+            data_sources=data_sources,
+        )
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # HELPERS PRIVADOS
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    @staticmethod
+    def _calc_period(
+        df: pl.DataFrame,
+    ) -> tuple[date | None, date | None, int]:
+        """Retorna (data_início, data_fim, meses_analisados)."""
+        if df.is_empty() or "transaction_date" not in df.columns:
+            return None, None, _MIN_MONTHS_FOR_AVG
+
+        dates = df["transaction_date"].drop_nulls()
+        if dates.is_empty():
+            return None, None, _MIN_MONTHS_FOR_AVG
+
+        start = dates.min()
+        end   = dates.max()
+
+        # Converte para date se vier como datetime
+        if hasattr(start, "date"):
+            start = start.date()
+        if hasattr(end, "date"):
+            end = end.date()
+
+        months = max(
+            (end.year - start.year) * 12 + (end.month - start.month) + 1,
+            _MIN_MONTHS_FOR_AVG,
+        )
+        return start, end, months
+
+    @staticmethod
+    def _aggregate_by_bank(
+        fees: list[FeeEntry], analysis_months: int
+    ) -> list[BankFeeSummary]:
+        """Agrupa FeeEntry por institution_id e calcula totais."""
+        buckets: dict[str, list[FeeEntry]] = defaultdict(list)
+        for fee in fees:
+            buckets[fee.institution_id].append(fee)
+
+        summaries: list[BankFeeSummary] = []
+        for institution_id, entries in buckets.items():
+            total = round(sum(e.amount for e in entries), 2)
+            monthly = round(total / max(analysis_months, 1), 2)
+
+            fees_by_type: dict[str, float] = defaultdict(float)
+            for e in entries:
+                fees_by_type[e.fee_type.value] += e.amount
+            fees_by_type = {k: round(v, 2) for k, v in fees_by_type.items()}
+
+            summaries.append(
+                BankFeeSummary(
+                    bank_name=entries[0].bank_name,
+                    institution_id=institution_id,
+                    total_paid=total,
+                    monthly_avg=monthly,
+                    fees_by_type=fees_by_type,
+                    transaction_count=len(entries),
+                )
+            )
+
+        # Ordena do banco mais caro para o mais barato
+        summaries.sort(key=lambda s: s.monthly_avg, reverse=True)
+        return summaries
+
+    @staticmethod
+    def _aggregate_by_type(fees: list[FeeEntry]) -> dict[str, float]:
+        """Soma total pago por FeeType."""
+        totals: dict[str, float] = defaultdict(float)
+        for fee in fees:
+            totals[fee.fee_type.value] += fee.amount
+        return {k: round(v, 2) for k, v in sorted(totals.items(), key=lambda x: -x[1])}
+
+    @staticmethod
+    def _calc_savings_opportunity(
+        by_bank: list[BankFeeSummary],
+        benchmarks: list[MarketBenchmark],
+    ) -> float:
+        """
+        Economia potencial = soma dos excessos por banco.
+
+        Para cada banco que o usuário usa, compara seu custo mensal com o
+        benchmark daquele banco. Soma apenas as diferenças positivas
+        (bancos onde o usuário paga acima do mercado).
+
+        Exemplo:
+            Nubank:  usuário R$45/mês, mercado R$30/mês → excesso R$15
+            Itaú:    usuário R$80/mês, mercado R$90/mês → excesso R$0 (já ok)
+            Total savings_opportunity = R$15
+        """
+        if not benchmarks or not by_bank:
+            return 0.0
+
+        benchmark_map = {b.bank_name: b.monthly_avg_market for b in benchmarks}
+        total_savings = 0.0
+
+        for bank in by_bank:
+            market_avg = benchmark_map.get(bank.bank_name)
+            if market_avg is None:
+                continue
+            excess = bank.monthly_avg - market_avg
+            if excess > 0:
+                total_savings += excess
+
+        return round(total_savings, 2)
+
+    @staticmethod
+    def _has_institution_id(df: pl.DataFrame) -> bool:
+        if "institution_id" not in df.columns:
+            return False
+        return df["institution_id"].drop_nulls().len() > 0
+
+    @staticmethod
+    def _compute_confidence(
+        analysis_months: int,
+        fee_count: int,
+        has_institution_id: bool,
+    ) -> float:
+        score = 0.0
+        # Qualidade do histórico
+        if analysis_months >= 6:
+            score += 0.40
+        elif analysis_months >= 3:
+            score += 0.25
+        else:
+            score += 0.10
+        # Tarifas encontradas
+        if fee_count >= 5:
+            score += 0.35
+        elif fee_count >= 1:
+            score += 0.20
+        # institution_id disponível (permite agregar por banco corretamente)
+        if has_institution_id:
+            score += 0.25
+        return max(0.10, min(1.00, score))

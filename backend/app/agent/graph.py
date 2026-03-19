@@ -14,6 +14,7 @@ Ferramentas disponíveis:
   9. get_fiscal_report           → Relatório fiscal PJ/MEI com DAS estimado (F4)
  10. get_peer_comparison         → Compara gastos com benchmarks IBGE/POF (MX.4)
  11. get_purchase_recommendation → Melhor forma de pagamento para uma compra (F7)
+ 12. get_bank_cost_analysis      → Raio-X de custos e tarifas bancárias (F5)
 """
 import logging
 from langchain_core.messages import BaseMessage
@@ -31,6 +32,7 @@ from app.agent.tools.get_leverage_simulation import get_leverage_simulation
 from app.agent.tools.get_fiscal_report import get_fiscal_report
 from app.agent.tools.get_peer_comparison import get_peer_comparison
 from app.agent.tools.get_purchase_recommendation import get_purchase_recommendation
+from app.agent.tools.get_bank_cost_analysis import get_bank_cost_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +143,15 @@ USE QUANDO o usuário perguntar sobre:
 - category: categoria do produto (ex: "Eletrônicos", "Viagem", "Móveis", "Saúde")
 - installments: número de parcelas desejadas (extraia da mensagem; padrão = 1)
 
+### `get_bank_cost_analysis(user_id)`
+USE QUANDO o usuário perguntar sobre:
+- "Quanto pago de tarifa / anuidade / taxa bancária?"
+- "Meu banco está me cobrando muito?"
+- "Quanto economizo trocando de banco?"
+- "Quais são meus custos bancários?"
+- "Vale a pena migrar para um banco digital?"
+- Qualquer pergunta sobre tarifas, taxas ou custos de conta bancária.
+
 ## REGRAS DE COMPORTAMENTO:
 1. **NUNCA peça informações que já estão na mensagem do usuário** — se o usuário disse "minha renda é R$ 8.500", use esse valor diretamente na tool.
 2. **SEMPRE chame a ferramenta** quando a pergunta se encaixar nos critérios acima — mesmo sem dados explícitos.
@@ -227,6 +238,7 @@ def build_financial_agent():
         get_fiscal_report,
         get_peer_comparison,
         get_purchase_recommendation,
+        get_bank_cost_analysis,
     ]
 
     # 2. LLM — Claude (preferencial) ou OpenAI (fallback)

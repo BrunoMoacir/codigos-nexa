@@ -19,6 +19,36 @@ def get_connection():
     db_path = os.getenv("DUCKDB_PATH", "nexa.duckdb")
     return duckdb.connect(db_path)
 
+
+def get_transactions_for_user(user_id: str):
+    """
+    Busca transações limpas de um usuário no DuckDB.
+
+    Ponto único de acesso à tabela transactions_clean — evita duplicação
+    do bloco try/CatalogException/finally em rotas e tools.
+
+    Returns:
+        pl.DataFrame com todas as colunas de transactions_clean,
+        ou DataFrame vazio se o usuário não tiver dados ou a tabela não existir.
+    """
+    import duckdb
+    import polars as pl
+
+    try:
+        con = get_connection()
+        try:
+            return con.execute(
+                "SELECT * FROM transactions_clean WHERE user_id = ?", [user_id]
+            ).pl()
+        except duckdb.CatalogException:
+            return pl.DataFrame()
+        finally:
+            con.close()
+    except Exception as exc:
+        logger.warning("get_transactions_for_user | user=%s erro: %s", user_id, exc)
+        import polars as pl
+        return pl.DataFrame()
+
 def get_context_overrides(db: Session, user_id: str) -> List[Dict[str, Any]]:
     try:
         overrides = db.query(ContextOverride).filter(ContextOverride.user_id == user_id).order_by(ContextOverride.created_at.desc()).all()
