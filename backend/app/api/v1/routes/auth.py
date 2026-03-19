@@ -1,7 +1,9 @@
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.core.security import (
     verify_password,
@@ -14,6 +16,7 @@ from app.core.database import get_db
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+limiter = Limiter(key_func=get_remote_address)
 
 class UserCreate(BaseModel):
     email: str
@@ -52,7 +55,8 @@ async def register(user: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = get_user_by_email(db, form_data.username)
     if not user:
         raise HTTPException(

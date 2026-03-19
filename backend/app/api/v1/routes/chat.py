@@ -1,31 +1,37 @@
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from typing import List
 
-# Assume agent is accessible here
 from app.agent.graph import build_financial_agent
 from langchain_core.messages import HumanMessage, SystemMessage
-from fastapi import APIRouter, HTTPException, Depends
 from app.core.security import get_current_user
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Agent Chat"])
+limiter = Limiter(key_func=get_remote_address)
 
 # Carrega o grafo do agente (pode demorar no primeiro boot)
 agent_app = build_financial_agent()
 
+
 class ChatRequest(BaseModel):
     user_id: str
     message: str
-    
+
+
 class ChatResponse(BaseModel):
     response: str
-    
+
+
 @router.post("/", response_model=ChatResponse)
+@limiter.limit("20/minute")
 async def chat_with_agent(
+    http_request: Request,
     request: ChatRequest,
-    current_user: str = Depends(get_current_user)
+    current_user: str = Depends(get_current_user),
 ):
     if request.user_id != current_user:
         raise HTTPException(status_code=403, detail="Não autorizado (token não pertence a este user_id)")

@@ -49,3 +49,15 @@ python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
 bcrypt==3.2.0
 python-multipart>=0.0.9
+
+# Rate Limiting
+slowapi>=0.1.9
+
+# Banco de dados async
+asyncpg>=0.29.0
+sqlalchemy[asyncio]>=2.0.0
+alembic>=1.13.0
+psycopg2-binary>=2.9.0
+
+# Cache / Sessões do agente
+redis>=5.0.0
