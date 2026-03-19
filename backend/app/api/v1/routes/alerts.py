@@ -35,7 +35,8 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import TYPE_CHECKING, List, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
+from app.core.security import get_current_user
 from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
@@ -222,7 +223,7 @@ def generate_high_commitment_alert(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.get("/{user_id}", response_model=AlertsResponse)
-async def get_alerts(user_id: str) -> AlertsResponse:
+async def get_alerts(user_id: str, _: str = Depends(get_current_user)) -> AlertsResponse:
     """
     Retorna alertas ativos para o usuário.
     
@@ -389,7 +390,7 @@ async def get_alerts(user_id: str) -> AlertsResponse:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.delete("/{user_id}/{alert_id}")
-async def dismiss_alert(user_id: str, alert_id: str):
+async def dismiss_alert(user_id: str, alert_id: str, _: str = Depends(get_current_user)):
     """
     Marca um alerta como lido/ignorado.
     

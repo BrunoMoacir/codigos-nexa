@@ -2,7 +2,8 @@
 # M1.5 — Detecção de Assinaturas Esquecidas
 
 import logging
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
+from app.core.security import get_current_user
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,7 @@ async def get_subscriptions(
         le=24,
         description="Janela de histórico em meses para detectar recorrência (mín: 2, máx: 24)",
     ),
+    _: str = Depends(get_current_user),
 ):
     """
     M1.5 — Detecta assinaturas recorrentes e sinaliza as possivelmente esquecidas.

@@ -12,7 +12,8 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status, Depends
+from app.core.security import get_current_user
 
 from app.db.queries import get_connection
 from app.peers.peer_comparison import PeerComparator
@@ -52,6 +53,7 @@ async def compare_peers(
         le=12,
         description="Meses de histórico de transações a considerar (padrão: 3).",
     ),
+    _: str = Depends(get_current_user),
 ) -> dict:
     """
     Compara o perfil de gastos do usuário com benchmarks da faixa de renda.

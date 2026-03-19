@@ -12,7 +12,8 @@ import logging
 from typing import Optional
 
 import polars as pl
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status, Depends
+from app.core.security import get_current_user
 
 from app.cashflow.budget_advisor import BudgetAdvisor, BudgetSuggestion
 from app.db.queries import get_connection
@@ -52,6 +53,7 @@ async def get_budget_advice(
         le=12,
         description="Meses de histórico a considerar (padrão: 3, máximo: 12).",
     ),
+    _: str = Depends(get_current_user),
 ) -> dict:
     """
     Retorna sugestão de orçamento 50/30/20 baseada no histórico real do usuário.

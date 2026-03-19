@@ -3,6 +3,7 @@
 
 import logging
 from fastapi import APIRouter, HTTPException, Depends, Query
+from app.core.security import get_current_user
 from typing import Optional
 
 from app.optimizer.models import OptimizationRequest, OptimizationReport
@@ -16,7 +17,7 @@ router = APIRouter(prefix="/optimizer", tags=["Optimizer (F2)"])
 @router.post("/analyze", response_model=OptimizationReport)
 async def analyze_cards(
     request: OptimizationRequest,
-    # db_conn is mocked or retrieved from dependencies ideally, but keeping it simple for now
+    _: str = Depends(get_current_user),
 ) -> OptimizationReport:
     """
     Analisa os gastos do usuário e recomenda o melhor cartão de crédito.
@@ -77,7 +78,7 @@ from app.optimizer.opportunity_cost import OpportunityCostCalculator
 from app.optimizer.profiler import ConsumptionProfiler
 
 @router.get("/reports/{user_id}")
-async def list_user_reports(user_id: str):
+async def list_user_reports(user_id: str, _: str = Depends(get_current_user)):
     """Retorna o histórico resumido de otimizações de um usuário."""
     reports = get_optimization_reports(user_id)
     return {"reports": reports}
@@ -106,6 +107,7 @@ async def get_opportunity_cost(
     user_id: str,
     current_card_id: str,
     months: int = 3,
+    _: str = Depends(get_current_user),
 ):
     """
     Calcula quanto o usuário deixou de ganhar por usar o cartão atual
@@ -227,6 +229,7 @@ async def get_card_portfolio(
     user_id: str,
     max_cards: int = Query(default=3, ge=1, le=5, description="Máximo de cartões na carteira"),
     monthly_income: _Optional[float] = Query(default=None, description="Renda mensal (R$) para cálculo de elegibilidade"),
+    _: str = Depends(get_current_user),
 ):
     """
     Calcula a carteira ideal de cartões para o perfil de gastos do usuário.

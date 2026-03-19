@@ -1,6 +1,7 @@
 # app/api/v1/routes/fiscal_report.py
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
+from app.core.security import get_current_user
 from pydantic import BaseModel
 from typing import Optional
 import logging
@@ -49,6 +50,7 @@ async def get_fiscal_report(
     user_id: str,
     year: int = Query(default=None, description="Ano do relatorio (padrao: ano atual)"),
     month: Optional[int] = Query(default=None, ge=1, le=12, description="Mes 1-12. Omitir para relatorio anual."),
+    _: str = Depends(get_current_user),
 ):
     """
     Relatorio fiscal automatizado das transacoes PJ do usuario.
@@ -117,6 +119,7 @@ async def get_mixed_use_report(
     user_id: str,
     year: int = Query(default=None, description="Ano (padrao: ano atual)"),
     month: Optional[int] = Query(default=None, ge=1, le=12, description="Mes 1-12. Omitir para relatorio anual."),
+    _: str = Depends(get_current_user),
 ):
     """
     Detecta transacoes PF com potencial de uso misto PF/PJ.

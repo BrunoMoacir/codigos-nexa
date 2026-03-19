@@ -13,7 +13,8 @@ import logging
 from datetime import date, timedelta
 
 import polars as pl
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status, Depends
+from app.core.security import get_current_user
 
 from app.notifications.notifier import (
     ProactiveNotifier,
@@ -60,6 +61,7 @@ async def get_notifications(
         default=True,
         description="Se False, retorna apenas CRITICAL e WARNING.",
     ),
+    _: str = Depends(get_current_user),
 ) -> dict:
     """
     Retorna notificações proativas baseadas no histórico real do usuário.

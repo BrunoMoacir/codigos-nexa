@@ -20,7 +20,8 @@ import os
 from datetime import date
 
 import polars as pl
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
+from app.core.security import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ router = APIRouter(prefix="/safe-to-spend", tags=["Safe-to-Spend"])
         "Fonte: NexaRunner (dados Pluggy mock em dev, Pluggy real em prod)."
     ),
 )
-async def get_safe_to_spend(user_id: str) -> dict:
+async def get_safe_to_spend(user_id: str, _: str = Depends(get_current_user)) -> dict:
     """
     Retorna safe-to-spend consolidado com spent_to_date do mês corrente.
 

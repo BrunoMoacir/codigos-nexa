@@ -32,6 +32,7 @@ from app.db.queries import (
     save_health_score_snapshot,
 )
 from app.core.database import get_db
+from app.core.security import get_current_user
 from app.etl.profiles import UserProfileAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -138,7 +139,8 @@ def _fetch_transactions_sync(db: Session, user_id: str) -> pl.DataFrame:
 def get_health_score_history_endpoint(
     user_id: str,
     months: int = Query(default=6, ge=1, le=24, description="Meses de histórico"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
 ) -> HealthScoreHistoryResponse:
     """
     Retorna o histórico do score de saúde financeira do usuário.

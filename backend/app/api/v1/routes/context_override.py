@@ -8,6 +8,7 @@ import logging
 
 from app.db.queries import save_context_override, get_context_overrides, get_override_stats
 from app.core.database import get_db
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/context", tags=["Context Override"])
 logger = logging.getLogger(__name__)
@@ -38,8 +39,9 @@ class OverrideItem(BaseModel):
 @router.post("/override", response_model=ContextOverrideResponse)
 def override_transaction_context(
     request: ContextOverrideRequest,
-    user_id: str = Query(..., description="ID do usuário"), # Em prod, isso viria do Token JWT
-    db: Session = Depends(get_db)
+    user_id: str = Query(..., description="ID do usuário"),
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
 ):
     logger.info(f"Recebido override user={user_id} txn={request.transaction_id} -> {request.corrected_context}")
     
@@ -70,7 +72,8 @@ def override_transaction_context(
 @router.get("/overrides", response_model=List[OverrideItem])
 def list_user_overrides(
     user_id: str = Query(..., description="ID do usuário"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
 ):
     """
     Lista histórico de correções manuais do usuário.
@@ -98,7 +101,8 @@ def list_user_overrides(
 @router.get("/overrides/stats")
 def get_stats(
     user_id: str = Query(..., description="ID do usuário"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
 ):
     """
     Retorna contagem de overrides (ex: {"PF": 5, "PJ": 2}).

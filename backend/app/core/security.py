@@ -1,4 +1,3 @@
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Any
 from jose import jwt, JWTError
@@ -7,8 +6,10 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 
+from app.core.config import settings
+
 # Configurações do JWT
-SECRET_KEY = os.getenv("SECRET_KEY", "nexa_secret_key_mock_123_do_not_use_in_prod")
+SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 dias para o MVP
 

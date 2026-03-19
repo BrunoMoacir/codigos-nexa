@@ -40,7 +40,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status, Depends
+from app.core.security import get_current_user
 from pydantic import BaseModel, Field
 
 from app.architect.models import SimulationRequest, SimulationResponse, TimingScenario
@@ -163,7 +164,7 @@ async def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
         "presente (NPV) compatível com a liquidez do usuário."
     ),
 )
-async def simulate(request: SimulationRequest) -> SimulationResponse:
+async def simulate(request: SimulationRequest, _: str = Depends(get_current_user)) -> SimulationResponse:
     """
     Simula as 3 estratégias de aquisição e recomenda a melhor.
 
@@ -318,6 +319,7 @@ async def list_simulations(
         default=None,
         description="Filtrar por tipo de bem: IMOVEL, VEICULO, REFORMA, VIAGEM, OUTRO",
     ),
+    _: str = Depends(get_current_user),
 ) -> List[Dict[str, Any]]:
     """
     Lista o histórico de simulações de um usuário.
@@ -390,6 +392,7 @@ async def list_simulations(
 )
 async def get_simulation_by_id(
     simulation_id: str,
+    _: str = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """
     Retorna os dados completos de uma simulação pelo seu ID.
@@ -445,6 +448,7 @@ async def get_simulation_by_id(
 )
 async def get_sensitivity(
     simulation_id: str,
+    _: str = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """
     Executa análise de sensibilidade sobre os parâmetros de uma simulação existente.
@@ -590,6 +594,7 @@ async def get_sensitivity(
 )
 async def get_metrics(
     user_id: str = Query(..., description="ID do usuário"),
+    _: str = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """
     Retorna métricas agregadas de simulações do usuário.
@@ -699,6 +704,7 @@ async def timing_scenarios(
         default=None,
         description="Janelas de espera separadas por vírgula. Ex: '0,3,6,12'. Padrão: 0,3,6,12",
     ),
+    _: str = Depends(get_current_user),
 ) -> List[TimingScenario]:
     """
     Responde: *"E se eu esperar X meses antes de comprar?"*

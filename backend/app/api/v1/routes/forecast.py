@@ -35,7 +35,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
+from app.core.security import get_current_user
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # IMPORTS: Engine & Processamento
@@ -127,7 +128,8 @@ async def fetch_user_transactions(user_id: str, horizon_days: int = 30):
 @router.get("/{user_id}", response_model=ForecastResponse)
 async def get_forecast(
     user_id: str,
-    horizon_days: int = 30
+    horizon_days: int = 30,
+    _: str = Depends(get_current_user),
 ) -> ForecastResponse:
     """
     Retorna previsão financeira consolidada do usuário.

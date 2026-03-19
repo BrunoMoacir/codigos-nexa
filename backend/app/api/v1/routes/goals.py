@@ -14,7 +14,8 @@ Endpoints para gerenciar metas financeiras:
 import logging
 from typing import Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
+from app.core.security import get_current_user
 from pydantic import BaseModel, Field, model_validator
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ class UpdateProgressRequest(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/{user_id}", status_code=201)
-async def create_goal(user_id: str, body: CreateGoalRequest):
+async def create_goal(user_id: str, body: CreateGoalRequest, _: str = Depends(get_current_user)):
     """
     MX.2 — Cria uma nova meta financeira para o usuário.
 
@@ -88,6 +89,7 @@ async def create_goal(user_id: str, body: CreateGoalRequest):
 async def list_goals(
     user_id: str,
     status: str = Query(default="ACTIVE", description="Status: ACTIVE | COMPLETED | ABANDONED"),
+    _: str = Depends(get_current_user),
 ):
     """
     MX.2 — Lista as metas do usuário filtradas por status, com projeções.
@@ -110,7 +112,7 @@ async def list_goals(
 
 
 @router.get("/{user_id}/{goal_id}")
-async def get_goal(user_id: str, goal_id: str):
+async def get_goal(user_id: str, goal_id: str, _: str = Depends(get_current_user)):
     """
     MX.2 — Detalhe de uma meta com projeção completa.
     """
@@ -131,7 +133,7 @@ async def get_goal(user_id: str, goal_id: str):
 
 
 @router.patch("/{user_id}/{goal_id}/progress")
-async def update_progress(user_id: str, goal_id: str, body: UpdateProgressRequest):
+async def update_progress(user_id: str, goal_id: str, body: UpdateProgressRequest, _: str = Depends(get_current_user)):
     """
     MX.2 — Atualiza o progresso de uma meta (adiciona ao current_amount).
 
@@ -161,7 +163,7 @@ async def update_progress(user_id: str, goal_id: str, body: UpdateProgressReques
 
 
 @router.delete("/{user_id}/{goal_id}", status_code=200)
-async def abandon_goal(user_id: str, goal_id: str):
+async def abandon_goal(user_id: str, goal_id: str, _: str = Depends(get_current_user)):
     """
     MX.2 — Abandona uma meta (marca como ABANDONED).
     """

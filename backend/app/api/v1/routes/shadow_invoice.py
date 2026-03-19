@@ -33,7 +33,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
+from app.core.security import get_current_user
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # IMPORTS: Shadow Invoice Processing
@@ -66,7 +67,8 @@ logger = logging.getLogger(__name__)
 @router.get("/{user_id}", response_model=ShadowInvoiceListResponse)
 async def get_shadow_invoices(
     user_id: str,
-    days_ahead: int = 60
+    days_ahead: int = 60,
+    _: str = Depends(get_current_user),
 ) -> ShadowInvoiceListResponse:
     """
     Retorna obrigações financeiras futuras detectadas automaticamente.
@@ -201,7 +203,7 @@ async def get_shadow_invoices(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.get("/{user_id}/summary")
-async def get_shadow_invoice_summary(user_id: str):
+async def get_shadow_invoice_summary(user_id: str, _: str = Depends(get_current_user)):
     """
     Retorna resumo das obrigações detectadas (apenas números chave).
     
