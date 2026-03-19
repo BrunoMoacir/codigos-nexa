@@ -1,0 +1,109 @@
+# app/agent/tools/get_purchase_recommendation.py
+import logging
+from typing import Optional
+
+from langchain_core.tools import tool
+
+from app.purchase.models import PurchaseRequest
+from app.purchase.purchase_advisor import PurchaseAdvisor
+
+logger = logging.getLogger(__name__)
+
+
+@tool
+def get_purchase_recommendation(
+    user_id: str,
+    amount: float,
+    category: str,
+    installments: int = 1,
+    monthly_income: Optional[float] = None,
+) -> str:
+    """
+    Analisa uma compra e recomenda a melhor forma de pagamento comparando:
+    PIX à vista, cartão à vista, cartão parcelado sem juros e crédito pessoal (CDC).
+
+    Use esta ferramenta SEMPRE que o usuário perguntar sobre:
+    - "Qual a melhor forma de pagar uma compra de R$ X?"
+    - "Vale mais a pena parcelar ou pagar à vista?"
+    - "Devo pagar no PIX ou no cartão?"
+    - "Consigo pagar essa compra sem comprometer meu orçamento?"
+    - Qualquer dúvida sobre método de pagamento antes de uma compra.
+
+    Args:
+        user_id: ID do usuário (obrigatório).
+        amount: Valor da compra em reais (obrigatório). Ex: 3000.0
+        category: Categoria da compra. Ex: "Eletrônicos", "Viagem", "Móveis".
+        installments: Número de parcelas desejadas (padrão: 1 = à vista). Ex: 12
+        monthly_income: Renda mensal do usuário (opcional, use se o usuário informar).
+    """
+    logger.info(
+        "[Tool] get_purchase_recommendation | user=%s amount=%.2f category=%s installments=%d",
+        user_id, amount, category, installments,
+    )
+
+    try:
+        request = PurchaseRequest(
+            user_id=user_id,
+            amount=amount,
+            category=category,
+            installments=installments,
+            monthly_income=monthly_income,
+        )
+
+        result = PurchaseAdvisor().analyze(request)
+
+        # ── Formatar saída para o LLM ────────────────────────────────
+        lines = [
+            f"=== ANÁLISE DE COMPRA: {category} — R$ {amount:,.2f} ===",
+            f"Recomendação: {result.recommended_label}",
+            f"Custo líquido: R$ {result.recommended_net_cost:,.2f}",
+            "",
+            result.reasoning,
+            "",
+            "── Opções comparadas (melhor → pior) ──",
+        ]
+
+        for i, opt in enumerate(result.options, start=1):
+            reward_str = f" | Reward: R$ {opt.reward_value:.2f}" if opt.reward_value > 0 else ""
+            installment_str = (
+                f" | {opt.installments}x de R$ {opt.monthly_cost:.2f}"
+                if opt.monthly_cost and opt.installments and opt.installments > 1
+                else ""
+            )
+            lines.append(
+                f"{i}. {opt.label}"
+                f" | Custo total: R$ {opt.total_cost:,.2f}"
+                f"{reward_str}"
+                f" | Custo líquido: R$ {opt.net_cost:,.2f}"
+                f"{installment_str}"
+            )
+            if opt.notes:
+                lines.append(f"   → {opt.notes}")
+
+        lines += [
+            "",
+            "── Impacto no orçamento ──",
+            f"Margem atual (safe-to-spend): R$ {result.liquidity_impact.safe_to_spend_before:,.2f}",
+            f"Margem após a compra: R$ {result.liquidity_impact.safe_to_spend_after:,.2f}",
+            f"Acessível: {'Sim' if result.liquidity_impact.affordable else 'Não ⚠️'}",
+            f"Risco: {result.liquidity_impact.risk_level}",
+        ]
+
+        if result.warnings:
+            lines += ["", "── Avisos ──"]
+            for w in result.warnings:
+                lines.append(f"- {w}")
+
+        lines += [
+            "",
+            f"Confiança da análise: {result.confidence_score:.0%}",
+            f"Fontes: {', '.join(result.data_sources) if result.data_sources else 'dados informados pelo usuário'}",
+        ]
+
+        return "\n".join(lines)
+
+    except ValueError as exc:
+        return f"Não foi possível analisar a compra: {exc}"
+    except Exception as exc:
+        logger.error("[Tool] get_purchase_recommendation erro: %s", exc, exc_info=True)
+        return "Desculpe, ocorreu um erro interno ao analisar a compra. Tente novamente."

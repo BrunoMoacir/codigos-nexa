@@ -13,6 +13,7 @@ Ferramentas disponíveis:
   8. get_leverage_simulation     → F3.5 — Alavancagem via consórcio: aluguel + SELIC pagam parcelas (F3)
   9. get_fiscal_report           → Relatório fiscal PJ/MEI com DAS estimado (F4)
  10. get_peer_comparison         → Compara gastos com benchmarks IBGE/POF (MX.4)
+ 11. get_purchase_recommendation → Melhor forma de pagamento para uma compra (F7)
 """
 import logging
 from langchain_core.messages import BaseMessage
@@ -29,6 +30,7 @@ from app.agent.tools.get_timing_scenarios import get_timing_scenarios
 from app.agent.tools.get_leverage_simulation import get_leverage_simulation
 from app.agent.tools.get_fiscal_report import get_fiscal_report
 from app.agent.tools.get_peer_comparison import get_peer_comparison
+from app.agent.tools.get_purchase_recommendation import get_purchase_recommendation
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +130,17 @@ USE QUANDO o usuário perguntar sobre:
 - "Pessoas com minha renda gastam quanto em X?"
 - REQUER monthly_income — sempre extraia da mensagem ou peça antes de chamar.
 
+### `get_purchase_recommendation(user_id, amount, category, installments=1, monthly_income=None)`
+USE QUANDO o usuário perguntar sobre:
+- "Qual a melhor forma de pagar uma compra de R$ X?"
+- "Vale mais a pena parcelar ou pagar à vista?"
+- "Devo pagar no PIX ou no cartão?"
+- "Consigo pagar essa compra sem comprometer meu orçamento?"
+- Qualquer dúvida sobre método de pagamento antes de uma compra.
+- Se o usuário mencionar um valor + produto (ex: "vou comprar uma TV de R$ 3.000 em 12x"), USE IMEDIATAMENTE.
+- category: categoria do produto (ex: "Eletrônicos", "Viagem", "Móveis", "Saúde")
+- installments: número de parcelas desejadas (extraia da mensagem; padrão = 1)
+
 ## REGRAS DE COMPORTAMENTO:
 1. **NUNCA peça informações que já estão na mensagem do usuário** — se o usuário disse "minha renda é R$ 8.500", use esse valor diretamente na tool.
 2. **SEMPRE chame a ferramenta** quando a pergunta se encaixar nos critérios acima — mesmo sem dados explícitos.
@@ -213,6 +226,7 @@ def build_financial_agent():
         get_leverage_simulation,
         get_fiscal_report,
         get_peer_comparison,
+        get_purchase_recommendation,
     ]
 
     # 2. LLM — Claude (preferencial) ou OpenAI (fallback)

@@ -161,3 +161,7 @@ router.include_router(peers.router)
 from app.api.v1.routes import safe_to_spend
 router.include_router(safe_to_spend.router)
 
+# 1️⃣8️⃣ Purchase Advisor: POST /purchase/analyze (F7 — Modo Compra Inteligente)
+from app.api.v1.routes import purchase
+router.include_router(purchase.router)
+

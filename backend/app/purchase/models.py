@@ -77,6 +77,7 @@ class PurchaseRecommendation(BaseModel):
     category: str
     recommended_method: PaymentMethod
     recommended_label: str
+    recommended_net_cost: float             # custo líquido da opção recomendada (total - reward)
     reasoning: str                          # explicação em linguagem natural
     options: list[PaymentOption]            # todas as opções ranqueadas (melhor → pior)
     liquidity_impact: LiquidityImpact
