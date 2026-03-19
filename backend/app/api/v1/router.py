@@ -40,11 +40,11 @@ from fastapi import APIRouter
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 from app.api.v1.routes import bank_simulation
+from app.api.v1.routes import analyze
 
-# TODO: Ativar quando dependências forem resolvidas
-# from app.api.v1.routes import pluggy_test
-# from app.api.v1.routes import analyze
-# from app.api.v1.routes import cashflow
+# TODO: Criar os arquivos antes de ativar
+# from app.api.v1.routes import pluggy_test   # routes/pluggy_test.py ainda não existe
+# from app.api.v1.routes import cashflow       # routes/cashflow.py ainda não existe
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # IMPORTS: CORE ENGINE (NOVO!)
@@ -82,10 +82,10 @@ router = APIRouter()
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 router.include_router(bank_simulation.router)
+router.include_router(analyze.router)
 
-# TODO: Ativar quando dependências forem resolvidas
+# TODO: Criar os arquivos antes de ativar
 # router.include_router(pluggy_test.router)
-# router.include_router(analyze.router)
 # router.include_router(cashflow.router)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
