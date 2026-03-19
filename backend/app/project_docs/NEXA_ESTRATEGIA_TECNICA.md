@@ -31,6 +31,9 @@
 ✅ F2   — Card Optimizer (ranking, multi-card, custo de oportunidade)
 ✅ F3   — Nexa Architect (simulador de compra, Monte Carlo, sensibilidade)
 ✅ F4   — Nexa Divider (classificador PF/PJ ML, relatório fiscal)
+✅ F5   — Raio-X de Custos Bancários (FeeDetector, BankFeeAnalyzer, benchmarks BACEN)
+✅ F7   — Modo Compra Inteligente (PurchaseAdvisor, orquestra F2+F3, PRICE parcelado)
+✅ F13  — Negotiator Bot (detector de oportunidades, scripts via Claude, 3 triggers)
 ✅ MX.1 — Health Score History (série temporal)
 ✅ MX.2 — Metas Financeiras
 ✅ MX.3 — Notificações Proativas
@@ -38,9 +41,8 @@
 ✅ Budget Advisor (50/30/20)
 ✅ Detecção de Assinaturas
 ✅ Detecção de Anomalias de Gasto
-✅ Agente Conversacional (10 tools, LangGraph ReAct + Claude Sonnet 4.6)
+✅ Agente Conversacional (13 tools, LangGraph ReAct + Claude Sonnet 4.6)
 
-⏳ F13  — Negotiator Bot (scripts de renegociação com o banco)
 ⏳ F14  — Stress Test de Eventos de Vida ("E se eu for demitido?")
 ⏳ F15  — Cash Sweeping (arbitragem de liquidez entre contas)
 ⏳ ST1  — PII Sanitizer Layer (anonimização antes do LLM — LGPD)
@@ -55,20 +57,32 @@ backend/
 │   ├── main.py                      # FastAPI entry point
 │   ├── runner.py                    # NexaRunner — pipeline completo
 │   ├── api/v1/
-│   │   ├── router.py                # Registro central das rotas
-│   │   └── routes/                  # 22 arquivos de endpoints
+│   │   ├── router.py                # Registro central das rotas (20 rotas)
+│   │   └── routes/                  # 23 arquivos de endpoints
 │   ├── agent/
 │   │   ├── graph.py                 # Builder do agente LangGraph
 │   │   ├── state.py                 # AgentState (Polars DataFrames)
-│   │   └── tools/                   # 8 ferramentas financeiras
+│   │   └── tools/                   # 13 ferramentas financeiras
 │   ├── etl/                         # Pipeline ETL (5 estágios)
 │   ├── optimizer/                   # F2 — Otimizador de cartões
 │   ├── architect/                   # F3 — Simulador de compras
 │   ├── cashflow/                    # Engine de fluxo de caixa
+│   ├── purchase/                    # F7 — Modo Compra Inteligente
+│   │   ├── models.py                # PaymentMethod, PurchaseRecommendation, LiquidityImpact
+│   │   └── purchase_advisor.py      # PurchaseAdvisor (orquestra F2+F3+BACEN)
+│   ├── costs/                       # F5 — Raio-X de Custos Bancários
+│   │   ├── models.py                # FeeType, FeeEntry, BankCostReport
+│   │   ├── fee_detector.py          # FeeDetector (regex + institution_id mapping)
+│   │   ├── bank_fee_analyzer.py     # BankFeeAnalyzer (agrega por banco/tipo)
+│   │   └── market_fees_db.py        # MarketFeesDB (benchmarks 16 bancos)
+│   ├── negotiator/                  # F13 — Negotiator Bot
+│   │   ├── models.py                # NegotiationTrigger, NegotiationScript, NegotiationReport
+│   │   ├── opportunity_detector.py  # NegotiationOpportunityDetector (3 triggers)
+│   │   └── script_generator.py      # NegotiationScriptGenerator (Claude API)
 │   ├── goals/ notifications/ peers/ # MX features
 │   ├── integrations/open_finance/   # Pluggy real + mock
 │   ├── db/
-│   │   ├── queries.py               # DuckDB queries
+│   │   ├── queries.py               # DuckDB queries + get_transactions_for_user()
 │   │   └── migrations/              # 5 migrações SQL
 │   └── core/
 │       ├── config.py                # Pydantic Settings
@@ -370,109 +384,51 @@ O `thread_id` (mapeado para `user_id`) persiste a conversa entre sessões automa
 
 As funcionalidades F5–F12 do plano estratégico têm pontos de apoio já existentes no código. Abaixo, o mapa de integração de cada uma.
 
-### F5 — Raio-X de Custos Bancários
+### F5 — Raio-X de Custos Bancários ✅ IMPLEMENTADO
 
 **Objetivo:** Mapear tarifas ocultas de cada banco e calcular o Custo Bancário Total (CBT).
 
-**Base existente:**
-- `app/etl/ingestor.py` — já normaliza transações com campo `category`
-- `app/etl/classifier.py` — classifica categorias (inclui "TARIFA" e "ANUIDADE")
-- `app/cashflow/burn_rate.py` — analisa padrões de saída de dinheiro
+**Arquivos criados:**
+- `app/costs/models.py` — `FeeType` (9 categorias), `FeeEntry`, `BankFeeSummary`, `MarketBenchmark`, `BankCostReport`
+- `app/costs/fee_detector.py` — `FeeDetector`: detecção via regex + mapeamento de `institution_id` (16 bancos)
+- `app/costs/bank_fee_analyzer.py` — `BankFeeAnalyzer`: agrega por banco/tipo, calcula economia potencial banco a banco
+- `app/costs/market_fees_db.py` — `MarketFeesDB`: benchmarks de 16 bancos (digitais = R$0, tradicionais R$24–R$44/mês)
+- `app/api/v1/routes/costs.py` — `GET /costs/raio-x/{user_id}` com JWT
+- `app/agent/tools/get_bank_cost_analysis.py` — 12ª tool do agente
+- `app/db/queries.py` — adicionado `get_transactions_for_user()` como ponto único de acesso ao DuckDB
 
-**O que construir:**
+**Categorias detectadas:** `ANUIDADE_CARTAO`, `TARIFA_MANUTENCAO`, `TED_DOC`, `SAQUE`, `JUROS_ROTATIVO`, `SEGURO_PRESTAMISTA`, `PACOTE_SERVICOS`, `IOF`, `OUTROS_CUSTOS`
 
-1. **`app/costs/bank_fee_analyzer.py`** — extrator de tarifas:
-```python
-# Categorias a monitorar:
-FEE_CATEGORIES = [
-    "TARIFA_MANUTENCAO", "TED", "DOC", "ANUIDADE_CARTAO",
-    "SEGURO_PRESTAMISTA", "SAQUE", "PACOTE_SERVICOS"
-]
-
-class BankFeeAnalyzer:
-    def analyze(self, transactions: list[Transaction], user_id: str) -> BankCostReport:
-        # Agrupa por banco (já disponível em transactions.issuer)
-        # Soma tarifas por categoria
-        # Retorna CBT por banco
-```
-
-2. **`app/costs/market_fees_db.py`** — base de tarifas de mercado (JSON estático + atualização mensal):
-```python
-# Similar ao knowledge_cards.json para cartões
-# data/fees/bank_fees.json — tarifas públicas dos principais bancos
-```
-
-3. **Nova rota:** `app/api/v1/routes/costs.py` → `GET /api/v1/costs/raio-x`
-
-4. **Nova tool no agente:** `get_bank_cost_analysis` em `app/agent/tools/`
-
-**Dados necessários:** Expandir `knowledge_cards.json` para incluir tarifas de conta (não só cartões).
+**Decisões técnicas:**
+- `FeeDetector` usa Python loop (`iter_rows`) com regex ordenados do mais específico ao mais genérico — trade-off documentado (vectorização em Fase 2)
+- Economia potencial calculada banco a banco (não total vs. mínimo) para corretude econômica
+- `_BENCHMARK_DIGITAL_REFERENCE` usa `.model_copy()` para evitar mutação do singleton
 
 ---
 
-### F6 — Negociador Automático de Taxas
+### F6 — Negociador Automático de Taxas → incorporado ao F13
 
-**Objetivo:** Gerar scripts de negociação personalizados com argumentos baseados em dados reais.
-
-**Base existente:**
-- `app/optimizer/ranking.py` — já compara taxas do usuário com mercado
-- `app/architect/connectors/` — acessa taxas reais (BACEN, ANBIMA)
-- `app/peers/peer_comparison.py` — benchmarks de mercado
-
-**O que construir:**
-
-1. **`app/negotiator/script_generator.py`** — gerador de scripts via Claude:
-```python
-class NegotiationScriptGenerator:
-    def generate(self, context: NegotiationContext) -> NegotiationScript:
-        # context contém: taxa atual, taxa de mercado, histórico, score
-        # Chama Claude com prompt especializado
-        # Retorna: script de negociação, argumentos, melhor momento para ligar
-```
-
-2. **`app/negotiator/opportunity_detector.py`** — detecta quando negociar:
-```python
-# Triggers:
-# - Taxa do cartão > média mercado em X%
-# - Anuidade cobrada > media dos últimos 12 meses
-# - Usuário pagou em dia por 6+ meses (maior poder de barganha)
-# - Banco ofereceu produto pior ao usuário
-```
-
-3. **Nova rota:** `POST /api/v1/negotiator/generate-script`
-
-4. **Integração com MX.3 (notificações):** `app/notifications/notifier.py` já tem estrutura para adicionar novo tipo de alerta "OPORTUNIDADE_NEGOCIACAO".
+Ver seção F13 abaixo.
 
 ---
 
-### F7 — Modo Compra Inteligente
+### F7 — Modo Compra Inteligente ✅ IMPLEMENTADO
 
 **Objetivo:** Antes de uma compra, recomendar o melhor método de pagamento.
 
-**Base existente — F3 (Nexa Architect) é o núcleo:**
-- `app/architect/calculators/` — já calcula NPV, custo de financiamento, parcelamento
-- `app/optimizer/` — já ranqueia cartões por categoria de gasto
-- `app/optimizer/multi_card_strategy.py` — já otimiza cartões por tipo de compra
-- `app/cashflow/safe_to_spend.py` — já calcula margem disponível
+**Arquivos criados:**
+- `app/purchase/models.py` — `PaymentMethod` enum, `PurchaseRequest`, `PaymentOption`, `LiquidityImpact`, `PurchaseRecommendation`
+- `app/purchase/purchase_advisor.py` — `PurchaseAdvisor`: orquestra F2 (melhor cartão) + F3/BACEN (financiamento) + F1 (safe-to-spend)
+- `app/api/v1/routes/purchase.py` — `POST /purchase/analyze` com JWT
+- `app/agent/tools/get_purchase_recommendation.py` — 11ª tool do agente
 
-**O que construir:**
+**Opções comparadas:** PIX à vista, cartão à vista, cartão parcelado (sem juros), financiamento (fórmula PRICE via BACEN CDC).
 
-1. **`app/purchase/purchase_advisor.py`** — orquestrador da análise:
-```python
-class PurchaseAdvisor:
-    def analyze(self, amount: float, category: str, user_id: str) -> PurchaseRecommendation:
-        # 1. Chama optimizer para melhor cartão (já existe)
-        # 2. Chama architect para simular parcelamento (já existe)
-        # 3. Compara Pix à vista vs cartão vs empréstimo
-        # 4. Verifica impacto no safe_to_spend (já existe)
-        # 5. Retorna recomendação unificada
-```
-
-2. **Nova rota:** `POST /api/v1/purchase/analyze` (reutiliza F2 + F3 internamente)
-
-3. **Nova tool no agente:** `get_purchase_recommendation` — ferramenta que o usuário pode chamar via chat ("Vou comprar uma TV de R$3.000, qual a melhor forma?")
-
-**Este é o de menor esforço novo** — 80% da lógica já existe em F2 e F3, só falta o orquestrador unificado.
+**Decisões técnicas:**
+- `net_cost: Optional[float]` calculado via `@model_validator(mode="after")` — evita default 0 ambíguo
+- `RiskLevel = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]` reaproveitado de `safe_to_spend.py`
+- `recommended_net_cost: float` no `PurchaseRecommendation` — evita IndexError na tool ao acessar `options[0]`
+- Financiamento só é gerado para valores >= R$1.000 e parcelas > 6
 
 ---
 
@@ -594,7 +550,7 @@ class ProductRadar:
 ### 5.1 Estado Atual
 
 ```
-Usuário → POST /chat → AgentGraph (ReAct, 1 agente, 8 tools) → Resposta
+Usuário → POST /chat → AgentGraph (ReAct, 1 agente, 13 tools) → Resposta
 ```
 
 O agente atual usa `create_react_agent` do LangGraph — funciona bem para MVP.
@@ -650,55 +606,30 @@ async def run_proactive_scan():
 
 ---
 
-### F13 — Negotiator Bot (Scripts de Renegociação)
+### F13 — Negotiator Bot ✅ IMPLEMENTADO
 
-**Objetivo:** Gerar roteiros personalizados (texto para chat ou script para telefone) para o usuário negociar taxas com o gerente do banco, usando os dados reais do Nexa como argumento.
+**Objetivo:** Gerar roteiros personalizados (chat, telefone ou e-mail) para o usuário negociar taxas com o banco, usando dados reais do Nexa como argumento.
 
-**Gatilho:** Nexa detecta que o usuário tem Health Score alto mas paga taxa acima da média BACEN (cheque especial, crédito pessoal, anuidade acima do mercado).
+**Arquivos criados:**
+- `app/negotiator/models.py` — `NegotiationTrigger`, `NegotiationChannel`, `NegotiationOpportunity`, `NegotiationScript`, `NegotiationRequest`, `NegotiationReport`
+- `app/negotiator/opportunity_detector.py` — `NegotiationOpportunityDetector`: cruza FeeDetector (F5) + BACEN + health score
+- `app/negotiator/script_generator.py` — `NegotiationScriptGenerator`: chama Claude Sonnet 4.6 com prompt especializado → JSON parseado em `NegotiationScript`
+- `app/api/v1/routes/negotiator.py` — `POST /negotiator/generate-script` com JWT
+- `app/agent/tools/get_negotiation_script.py` — 13ª tool do agente
 
-**Base existente:**
-- `app/optimizer/ranking.py` — já compara taxas do usuário com mercado
-- `app/architect/connectors/bacen.py` — acessa taxa SELIC e médias de mercado em tempo real
-- `app/peers/peer_comparison.py` — benchmarks de mercado
-- `app/api/v1/routes/health_score.py` — score atual do usuário
+**Triggers detectados:**
+| Trigger | Condição | Janela |
+|---------|----------|--------|
+| `JUROS_ROTATIVO_ALTO` | Juros rotativos >= R$20 pagos em qualquer banco | Últimos 3 meses |
+| `ANUIDADE_ALTA` | Anuidade mensal equivalente > R$30/mês | Últimos 12 meses |
+| `HEALTH_SCORE_ALTO` | Score >= 70 sem outros triggers | Genérico proativo |
 
-**O que construir:**
-
-1. **`app/negotiator/opportunity_detector.py`** — detecta quando negociar:
-```python
-class NegotiationOpportunityDetector:
-    """
-    Triggers de negociação:
-    - Taxa do cartão > média mercado em X%
-    - Anuidade cobrada > media dos últimos 12 meses
-    - Usuário pagou em dia por 6+ meses (maior poder de barganha)
-    - Health Score >= 70 (bom histórico para argumentar)
-    """
-    def detect(self, user_id: str) -> list[NegotiationOpportunity]:
-        ...
-```
-
-2. **`app/negotiator/script_generator.py`** — gerador de scripts via Claude:
-```python
-class NegotiationScriptGenerator:
-    def generate(self, opportunity: NegotiationOpportunity) -> NegotiationScript:
-        """
-        Chama Claude com contexto:
-          - Taxa atual vs. média BACEN
-          - Health Score e histórico de pagamentos
-          - Tempo de relacionamento com o banco
-        Retorna: roteiro em linguagem natural, argumentos-chave,
-                 melhor canal (chat, app, telefone) e horário recomendado.
-        """
-```
-
-3. **Nova rota:** `POST /api/v1/negotiator/generate-script`
-
-4. **Nova tool no agente:** `get_negotiation_script` — usuário pergunta:
-   _"Nexa, me ajuda a pedir redução da minha taxa do cheque especial?"_
-
-**Exemplo de output:**
-> "Seu score Nexa é 85/100. O BACEN indica taxa média de 8,5% a.m. no crédito pessoal, mas você está pagando 12%. Sugestão: ligue para seu gerente e diga: 'Sou cliente há X anos, pago em dia e gostaria de revisar minha taxa de crédito pessoal — o mercado está oferecendo X%.' Melhor momento: terça ou quarta-feira pela manhã."
+**Decisões técnicas:**
+- `_fetch_market_rate_monthly()` resolvida **uma vez** em `detect()` e passada como parâmetro — zero chamadas HTTP duplicadas ao BACEN
+- Iteração de meses via `_month_offset(ref, n)` com aritmética direta de ano/mês — evita bug do `timedelta(days=30*n)` que pode mapear dois offsets no mesmo mês
+- `anthropic.Anthropic()` instanciado uma vez no `__init__` de `NegotiationScriptGenerator` e reutilizado como `self._client`
+- `_fallback_script()` garante output útil mesmo quando Claude está indisponível
+- Canal recomendado normalizado via `try/except ValueError` para aceitar strings fora do enum
 
 ---
 
@@ -942,15 +873,14 @@ Ordem recomendada por custo/benefício:
 
 | Prioridade | Feature | Reutiliza | Status |
 |-----------|---------|-----------|--------|
-| 1 | F7 Modo Compra Inteligente | F2 + F3 (80% pronto) | ⏳ |
-| 2 | F5 Raio-X de Custos Bancários | ETL classifier + knowledge_cards | ⏳ |
-| 3 | **F13 Negotiator Bot** | health_score + BACEN + Claude | ⏳ |
+| 1 | F7 Modo Compra Inteligente | F2 + F3 (80% pronto) | ✅ |
+| 2 | F5 Raio-X de Custos Bancários | ETL classifier + knowledge_cards | ✅ |
+| 3 | F13 Negotiator Bot | health_score + BACEN + Claude | ✅ |
 | 4 | **F14 Stress Test Eventos de Vida** | F1 cashflow engine + MX.2 | ⏳ |
 | 5 | **F15 Cash Sweeping** | safe_to_spend + BACEN CDI + notifier | ⏳ |
 | 6 | F8 Radar de Produtos | knowledge_cards + notifier | ⏳ |
 | 7 | F9 Transparência Radical | F5 + income_profiler | ⏳ |
-| 8 | F6 Negociador de Taxas | F5 + architect connectors + Claude | ⏳ |
-| 9 | F11 Score Nexa | health_score (já existe) | ⏳ |
+| 8 | F11 Score Nexa | health_score (já existe) | ⏳ |
 
 ### Melhorias Técnicas em Paralelo (Fase 2)
 
@@ -1009,5 +939,5 @@ Para o volume atual (MVP, <10K usuários), APScheduler rodando no mesmo processo
 
 ---
 
-*Documento gerado em Março 2026 — última atualização Março 2026.*
-*Fase 1 (Estabilização) concluída. Features F13–F15 e melhorias ST1–ST2 documentadas para Fase 2.*
+*Documento gerado em Março 2026 — última atualização 19/03/2026.*
+*Fase 1 (Estabilização) concluída. F5, F7 e F13 implementados. Próximas: F14, F15, ST1, ST2.*

@@ -169,3 +169,7 @@ router.include_router(purchase.router)
 from app.api.v1.routes import costs
 router.include_router(costs.router)
 
+# 2️⃣0️⃣ Negotiator Bot: POST /negotiator/generate-script (F13 — Roteiro de Negociação)
+from app.api.v1.routes import negotiator
+router.include_router(negotiator.router)
+

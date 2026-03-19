@@ -15,6 +15,7 @@ Ferramentas disponíveis:
  10. get_peer_comparison         → Compara gastos com benchmarks IBGE/POF (MX.4)
  11. get_purchase_recommendation → Melhor forma de pagamento para uma compra (F7)
  12. get_bank_cost_analysis      → Raio-X de custos e tarifas bancárias (F5)
+ 13. get_negotiation_script      → Detecta oportunidades e gera roteiro de negociação bancária (F13)
 """
 import logging
 from langchain_core.messages import BaseMessage
@@ -33,6 +34,7 @@ from app.agent.tools.get_fiscal_report import get_fiscal_report
 from app.agent.tools.get_peer_comparison import get_peer_comparison
 from app.agent.tools.get_purchase_recommendation import get_purchase_recommendation
 from app.agent.tools.get_bank_cost_analysis import get_bank_cost_analysis
+from app.agent.tools.get_negotiation_script import get_negotiation_script
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +154,16 @@ USE QUANDO o usuário perguntar sobre:
 - "Vale a pena migrar para um banco digital?"
 - Qualquer pergunta sobre tarifas, taxas ou custos de conta bancária.
 
+### `get_negotiation_script(user_id, bank_name="")`
+USE QUANDO o usuário perguntar sobre:
+- "Como negocio minha anuidade / taxa de juros com o banco?"
+- "Posso pedir isenção da anuidade do meu cartão?"
+- "Meu banco está me cobrando juros altos, o que faço?"
+- "Me dá um script para falar com o gerente sobre redução de tarifas."
+- "Tenho poder de barganha com meu banco?"
+- Qualquer pedido de ajuda para negociar com banco.
+- bank_name: se o usuário mencionar um banco específico (ex: "Itaú"), passe-o. Senão, omita.
+
 ## REGRAS DE COMPORTAMENTO:
 1. **NUNCA peça informações que já estão na mensagem do usuário** — se o usuário disse "minha renda é R$ 8.500", use esse valor diretamente na tool.
 2. **SEMPRE chame a ferramenta** quando a pergunta se encaixar nos critérios acima — mesmo sem dados explícitos.
@@ -239,6 +251,7 @@ def build_financial_agent():
         get_peer_comparison,
         get_purchase_recommendation,
         get_bank_cost_analysis,
+        get_negotiation_script,
     ]
 
     # 2. LLM — Claude (preferencial) ou OpenAI (fallback)
