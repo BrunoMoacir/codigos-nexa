@@ -10,25 +10,27 @@
 | Camada | Tecnologia Atual | Status |
 |--------|-----------------|--------|
 | Framework API | FastAPI 0.128 + Uvicorn | ✅ Produção |
-| Banco de Dados | DuckDB (embedded) | ⚠️ MVP only |
-| Cache | Redis | ❌ Configurado, não usado |
-| Agent AI | LangGraph + GPT-4o-mini | ⚠️ Sem persistência entre sessões |
-| LLM Target | Claude Sonnet (Anthropic) | ❌ Lib instalada, não integrado |
-| Autenticação | JWT (python-jose + bcrypt) | ⚠️ Só no /chat |
-| ORM / Migrations | SQLAlchemy + Alembic | ❌ Instalado, não migrado |
+| Banco de Dados | PostgreSQL 16 + asyncpg | ✅ Migrado (Alembic) |
+| Cache / Sessões | Redis + RedisSaver (LangGraph) | ✅ Ativo |
+| Agent AI | LangGraph + Claude Sonnet 4.6 | ✅ Claude integrado + fallback OpenAI |
+| LLM Fallback | GPT-4o-mini (OpenAI) | ✅ Fallback automático |
+| Autenticação | JWT (python-jose + bcrypt) | ✅ 100% das rotas protegidas |
+| Rate Limiting | slowapi | ✅ /chat 20/min, /token 10/min |
+| ORM / Migrations | SQLAlchemy async + Alembic | ✅ Engine async + engine síncrono legado |
 | Containerização | Docker + Docker Compose | ✅ Funcional |
-| CI/CD | — | ❌ Inexistente |
+| CI/CD | GitHub Actions | ✅ test + docker-build pipeline |
 | Frontend | Streamlit | ⚠️ Protótipo apenas |
 | Open Finance | Pluggy API | ✅ Cliente real + mock |
 | Testes | pytest (414 passing) | ⚠️ Lacunas nos tools do agente + MX |
+| PII / LGPD | — | ⏳ ST1 PII Sanitizer (Fase 2) |
 
 ### 1.2 Funcionalidades Implementadas
 
 ```
-✅ F1  — Motor Core (ETL, cashflow, safe-to-spend, shadow invoices)
-✅ F2  — Card Optimizer (ranking, multi-card, custo de oportunidade)
-✅ F3  — Nexa Architect (simulador de compra, Monte Carlo, sensibilidade)
-✅ F4  — Nexa Divider (classificador PF/PJ ML, relatório fiscal)
+✅ F1   — Motor Core (ETL, cashflow, safe-to-spend, shadow invoices)
+✅ F2   — Card Optimizer (ranking, multi-card, custo de oportunidade)
+✅ F3   — Nexa Architect (simulador de compra, Monte Carlo, sensibilidade)
+✅ F4   — Nexa Divider (classificador PF/PJ ML, relatório fiscal)
 ✅ MX.1 — Health Score History (série temporal)
 ✅ MX.2 — Metas Financeiras
 ✅ MX.3 — Notificações Proativas
@@ -36,7 +38,13 @@
 ✅ Budget Advisor (50/30/20)
 ✅ Detecção de Assinaturas
 ✅ Detecção de Anomalias de Gasto
-✅ Agente Conversacional (8 tools, LangGraph ReAct)
+✅ Agente Conversacional (10 tools, LangGraph ReAct + Claude Sonnet 4.6)
+
+⏳ F13  — Negotiator Bot (scripts de renegociação com o banco)
+⏳ F14  — Stress Test de Eventos de Vida ("E se eu for demitido?")
+⏳ F15  — Cash Sweeping (arbitragem de liquidez entre contas)
+⏳ ST1  — PII Sanitizer Layer (anonimização antes do LLM — LGPD)
+⏳ ST2  — Ensemble Classifier F4 (ML + Claude Haiku para baixa confiança)
 ```
 
 ### 1.3 Estrutura de Arquivos Relevante
@@ -642,6 +650,210 @@ async def run_proactive_scan():
 
 ---
 
+### F13 — Negotiator Bot (Scripts de Renegociação)
+
+**Objetivo:** Gerar roteiros personalizados (texto para chat ou script para telefone) para o usuário negociar taxas com o gerente do banco, usando os dados reais do Nexa como argumento.
+
+**Gatilho:** Nexa detecta que o usuário tem Health Score alto mas paga taxa acima da média BACEN (cheque especial, crédito pessoal, anuidade acima do mercado).
+
+**Base existente:**
+- `app/optimizer/ranking.py` — já compara taxas do usuário com mercado
+- `app/architect/connectors/bacen.py` — acessa taxa SELIC e médias de mercado em tempo real
+- `app/peers/peer_comparison.py` — benchmarks de mercado
+- `app/api/v1/routes/health_score.py` — score atual do usuário
+
+**O que construir:**
+
+1. **`app/negotiator/opportunity_detector.py`** — detecta quando negociar:
+```python
+class NegotiationOpportunityDetector:
+    """
+    Triggers de negociação:
+    - Taxa do cartão > média mercado em X%
+    - Anuidade cobrada > media dos últimos 12 meses
+    - Usuário pagou em dia por 6+ meses (maior poder de barganha)
+    - Health Score >= 70 (bom histórico para argumentar)
+    """
+    def detect(self, user_id: str) -> list[NegotiationOpportunity]:
+        ...
+```
+
+2. **`app/negotiator/script_generator.py`** — gerador de scripts via Claude:
+```python
+class NegotiationScriptGenerator:
+    def generate(self, opportunity: NegotiationOpportunity) -> NegotiationScript:
+        """
+        Chama Claude com contexto:
+          - Taxa atual vs. média BACEN
+          - Health Score e histórico de pagamentos
+          - Tempo de relacionamento com o banco
+        Retorna: roteiro em linguagem natural, argumentos-chave,
+                 melhor canal (chat, app, telefone) e horário recomendado.
+        """
+```
+
+3. **Nova rota:** `POST /api/v1/negotiator/generate-script`
+
+4. **Nova tool no agente:** `get_negotiation_script` — usuário pergunta:
+   _"Nexa, me ajuda a pedir redução da minha taxa do cheque especial?"_
+
+**Exemplo de output:**
+> "Seu score Nexa é 85/100. O BACEN indica taxa média de 8,5% a.m. no crédito pessoal, mas você está pagando 12%. Sugestão: ligue para seu gerente e diga: 'Sou cliente há X anos, pago em dia e gostaria de revisar minha taxa de crédito pessoal — o mercado está oferecendo X%.' Melhor momento: terça ou quarta-feira pela manhã."
+
+---
+
+### F14 — Simulação de Eventos de Vida (Stress Test)
+
+**Objetivo:** Responder "E se?" para cenários de impacto financeiro: demissão, filho, doença, separação. A IA projeta uma linha do tempo de sobrevivência financeira baseada nos dados reais do usuário.
+
+**Base existente — F1 (Core Engine) é o núcleo:**
+- `app/cashflow/engine.py` — projeta cashflow mensal
+- `app/cashflow/safe_to_spend.py` — calcula margem disponível
+- `app/cashflow/burn_rate.py` — taxa de consumo atual
+- `app/goals/tracker.py` — metas existentes (reserva de emergência MX.2)
+
+**O que construir:**
+
+1. **`app/stress_test/scenarios.py`** — definição dos cenários pré-configurados:
+```python
+LIFE_EVENTS = {
+    "DEMISSAO":    {"income_shock": -1.0,  "expense_shock": +0.10, "description": "Perda total da renda"},
+    "FILHO":       {"income_shock": 0.0,   "expense_shock": +0.30, "description": "Nascimento de filho"},
+    "DOENCA":      {"income_shock": -0.40, "expense_shock": +0.20, "description": "Afastamento médico 3 meses"},
+    "SEPARACAO":   {"income_shock": -0.50, "expense_shock": +0.15, "description": "Separação conjugal"},
+    "RENDA_QUEDA": {"income_shock": -0.50, "expense_shock": 0.0,   "description": "Queda de 50% na renda"},
+}
+```
+
+2. **`app/stress_test/simulator.py`** — motor de simulação:
+```python
+class LifeEventSimulator:
+    def simulate(
+        self,
+        user_id: str,
+        event_type: str,           # "DEMISSAO", "FILHO", etc.
+        income_shock: float,       # -0.50 = renda cai 50%
+        expense_shock: float,      # +0.30 = despesas sobem 30%
+        horizon_months: int = 12,  # quantos meses projetar
+    ) -> StressTestResult:
+        """
+        1. Busca cashflow atual (F1)
+        2. Aplica os shocks de renda e despesa
+        3. Projeta mês a mês com reserva de emergência (MX.2)
+        4. Retorna: meses de sobrevivência, quando vai a zero,
+                    o que cortar primeiro (burn_rate por categoria)
+        """
+```
+
+3. **Nova rota:** `POST /api/v1/stress-test/simulate`
+
+4. **Nova tool no agente:** `get_life_event_stress_test`:
+   _"Nexa, quanto tempo eu sobrevivo se perder meu emprego?"_
+   _"E se minha renda cair 50%?"_
+
+---
+
+### F15 — Arbitragem de Liquidez (Cash Sweeping)
+
+**Objetivo:** Identificar saldo parado em contas de baixo rendimento e calcular o custo de oportunidade diário de não mover o dinheiro para conta/investimento de maior retorno.
+
+**Base existente:**
+- `app/cashflow/safe_to_spend.py` — calcula margem disponível (saldo "ocioso")
+- `app/architect/connectors/bacen.py` — taxa SELIC/CDI em tempo real
+- `app/architect/connectors/anbima.py` — CDI diário
+- `app/notifications/notifier.py` — infraestrutura de alertas
+
+**O que construir:**
+
+1. **`app/liquidity/cash_sweeper.py`** — motor de análise:
+```python
+@dataclass
+class SweepOpportunity:
+    idle_balance: float          # Saldo parado (acima do safe_to_spend)
+    current_yield_annual: float  # Rendimento atual (0% em CC sem rendimento)
+    target_yield_annual: float   # CDI ou Selic disponível
+    daily_cost: float            # Quanto perde por dia (CDI × idle_balance / 365)
+    monthly_cost: float          # Projeção mensal
+    recommendation: str          # Banco/produto recomendado (ex: "Nuconta 100% CDI")
+
+class CashSweeper:
+    def analyze(self, user_id: str) -> SweepOpportunity | None:
+        # 1. Calcula saldo "ocioso" (current_balance - safe_to_spend_total)
+        # 2. Busca CDI/SELIC do dia (BACEN connector)
+        # 3. Calcula custo diário de oportunidade
+        # 4. Retorna recomendação se idle_balance > R$100
+```
+
+2. **Nova rota:** `GET /api/v1/liquidity/sweep-analysis/{user_id}`
+
+3. **Integração com MX.3 (notificações):** `notifier.py` dispara alerta diário
+   _"Você deixou R$2.000 parados ontem. Isso custou R$0,73. Mova para o banco Y (100% CDI)."_
+
+4. **Nova tool no agente:** `get_liquidity_sweep`
+
+---
+
+### ST1 — PII Sanitizer Layer (Privacidade por Design)
+
+**Objetivo:** Garantir que nenhum dado pessoal identificável (nome de estabelecimento específico, ID de transação real, CPF, endereço) chegue ao LLM. Conformidade LGPD + confiança do usuário.
+
+**Princípio:** O agente recebe apenas **contexto semântico** — nunca o log bruto da Pluggy.
+
+**O que construir:**
+
+1. **`app/agent/pii_sanitizer.py`** — pipeline de anonimização:
+```python
+class PIISanitizer:
+    # Regras de sanitização:
+    # "FARMÁCIA DROGASIL #247 SÃO PAULO" → "Farmácia (R$ 50)"
+    # "TRANSF PIX JOÃO SILVA 123.456.789-00" → "Transferência PIX recebida (R$ 1.200)"
+    # "MERCADO PINHEIROS SP LTDA" → "Supermercado (R$ 180)"
+    # IDs de transação reais → hash anônimo
+    # Saldo exato → faixa (ex: "entre R$3k e R$5k")
+
+    def sanitize_transactions(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Retorna df com descrições e IDs anonimizados"""
+
+    def sanitize_context(self, context: dict) -> dict:
+        """Sanitiza o contexto completo antes de enviar ao LLM"""
+```
+
+2. **Integrar no pipeline do agente** (`agent/graph.py`): aplicar sanitizer **antes** de montar o contexto que vai para o LLM.
+
+3. **Adicionar campo `pii_sanitized: bool`** no log de auditoria para rastreabilidade LGPD.
+
+---
+
+### ST2 — Ensemble de Modelos para Classificação F4
+
+**Objetivo:** Usar o modelo de ML (Random Forest já treinado) para casos de alta confiança no classificador PF/PJ, e acionar o LLM (Claude Haiku — barato) somente para os casos com `ml_confidence < 0.70`. Economiza tokens e aumenta precisão.
+
+**Base existente:**
+- `app/etl/classifier.py` — classificador atual com campo `ml_confidence`
+- `backend/models/` — modelos serializados `.pkl`
+
+**O que construir:**
+
+1. **`app/etl/ensemble_classifier.py`** — orquestrador:
+```python
+class EnsembleClassifier:
+    CONFIDENCE_THRESHOLD = 0.70  # Abaixo disso → chamar LLM
+
+    def classify(self, df: pl.DataFrame) -> pl.DataFrame:
+        # 1. Roda ML classifier em todos os registros
+        # 2. Alta confiança (>= 0.70): aceita resultado do ML
+        # 3. Baixa confiança (< 0.70): envia descrição para Claude Haiku
+        #    com prompt: "Esta transação é PF ou PJ? Responda apenas PF ou PJ."
+        # 4. Combina resultados, anota source: "ML" | "LLM"
+        # 5. Retorna df com coluna pf_pj_label e classification_source
+```
+
+2. **Substituir chamada** em `runner.py` de `TransactionClassifier` para `EnsembleClassifier` quando `ANTHROPIC_API_KEY` disponível.
+
+3. **Logging:** Registrar quantos % foram classificados por ML vs. LLM para monitoramento de custo.
+
+---
+
 ## 6. Cobertura de Testes — Lacunas
 
 ### 6.1 Status Atual
@@ -710,34 +922,42 @@ CELERY_BROKER_URL=redis://redis:6379/1 # Para jobs assíncronos
 
 ## 8. Roadmap Técnico por Fase
 
-### Fase 1 — Estabilização (Semanas 1–4)
+### Fase 1 — Estabilização ✅ CONCLUÍDA (Março 2026)
 
-Prioridade: tornar o que existe seguro e escalável.
-
-| # | Tarefa | Arquivo(s) | Esforço |
-|---|--------|-----------|---------|
-| 1 | Adicionar JWT em todas as rotas | `routes/*.py` | 1 dia |
-| 2 | Trocar SECRET_KEY por env var real | `.env`, `security.py` | 2h |
-| 3 | Migrar para PostgreSQL + Alembic | `db/`, `docker-compose.yml` | 3 dias |
-| 4 | Ativar Redis + persistir sessão do agente | `agent/graph.py`, `.env` | 1 dia |
-| 5 | Implementar rate limiting com slowapi | `main.py`, `routes/chat.py` | 4h |
-| 6 | Criar GitHub Actions CI | `.github/workflows/ci.yml` | 4h |
-| 7 | Migrar LLM para Claude Sonnet | `agent/graph.py`, `config.py` | 4h |
-| 8 | Ativar rotas comentadas (analyze, cashflow) | `router.py` | 2h |
-| 9 | Escrever testes para agent tools + MX | `tests/agent/`, `tests/` | 3 dias |
+| # | Tarefa | Status |
+|---|--------|--------|
+| 1 | JWT em todas as rotas (16 arquivos) | ✅ |
+| 2 | SECRET_KEY via pydantic settings | ✅ |
+| 3 | PostgreSQL async (asyncpg) + Alembic | ✅ |
+| 4 | Redis checkpointer no agente (fallback MemorySaver) | ✅ |
+| 5 | Rate limiting: slowapi (`/chat` 20/min, `/token` 10/min) | ✅ |
+| 6 | GitHub Actions CI (test + docker build) | ✅ |
+| 7 | Migração LLM: `_build_llm()` com Claude + fallback OpenAI | ✅ |
+| 8 | Rota `analyze.py` ativada | ✅ |
+| 9 | `ANTHROPIC_API_KEY`, `REDIS_URL`, `LLM_PROVIDER` no config | ✅ |
 
 ### Fase 2 — Novas Features (Meses 2–6)
 
 Ordem recomendada por custo/benefício:
 
-| Prioridade | Feature | Reutiliza |
-|-----------|---------|-----------|
-| 1 | F7 Modo Compra Inteligente | F2 + F3 (80% pronto) |
-| 2 | F5 Raio-X de Custos | ETL classifier + knowledge_cards |
-| 3 | F8 Radar de Produtos | knowledge_cards + notifier |
-| 4 | F9 Transparência Radical | F5 + income_profiler |
-| 5 | F6 Negociador de Taxas | F5 + architect connectors + Claude |
-| 6 | F11 Score Nexa | health_score (já existe) |
+| Prioridade | Feature | Reutiliza | Status |
+|-----------|---------|-----------|--------|
+| 1 | F7 Modo Compra Inteligente | F2 + F3 (80% pronto) | ⏳ |
+| 2 | F5 Raio-X de Custos Bancários | ETL classifier + knowledge_cards | ⏳ |
+| 3 | **F13 Negotiator Bot** | health_score + BACEN + Claude | ⏳ |
+| 4 | **F14 Stress Test Eventos de Vida** | F1 cashflow engine + MX.2 | ⏳ |
+| 5 | **F15 Cash Sweeping** | safe_to_spend + BACEN CDI + notifier | ⏳ |
+| 6 | F8 Radar de Produtos | knowledge_cards + notifier | ⏳ |
+| 7 | F9 Transparência Radical | F5 + income_profiler | ⏳ |
+| 8 | F6 Negociador de Taxas | F5 + architect connectors + Claude | ⏳ |
+| 9 | F11 Score Nexa | health_score (já existe) | ⏳ |
+
+### Melhorias Técnicas em Paralelo (Fase 2)
+
+| Melhoria | Descrição | Status |
+|----------|-----------|--------|
+| **ST1 PII Sanitizer** | Anonimizar dados antes do LLM (LGPD) | ⏳ |
+| **ST2 Ensemble F4** | ML > 70% confiança + Claude Haiku para casos difíceis | ⏳ |
 
 ### Fase 3 — Escala (Meses 7–18)
 
@@ -773,17 +993,21 @@ Para o volume atual (MVP, <10K usuários), APScheduler rodando no mesmo processo
 
 ## 10. Checklist de Segurança para Produção
 
-- [ ] `SECRET_KEY` rotacionado (não usar o valor padrão do código)
+- [x] `SECRET_KEY` via pydantic settings (lê do `.env`, não hardcoded)
+- [ ] `SECRET_KEY` com valor forte (64 chars) em produção — **pendente configuração do .env**
 - [ ] Credenciais do `.env` fora do repositório (usar GitHub Secrets ou vault)
-- [ ] JWT em 100% das rotas com dados de usuário
-- [ ] Rate limiting em `/chat` e `/api/v1/auth/token`
+- [x] JWT em 100% das rotas com dados de usuário (16 rotas protegidas)
+- [x] Rate limiting em `/chat` (20/min) e `/api/v1/auth/token` (10/min)
 - [ ] HTTPS obrigatório (nginx com Let's Encrypt ou CloudFlare)
 - [ ] CORS restrito ao domínio do frontend
-- [ ] Logs sem PII (CPF, saldo, nome do usuário)
+- [ ] Logs sem PII (CPF, saldo, nome do usuário) — **ST1 PII Sanitizer pendente**
 - [ ] Chave Pluggy rotacionada antes de qualquer demo pública
 - [ ] Chave OpenAI com limite de gasto configurado
 - [ ] PostgreSQL com usuário de menor privilégio (só SELECT/INSERT/UPDATE na schema nexa)
 
 ---
 
-*Documento gerado em Março 2026 — manter atualizado conforme implementações avançam.*
+---
+
+*Documento gerado em Março 2026 — última atualização Março 2026.*
+*Fase 1 (Estabilização) concluída. Features F13–F15 e melhorias ST1–ST2 documentadas para Fase 2.*
