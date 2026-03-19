@@ -1,19 +1,11 @@
-#app/db/session
-import duckdb
-import polars as pl
-
-
-def get_duckdb_df(user_id: str) -> pl.DataFrame:
-    con = duckdb.connect("finance.duckdb", read_only=True)
-
-    try:
-        df = con.execute("""
-            SELECT *
-            FROM transactions
-            WHERE user_id = ?
-        """, [user_id]).pl()
-
-        return df
-
-    finally:
-        con.close()
+# app/db/session.py
+# Re-exporta as sessions do database.py como ponto central de acesso
+from app.core.database import (
+    get_db,
+    get_async_db,
+    SessionLocal,
+    AsyncSessionLocal,
+    engine,
+    async_engine,
+    Base,
+)

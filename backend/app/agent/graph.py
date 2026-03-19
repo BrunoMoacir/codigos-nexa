@@ -138,6 +138,65 @@ USE QUANDO o usuário perguntar sobre:
 """
 
 
+def _build_llm():
+    """
+    Constrói o LLM baseado em LLM_PROVIDER:
+      - "anthropic" → Claude Sonnet (preferencial)
+      - "openai"    → GPT-4o-mini (fallback)
+    """
+    if settings.LLM_PROVIDER == "anthropic":
+        if not settings.ANTHROPIC_API_KEY:
+            logger.warning(
+                "[Agent] LLM_PROVIDER=anthropic mas ANTHROPIC_API_KEY não configurada. "
+                "Caindo para OpenAI."
+            )
+        else:
+            from langchain_anthropic import ChatAnthropic
+            model = settings.LLM_MODEL if settings.LLM_MODEL != "gpt-4o-mini" else "claude-sonnet-4-6"
+            logger.info(f"[Agent] Usando Claude: {model}")
+            return ChatAnthropic(
+                model=model,
+                temperature=0.0,
+                api_key=settings.ANTHROPIC_API_KEY,
+                max_tokens=4096,
+            )
+
+    # Fallback: OpenAI
+    from langchain_openai import ChatOpenAI
+    if not settings.OPENAI_API_KEY:
+        logger.warning(
+            "[Agent] OPENAI_API_KEY não configurada! "
+            "O agente falhará ao ser chamado fora de testes mockados."
+        )
+        return ChatOpenAI(api_key="mock", model="gpt-4o-mini")
+
+    logger.info("[Agent] Usando OpenAI: gpt-4o-mini")
+    return ChatOpenAI(
+        api_key=settings.OPENAI_API_KEY,
+        model=settings.LLM_MODEL if settings.LLM_PROVIDER == "openai" else "gpt-4o-mini",
+        temperature=0.0,
+    )
+
+
+def _build_checkpointer():
+    """
+    Tenta usar RedisSaver para persistência entre sessões.
+    Cai para MemorySaver se Redis não estiver disponível.
+    """
+    try:
+        from langgraph.checkpoint.redis import RedisSaver
+        checkpointer = RedisSaver(redis_url=settings.REDIS_URL)
+        logger.info("[Agent] Checkpointer: Redis (%s)", settings.REDIS_URL)
+        return checkpointer
+    except Exception as e:
+        logger.warning(
+            "[Agent] Redis indisponível (%s) — usando MemorySaver (sem persistência entre restarts).",
+            e,
+        )
+        from langgraph.checkpoint.memory import MemorySaver
+        return MemorySaver()
+
+
 def build_financial_agent():
     """
     Constrói o agente LangGraph ReAct com todas as ferramentas financeiras disponíveis.
@@ -156,26 +215,12 @@ def build_financial_agent():
         get_peer_comparison,
     ]
 
-    # 2. LLM
-    from langchain_openai import ChatOpenAI
-
-    if not settings.OPENAI_API_KEY:
-        logger.warning(
-            "[Agent] OPENAI_API_KEY não configurada! "
-            "O agente falhará ao ser chamado fora de testes mockados."
-        )
-        llm = ChatOpenAI(api_key="mock", model="gpt-4o-mini")
-    else:
-        llm = ChatOpenAI(
-            api_key=settings.OPENAI_API_KEY,
-            model="gpt-4o-mini",
-            temperature=0.0,
-        )
+    # 2. LLM — Claude (preferencial) ou OpenAI (fallback)
+    llm = _build_llm()
 
     # 3. Memória (checkpointer) e Agente ReAct
-    from langgraph.checkpoint.memory import MemorySaver
-    memory = MemorySaver()
-    app = create_react_agent(llm, tools=tools, prompt=SYSTEM_PROMPT, checkpointer=memory)
+    checkpointer = _build_checkpointer()
+    app = create_react_agent(llm, tools=tools, prompt=SYSTEM_PROMPT, checkpointer=checkpointer)
 
     logger.info(
         f"[Agent] Agente Nexa construído com {len(tools)} ferramentas: "
