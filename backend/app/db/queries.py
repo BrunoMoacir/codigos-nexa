@@ -22,13 +22,29 @@ def get_connection():
     from pathlib import Path
 
     env_path = os.getenv("DUCKDB_PATH")
-    if env_path:
+    if env_path and Path(env_path).exists():
         return duckdb.connect(env_path)
 
-    # Caminho absoluto: <repo>/backend/finance.duckdb
-    repo_root = Path(__file__).resolve().parents[4]
-    default_path = repo_root / "backend" / "finance.duckdb"
-    return duckdb.connect(str(default_path))
+    # Tenta múltiplos caminhos (relativo ao CWD ou absoluto)
+    candidates = [
+        Path("backend/finance.duckdb"),  # relativo
+        Path("finance.duckdb"),  # raiz
+        Path("backend/data/finance.duckdb"),  # alternativo
+    ]
+
+    for cand in candidates:
+        if cand.exists():
+            return duckdb.connect(str(cand.absolute()))
+
+    # Fallback: tenta a partir do arquivo deste módulo
+    module_dir = Path(__file__).resolve().parent
+    repo_root = module_dir.parents[3]
+    for subpath in ["backend/finance.duckdb", "finance.duckdb", "backend/data/finance.duckdb"]:
+        full_path = repo_root / subpath
+        if full_path.exists():
+            return duckdb.connect(str(full_path))
+
+    raise FileNotFoundError("finance.duckdb not found in expected locations")
 
 
 def _get_transactions_for_user_duckdb(user_id: str):
