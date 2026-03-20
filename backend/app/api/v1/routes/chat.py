@@ -29,8 +29,8 @@ class ChatResponse(BaseModel):
 @router.post("/", response_model=ChatResponse)
 @limiter.limit("20/minute")
 async def chat_with_agent(
-    http_request: Request,
-    request: ChatRequest,
+    request: Request,
+    chat_request: ChatRequest,
     current_user: str = Depends(get_current_user),
 ):
     """
@@ -38,22 +38,22 @@ async def chat_with_agent(
     O LLM vai interpretar a mensagem, decidir se precisa chamar alguma Ferramenta
     e retornar a resposta em linguagem natural.
     """
-    if request.user_id != current_user:
+    if chat_request.user_id != current_user:
         raise HTTPException(status_code=403, detail="Não autorizado (token não pertence a este user_id)")
 
-    logger.info(f"Recebida mensagem do usuário {request.user_id}: {request.message[:50]}...")
+    logger.info(f"Recebida mensagem do usuário {chat_request.user_id}: {chat_request.message[:50]}...")
 
     try:
         # Injetamos um SystemMessage com o ID do usuário para o LLM não precisar perguntar.
         inputs = {
             "messages": [
-                SystemMessage(content=f"[SYSTEM HIDDEN CONTEXT] O ID interno deste usuário é '{request.user_id}'. ASSUMA este user_id ao chamar QUALQUER ferramenta de dados."),
-                HumanMessage(content=request.message)
+                SystemMessage(content=f"[SYSTEM HIDDEN CONTEXT] O ID interno deste usuário é '{chat_request.user_id}'. ASSUMA este user_id ao chamar QUALQUER ferramenta de dados."),
+                HumanMessage(content=chat_request.message)
             ]
         }
 
         # O thread_id agrupa o histórico na memória do agente
-        config = {"configurable": {"thread_id": request.user_id}}
+        config = {"configurable": {"thread_id": chat_request.user_id}}
 
         result = agent_app.invoke(inputs, config=config)
 
@@ -63,6 +63,7 @@ async def chat_with_agent(
         return ChatResponse(response=target_message)
 
     except Exception as e:
-        logger.error(f"Erro no Agent Chat: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Ocorreu um erro ao processar sua mensagem via IA.")
-
+        import traceback
+        tb = traceback.format_exc()
+        logger.error(f"Erro no Agent Chat: {e}\n{tb}")
+        raise HTTPException(status_code=500, detail=f"Erro IA: {str(e)}")

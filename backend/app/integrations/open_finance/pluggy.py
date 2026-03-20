@@ -83,10 +83,10 @@ class PluggyClient:
         url = f"{self.BASE_URL}/items"
 
         payload = {
-            "connectorId": "pluggy_sandbox",
+            "connectorId": 0,
             "parameters": {
-                "username": "user_ok",
-                "password": "password_ok",
+                "user": "user-ok",
+                "password": "password-ok",
             },
         }
 
@@ -94,7 +94,7 @@ class PluggyClient:
             url,
             json=payload,
             headers=self._headers(),
-            timeout=10,
+            timeout=30,
         )
 
         response.raise_for_status()
