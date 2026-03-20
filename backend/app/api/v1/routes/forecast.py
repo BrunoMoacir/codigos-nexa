@@ -93,23 +93,29 @@ async def fetch_user_transactions(user_id: str, horizon_days: int = 30):
             logger.info("✅ Pipeline executado com dados REAIS do DuckDB para user=%s", user_id)
             return result
 
-        # ── 2. Fallback: mock APENAS em dev ──────────────────────
+        # ── 2. Fallback: mock APENAS fora de produção ─────────────
+        # Observação: alguns testes/setups podem setar APP_MODE=prod, mas ainda assim
+        # queremos permitir mock em ambientes não-prod (APP_ENV=development).
+        from app.core.config import settings
+
         app_mode = os.getenv("APP_MODE", "dev")
-        if app_mode == "dev":
+        if app_mode == "dev" or settings.APP_ENV != "production":
             logger.warning(
-                "⚠️ Sem dados reais para user=%s — usando Pluggy mock (APP_MODE=dev)",
+                "⚠️ Sem dados reais para user=%s — usando Pluggy mock (APP_MODE=%s, APP_ENV=%s)",
                 user_id,
+                app_mode,
+                settings.APP_ENV,
             )
             runner_dev = NexaRunner(mode="dev")
             result = runner_dev.run(horizon_days=horizon_days)
             return result
-        else:
-            logger.error("❌ Sem dados reais para user=%s em modo PRODUÇÃO", user_id)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Nenhum dado financeiro encontrado para o usuário {user_id}. "
-                       "Conecte suas contas via Open Finance.",
-            )
+
+        logger.error("❌ Sem dados reais para user=%s em modo PRODUÇÃO", user_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Nenhum dado financeiro encontrado para o usuário {user_id}. "
+                   "Conecte suas contas via Open Finance.",
+        )
 
     except HTTPException:
         raise
@@ -298,8 +304,9 @@ async def get_forecast(
                         .head(5)
                     )
                     top_categories_list = [
-                        row["category"]
+                        str(cat)
                         for row in cat_df.to_dicts()
+                        if (cat := row.get("category"))
                     ]
 
         if income_profile_obj is not None and hasattr(income_profile_obj, "to_dict"):
@@ -379,6 +386,15 @@ async def get_forecast(
         if profile_type not in ["CONSERVADOR", "EQUILIBRADO", "GASTADOR", "POUPADOR"]:
             profile_type = "EQUILIBRADO"
 
+        raw_top_categories = profile_data.get("top_categories", [])
+        if not isinstance(raw_top_categories, list):
+            raw_top_categories = []
+        safe_top_categories = [
+            (c if isinstance(c, str) else str(c))
+            for c in raw_top_categories
+            if c is not None and str(c).strip() != ""
+        ]
+
         forecast_response = ForecastResponse(
             user_id=user_id,
             generated_at=datetime.now(timezone.utc),
@@ -390,12 +406,13 @@ async def get_forecast(
                 "total_income":        profile_data.get("total_income", 0.0),
                 "total_expenses":      profile_data.get("total_expenses", 0.0),
                 "monthly_avg_expenses": profile_data.get("monthly_avg_expenses", 0.0),
-                "top_categories":      profile_data.get("top_categories", []),
+                "top_categories":      safe_top_categories,
                 "trend":               profile_data.get("trend", "ESTÁVEL"),
                 "income_profile":      income_profile_dict,
                 "burn_rate_alert":     profile_data.get("burn_rate_alert", "NORMAL"),
                 "burn_rate_ratio":     profile_data.get("burn_rate_ratio", 0.0),
             },
+
             cashflow={
                 "horizon_days":        horizon_days,
                 "starting_balance":    cashflow_data.get("starting_balance", 0),

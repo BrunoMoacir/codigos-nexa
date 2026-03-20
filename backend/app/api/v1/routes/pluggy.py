@@ -19,6 +19,12 @@ class ConnectTokenResponse(BaseModel):
 @router.post("/connect-token", response_model=ConnectTokenResponse, summary="Gera um Connect Token para o Widget")
 def create_connect_token(current_user_str: str = Depends(get_current_user)):
     """Gera um connect_token obrigatório para inicializar o Widget Pluggy no Frontend."""
+    if not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
+        )
+
     try:
         user_identifier = str(current_user_str)
         logger.info(f"Gerando connect-token para banco do usuário {user_identifier}")
@@ -49,9 +55,13 @@ def create_connect_token(current_user_str: str = Depends(get_current_user)):
 
 @router.get("/items", summary="Lista os Items (contas bancárias) conectados do usuário")
 def list_user_items(current_user_str: str = Depends(get_current_user)):
-    """
-    Retorna os items (conexões bancárias) do usuário logado via clientUserId.
-    """
+    """Retorna os items (conexões bancárias) do usuário logado via clientUserId."""
+    if not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
+        )
+
     try:
         pluggy = PluggyClient()
         pluggy.authenticate()
@@ -81,6 +91,12 @@ def list_user_items(current_user_str: str = Depends(get_current_user)):
 @router.post("/sandbox", summary="Cria um Item de Sandbox para testes")
 def create_sandbox_item(current_user_str: str = Depends(get_current_user)):
     """Cria uma conexão fake (Sandbox) com a Pluggy Bank para testes de desenvolvimento."""
+    if not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
+        )
+
     try:
         pluggy = PluggyClient()
         result = pluggy.create_sandbox_item()

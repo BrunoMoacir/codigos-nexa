@@ -15,7 +15,7 @@ import polars as pl
 from fastapi import APIRouter, HTTPException, Query, status, Depends
 from app.core.security import get_current_user
 
-from app.cashflow.budget_advisor import BudgetAdvisor, BudgetSuggestion
+from app.cashflow.budget_advisor import BudgetAdvisor, BudgetSuggestion, GroupSummary
 from app.db.queries import get_transactions_for_user
 
 logger = logging.getLogger(__name__)
@@ -87,10 +87,54 @@ async def get_budget_advice(
         )
 
     if transactions_df.is_empty():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Nenhuma transação encontrada para user_id='{user_id}'.",
+        # Em dev (ou usuário novo), não retornar 404 — devolve sugestão padrão 50/30/20
+        # com baixa confiança e sem cortes.
+        group_summary = [
+            GroupSummary(
+                group="essenciais",
+                current_amount=0.0,
+                current_pct=0.0,
+                target_pct=0.50,
+                suggested_amount=monthly_income * 0.50,
+                status="WITHIN",
+                delta_pct=-0.50,
+            ),
+            GroupSummary(
+                group="desejos",
+                current_amount=0.0,
+                current_pct=0.0,
+                target_pct=0.30,
+                suggested_amount=monthly_income * 0.30,
+                status="WITHIN",
+                delta_pct=-0.30,
+            ),
+            GroupSummary(
+                group="poupanca",
+                current_amount=0.0,
+                current_pct=0.0,
+                target_pct=0.20,
+                suggested_amount=monthly_income * 0.20,
+                status="WITHIN",
+                delta_pct=-0.20,
+            ),
+        ]
+
+        suggestion = BudgetSuggestion(
+            income=monthly_income,
+            history_months=0,
+            total_expenses_avg=0.0,
+            expenses_pct_income=0.0,
+            savings_gap=0.0,
+            group_summary=group_summary,
+            allocations=[],
+            actionable_cuts=[],
+            summary_text=(
+                "Sem transações para este usuário ainda. Mostrando a regra padrão 50/30/20 "
+                "(Essenciais 50%, Desejos 30%, Poupança 20%)."
+            ),
+            confidence=0.0,
         )
+        return suggestion.to_dict()
 
     # ── 2. Montar DataFrame para o formato exigido ──────────────────
     if "date" in transactions_df.columns:
