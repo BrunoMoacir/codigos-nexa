@@ -103,32 +103,39 @@ def _get_change(history: list[dict], months_back: int) -> Optional[int]:
 def _fetch_transactions_sync(db: Session, user_id: str) -> pl.DataFrame:
     from app.models.transaction import Transaction
     import polars as pl
+
     try:
         transactions = db.query(Transaction).filter(Transaction.user_id == user_id).all()
         if not transactions:
-            return pl.DataFrame()
-            
-        return pl.DataFrame([
-            {
-                "transaction_id": tx.transaction_id,
-                "user_id": tx.user_id,
-                "account_id": tx.account_id,
-                "description": tx.description,
-                "amount": tx.amount,
-                "date": tx.date,
-                "transaction_type": tx.transaction_type,
-                "category": tx.category,
-                "is_recurring": tx.is_recurring,
-                "is_installment": tx.is_installment,
-                "context_type": tx.context_type,
-                "context_confidence": tx.context_confidence,
-                "context_override_by_user": tx.context_override_by_user,
-                "pj_subcategory": tx.pj_subcategory
-            } for tx in transactions
-        ])
+            from app.db.queries import get_transactions_for_user
+            return get_transactions_for_user(user_id)
+
+        return pl.DataFrame(
+            [
+                {
+                    "transaction_id": tx.transaction_id,
+                    "user_id": tx.user_id,
+                    "account_id": tx.account_id,
+                    "description": tx.description,
+                    "amount": tx.amount,
+                    "date": tx.date,
+                    "transaction_type": tx.transaction_type,
+                    "category": tx.category,
+                    "is_recurring": tx.is_recurring,
+                    "is_installment": tx.is_installment,
+                    "context_type": tx.context_type,
+                    "context_confidence": tx.context_confidence,
+                    "context_override_by_user": tx.context_override_by_user,
+                    "pj_subcategory": tx.pj_subcategory,
+                }
+                for tx in transactions
+            ]
+        )
     except Exception as e:
-        logger.error(f"[health-score] Erro ao buscar transações: {e}")
-        return pl.DataFrame()
+        logger.error(f"[health-score] Postgres indisponível, caindo para fallback: {e}")
+        from app.db.queries import get_transactions_for_user
+
+        return get_transactions_for_user(user_id)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -49,7 +49,7 @@ def login_screen():
 
     with tab_login:
         with st.form("login_form", clear_on_submit=False):
-            username = st.text_input("Usuário", placeholder="🪪  ex: golden_user_777", label_visibility="collapsed")
+            username = st.text_input("Email/Usuário", placeholder="🪪  ex: golden_user_777 ou golden@nexa.com", label_visibility="collapsed")
             password = st.text_input("Senha", placeholder="🔑  Senha", type="password", label_visibility="collapsed")
 
             col_btn, _ = st.columns([3, 1])
@@ -75,8 +75,7 @@ def login_screen():
     with tab_register:
         with st.form("register_form", clear_on_submit=True):
             reg_name = st.text_input("Nome Completo", placeholder="👤 Seu nome completo", label_visibility="collapsed")
-            reg_user = st.text_input("Usuário", placeholder="🪪  Escolha um nome de usuário (ex: joao123)", label_visibility="collapsed")
-            reg_email = st.text_input("E-mail", placeholder="📧 Seu e-mail", label_visibility="collapsed")
+            reg_email = st.text_input("E-mail", placeholder="📧 Seu e-mail (obrigatório)", label_visibility="collapsed")
             reg_pass = st.text_input("Senha", placeholder="🔑  Crie uma senha (mín. 6 chars)", type="password", label_visibility="collapsed")
 
             col_btn2, _ = st.columns([3, 1])

@@ -213,11 +213,73 @@ async def get_user_transactions(
     """
     Retorna transações processadas de um usuário com filtros opcionais via SQLAlchemy.
     """
-    from app.models.transaction import Transaction
     import polars as pl
-    
+    from app.db.queries import get_transactions_for_user
+
     try:
-        query = db.query(Transaction).filter(Transaction.user_id == user_id)
+        txns = get_transactions_for_user(user_id)
+        if txns.is_empty():
+            serialized = []
+        else:
+            # Normalizações esperadas pela API
+            rename = {
+                "predicted_category": "category",
+                "pf_pj_label": "context_type",
+                "transaction_date": "date",
+            }
+            for old, new in rename.items():
+                if old in txns.columns and new not in txns.columns:
+                    txns = txns.rename({old: new})
+
+            if "date" in txns.columns:
+                txns = txns.with_columns(pl.col("date").cast(pl.Date))
+                if start_date:
+                    from datetime import date as dt_date
+                    txns = txns.filter(pl.col("date") >= dt_date.fromisoformat(start_date))
+                if end_date:
+                    from datetime import date as dt_date
+                    txns = txns.filter(pl.col("date") <= dt_date.fromisoformat(end_date))
+
+            if category and "category" in txns.columns:
+                txns = txns.filter(pl.col("category").str.to_lowercase() == category.lower())
+
+            if transaction_type and "amount" in txns.columns:
+                if transaction_type.lower() == "debit":
+                    txns = txns.filter(pl.col("amount") < 0)
+                else:
+                    txns = txns.filter(pl.col("amount") >= 0)
+
+            # Ordena desc e limita
+            if "date" in txns.columns:
+                txns = txns.sort("date", descending=True)
+            result_df = txns.head(limit)
+
+            output_cols = [
+                c
+                for c in (
+                    "transaction_id",
+                    "description",
+                    "amount",
+                    "date",
+                    "category",
+                    "transaction_type",
+                    "is_recurring",
+                    "is_installment",
+                    "context_type",
+                )
+                if c in result_df.columns
+            ]
+            serialized = result_df.select(output_cols).to_dicts()
+
+            for row in serialized:
+                if "date" in row and hasattr(row["date"], "isoformat"):
+                    row["date"] = row["date"].isoformat()
+
+        debit_count = 0
+        credit_count = 0
+        if serialized and "amount" in txns.columns:
+            debit_count = txns.filter(pl.col("amount") < 0).height
+            credit_count = txns.filter(pl.col("amount") >= 0).height
         
         if start_date:
             from datetime import date as dt_date

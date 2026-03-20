@@ -35,20 +35,20 @@ class NexaAPIClient:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def register(self, username: str, password: str, full_name: str, email: str = "") -> dict:
-        """Registra um novo usuário na API."""
+    def register(self, email: str, password: str, full_name: str | None = None) -> dict:
+        """Registra um novo usuário na API (POST /auth/register)."""
         try:
-            payload = {
-                "username": username,
-                "password": password,
-                "full_name": full_name,
-                "email": email
-            }
+            payload = {"email": email, "password": password, "full_name": full_name}
             resp = requests.post(f"{self.base_url}/auth/register", json=payload, timeout=10)
-            if resp.status_code == 200:
+            if resp.status_code in (200, 201):
                 data = resp.json()
-                return {"success": True, "token": data.get("access_token"), "user_id": data.get("user_id")}
-            return {"success": False, "error": f"Erro {resp.status_code}: {resp.json().get('detail', resp.text)}"}
+                return {"success": True, "user_id": data.get("user_id")}
+
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            return {"success": False, "error": f"Erro {resp.status_code}: {detail}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

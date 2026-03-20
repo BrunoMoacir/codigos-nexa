@@ -13,16 +13,73 @@ from app.models.health_score import HealthScoreHistory
 logger = logging.getLogger(__name__)
 
 def get_connection():
-    """Conexão fallback para módulos legados do DuckDB."""
+    """Conexão DuckDB (fallback para dev).
+
+    Prioriza DUCKDB_PATH; caso não exista, usa backend/finance.duckdb.
+    """
     import duckdb
     import os
-    db_path = os.getenv("DUCKDB_PATH", "finance.duckdb")
-    return duckdb.connect(db_path)
+    from pathlib import Path
+
+    env_path = os.getenv("DUCKDB_PATH")
+    if env_path:
+        return duckdb.connect(env_path)
+
+    # Caminho absoluto: <repo>/backend/finance.duckdb
+    repo_root = Path(__file__).resolve().parents[4]
+    default_path = repo_root / "backend" / "finance.duckdb"
+    return duckdb.connect(str(default_path))
+
+
+def _get_transactions_for_user_duckdb(user_id: str):
+    import polars as pl
+
+    try:
+        con = get_connection()
+        try:
+            pdf = con.execute(
+                """
+                SELECT
+                  transaction_id,
+                  date,
+                  amount,
+                  description,
+                  category,
+                  is_recurring,
+                  is_installment,
+                  context_type,
+                  context_confidence,
+                  context_override_by_user,
+                  pj_subcategory,
+                  transaction_type
+                FROM transactions_clean
+                WHERE user_id = ?
+                ORDER BY date
+                """,
+                [user_id],
+            ).fetchdf()
+        finally:
+            con.close()
+
+        if pdf is None or pdf.empty:
+            return pl.DataFrame()
+
+        df = pl.from_pandas(pdf)
+        if "date" in df.columns:
+            df = df.with_columns(pl.col("date").cast(pl.Date))
+        return df
+    except Exception as exc:
+        logger.info("DuckDB fallback sem dados/erro user=%s: %s", user_id, exc)
+        return pl.DataFrame()
 
 
 def get_transactions_for_user(user_id: str):
-    """
-    Busca transações limpas via SQLAlchemy do PostgreSQL.
+    """Busca transações do usuário.
+
+    Ordem:
+      1) Postgres (SQLAlchemy)
+      2) DuckDB (backend/finance.duckdb)
+
     Retorna polars.DataFrame.
     """
     import polars as pl
@@ -31,10 +88,15 @@ def get_transactions_for_user(user_id: str):
 
     db = SessionLocal()
     try:
-        transactions = db.query(Transaction).filter(Transaction.user_id == user_id).order_by(Transaction.date).all()
+        transactions = (
+            db.query(Transaction)
+            .filter(Transaction.user_id == user_id)
+            .order_by(Transaction.date)
+            .all()
+        )
         if not transactions:
-            return pl.DataFrame()
-            
+            return _get_transactions_for_user_duckdb(user_id)
+
         data = [
             {
                 "transaction_id": t.transaction_id,
@@ -42,18 +104,20 @@ def get_transactions_for_user(user_id: str):
                 "amount": float(t.amount) if t.amount else 0.0,
                 "description": t.description if t.description else "Sem descrição",
                 "category": t.category if t.category else "outros",
+                "transaction_type": getattr(t, "transaction_type", None),
                 "is_recurring": t.is_recurring,
                 "is_installment": t.is_installment,
                 "context_type": t.context_type,
                 "context_confidence": t.context_confidence,
                 "context_override_by_user": t.context_override_by_user,
-                "pj_subcategory": t.pj_subcategory
-            } for t in transactions
+                "pj_subcategory": t.pj_subcategory,
+            }
+            for t in transactions
         ]
         return pl.DataFrame(data)
     except Exception as exc:
-        logger.warning("get_transactions_for_user | user=%s erro: %s", user_id, exc)
-        return pl.DataFrame()
+        logger.warning("Postgres indisponível, caindo para DuckDB | user=%s erro=%s", user_id, exc)
+        return _get_transactions_for_user_duckdb(user_id)
     finally:
         db.close()
 
