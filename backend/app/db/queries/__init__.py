@@ -30,6 +30,7 @@ get_override_stats          = _mod.get_override_stats
 save_transactions_clean     = _mod.save_transactions_clean
 save_health_score_snapshot  = _mod.save_health_score_snapshot
 get_health_score_history    = _mod.get_health_score_history
+get_transactions_for_user   = _mod.get_transactions_for_user
 
 __all__ = [
     "get_connection",
@@ -39,4 +40,5 @@ __all__ = [
     "save_transactions_clean",
     "save_health_score_snapshot",
     "get_health_score_history",
+    "get_transactions_for_user",
 ]

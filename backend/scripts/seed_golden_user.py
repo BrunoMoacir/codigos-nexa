@@ -6,9 +6,33 @@ import random
 
 sys.path.append('.')
 from app.db.queries import save_transactions_clean
+from app.core.database import SessionLocal
+from app.models.user import User
+from app.core.security import get_password_hash
 
 def generate_mock_data(user_id="golden_user_777", num_months=12):
     print(f"Gerando dados sintéticos para {user_id} nos últimos {num_months} meses...")
+    
+    db = SessionLocal()
+    
+    # Ensure Golden User exists in PostgreSQL
+    user = db.query(User).filter(User.email == "demo@nexa.com").first()
+    if not user:
+        user = User(
+            user_id=user_id,
+            email="demo@nexa.com",
+            hashed_password=get_password_hash("demo123"),
+            full_name="Usuario Master Demo"
+        )
+        db.add(user)
+        try:
+            db.commit()
+            print("Usuário demo@nexa.com (senha: demo123) criado com sucesso.")
+        except Exception as e:
+            db.rollback()
+            print(f"Erro ao criar user: {e}")
+    else:
+        user_id = user.user_id # reuse existing user details
     
     end_date = datetime.today()
     start_date = end_date - relativedelta(months=num_months)
@@ -116,11 +140,13 @@ def generate_mock_data(user_id="golden_user_777", num_months=12):
     print(f"Registros gerados: {len(df)}")
     
     rows = save_transactions_clean(
+        db=db,
         df=df,
         user_id=user_id,
         account_id="acc_seed_999"
     )
     print(f"Sucesso! {rows} linhas inseridas em transactions_clean para o {user_id}.")
+    db.close()
 
 if __name__ == "__main__":
     generate_mock_data("golden_user_777", num_months=12)
