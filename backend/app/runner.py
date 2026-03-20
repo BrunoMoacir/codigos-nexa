@@ -355,19 +355,12 @@ class NexaRunner:
         Returns:
             dict com mesma estrutura de `run()`, ou None se não houver dados.
         """
-        from app.db.queries import get_connection
+        from app.db.queries import get_transactions_for_user
 
         logger.info("📡 [run_from_db] Buscando transações reais para user=%s", user_id)
 
         try:
-            con = get_connection()
-            try:
-                df = con.execute(
-                    "SELECT * FROM transactions_clean WHERE user_id = ? ORDER BY date",
-                    [user_id],
-                ).pl()
-            finally:
-                con.close()
+            df = get_transactions_for_user(user_id)
 
             if df.is_empty():
                 logger.warning("⚠️ Nenhum dado no DuckDB para user=%s", user_id)

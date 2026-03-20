@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException, Query, status, Depends
 from app.core.security import get_current_user
 
 from app.cashflow.budget_advisor import BudgetAdvisor, BudgetSuggestion
-from app.db.queries import get_connection
+from app.db.queries import get_transactions_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -76,20 +76,9 @@ async def get_budget_advice(
     """
     logger.info("GET /budget/%s | income=R$%.0f | history=%dm", user_id, monthly_income, history_months)
 
-    # ── 1. Buscar transações do DuckDB ────────────────────────────────
+    # ── 1. Buscar transações do Postgres ────────────────────────────────
     try:
-        con = get_connection()
-        rows = con.execute(
-            """
-            SELECT date as transaction_date, amount, category
-            FROM transactions_clean
-            WHERE user_id = ?
-            ORDER BY date DESC
-            """,
-            [user_id],
-        ).fetchall()
-        cols = ["transaction_date", "amount", "category"]
-        con.close()
+        transactions_df = get_transactions_for_user(user_id)
     except Exception as exc:
         logger.error("Erro ao buscar transações para budget/%s: %s", user_id, exc)
         raise HTTPException(
@@ -97,23 +86,15 @@ async def get_budget_advice(
             detail="Erro ao acessar dados de transações.",
         )
 
-    if not rows:
+    if transactions_df.is_empty():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Nenhuma transação encontrada para user_id='{user_id}'.",
         )
 
-    # ── 2. Montar DataFrame ─────────────────────────────────────────
-    try:
-        transactions_df = pl.DataFrame(
-            {col: [r[i] for r in rows] for i, col in enumerate(cols)}
-        )
-    except Exception as exc:
-        logger.error("Erro ao construir DataFrame: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Erro ao processar dados de transações.",
-        )
+    # ── 2. Montar DataFrame para o formato exigido ──────────────────
+    if "date" in transactions_df.columns:
+        transactions_df = transactions_df.rename({"date": "transaction_date"})
 
     # ── 3. Gerar sugestão ──────────────────────────────────────────
     advisor = BudgetAdvisor(history_months=history_months)

@@ -16,38 +16,46 @@ def get_connection():
     """Conexão fallback para módulos legados do DuckDB."""
     import duckdb
     import os
-    db_path = os.getenv("DUCKDB_PATH", "nexa.duckdb")
+    db_path = os.getenv("DUCKDB_PATH", "finance.duckdb")
     return duckdb.connect(db_path)
 
 
 def get_transactions_for_user(user_id: str):
     """
-    Busca transações limpas de um usuário no DuckDB.
-
-    Ponto único de acesso à tabela transactions_clean — evita duplicação
-    do bloco try/CatalogException/finally em rotas e tools.
-
-    Returns:
-        pl.DataFrame com todas as colunas de transactions_clean,
-        ou DataFrame vazio se o usuário não tiver dados ou a tabela não existir.
+    Busca transações limpas via SQLAlchemy do PostgreSQL.
+    Retorna polars.DataFrame.
     """
-    import duckdb
     import polars as pl
+    from app.core.database import SessionLocal
+    from app.models.transaction import Transaction
 
+    db = SessionLocal()
     try:
-        con = get_connection()
-        try:
-            return con.execute(
-                "SELECT * FROM transactions_clean WHERE user_id = ?", [user_id]
-            ).pl()
-        except duckdb.CatalogException:
+        transactions = db.query(Transaction).filter(Transaction.user_id == user_id).order_by(Transaction.date).all()
+        if not transactions:
             return pl.DataFrame()
-        finally:
-            con.close()
+            
+        data = [
+            {
+                "transaction_id": t.transaction_id,
+                "date": t.date,
+                "amount": float(t.amount) if t.amount else 0.0,
+                "description": t.description if t.description else "Sem descrição",
+                "category": t.category if t.category else "outros",
+                "is_recurring": t.is_recurring,
+                "is_installment": t.is_installment,
+                "context_type": t.context_type,
+                "context_confidence": t.context_confidence,
+                "context_override_by_user": t.context_override_by_user,
+                "pj_subcategory": t.pj_subcategory
+            } for t in transactions
+        ]
+        return pl.DataFrame(data)
     except Exception as exc:
         logger.warning("get_transactions_for_user | user=%s erro: %s", user_id, exc)
-        import polars as pl
         return pl.DataFrame()
+    finally:
+        db.close()
 
 def get_context_overrides(db: Session, user_id: str) -> List[Dict[str, Any]]:
     try:

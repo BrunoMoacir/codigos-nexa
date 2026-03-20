@@ -64,15 +64,51 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if not st.session_state.pluggy_token:
-    st.info("💡 A conexão é segura, em formato de leitura e gerida pelas regras do Open Finance Brasil.")
-    if st.button("🔌 Conectar Instituição (Gerar Token)", use_container_width=True, type="primary"):
-        with st.spinner("Solicitando token seguro..."):
-            resp = api.create_pluggy_token()
-            if resp.get("success"):
-                st.session_state.pluggy_token = resp.get("token")
-                st.rerun()
-            else:
-                st.error(f"Erro ao gerar token: {resp.get('error')}")
+    # ── Contas já conectadas ──────────────────────────────────────────
+    with st.spinner("Verificando contas conectadas..."):
+        items_resp = api.get_pluggy_items()
+    
+    if items_resp.get("success"):
+        items_data = items_resp.get("data", {})
+        items = items_data.get("results", [])
+        
+        if items:
+            st.markdown("### 🏦 Contas Conectadas")
+            for item in items:
+                connector = item.get("connector", {})
+                status_icon = "✅" if item.get("status") == "UPDATED" else "⚠️"
+                st.markdown(f"""
+                <div style="background: rgba(99,102,241,0.08); border-radius: 8px; padding: 12px 16px; margin: 6px 0; border-left: 3px solid #6366f1;">
+                    <strong>{status_icon} {connector.get('name', 'Banco')}</strong> &nbsp;
+                    <span style="color:#94a3b8; font-size:0.85rem;">Última atualização: {item.get('lastUpdatedAt', '—')[:10] if item.get('lastUpdatedAt') else '—'}</span>
+                </div>
+                """, unsafe_allow_html=True)
+            st.divider()
+        else:
+            st.info("💡 Nenhuma conta bancária conectada ainda.")
+    
+    # ── Botão de Sandbox para testes ─────────────────────────────────
+    st.markdown("#### 🧪 Testes com dados simulados")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔌 Conectar Banco Real (Widget)", use_container_width=True, type="primary"):
+            with st.spinner("Solicitando token seguro..."):
+                resp = api.create_pluggy_token()
+                if resp.get("success"):
+                    st.session_state.pluggy_token = resp.get("token")
+                    st.rerun()
+                else:
+                    st.error(f"Erro ao gerar token: {resp.get('error')}")
+    with col2:
+        if st.button("🏦 Criar Conta Sandbox (Pluggy Bank)", use_container_width=True):
+            with st.spinner("Criando conta de teste..."):
+                sandbox_resp = api.create_sandbox_item()
+                if sandbox_resp.get("success"):
+                    st.success("✅ Conta Sandbox criada! Recarregando dados...")
+                    st.rerun()
+                else:
+                    st.error(f"Erro: {sandbox_resp.get('error')}")
+
 else:
     st.success("✅ Conexão estabelecida com a provedora. Carregando widget...")
     

@@ -66,6 +66,34 @@ class NexaAPIClient:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    def get_pluggy_items(self) -> dict:
+        """Lista os items (contas bancárias) conectados pelo usuário via Pluggy."""
+        try:
+            resp = requests.get(
+                f"{self.base_url}/pluggy/items",
+                headers=self._headers(),
+                timeout=15
+            )
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def create_sandbox_item(self) -> dict:
+        """Cria um item Sandbox (Pluggy Bank) para testes."""
+        try:
+            resp = requests.post(
+                f"{self.base_url}/pluggy/sandbox",
+                headers=self._headers(),
+                timeout=20
+            )
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def get_forecast_summary(self, user_id: str) -> dict:
         try:
             url = f"{self.base_url}/forecast/{user_id}"
