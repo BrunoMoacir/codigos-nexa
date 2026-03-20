@@ -30,24 +30,15 @@ async def analyze_cards(
     logger.info(f"[API] Solicitando otimização de cartões para user_id={request.user_id}")
     
     try:
-        from app.db.queries import get_connection
-        import duckdb
-        
-        con = get_connection()
-        try:
-            transactions_df = con.execute(
-                "SELECT * FROM transactions_clean WHERE user_id = ?", 
-                [request.user_id]
-            ).pl()
-        except duckdb.CatalogException:
-            # Fallback se a tabela da F1 ainda não existir
-            logger.warning("[API] Tabela transactions_clean não encontrada. Usando DataFrame vazio.")
+        from app.db.queries import get_transactions_for_user
+
+        transactions_df = get_transactions_for_user(request.user_id)
+        if transactions_df.is_empty():
+            logger.warning("[API] Sem transações para user=%s. Usando DataFrame vazio.", request.user_id)
             transactions_df = pl.DataFrame(schema={
                 "date": pl.Date, "amount": pl.Float64, "description": pl.Utf8,
                 "category": pl.Utf8, "pf_pj_label": pl.Utf8, "type": pl.Utf8
             })
-        finally:
-            con.close()
 
         # O shadow_invoices_df real depende do runner completo da F1. 
         # Por enquanto, mantemos None; o profiler lida com isso perfeitamente.
@@ -136,20 +127,9 @@ async def get_opportunity_cost(
     ```
     """
     try:
-        from app.db.queries import get_connection
-        import duckdb
+        from app.db.queries import get_transactions_for_user
 
-        con = get_connection()
-        try:
-            transactions_df = con.execute(
-                "SELECT * FROM transactions_clean WHERE user_id = ?",
-                [user_id]
-            ).pl()
-        except duckdb.CatalogException:
-            logger.warning("[API] Tabela transactions_clean não encontrada.")
-            raise HTTPException(status_code=404, detail="Dados do usuário não encontrados.")
-        finally:
-            con.close()
+        transactions_df = get_transactions_for_user(user_id)
 
         if transactions_df.is_empty():
             raise HTTPException(status_code=404, detail=f"Sem histórico para user_id={user_id}")
@@ -261,25 +241,13 @@ async def get_card_portfolio(
     ```
     """
     from app.optimizer.multi_card_strategy import MultiCardStrategist
-    from app.db.queries import get_connection
-    import duckdb
+    from app.db.queries import get_transactions_for_user
 
     logger.info(f"[API] Portfolio multi-cartão para user={user_id} max_cards={max_cards}")
 
     # ── 1. Buscar transações ────────────────────────────────────────
     try:
-        con = get_connection()
-        try:
-            transactions_df = con.execute(
-                "SELECT * FROM transactions_clean WHERE user_id = ?",
-                [user_id]
-            ).pl()
-        except duckdb.CatalogException:
-            raise HTTPException(status_code=404, detail="Dados do usuário não encontrados.")
-        finally:
-            con.close()
-    except HTTPException:
-        raise
+        transactions_df = get_transactions_for_user(user_id)
     except Exception as e:
         logger.error(f"[API] Erro ao buscar transações para portfolio: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao acessar dados do usuário.")
@@ -396,8 +364,7 @@ async def get_card_roi(
     - `user_id`: ID do usuário
     - `monthly_spend`: Opcional — gasto mensal. Se omitido, usa histórico real.
     """
-    from app.db.queries import get_connection
-    import duckdb
+    from app.db.queries import get_transactions_for_user
     from dataclasses import replace as _replace
 
     # 1. Carregar o cartão
@@ -415,15 +382,7 @@ async def get_card_roi(
         profile = _replace(profile, monthly_avg_spend=monthly_spend)
     else:
         try:
-            con = get_connection()
-            try:
-                transactions_df = con.execute(
-                    "SELECT * FROM transactions_clean WHERE user_id = ?", [user_id]
-                ).pl()
-            except duckdb.CatalogException:
-                transactions_df = pl.DataFrame()
-            finally:
-                con.close()
+            transactions_df = get_transactions_for_user(user_id)
         except Exception as e:
             logger.error(f"[API] Erro ao buscar transações para ROI: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail="Erro ao acessar dados do usuário.")

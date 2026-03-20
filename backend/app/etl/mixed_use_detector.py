@@ -12,7 +12,7 @@ import re
 import logging
 from dataclasses import dataclass, field
 from typing import Optional
-from app.db.queries import get_connection
+from app.db.queries import get_transactions_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -135,45 +135,37 @@ class MixedUseDetector:
     def _fetch_pf_transactions(
         self, user_id: str, year: int, month: Optional[int]
     ) -> list[dict]:
-        con = get_connection()
+        import polars as pl
         try:
-            if month is not None:
-                query = """
-                    SELECT transaction_id, description, amount, CAST(date AS VARCHAR)
-                    FROM transactions_clean
-                    WHERE user_id = ?
-                      AND context_type IN ('PF', 'UNCERTAIN')
-                      AND amount < 0
-                      AND YEAR(date)  = ?
-                      AND MONTH(date) = ?
-                """
-                params = [user_id, year, month]
-            else:
-                query = """
-                    SELECT transaction_id, description, amount, CAST(date AS VARCHAR)
-                    FROM transactions_clean
-                    WHERE user_id = ?
-                      AND context_type IN ('PF', 'UNCERTAIN')
-                      AND amount < 0
-                      AND YEAR(date) = ?
-                """
-                params = [user_id, year]
+            df = get_transactions_for_user(user_id)
+            if df.is_empty():
+                return []
 
-            rows = con.execute(query, params).fetchall()
+            # Filtrar context_type PF/UNCERTAIN e débitos
+            df = df.with_columns(pl.col("date").cast(pl.Date))
+            df = df.filter(
+                pl.col("context_type").is_in(["PF", "UNCERTAIN"]) &
+                (pl.col("amount") < 0)
+            )
+
+            # Filtrar por ano
+            df = df.filter(pl.col("date").dt.year() == year)
+            if month is not None:
+                df = df.filter(pl.col("date").dt.month() == month)
+
+            rows = df.select(["transaction_id", "description", "amount", "date"]).to_dicts()
             return [
                 {
-                    "transaction_id": r[0],
-                    "description": r[1] or "",
-                    "amount": abs(r[2] or 0.0),
-                    "date": r[3] or "",
+                    "transaction_id": r["transaction_id"],
+                    "description": r.get("description") or "",
+                    "amount": abs(float(r["amount"] or 0.0)),
+                    "date": str(r["date"]) if r["date"] else "",
                 }
                 for r in rows
             ]
         except Exception as e:
             logger.error(f"Erro ao buscar transacoes PF para uso misto: {e}")
             return []
-        finally:
-            con.close()
 
     def _check_mixed_use(self, row: dict) -> Optional[MixedUseCandidate]:
         text = row["description"].lower()

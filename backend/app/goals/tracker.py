@@ -284,20 +284,20 @@ class GoalTracker:
 
     def list_goals(self, user_id: str, status: str = "ACTIVE") -> list[Goal]:
         """Lista metas do usuário filtradas por status."""
-        from app.db.queries import get_connection
-        con = get_connection()
+        from app.core.database import SessionLocal
+        from app.models.financial_goal import FinancialGoal
+        db = SessionLocal()
         try:
-            rows = con.execute(
-                "SELECT * FROM financial_goals WHERE user_id = ? AND status = ? ORDER BY created_at DESC",
-                [user_id, status],
-            ).fetchall()
-            cols = [d[0] for d in con.description]
-            return [self._row_to_goal(dict(zip(cols, row))) for row in rows]
+            rows = db.query(FinancialGoal).filter(
+                FinancialGoal.user_id == user_id,
+                FinancialGoal.status == status,
+            ).order_by(FinancialGoal.created_at.desc()).all()
+            return [self._row_to_goal({c.name: getattr(r, c.name) for c in r.__table__.columns}) for r in rows]
         except Exception as e:
             logger.error(f"[GoalTracker] Erro ao listar metas: {e}")
             return []
         finally:
-            con.close()
+            db.close()
 
     def abandon_goal(self, goal_id: str) -> Goal:
         """Marca a meta como ABANDONED."""
@@ -329,64 +329,53 @@ class GoalTracker:
         return round(remaining / months, 2)
 
     def _persist(self, goal: Goal) -> None:
-        """Insere a meta no DuckDB."""
-        from app.db.queries import get_connection
-        con = get_connection()
+        """Insere a meta no PostgreSQL via SQLAlchemy."""
+        from app.core.database import SessionLocal
+        from app.models.financial_goal import FinancialGoal
+        db = SessionLocal()
         try:
-            con.execute("""
-                INSERT INTO financial_goals (
-                    goal_id, user_id, name, goal_type,
-                    target_amount, current_amount, target_date,
-                    monthly_contribution_needed, monthly_contribution_actual,
-                    status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, [
-                goal.goal_id, goal.user_id, goal.name, goal.goal_type,
-                goal.target_amount, goal.current_amount, goal.target_date,
-                goal.monthly_contribution_needed, goal.monthly_contribution_actual,
-                goal.status, goal.created_at, goal.updated_at,
-            ])
+            row = FinancialGoal(
+                goal_id=goal.goal_id, user_id=goal.user_id, name=goal.name,
+                goal_type=goal.goal_type, target_amount=goal.target_amount,
+                current_amount=goal.current_amount, target_date=goal.target_date,
+                monthly_contribution_needed=goal.monthly_contribution_needed,
+                monthly_contribution_actual=goal.monthly_contribution_actual,
+                status=goal.status, created_at=goal.created_at, updated_at=goal.updated_at,
+            )
+            db.add(row)
+            db.commit()
         finally:
-            con.close()
+            db.close()
 
     def _update(self, goal: Goal) -> None:
-        """Atualiza a meta no DuckDB."""
-        from app.db.queries import get_connection
-        con = get_connection()
+        """Atualiza a meta no PostgreSQL via SQLAlchemy."""
+        from app.core.database import SessionLocal
+        from app.models.financial_goal import FinancialGoal
+        db = SessionLocal()
         try:
-            con.execute("""
-                UPDATE financial_goals SET
-                    current_amount = ?,
-                    monthly_contribution_needed = ?,
-                    monthly_contribution_actual = ?,
-                    status = ?,
-                    updated_at = ?
-                WHERE goal_id = ?
-            """, [
-                goal.current_amount,
-                goal.monthly_contribution_needed,
-                goal.monthly_contribution_actual,
-                goal.status,
-                goal.updated_at,
-                goal.goal_id,
-            ])
+            db.query(FinancialGoal).filter(FinancialGoal.goal_id == goal.goal_id).update({
+                "current_amount": goal.current_amount,
+                "monthly_contribution_needed": goal.monthly_contribution_needed,
+                "monthly_contribution_actual": goal.monthly_contribution_actual,
+                "status": goal.status,
+                "updated_at": goal.updated_at,
+            })
+            db.commit()
         finally:
-            con.close()
+            db.close()
 
     def _load(self, goal_id: str) -> Goal:
-        """Carrega uma meta do DuckDB. Lança LookupError se não encontrada."""
-        from app.db.queries import get_connection
-        con = get_connection()
+        """Carrega uma meta do PostgreSQL. Lança LookupError se não encontrada."""
+        from app.core.database import SessionLocal
+        from app.models.financial_goal import FinancialGoal
+        db = SessionLocal()
         try:
-            rows = con.execute(
-                "SELECT * FROM financial_goals WHERE goal_id = ?", [goal_id]
-            ).fetchall()
-            if not rows:
+            row = db.query(FinancialGoal).filter(FinancialGoal.goal_id == goal_id).first()
+            if not row:
                 raise LookupError(f"Meta não encontrada: {goal_id}")
-            cols = [d[0] for d in con.description]
-            return self._row_to_goal(dict(zip(cols, rows[0])))
+            return self._row_to_goal({c.name: getattr(row, c.name) for c in row.__table__.columns})
         finally:
-            con.close()
+            db.close()
 
     @staticmethod
     def _row_to_goal(row: dict) -> Goal:

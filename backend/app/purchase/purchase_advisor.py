@@ -151,21 +151,10 @@ class PurchaseAdvisor:
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def _fetch_transactions(self, user_id: str) -> pl.DataFrame:
-        """Busca transações limpas do DuckDB. Retorna DataFrame vazio em caso de falha."""
+        """Busca transações limpas do PostgreSQL. Retorna DataFrame vazio em caso de falha."""
         try:
-            from app.db.queries import get_connection
-            import duckdb
-
-            con = get_connection()
-            try:
-                df = con.execute(
-                    "SELECT * FROM transactions_clean WHERE user_id = ?", [user_id]
-                ).pl()
-                return df
-            except duckdb.CatalogException:
-                return pl.DataFrame()
-            finally:
-                con.close()
+            from app.db.queries import get_transactions_for_user
+            return get_transactions_for_user(user_id)
         except Exception as exc:
             logger.warning("PurchaseAdvisor | erro ao buscar transações: %s", exc)
             return pl.DataFrame()

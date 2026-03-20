@@ -15,7 +15,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, status, Depends
 from app.core.security import get_current_user
 
-from app.db.queries import get_connection
+from app.db.queries import get_transactions_for_user
 from app.peers.peer_comparison import PeerComparator
 
 logger = logging.getLogger(__name__)
@@ -55,66 +55,18 @@ async def compare_peers(
     ),
     _: str = Depends(get_current_user),
 ) -> dict:
-    """
-    Compara o perfil de gastos do usuário com benchmarks da faixa de renda.
+    """Compara o perfil de gastos do usuário com benchmarks da faixa de renda."""
+    import polars as pl
+    import datetime
 
-    **Como usar:**
-    ```
-    GET /api/v1/peers/compare/user_123?monthly_income=8000
-    GET /api/v1/peers/compare/user_123?monthly_income=8000&history_months=6
-    ```
-
-    **Faixas de renda:**
-    - BAIXA: até R$ 3.000/mês
-    - MEDIA: R$ 3.001–R$ 8.000/mês
-    - ALTA: R$ 8.001–R$ 20.000/mês
-    - PREMIUM: acima de R$ 20.000/mês
-
-    **Resposta:**
-    ```json
-    {
-      "income_bracket": "MEDIA",
-      "bracket_label": "renda média (R$ 3.001–R$ 8.000/mês)",
-      "monthly_income": 8000,
-      "user_savings_rate": 14.0,
-      "benchmark_savings_rate": 13.0,
-      "savings_percentile_label": "top 40%",
-      "categories": [
-        {
-          "category": "moradia",
-          "label": "Moradia",
-          "user_pct": 35.0,
-          "benchmark_pct": 30.0,
-          "delta_pct": 5.0,
-          "status": "acima",
-          "insight": "Você gasta 35% da renda em moradia — 5 p.p. acima da média..."
-        }
-      ],
-      "highlights_above": ["Moradia"],
-      "highlights_below": ["Lazer"],
-      "summary_text": "Gasta acima da média em: Moradia. Índice de poupança (14.0%) — top 40%..."
-    }
-    ```
-    """
     logger.info(
         "GET /peers/compare/%s | income=R$%.0f | history=%dm",
         user_id, monthly_income, history_months,
     )
 
-    # ── 1. Buscar transações de débito do DuckDB ───────────────────────
+    # ── 1. Buscar transações do PostgreSQL ─────────────────────────────
     try:
-        con = get_connection()
-        rows = con.execute(
-            """
-            SELECT amount, category
-            FROM transactions_clean
-            WHERE user_id = ?
-              AND amount < 0
-              AND date >= current_date - INTERVAL (?) MONTH
-            """,
-            [user_id, history_months],
-        ).fetchall()
-        con.close()
+        df = get_transactions_for_user(user_id)
     except Exception as exc:
         logger.error("Erro ao buscar transações para peers/compare/%s: %s", user_id, exc)
         raise HTTPException(
@@ -122,17 +74,30 @@ async def compare_peers(
             detail="Erro ao acessar dados de transações.",
         )
 
-    if not rows:
+    if df.is_empty():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Nenhuma transação encontrada para user_id='{user_id}'.",
         )
 
+    # Filtrar pela janela de meses e apenas débitos
+    if "date" in df.columns:
+        cutoff = datetime.date.today() - datetime.timedelta(days=history_months * 30)
+        df = df.filter(pl.col("date").cast(pl.Date) >= cutoff)
+
+    debit_rows = df.filter(pl.col("amount") < 0).select(["amount", "category"]).to_dicts()
+
+    if not debit_rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Nenhuma transação de débito encontrada para user_id='{user_id}'.",
+        )
+
     # ── 2. Agregar por categoria e calcular média mensal ──────────────
     raw: dict[str, float] = {}
-    for amount, category in rows:
-        cat = (category or "outros").lower().strip()
-        raw[cat] = raw.get(cat, 0.0) + abs(float(amount))
+    for row in debit_rows:
+        cat = (row.get("category") or "outros").lower().strip()
+        raw[cat] = raw.get(cat, 0.0) + abs(float(row["amount"]))
 
     category_spending = (
         {k: v / history_months for k, v in raw.items()}

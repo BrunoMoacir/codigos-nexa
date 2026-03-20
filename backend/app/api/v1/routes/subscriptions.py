@@ -55,30 +55,13 @@ async def get_subscriptions(
     }
     ```
     """
-    from app.db.queries import get_connection
+    from app.db.queries import get_transactions_for_user
     from app.etl.subscription_detector import detect_subscriptions
-    import duckdb
     import polars as pl
 
-    # 1. Buscar transações
+    # 1. Buscar transações do PostgreSQL
     try:
-        con = get_connection()
-        try:
-            transactions_df = con.execute(
-                "SELECT * FROM transactions_clean WHERE user_id = ?",
-                [user_id],
-            ).pl()
-        except (duckdb.CatalogException, duckdb.BinderException):
-            # Tabela não existe ou não tem coluna user_id — busca sem filtro (modo dev)
-            try:
-                transactions_df = con.execute(
-                    "SELECT * FROM transactions_clean"
-                ).pl()
-            except duckdb.CatalogException:
-                logger.warning(f"[Subscriptions] transactions_clean não encontrada para user={user_id}")
-                transactions_df = pl.DataFrame()
-        finally:
-            con.close()
+        transactions_df = get_transactions_for_user(user_id)
     except Exception as e:
         logger.error(f"[Subscriptions] Erro ao buscar transações: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao acessar dados do usuário.")

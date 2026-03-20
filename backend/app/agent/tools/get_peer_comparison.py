@@ -49,35 +49,34 @@ def get_peer_comparison(
         
     try:
         from app.peers.peer_comparison import PeerComparator
-        from app.db.queries import get_connection
+        from app.db.queries import get_transactions_for_user
+        import polars as pl
+        import datetime
 
-        # Buscar transações de débito do DuckDB (tabela processada pelo ETL)
+        # Buscar transações do PostgreSQL
         try:
-            con = get_connection()
-            rows = con.execute(
-                """
-                SELECT amount, category
-                FROM transactions_clean
-                WHERE user_id = ?
-                  AND amount < 0
-                  AND date >= current_date - INTERVAL (?) MONTH
-                """,
-                [user_id, history_months],
-            ).fetchall()
-            con.close()
+            df = get_transactions_for_user(user_id)
         except Exception as db_err:
             logger.warning("[Tool] get_peer_comparison: erro ao buscar transacoes: %s", db_err)
-            rows = []
+            df = pl.DataFrame()
 
-        if not rows:
+        # Filtrar por janela e pegar apenas débitos
+        if not df.is_empty() and "date" in df.columns:
+            cutoff = datetime.date.today() - datetime.timedelta(days=history_months * 30)
+            df = df.filter(pl.col("date").cast(pl.Date) >= cutoff)
+            debit_rows = df.filter(pl.col("amount") < 0).select(["amount", "category"]).to_dicts()
+        else:
+            debit_rows = []
+
+        if not debit_rows:
             # Sem dados reais: responde com os benchmarks da faixa apenas
             return _fallback_benchmark_only(monthly_income)
 
         # Agregar por categoria (media mensal)
         raw: dict[str, float] = {}
-        for amount, category in rows:
-            cat = (category or "outros").lower().strip()
-            raw[cat] = raw.get(cat, 0.0) + abs(float(amount))
+        for row in debit_rows:
+            cat = (row.get("category") or "outros").lower().strip()
+            raw[cat] = raw.get(cat, 0.0) + abs(float(row["amount"]))
 
         category_spending = (
             {k: v / history_months for k, v in raw.items()}

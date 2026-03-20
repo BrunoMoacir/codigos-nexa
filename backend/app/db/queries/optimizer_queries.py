@@ -1,161 +1,127 @@
 # app/db/queries/optimizer_queries.py
-# Queries DuckDB para o módulo Nexa Optimizer (Funcionalidade 2)
+# Queries PostgreSQL/SQLAlchemy para o módulo Nexa Optimizer (F2)
 # Salva e busca relatórios de otimização de cartões.
 
 from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Optional
 
-import duckdb
+from app.core.database import SessionLocal
+from app.models.optimization_report import OptimizationReport
 
 logger = logging.getLogger(__name__)
 
-# Usa o mesmo banco que o resto do projeto
-_DB_PATH = str(Path(__file__).parent.parent.parent.parent / "data" / "transactions.duckdb")
-
-_CREATE_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS optimization_reports (
-    report_id               VARCHAR PRIMARY KEY,
-    user_id                 VARCHAR NOT NULL,
-    generated_at            VARCHAR NOT NULL,
-    recommendation_type     VARCHAR NOT NULL,
-    best_card_id            VARCHAR,
-    best_card_name          VARCHAR,
-    net_gain_expected       DOUBLE,
-    net_gain_min            DOUBLE,
-    net_gain_max            DOUBLE,
-    confidence_score        DOUBLE,
-    liquidity_impact        DOUBLE,
-    liquidity_risk          VARCHAR,
-    data_sources            VARCHAR,
-    strategy_text           VARCHAR,
-    warnings                VARCHAR,
-    full_report_json        VARCHAR
-)
-"""
-
-
-def _get_connection() -> duckdb.DuckDBPyConnection:
-    return duckdb.connect(_DB_PATH)
-
-
-def ensure_table() -> None:
-    """Cria tabela optimization_reports se não existir."""
-    con = _get_connection()
-    try:
-        con.execute(_CREATE_TABLE_SQL)
-        con.commit()
-    finally:
-        con.close()
-
 
 def save_optimization_report(report: dict) -> None:
-    """
-    Persiste um OptimizationReport (dict) na tabela optimization_reports.
-    Faz upsert por report_id.
-    """
-    con = _get_connection()
+    """Persiste um OptimizationReport (dict) no PostgreSQL. Faz upsert por report_id."""
+    db = SessionLocal()
     try:
-        ensure_table()
-
         best_card = report.get("best_card") or {}
-        con.execute(
-            """
-            INSERT OR REPLACE INTO optimization_reports (
-                report_id, user_id, generated_at, recommendation_type,
-                best_card_id, best_card_name,
-                net_gain_expected, net_gain_min, net_gain_max,
-                confidence_score, liquidity_impact, liquidity_risk,
-                data_sources, strategy_text, warnings, full_report_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                report["report_id"],
-                report["user_id"],
-                str(report["generated_at"]),
-                report["recommendation_type"],
-                best_card.get("card_id"),
-                best_card.get("card_name"),
-                best_card.get("net_gain_expected"),
-                best_card.get("net_gain_min"),
-                best_card.get("net_gain_max"),
-                best_card.get("confidence_score"),
-                best_card.get("liquidity_impact"),
-                best_card.get("liquidity_risk"),
-                json.dumps(report.get("data_sources", [])),
-                report.get("strategy_text", ""),
-                json.dumps(report.get("warnings", [])),
-                json.dumps(report, default=str),
-            ],
-        )
-        con.commit()
+
+        existing = db.query(OptimizationReport).filter(
+            OptimizationReport.report_id == report["report_id"]
+        ).first()
+
+        if existing:
+            # UPDATE
+            existing.user_id = report["user_id"]
+            existing.generated_at = str(report["generated_at"])
+            existing.recommendation_type = report["recommendation_type"]
+            existing.best_card_id = best_card.get("card_id")
+            existing.best_card_name = best_card.get("card_name")
+            existing.net_gain_expected = best_card.get("net_gain_expected")
+            existing.net_gain_min = best_card.get("net_gain_min")
+            existing.net_gain_max = best_card.get("net_gain_max")
+            existing.confidence_score = best_card.get("confidence_score")
+            existing.liquidity_impact = best_card.get("liquidity_impact")
+            existing.liquidity_risk = best_card.get("liquidity_risk")
+            existing.data_sources = json.dumps(report.get("data_sources", []))
+            existing.strategy_text = report.get("strategy_text", "")
+            existing.warnings = json.dumps(report.get("warnings", []))
+            existing.full_report_json = json.dumps(report, default=str)
+        else:
+            # INSERT
+            row = OptimizationReport(
+                report_id=report["report_id"],
+                user_id=report["user_id"],
+                generated_at=str(report["generated_at"]),
+                recommendation_type=report["recommendation_type"],
+                best_card_id=best_card.get("card_id"),
+                best_card_name=best_card.get("card_name"),
+                net_gain_expected=best_card.get("net_gain_expected"),
+                net_gain_min=best_card.get("net_gain_min"),
+                net_gain_max=best_card.get("net_gain_max"),
+                confidence_score=best_card.get("confidence_score"),
+                liquidity_impact=best_card.get("liquidity_impact"),
+                liquidity_risk=best_card.get("liquidity_risk"),
+                data_sources=json.dumps(report.get("data_sources", [])),
+                strategy_text=report.get("strategy_text", ""),
+                warnings=json.dumps(report.get("warnings", [])),
+                full_report_json=json.dumps(report, default=str),
+            )
+            db.add(row)
+
+        db.commit()
         logger.info(f"Relatório {report['report_id']} salvo para user {report['user_id']}")
     except Exception as e:
+        db.rollback()
         logger.error(f"Erro ao salvar relatório: {e}")
         raise
     finally:
-        con.close()
+        db.close()
 
 
 def get_optimization_reports(user_id: str) -> list[dict]:
-    """
-    Retorna lista de relatórios resumidos de um usuário.
-    Ordenados do mais recente para o mais antigo.
-    """
-    con = _get_connection()
+    """Retorna lista de relatórios resumidos de um usuário (mais recente primeiro)."""
+    db = SessionLocal()
     try:
-        ensure_table()
-        rows = con.execute(
-            """
-            SELECT report_id, user_id, generated_at, recommendation_type,
-                   best_card_id, best_card_name,
-                   net_gain_expected, net_gain_min, net_gain_max,
-                   confidence_score, liquidity_impact, liquidity_risk,
-                   data_sources, strategy_text, warnings
-            FROM optimization_reports
-            WHERE user_id = ?
-            ORDER BY generated_at DESC
-            """,
-            [user_id],
-        ).fetchall()
+        rows = db.query(OptimizationReport).filter(
+            OptimizationReport.user_id == user_id
+        ).order_by(OptimizationReport.generated_at.desc()).all()
 
-        cols = [
-            "report_id", "user_id", "generated_at", "recommendation_type",
-            "best_card_id", "best_card_name",
-            "net_gain_expected", "net_gain_min", "net_gain_max",
-            "confidence_score", "liquidity_impact", "liquidity_risk",
-            "data_sources", "strategy_text", "warnings",
+        return [
+            {
+                "report_id": r.report_id,
+                "user_id": r.user_id,
+                "generated_at": r.generated_at,
+                "recommendation_type": r.recommendation_type,
+                "best_card_id": r.best_card_id,
+                "best_card_name": r.best_card_name,
+                "net_gain_expected": r.net_gain_expected,
+                "net_gain_min": r.net_gain_min,
+                "net_gain_max": r.net_gain_max,
+                "confidence_score": r.confidence_score,
+                "liquidity_impact": r.liquidity_impact,
+                "liquidity_risk": r.liquidity_risk,
+                "data_sources": r.data_sources,
+                "strategy_text": r.strategy_text,
+                "warnings": r.warnings,
+            }
+            for r in rows
         ]
-        return [dict(zip(cols, row)) for row in rows]
     except Exception as e:
         logger.error(f"Erro ao buscar relatórios de {user_id}: {e}")
         return []
     finally:
-        con.close()
+        db.close()
 
 
 def get_optimization_report_by_id(report_id: str) -> Optional[dict]:
-    """
-    Retorna o relatório completo (full_report_json) pelo report_id.
-    Retorna None se não encontrado.
-    """
-    con = _get_connection()
+    """Retorna o relatório completo (full_report_json) pelo report_id."""
+    db = SessionLocal()
     try:
-        ensure_table()
-        row = con.execute(
-            "SELECT full_report_json FROM optimization_reports WHERE report_id = ?",
-            [report_id],
-        ).fetchone()
+        row = db.query(OptimizationReport).filter(
+            OptimizationReport.report_id == report_id
+        ).first()
 
-        if not row:
+        if not row or not row.full_report_json:
             return None
 
-        return json.loads(row[0])
+        return json.loads(row.full_report_json)
     except Exception as e:
         logger.error(f"Erro ao buscar relatório {report_id}: {e}")
         return None
     finally:
-        con.close()
+        db.close()

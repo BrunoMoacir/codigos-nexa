@@ -14,7 +14,7 @@ Uso:
 import logging
 from dataclasses import dataclass, field
 from typing import Optional
-from app.db.queries import get_connection
+from app.db.queries import get_transactions_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -135,35 +135,28 @@ class FiscalReportService:
         year: int,
         month: Optional[int],
     ) -> list[dict]:
-        con = get_connection()
+        import polars as pl
         try:
-            if month is not None:
-                query = """
-                    SELECT amount, pj_subcategory
-                    FROM transactions_clean
-                    WHERE user_id = ?
-                      AND context_type = 'PJ'
-                      AND YEAR(date)  = ?
-                      AND MONTH(date) = ?
-                """
-                params = [user_id, year, month]
-            else:
-                query = """
-                    SELECT amount, pj_subcategory
-                    FROM transactions_clean
-                    WHERE user_id = ?
-                      AND context_type = 'PJ'
-                      AND YEAR(date) = ?
-                """
-                params = [user_id, year]
+            df = get_transactions_for_user(user_id)
+            if df.is_empty():
+                return []
 
-            rows = con.execute(query, params).fetchall()
-            return [{"amount": r[0], "pj_subcategory": r[1] or "despesa_outros_pj"} for r in rows]
+            # Filtrar apenas PJ
+            df = df.filter(pl.col("context_type") == "PJ")
+
+            # Filtrar por ano
+            df = df.with_columns(pl.col("date").cast(pl.Date))
+            df = df.filter(pl.col("date").dt.year() == year)
+
+            # Filtrar por mês se especificado
+            if month is not None:
+                df = df.filter(pl.col("date").dt.month() == month)
+
+            rows = df.select(["amount", "pj_subcategory"]).to_dicts()
+            return [{"amount": r["amount"], "pj_subcategory": r.get("pj_subcategory") or "despesa_outros_pj"} for r in rows]
         except Exception as e:
             logger.error(f"Erro ao buscar transacoes PJ: {e}")
             return []
-        finally:
-            con.close()
 
     def _aggregate(self, report: FiscalReport, rows: list[dict]) -> None:
         totals: dict[str, list] = {}   # subcategory -> [total, count]
@@ -197,31 +190,32 @@ class FiscalReportService:
     def _fetch_rbt12(self, user_id: str, year: int, month: int) -> float:
         """
         Calcula RBT12 real: soma das receitas PJ dos ultimos 12 meses encerrados
-        antes do mes de referencia (inclusive). Mais preciso que receita_mes * 12.
-        Retorna 0.0 se nao houver dados suficientes.
+        antes do mes de referencia (inclusive).
         """
-        con = get_connection()
+        import polars as pl
+        import datetime
+
         try:
-            # DuckDB: DATE_SUB equivalente com INTERVAL
-            row = con.execute("""
-                SELECT COALESCE(SUM(amount), 0.0)
-                FROM transactions_clean
-                WHERE user_id = ?
-                  AND context_type = 'PJ'
-                  AND amount > 0
-                  AND date >= (DATE_TRUNC('month', DATE ?) - INTERVAL 11 MONTHS)
-                  AND date <  DATE_TRUNC('month', DATE ?) + INTERVAL 1 MONTH
-            """, [
-                user_id,
-                f"{year:04d}-{month:02d}-01",
-                f"{year:04d}-{month:02d}-01",
-            ]).fetchone()
-            return float(row[0]) if row else 0.0
+            df = get_transactions_for_user(user_id)
+            if df.is_empty():
+                return 0.0
+
+            ref_date = datetime.date(year, month, 1)
+            start_date = ref_date - datetime.timedelta(days=330)  # ~11 meses
+
+            df = df.with_columns(pl.col("date").cast(pl.Date))
+            df = df.filter(
+                (pl.col("context_type") == "PJ") &
+                (pl.col("amount") > 0) &
+                (pl.col("date") >= start_date) &
+                (pl.col("date") < datetime.date(year, month, 28) + datetime.timedelta(days=4))
+            )
+
+            total = df.select(pl.col("amount").sum()).item()
+            return float(total) if total else 0.0
         except Exception as e:
             logger.warning(f"Nao foi possivel calcular RBT12 real, usando fallback x12: {e}")
             return 0.0
-        finally:
-            con.close()
 
     def _compute_das(self, report: FiscalReport, year: int, month: Optional[int]) -> None:
         """
