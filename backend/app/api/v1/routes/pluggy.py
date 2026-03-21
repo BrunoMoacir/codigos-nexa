@@ -142,7 +142,7 @@ def create_connect_token(current_user_str: str = Depends(get_current_user)):
             token_str = str(connect_token)
 
         if not token_str:
-             raise Exception("Token inválido retornado pelo SDK da Pluggy")
+            raise Exception("Token inválido retornado pelo SDK da Pluggy")
 
         return ConnectTokenResponse(connect_token=token_str)
         

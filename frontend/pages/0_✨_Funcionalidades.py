@@ -13,7 +13,11 @@ st.set_page_config(page_title="Funcionalidades · Nexa", page_icon="✨", layout
 load_css()
 
 api = NexaAPIClient()
-user_id = st.session_state.get("user_id") or st.session_state.get("username", "")
+user_id = st.session_state.get("user_id")
+if not user_id:
+    st.warning("Sessão expirada. Faça login novamente.")
+    st.page_link("app.py", label="Ir para o Login", icon="🏠")
+    st.stop()
 
 # ── Sidebar ────────────────────────────────────────────────────────────────
 with st.sidebar:

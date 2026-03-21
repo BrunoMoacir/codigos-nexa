@@ -71,7 +71,10 @@ async def chat_with_agent(
         result = agent_app.invoke(inputs, config=config)
 
         # A resposta final do LLM estará na última mensagem do state
-        target_message = result["messages"][-1].content
+        messages = result.get("messages", [])
+        if not messages:
+            raise ValueError("Agente retornou lista de mensagens vazia")
+        target_message = messages[-1].content
 
         return ChatResponse(response=target_message)
 
