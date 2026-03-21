@@ -96,6 +96,20 @@ class NexaAPIClient:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    def sync_pluggy_transactions(self) -> dict:
+        """Força sincronização das transações Pluggy para o usuário logado."""
+        try:
+            resp = requests.post(
+                f"{self.base_url}/pluggy/sync",
+                headers=self._headers(),
+                timeout=60,
+            )
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def get_forecast_summary(self, user_id: str) -> dict:
         try:
             url = f"{self.base_url}/forecast/{user_id}"

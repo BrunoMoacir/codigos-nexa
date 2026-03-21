@@ -105,6 +105,18 @@ if not st.session_state.pluggy_token:
                 else:
                     st.error(f"Erro ao gerar token: {resp.get('error')}")
 
+        if st.button("🔄 Sincronizar transações agora", use_container_width=True):
+            with st.spinner("Sincronizando transações reais da Pluggy..."):
+                sync_resp = api.sync_pluggy_transactions()
+                if sync_resp.get("success"):
+                    totals = (sync_resp.get("data") or {}).get("totals", {})
+                    st.success(
+                        f"✅ Sync concluído: {totals.get('saved', 0)} transações salvas "
+                        f"em {totals.get('accounts', 0)} contas."
+                    )
+                else:
+                    st.error(f"Erro ao sincronizar: {sync_resp.get('error')}")
+
     with col2:
         with st.expander("Sandbox Pluggy (diagnóstico)"):
             st.caption(
