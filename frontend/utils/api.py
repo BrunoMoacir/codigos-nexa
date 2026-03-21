@@ -190,3 +190,119 @@ class NexaAPIClient:
             return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    def get_peer_comparison(self, user_id: str, monthly_income: float, history_months: int = 3) -> dict:
+        try:
+            url = f"{self.base_url}/peers/compare/{user_id}?monthly_income={monthly_income}&history_months={history_months}"
+            resp = requests.get(url, headers=self._headers(), timeout=20)
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_notifications(self, user_id: str, monthly_income: float = 0.0, include_info: bool = True) -> dict:
+        try:
+            url = f"{self.base_url}/notifications/{user_id}?monthly_income={monthly_income}&include_info={'true' if include_info else 'false'}"
+            resp = requests.get(url, headers=self._headers(), timeout=20)
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_fiscal_report(self, user_id: str, year: int, month: int | None = None) -> dict:
+        try:
+            url = f"{self.base_url}/fiscal-report/{user_id}?year={year}"
+            if month:
+                url += f"&month={month}"
+            resp = requests.get(url, headers=self._headers(), timeout=20)
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_fiscal_mixed_use(self, user_id: str, year: int, month: int | None = None) -> dict:
+        try:
+            url = f"{self.base_url}/fiscal-report/{user_id}/mixed-use?year={year}"
+            if month:
+                url += f"&month={month}"
+            resp = requests.get(url, headers=self._headers(), timeout=20)
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_optimizer_cards(self) -> dict:
+        try:
+            url = f"{self.base_url}/optimizer/cards"
+            resp = requests.get(url, headers=self._headers(), timeout=20)
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_optimizer_portfolio(self, user_id: str, max_cards: int = 3, monthly_income: float | None = None) -> dict:
+        try:
+            url = f"{self.base_url}/optimizer/portfolio/{user_id}?max_cards={max_cards}"
+            if monthly_income and monthly_income > 0:
+                url += f"&monthly_income={monthly_income}"
+            resp = requests.get(url, headers=self._headers(), timeout=25)
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_optimizer_opportunity_cost(self, user_id: str, current_card_id: str, months: int = 3) -> dict:
+        try:
+            url = f"{self.base_url}/optimizer/opportunity-cost?user_id={user_id}&current_card_id={current_card_id}&months={months}"
+            resp = requests.get(url, headers=self._headers(), timeout=25)
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_optimizer_promotions(self) -> dict:
+        try:
+            url = f"{self.base_url}/optimizer/promotions"
+            resp = requests.get(url, headers=self._headers(), timeout=20)
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def architect_simulate(self, payload: dict) -> dict:
+        try:
+            url = f"{self.base_url}/architect/simulate"
+            resp = requests.post(url, json=payload, headers=self._headers(), timeout=30)
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def architect_list_simulations(self, user_id: str, limit: int = 10) -> dict:
+        try:
+            url = f"{self.base_url}/architect/simulations?user_id={user_id}&limit={limit}"
+            resp = requests.get(url, headers=self._headers(), timeout=20)
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def architect_metrics(self, user_id: str) -> dict:
+        try:
+            url = f"{self.base_url}/architect/metrics?user_id={user_id}"
+            resp = requests.get(url, headers=self._headers(), timeout=20)
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
