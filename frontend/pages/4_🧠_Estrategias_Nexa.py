@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 from utils.api import NexaAPIClient
-from utils.ui import load_css, section_header
+from utils.ui import load_css, section_header, render_sidebar_nav, render_skeleton
 
 st.set_page_config(page_title="Estratégias Nexa", page_icon="🧠", layout="wide")
 load_css()
@@ -277,18 +277,24 @@ def main():
     _auth_guard()
     user_id = _get_user_ctx()
 
+    with st.sidebar:
+        render_sidebar_nav(username=st.session_state.get("username") or user_id, current="strategy")
+
     st.markdown(
         """
-        <div class="glass-card" style="background:linear-gradient(135deg,rgba(99,102,241,0.16),rgba(139,92,246,0.10));margin-bottom:1rem;">
-          <p style="color:#a5b4fc;font-size:0.78rem;font-weight:700;letter-spacing:0.08em;margin-bottom:4px;">PAINEL PREMIUM</p>
+        <div class="hero-banner">
+          <p class="hero-kicker">PAINEL PREMIUM</p>
           <h1 style="margin:0;">🧠 Estratégias Nexa</h1>
-          <p style="color:#94a3b8;font-size:0.9rem;margin-top:6px;">
+          <p class="hero-sub">
             Optimizer, Architect, Fiscal Intelligence, Peers e Notificações em tempo real com API real.
           </p>
         </div>
         """,
         unsafe_allow_html=True,
     )
+    loading_ph = st.empty()
+    with loading_ph.container():
+        render_skeleton(4)
 
     tabs = st.tabs([
         "💳 Optimizer",
@@ -305,6 +311,7 @@ def main():
         tab_fiscal(user_id)
     with tabs[3]:
         tab_peers_notifications(user_id)
+    loading_ph.empty()
 
 
 if __name__ == "__main__":

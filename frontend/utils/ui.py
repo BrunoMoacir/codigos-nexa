@@ -1,6 +1,17 @@
 import streamlit as st
 import base64
 
+DESIGN_TOKENS = {
+    "primary": "#6366f1",
+    "secondary": "#8b5cf6",
+    "success": "#10b981",
+    "warning": "#f59e0b",
+    "danger": "#ef4444",
+    "text_main": "#e2e8f0",
+    "text_muted": "#94a3b8",
+    "surface": "rgba(15, 23, 42, 0.46)",
+}
+
 
 def load_css():
     """
@@ -307,6 +318,27 @@ def load_css():
         font-size: 0.8rem;
         line-height: 1.5;
     }
+
+    /* ── Skeleton loading ─────────────────────────────────────── */
+    @keyframes shimmer {
+        0% { background-position: -400px 0; }
+        100% { background-position: 400px 0; }
+    }
+    .skeleton-line {
+        height: 12px;
+        border-radius: 8px;
+        background: linear-gradient(90deg, rgba(148,163,184,0.16), rgba(148,163,184,0.35), rgba(148,163,184,0.16));
+        background-size: 800px 100%;
+        animation: shimmer 1.4s infinite linear;
+        margin-bottom: 10px;
+    }
+    .skeleton-card {
+        background: rgba(15, 23, 42, 0.5);
+        border: 1px solid rgba(148,163,184,0.18);
+        border-radius: 12px;
+        padding: 14px;
+        margin-bottom: 10px;
+    }
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
@@ -334,3 +366,30 @@ def section_header(icon: str, title: str) -> None:
 
 def badge(text: str, color: str = "purple") -> str:
     return f'<span class="badge badge-{color}">{text}</span>'
+
+
+def render_sidebar_nav(username: str, current: str):
+    st.markdown(f"""
+    <div style="padding:1rem 0.5rem 0.5rem 0.5rem;">
+        <div style="font-size:0.7rem;color:#475569;letter-spacing:0.1em;margin-bottom:4px;">CONTA</div>
+        <div style="font-weight:700;color:#e2e8f0;font-size:1rem;">@{username}</div>
+    </div>
+    <hr style="border-color:rgba(99,102,241,0.15);margin:0.4rem 0;">
+    <div style="font-size:0.68rem;color:#64748b;letter-spacing:0.08em;margin-bottom:8px;">NAVEGAÇÃO</div>
+    """, unsafe_allow_html=True)
+    if current == "home":
+        st.page_link("app.py", label="🏠 Início", disabled=True)
+    else:
+        st.page_link("app.py", label="🏠 Início")
+    st.page_link("pages/2_📊_Meu_Dinheiro.py", label="📊 Meu Dinheiro", disabled=current == "money")
+    st.page_link("pages/4_🧠_Estrategias_Nexa.py", label="🧠 Estratégias", disabled=current == "strategy")
+    st.page_link("pages/3_🔗_Conexoes.py", label="🔗 Conexões", disabled=current == "connections")
+    st.page_link("pages/1_💬_Chat_Inteligente.py", label="💬 Chat", disabled=current == "chat")
+
+
+def render_skeleton(lines: int = 4):
+    st.markdown('<div class="skeleton-card">', unsafe_allow_html=True)
+    for i in range(lines):
+        width = 95 - (i % 3) * 15
+        st.markdown(f'<div class="skeleton-line" style="width:{width}%;"></div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)

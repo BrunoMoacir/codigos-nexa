@@ -1,6 +1,6 @@
 import streamlit as st
 import time
-from utils.ui import load_css
+from utils.ui import load_css, render_sidebar_nav
 from utils.api import NexaAPIClient
 import streamlit.components.v1 as components
 
@@ -22,25 +22,16 @@ user_id = st.session_state.get("user_id")
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown(f"""
-    <div style="padding:1rem 0.5rem 0.5rem 0.5rem;">
-        <div style="font-size:0.7rem;color:#475569;letter-spacing:0.1em;margin-bottom:4px;">CONTA</div>
-        <div style="font-weight:700;color:#e2e8f0;font-size:1rem;">@{st.session_state.username}</div>
-    </div>
-    <hr style="border-color:rgba(99,102,241,0.15);margin:0.4rem 0 0.8rem 0;">
-    """, unsafe_allow_html=True)
-
-    if st.button("← Voltar ao Início", use_container_width=True):
-        st.switch_page("app.py")
+    render_sidebar_nav(username=st.session_state.username, current="connections")
 
 # ── Header ───────────────────────────────────────────────────────────────────
 st.markdown("""
-<div style="margin-bottom:2rem; text-align: center;">
-  <p style="color:#10b981;font-size:0.78rem;font-weight:600;letter-spacing:0.08em;margin-bottom:4px;">
+<div class="hero-banner" style="text-align:center;">
+  <p class="hero-kicker" style="color:#34d399;">
     OPEN FINANCE
   </p>
   <h1 style="margin:0; font-size:2.5rem;">🔗 Suas Conexões</h1>
-  <p style="color:#64748b;font-size:0.95rem;margin-top:6px; max-width: 500px; margin-left: auto; margin-right: auto;">
+  <p class="hero-sub" style="max-width: 500px; margin-left: auto; margin-right: auto;">
     Conecte suas contas bancárias de forma segura para alimentar a inteligência financeira do Nexa.
   </p>
 </div>

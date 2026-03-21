@@ -1,6 +1,6 @@
 import streamlit as st
 import time
-from utils.ui import load_css, section_header, badge
+from utils.ui import load_css, section_header, badge, render_sidebar_nav
 from utils.api import NexaAPIClient
 
 # ── Auth guard ────────────────────────────────────────────────────────────────
@@ -29,16 +29,7 @@ if "total_tools" not in st.session_state:
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown(f"""
-    <div style="padding:1rem 0.5rem 0.5rem 0.5rem;">
-        <div style="font-size:0.7rem;color:#475569;letter-spacing:0.1em;margin-bottom:4px;">CONTA</div>
-        <div style="font-weight:700;color:#e2e8f0;font-size:1rem;">@{user_id}</div>
-    </div>
-    <hr style="border-color:rgba(99,102,241,0.15);margin:0.4rem 0 0.8rem 0;">
-    """, unsafe_allow_html=True)
-
-    if st.button("← Voltar ao Início", use_container_width=True):
-        st.switch_page("app.py")
+    render_sidebar_nav(username=user_id, current="chat")
 
     st.markdown("---")
 
