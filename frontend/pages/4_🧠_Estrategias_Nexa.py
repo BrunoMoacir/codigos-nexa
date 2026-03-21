@@ -36,6 +36,26 @@ def _kpi_cards(metrics: list[tuple[str, str, str]]):
         cols[idx].metric(label, value, help=help_text)
 
 
+def _pretty_alert(alert: dict, idx: int):
+    level = str(alert.get("level", "INFO")).upper()
+    color = "#ef4444" if level == "CRITICAL" else "#f59e0b" if level == "WARNING" else "#6366f1"
+    icon = "🔴" if level == "CRITICAL" else "🟡" if level == "WARNING" else "🔵"
+    title = alert.get("title", "Alerta")
+    msg = alert.get("message", "")
+    st.markdown(
+        f"""
+        <div class="glass-card" style="padding:14px 16px; margin-bottom:8px; border-left:4px solid {color};">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+            <div style="font-weight:700;color:#e2e8f0;">{icon} {idx}. {title}</div>
+            <span class="badge" style="background:{color}22;color:{color};border:1px solid {color}55;">{level}</span>
+          </div>
+          <div style="color:#94a3b8;font-size:0.82rem;margin-top:6px;line-height:1.5;">{msg}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def tab_optimizer(user_id: str):
     section_header("💳", "Optimizer de Cartões")
     st.caption("Carteira ideal, promoções e custo de oportunidade com seus dados reais.")
@@ -49,6 +69,10 @@ def tab_optimizer(user_id: str):
     portfolio_res = api.get_optimizer_portfolio(user_id=user_id, max_cards=max_cards, monthly_income=monthly_income)
     if portfolio_res.get("success"):
         data = portfolio_res["data"]
+        st.markdown(
+            f"<div style='margin-bottom:8px;'>{data.get('explanation','')}</div>",
+            unsafe_allow_html=True,
+        )
         _kpi_cards([
             ("Retorno anual", f"R$ {data.get('total_annual_return', 0):,.2f}", "Retorno bruto anual"),
             ("Custo anualidades", f"R$ {data.get('total_annuity_cost', 0):,.2f}", "Soma das anuidades efetivas"),
@@ -57,6 +81,12 @@ def tab_optimizer(user_id: str):
         cards = data.get("cards") or []
         if cards:
             df_cards = pd.DataFrame(cards)
+            if "monthly_spend_directed" in df_cards.columns:
+                df_cards["monthly_spend_directed"] = df_cards["monthly_spend_directed"].map(lambda x: f"R$ {float(x):,.2f}")
+            if "annual_return_from_this_card" in df_cards.columns:
+                df_cards["annual_return_from_this_card"] = df_cards["annual_return_from_this_card"].map(lambda x: f"R$ {float(x):,.2f}")
+            if "net_annual" in df_cards.columns:
+                df_cards["net_annual"] = df_cards["net_annual"].map(lambda x: f"R$ {float(x):,.2f}")
             st.dataframe(df_cards, use_container_width=True, hide_index=True)
         else:
             st.info("Sem composição de cartões para exibir.")
@@ -128,6 +158,13 @@ def tab_architect(user_id: str):
         if sim.get("success"):
             data = sim["data"]
             st.success("Simulação concluída.")
+            with st.expander("Resumo estratégico", expanded=True):
+                st.markdown(
+                    f"""
+                    **Recomendação:** `{data.get('recommended_strategy', '-')}`  
+                    **Justificativa:** {data.get('justification', 'Sem justificativa detalhada no payload.')}
+                    """,
+                )
             _kpi_cards([
                 ("Estratégia recomendada", str(data.get("recommended_strategy", "-")), "Melhor estratégia pelo motor"),
                 ("Confiança", f"{(data.get('confidence_score') or 0)*100:.1f}%", "Nível de confiança da recomendação"),
@@ -181,7 +218,14 @@ def tab_fiscal(user_id: str):
 
     if rep.get("success"):
         st.markdown("#### Relatório Fiscal")
-        st.json(rep["data"])
+        report_data = rep["data"] or {}
+        summary = report_data.get("summary", {}) if isinstance(report_data, dict) else {}
+        if summary:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Receita", f"R$ {float(summary.get('total_income', 0) or 0):,.2f}")
+            c2.metric("Despesa", f"R$ {float(summary.get('total_expenses', 0) or 0):,.2f}")
+            c3.metric("Resultado", f"R$ {float(summary.get('net_result', 0) or 0):,.2f}")
+        st.json(report_data)
     else:
         st.warning(f"Relatório indisponível: {rep.get('error', 'erro')}")
 
@@ -204,7 +248,13 @@ def tab_peers_notifications(user_id: str):
         cmp_res = api.get_peer_comparison(user_id=user_id, monthly_income=income, history_months=history_months)
         st.markdown("#### Benchmark com pares")
         if cmp_res.get("success"):
-            st.json(cmp_res["data"])
+            d = cmp_res["data"] or {}
+            if isinstance(d, dict):
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Seu score", d.get("user_score", "—"))
+                c2.metric("Média da faixa", d.get("peer_avg_score", "—"))
+                c3.metric("Diferença", d.get("score_delta", "—"))
+            st.json(d)
         else:
             st.warning(f"Benchmark indisponível: {cmp_res.get('error', 'erro')}")
 
@@ -216,9 +266,7 @@ def tab_peers_notifications(user_id: str):
             alerts = data.get("alerts", []) or []
             if alerts:
                 for i, alert in enumerate(alerts[:10], 1):
-                    st.markdown(f"**{i}. {alert.get('title', 'Alerta')}**")
-                    if alert.get("message"):
-                        st.caption(alert["message"])
+                    _pretty_alert(alert, i)
             else:
                 st.info("Sem alertas críticos no momento.")
         else:

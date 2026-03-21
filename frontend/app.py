@@ -145,80 +145,74 @@ def home_screen():
     display_name = display_name.title() if display_name else ""
 
     st.markdown(f"""
-    <div style="margin-bottom:1.5rem;">
-        <p style="color:#6366f1;font-size:0.85rem;font-weight:600;letter-spacing:0.06em;margin-bottom:4px;">
-            NEXA CENTRAL
-        </p>
-        <h1 style="margin:0; font-size:2rem;">{saudacao}{', ' + display_name if display_name else ''} 👋</h1>
-        <p style="color:#64748b;font-size:0.9rem;margin-top:6px;">
-            Escolha uma seção abaixo para começar.
-        </p>
+    <div class="hero-banner">
+      <div class="hero-kicker">NEXA CENTRAL</div>
+      <h1 style="margin:0;">{saudacao}{', ' + display_name if display_name else ''} 👋</h1>
+      <p class="hero-sub">Seu cockpit financeiro completo: visão diária, conexões bancárias e estratégia avançada.</p>
     </div>
     """, unsafe_allow_html=True)
 
-    # Cards de navegação
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("""
-        <a href="/Chat_Inteligente" target="_self" style="text-decoration:none;">
-          <div class="glass-card" style="cursor:pointer; background:linear-gradient(135deg,rgba(99,102,241,0.12),rgba(139,92,246,0.08));">
-            <div style="font-size:2.2rem;margin-bottom:0.6rem;">💬</div>
-            <div style="font-weight:700;font-size:1.05rem;color:#e2e8f0;">Chat Inteligente</div>
-            <div style="color:#64748b;font-size:0.82rem;margin-top:6px;line-height:1.5;">
-              Converse com seu agente financeiro. Ele conhece seu histórico completo e usa 8 ferramentas analíticas.
-            </div>
-            <div style="margin-top:12px;">
-              <span class="badge badge-purple">LangGraph IA</span>
-            </div>
-          </div>
-        </a>
-        """, unsafe_allow_html=True)
-
-    with col2:
+    section_header("🧭", "Módulos principais")
+    c1, c2 = st.columns(2, gap="large")
+    with c1:
         st.markdown("""
         <a href="/Meu_Dinheiro" target="_self" style="text-decoration:none;">
-          <div class="glass-card" style="cursor:pointer; background:linear-gradient(135deg,rgba(16,185,129,0.1),rgba(5,150,105,0.06));">
-            <div style="font-size:2.2rem;margin-bottom:0.6rem;">📊</div>
-            <div style="font-weight:700;font-size:1.05rem;color:#e2e8f0;">Meu Dinheiro</div>
-            <div style="color:#64748b;font-size:0.82rem;margin-top:6px;line-height:1.5;">
-              Dashboard financeiro completo com KPIs, regra 50/30/20 e progresso das suas metas.
-            </div>
-            <div style="margin-top:12px;">
-              <span class="badge badge-green">Dados Reais</span>
-            </div>
+          <div class="nav-tile">
+            <div style="font-size:1.8rem;">📊</div>
+            <div class="nav-tile-title">Meu Dinheiro</div>
+            <div class="nav-tile-desc">KPIs, cashflow, regra 50/30/20, metas e operações em tempo real.</div>
+            <div style="margin-top:10px;"><span class="badge badge-green">Dados Reais</span></div>
+          </div>
+        </a>
+        """, unsafe_allow_html=True)
+    with c2:
+        st.markdown("""
+        <a href="/Estrategias_Nexa" target="_self" style="text-decoration:none;">
+          <div class="nav-tile">
+            <div style="font-size:1.8rem;">🧠</div>
+            <div class="nav-tile-title">Estratégias Nexa</div>
+            <div class="nav-tile-desc">Optimizer, Architect, Fiscal Intelligence, peers e alertas de ação.</div>
+            <div style="margin-top:10px;"><span class="badge badge-purple">Premium</span></div>
           </div>
         </a>
         """, unsafe_allow_html=True)
 
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-
-    st.markdown("""
-    <a href="/Estrategias_Nexa" target="_self" style="text-decoration:none;">
-      <div class="glass-card" style="cursor:pointer; background:linear-gradient(135deg,rgba(168,85,247,0.14),rgba(99,102,241,0.10));">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-          <div>
-            <div style="font-size:2rem;margin-bottom:0.4rem;">🧠</div>
-            <div style="font-weight:700;font-size:1.1rem;color:#e2e8f0;">Estratégias Nexa</div>
-            <div style="color:#94a3b8;font-size:0.84rem;margin-top:6px;line-height:1.5;">
-              Hub avançado com Optimizer de cartões, Architect de conquistas, Fiscal Intelligence, comparação com peers e alertas inteligentes.
-            </div>
+    c3, c4 = st.columns(2, gap="large")
+    with c3:
+        st.markdown("""
+        <a href="/Conexoes" target="_self" style="text-decoration:none;">
+          <div class="nav-tile">
+            <div style="font-size:1.8rem;">🔗</div>
+            <div class="nav-tile-title">Conexões Open Finance</div>
+            <div class="nav-tile-desc">Conecte bancos reais via Pluggy e sincronize transações com 1 clique.</div>
+            <div style="margin-top:10px;"><span class="badge badge-yellow">Pluggy</span></div>
           </div>
-          <div>
-            <span class="badge badge-purple">Premium</span>
+        </a>
+        """, unsafe_allow_html=True)
+    with c4:
+        st.markdown("""
+        <a href="/Chat_Inteligente" target="_self" style="text-decoration:none;">
+          <div class="nav-tile">
+            <div style="font-size:1.8rem;">💬</div>
+            <div class="nav-tile-title">Chat Inteligente</div>
+            <div class="nav-tile-desc">Assistente financeiro com ferramentas analíticas e contexto da sua conta.</div>
+            <div style="margin-top:10px;"><span class="badge badge-purple">LangGraph IA</span></div>
           </div>
-        </div>
-      </div>
-    </a>
-    """, unsafe_allow_html=True)
+        </a>
+        """, unsafe_allow_html=True)
 
-    # Rodapé do card
+    section_header("⚡", "Acesso rápido")
+    q1, q2, q3 = st.columns(3)
+    q1.metric("Modo", "Teste Real", delta="sem mock")
+    q2.metric("Fonte", "Open Finance", delta="Pluggy integrado")
+    q3.metric("Cobertura", "Módulos ativos", delta="Dashboard + Estratégias")
+
     st.markdown("""
     <div class="glass-card" style="background:rgba(99,102,241,0.05); border-style:dashed; padding:16px 24px;">
-        <p style="margin:0; font-size:0.8rem; color:#475569; text-align:center;">
-            💡 <strong style="color:#6366f1">Dica</strong>: 
-            Acesse o Chat e pergunte <em>"Como está minha saúde financeira?"</em> para uma análise completa.
-        </p>
+      <p style="margin:0; font-size:0.82rem; color:#94a3b8; text-align:center;">
+        💡 Dica: abra <strong style="color:#c7d2fe;">Meu Dinheiro</strong> para validar consistência dos dados e depois use
+        <strong style="color:#c7d2fe;">Estratégias Nexa</strong> para recomendações acionáveis.
+      </p>
     </div>
     """, unsafe_allow_html=True)
 

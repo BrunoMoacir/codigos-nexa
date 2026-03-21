@@ -260,6 +260,53 @@ def load_css():
     }
     .section-header .icon { font-size: 1.4rem; }
     .section-header .title { font-size: 1.1rem; font-weight: 600; color: #e2e8f0; }
+
+    /* ── Hero banners ────────────────────────────────────────── */
+    .hero-banner {
+        background: linear-gradient(135deg, rgba(99,102,241,0.16), rgba(139,92,246,0.10));
+        border: 1px solid rgba(129, 140, 248, 0.35);
+        border-radius: 18px;
+        padding: 22px 24px;
+        margin-bottom: 14px;
+    }
+    .hero-kicker {
+        color: #a5b4fc;
+        font-size: 0.74rem;
+        font-weight: 700;
+        letter-spacing: 0.09em;
+        margin-bottom: 4px;
+    }
+    .hero-sub {
+        color: #94a3b8;
+        font-size: 0.88rem;
+        margin-top: 6px;
+    }
+
+    /* ── Navigation tiles ────────────────────────────────────── */
+    .nav-tile {
+        background: rgba(15, 23, 42, 0.46);
+        border: 1px solid rgba(148,163,184,0.22);
+        border-radius: 14px;
+        padding: 18px 20px;
+        transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+        min-height: 162px;
+    }
+    .nav-tile:hover {
+        transform: translateY(-2px);
+        border-color: rgba(129,140,248,0.58);
+        box-shadow: 0 8px 30px rgba(99,102,241,0.18);
+    }
+    .nav-tile-title {
+        font-weight: 700;
+        color: #e2e8f0;
+        font-size: 1rem;
+        margin-bottom: 6px;
+    }
+    .nav-tile-desc {
+        color: #94a3b8;
+        font-size: 0.8rem;
+        line-height: 1.5;
+    }
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
