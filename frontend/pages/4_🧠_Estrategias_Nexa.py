@@ -1,15 +1,17 @@
 import streamlit as st
 import pandas as pd
 
-from utils.api import APIClient
+from utils.api import NexaAPIClient
+from utils.ui import load_css, section_header
 
 st.set_page_config(page_title="Estratégias Nexa", page_icon="🧠", layout="wide")
+load_css()
 
-api = APIClient()
+api = NexaAPIClient()
 
 
 def _auth_guard():
-    if not st.session_state.get("token"):
+    if not st.session_state.get("jwt_token"):
         st.warning("Faça login para acessar as estratégias avançadas.")
         st.stop()
 
@@ -35,10 +37,10 @@ def _kpi_cards(metrics: list[tuple[str, str, str]]):
 
 
 def tab_optimizer(user_id: str):
-    st.subheader("💳 Optimizer de Cartões")
+    section_header("💳", "Optimizer de Cartões")
     st.caption("Carteira ideal, promoções e custo de oportunidade com seus dados reais.")
 
-    c1, c2 = st.columns([1, 1])
+    c1, c2 = st.columns([1, 1], gap="large")
     with c1:
         monthly_income = st.number_input("Renda mensal (R$)", min_value=0.0, value=10000.0, step=500.0)
     with c2:
@@ -61,16 +63,16 @@ def tab_optimizer(user_id: str):
     else:
         st.error(f"Falha no portfólio: {portfolio_res.get('error', 'erro desconhecido')}")
 
-    st.markdown("---")
-    st.markdown("#### 🎯 Custo de Oportunidade")
+    st.divider()
+    st.markdown("### 🎯 Custo de Oportunidade")
     cards_res = api.get_optimizer_cards()
     if cards_res.get("success"):
         card_options = cards_res.get("data", {}).get("cards", []) or []
         if card_options:
             card_map = {f"{c.get('name', c.get('card_id'))} ({c.get('card_id')})": c.get("card_id") for c in card_options}
-            selected_label = st.selectbox("Seu cartão atual", list(card_map.keys()))
+            selected_label = st.selectbox("Seu cartão atual", list(card_map.keys()), key="opt_current_card")
             current_card_id = card_map[selected_label]
-            months = st.slider("Janela de análise (meses)", min_value=1, max_value=12, value=3)
+            months = st.slider("Janela de análise (meses)", min_value=1, max_value=12, value=3, key="opt_months")
             opp = api.get_optimizer_opportunity_cost(user_id=user_id, current_card_id=current_card_id, months=months)
             if opp.get("success"):
                 d = opp["data"]
@@ -92,15 +94,15 @@ def tab_optimizer(user_id: str):
     if promos.get("success"):
         promotions = promos.get("data", {}).get("promotions", []) or []
         if promotions:
-            st.markdown("#### 🔥 Promoções Ativas")
+            st.markdown("### 🔥 Promoções Ativas")
             st.dataframe(pd.DataFrame(promotions), use_container_width=True, hide_index=True)
 
 
 def tab_architect(user_id: str):
-    st.subheader("🏗️ Architect de Conquistas")
+    section_header("🏗️", "Architect de Conquistas")
     st.caption("Simule financiamento, consórcio e poupar/investir com comparação estratégica.")
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3 = st.columns(3, gap="large")
     with c1:
         target_amount = st.number_input("Valor do objetivo (R$)", min_value=1000.0, value=120000.0, step=1000.0)
     with c2:
@@ -108,8 +110,8 @@ def tab_architect(user_id: str):
     with c3:
         financing_months = st.selectbox("Prazo financiamento (meses)", [24, 36, 48, 60, 72, 84], index=2)
 
-    risk_profile = st.selectbox("Perfil de risco", ["conservador", "moderado", "agressivo"], index=1)
-    asset_type = st.selectbox("Tipo de bem", ["IMOVEL", "VEICULO", "REFORMA", "VIAGEM", "OUTRO"], index=1)
+    risk_profile = st.selectbox("Perfil de risco", ["conservador", "moderado", "agressivo"], index=1, key="arch_risk")
+    asset_type = st.selectbox("Tipo de bem", ["IMOVEL", "VEICULO", "REFORMA", "VIAGEM", "OUTRO"], index=1, key="arch_asset")
 
     if st.button("Simular estratégia", type="primary"):
         payload = {
@@ -135,11 +137,11 @@ def tab_architect(user_id: str):
         else:
             st.error(f"Erro na simulação: {sim.get('error', 'desconhecido')}")
 
-    st.markdown("---")
+    st.divider()
     history = api.architect_list_simulations(user_id=user_id, limit=8)
     metrics = api.architect_metrics(user_id=user_id)
 
-    c4, c5 = st.columns([2, 1])
+    c4, c5 = st.columns([2, 1], gap="large")
     with c4:
         st.markdown("#### Histórico recente")
         if history.get("success"):
@@ -164,10 +166,10 @@ def tab_architect(user_id: str):
 
 
 def tab_fiscal(user_id: str):
-    st.subheader("🧾 Fiscal Intelligence")
+    section_header("🧾", "Fiscal Intelligence")
     st.caption("Resumo fiscal e uso misto PF/PJ com dados processados da sua base.")
 
-    c1, c2 = st.columns(2)
+    c1, c2 = st.columns(2, gap="large")
     with c1:
         year = st.number_input("Ano", min_value=2020, max_value=2100, value=2026, step=1)
     with c2:
@@ -191,13 +193,13 @@ def tab_fiscal(user_id: str):
 
 
 def tab_peers_notifications(user_id: str):
-    st.subheader("👥 Peers & Notificações")
+    section_header("👥", "Peers & Notificações")
     st.caption("Compare seu padrão com pares e receba ações priorizadas.")
 
     income = st.number_input("Renda mensal para benchmark (R$)", min_value=0.0, value=10000.0, step=500.0)
     history_months = st.slider("Histórico (meses)", min_value=1, max_value=12, value=3)
 
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2, gap="large")
     with col1:
         cmp_res = api.get_peer_comparison(user_id=user_id, monthly_income=income, history_months=history_months)
         st.markdown("#### Benchmark com pares")
@@ -227,10 +229,17 @@ def main():
     _auth_guard()
     user_id = _get_user_ctx()
 
-    st.title("🧠 Estratégias Nexa")
     st.markdown(
-        "Painel premium com **Optimizer**, **Architect**, **Fiscal Intelligence**, "
-        "**Peers** e **Notificações** usando sua API real."
+        """
+        <div class="glass-card" style="background:linear-gradient(135deg,rgba(99,102,241,0.16),rgba(139,92,246,0.10));margin-bottom:1rem;">
+          <p style="color:#a5b4fc;font-size:0.78rem;font-weight:700;letter-spacing:0.08em;margin-bottom:4px;">PAINEL PREMIUM</p>
+          <h1 style="margin:0;">🧠 Estratégias Nexa</h1>
+          <p style="color:#94a3b8;font-size:0.9rem;margin-top:6px;">
+            Optimizer, Architect, Fiscal Intelligence, Peers e Notificações em tempo real com API real.
+          </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
     tabs = st.tabs([

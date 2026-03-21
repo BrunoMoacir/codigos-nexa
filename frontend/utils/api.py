@@ -306,3 +306,7 @@ class NexaAPIClient:
             return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+
+# Backward compatibility with older pages/imports.
+APIClient = NexaAPIClient

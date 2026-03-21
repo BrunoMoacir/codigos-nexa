@@ -191,6 +191,27 @@ def home_screen():
         </a>
         """, unsafe_allow_html=True)
 
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+    st.markdown("""
+    <a href="/Estrategias_Nexa" target="_self" style="text-decoration:none;">
+      <div class="glass-card" style="cursor:pointer; background:linear-gradient(135deg,rgba(168,85,247,0.14),rgba(99,102,241,0.10));">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div>
+            <div style="font-size:2rem;margin-bottom:0.4rem;">🧠</div>
+            <div style="font-weight:700;font-size:1.1rem;color:#e2e8f0;">Estratégias Nexa</div>
+            <div style="color:#94a3b8;font-size:0.84rem;margin-top:6px;line-height:1.5;">
+              Hub avançado com Optimizer de cartões, Architect de conquistas, Fiscal Intelligence, comparação com peers e alertas inteligentes.
+            </div>
+          </div>
+          <div>
+            <span class="badge badge-purple">Premium</span>
+          </div>
+        </div>
+      </div>
+    </a>
+    """, unsafe_allow_html=True)
+
     # Rodapé do card
     st.markdown("""
     <div class="glass-card" style="background:rgba(99,102,241,0.05); border-style:dashed; padding:16px 24px;">

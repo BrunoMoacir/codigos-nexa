@@ -110,7 +110,8 @@ def load_css():
 
     /* ── Inputs ─────────────────────────────────────────────── */
     .stTextInput > div > div > input,
-    .stNumberInput > div > div > input {
+    .stNumberInput > div > div > input,
+    [data-baseweb="select"] > div {
         border-radius: 10px !important;
         border: 1px solid rgba(99, 102, 241, 0.25) !important;
         background: rgba(15, 23, 42, 0.8) !important;
@@ -122,6 +123,47 @@ def load_css():
     .stNumberInput > div > div > input:focus {
         border-color: #6366f1 !important;
         box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25) !important;
+    }
+
+    /* ── Tabs ───────────────────────────────────────────────── */
+    [data-testid="stTabs"] button[role="tab"] {
+        border-radius: 10px !important;
+        border: 1px solid rgba(99, 102, 241, 0.2) !important;
+        background: rgba(15, 23, 42, 0.45) !important;
+        color: #cbd5e1 !important;
+        margin-right: 6px !important;
+    }
+    [data-testid="stTabs"] button[aria-selected="true"] {
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.35), rgba(139, 92, 246, 0.25)) !important;
+        color: #f8fafc !important;
+        border-color: rgba(129, 140, 248, 0.6) !important;
+    }
+
+    /* ── Dataframe / Table ─────────────────────────────────── */
+    [data-testid="stDataFrame"] {
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    [data-testid="stTable"] {
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    /* ── Expander ───────────────────────────────────────────── */
+    [data-testid="stExpander"] {
+        border: 1px solid rgba(99, 102, 241, 0.2) !important;
+        border-radius: 12px !important;
+        background: rgba(15, 23, 42, 0.35) !important;
+    }
+
+    /* ── JSON viewer card ───────────────────────────────────── */
+    [data-testid="stJson"] {
+        border: 1px solid rgba(99, 102, 241, 0.2);
+        border-radius: 12px;
+        padding: 6px;
+        background: rgba(2, 6, 23, 0.55);
     }
 
     /* ── Progress bars ──────────────────────────────────────── */
