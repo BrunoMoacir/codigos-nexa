@@ -119,8 +119,19 @@ async def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
     try:
         from app.runner import NexaRunner  # import tardio para evitar custo no startup
 
+        import os
+        from app.core.config import settings
+
         logger.info("architect | user=%s | buscando safe_to_spend da F1", user_id)
-        runner = NexaRunner(mode="dev")
+
+        mode = "prod" if os.getenv("APP_MODE", "dev") == "prod" else "dev"
+        if mode == "prod" and (not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
+            )
+
+        runner = NexaRunner(mode=mode)
         result = runner.run(horizon_days=30)
 
         sts = result.get("safe_to_spend", {})

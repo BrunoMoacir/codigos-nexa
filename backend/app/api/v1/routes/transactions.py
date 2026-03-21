@@ -210,120 +210,90 @@ async def get_user_transactions(
     limit: int = Query(default=200, ge=1, le=1000),
     db: Session = Depends(get_db)
 ) -> dict:
-    """
-    Retorna transações processadas de um usuário com filtros opcionais via SQLAlchemy.
-    """
-    from app.models.transaction import Transaction
+    """Retorna transações processadas de um usuário com filtros opcionais."""
     import polars as pl
-    
+    from app.db.queries import get_transactions_for_user
+
     try:
-        query = db.query(Transaction).filter(Transaction.user_id == user_id)
-        
-        if start_date:
-            from datetime import date as dt_date
-            query = query.filter(Transaction.date >= dt_date.fromisoformat(start_date))
-        if end_date:
-            from datetime import date as dt_date
-            query = query.filter(Transaction.date <= dt_date.fromisoformat(end_date))
-        if category:
-            query = query.filter(func.lower(Transaction.category) == category.lower())
-        if transaction_type:
-            type_filter = "debit" if transaction_type.lower() == "debit" else "credit"
-            if type_filter == "debit":
-                query = query.filter(Transaction.amount < 0)
-            else:
-                query = query.filter(Transaction.amount >= 0)
-                
-        query = query.order_by(Transaction.date.desc()).limit(limit)
-        rows = query.all()
-        
-        serialized = []
-        debit_count = 0
-        credit_count = 0
-        
-        for tx in rows:
-            tx_dict = {
-                "transaction_id": tx.transaction_id,
-                "description": tx.description,
-                "amount": tx.amount,
-                "date": tx.date.isoformat() if tx.date else None,
-                "category": tx.category,
-                "transaction_type": tx.transaction_type,
-                "is_recurring": tx.is_recurring,
-                "is_installment": tx.is_installment,
-                "context_type": tx.context_type,
+        txns = get_transactions_for_user(user_id)
+        if txns.is_empty():
+            serialized = []
+            debit_count = 0
+            credit_count = 0
+        else:
+            # Normalizações esperadas pela API
+            rename = {
+                "predicted_category": "category",
+                "pf_pj_label": "context_type",
+                "transaction_date": "date",
             }
-            if tx.amount and tx.amount < 0:
-                debit_count += 1
-            if tx.amount and tx.amount >= 0:
-                credit_count += 1
-            serialized.append(tx_dict)
-            
-        # Fallback (dev) if empty
-        if not serialized:
-            logger.info("Nenhuma transação no Postgres para %s — usando pipeline dev fallback", user_id)
-            from app.runner import NexaRunner
-            runner_mode = os.getenv("RUNNER_MODE", "dev")
-            result = NexaRunner(mode=runner_mode).run(horizon_days=30)
-            
-            if result.get("status") == "success":
-                txns: pl.DataFrame = result["transactions"]["pf_pj_classified_df"]
-                if not txns.is_empty():
-                    rename = {
-                        "predicted_category": "category",
-                        "pf_pj_label": "context_type",
-                        "transaction_date": "date",
-                    }
-                    for old, new in rename.items():
-                        if old in txns.columns and new not in txns.columns:
-                            txns = txns.rename({old: new})
-                            
-                    if "date" in txns.columns:
-                        txns = txns.with_columns(pl.col("date").cast(pl.Date))
-                        if start_date:
-                            from datetime import date as dt_date
-                            txns = txns.filter(pl.col("date") >= dt_date.fromisoformat(start_date))
-                        if end_date:
-                            from datetime import date as dt_date
-                            txns = txns.filter(pl.col("date") <= dt_date.fromisoformat(end_date))
-                            
-                    if category and "category" in txns.columns:
-                        txns = txns.filter(pl.col("category").str.to_lowercase() == category.lower())
-                        
-                    if transaction_type and "amount" in txns.columns:
-                        if transaction_type.lower() == "debit":
-                            txns = txns.filter(pl.col("amount") < 0)
-                        else:
-                            txns = txns.filter(pl.col("amount") >= 0)
-                            
-                    result_df = txns.head(limit)
-                    
-                    output_cols = [
-                        c for c in (
-                            "transaction_id", "description", "amount", "date",
-                            "category", "transaction_type", "is_recurring", "is_installment", "context_type"
-                        )
-                        if c in result_df.columns
-                    ]
-                    serialized = result_df.select(output_cols).to_dicts()
-                    
-                    for row in serialized:
-                        if "date" in row and hasattr(row["date"], "isoformat"):
-                            row["date"] = row["date"].isoformat()
-                            
-                    if "amount" in result_df.columns:
-                        debit_count = result_df.filter(pl.col("amount") < 0).height
-                        credit_count = result_df.filter(pl.col("amount") >= 0).height
+            for old, new in rename.items():
+                if old in txns.columns and new not in txns.columns:
+                    txns = txns.rename({old: new})
+
+            if "date" in txns.columns:
+                txns = txns.with_columns(pl.col("date").cast(pl.Date))
+                if start_date:
+                    from datetime import date as dt_date
+                    txns = txns.filter(pl.col("date") >= dt_date.fromisoformat(start_date))
+                if end_date:
+                    from datetime import date as dt_date
+                    txns = txns.filter(pl.col("date") <= dt_date.fromisoformat(end_date))
+
+            if category and "category" in txns.columns:
+                txns = txns.filter(pl.col("category").str.to_lowercase() == category.lower())
+
+            if transaction_type and "amount" in txns.columns:
+                if transaction_type.lower() == "debit":
+                    txns = txns.filter(pl.col("amount") < 0)
+                else:
+                    txns = txns.filter(pl.col("amount") >= 0)
+
+            # Ordena desc e limita
+            if "date" in txns.columns:
+                txns = txns.sort("date", descending=True)
+            result_df = txns.head(limit)
+
+            output_cols = [
+                c
+                for c in (
+                    "transaction_id",
+                    "description",
+                    "amount",
+                    "date",
+                    "category",
+                    "transaction_type",
+                    "is_recurring",
+                    "is_installment",
+                    "context_type",
+                )
+                if c in result_df.columns
+            ]
+            serialized = result_df.select(output_cols).to_dicts()
+
+            for row in serialized:
+                if "date" in row and hasattr(row["date"], "isoformat"):
+                    row["date"] = row["date"].isoformat()
+
+            # Contar débito/crédito
+            debit_count = 0
+            credit_count = 0
+            if "amount" in result_df.columns:
+                debit_count = result_df.filter(pl.col("amount") < 0).height
+                credit_count = result_df.filter(pl.col("amount") >= 0).height
 
         if not serialized:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Nenhuma transação encontrada para user_id='{user_id}'.",
             )
-            
+
         logger.info(
             "GET /transactions/%s | total=%d | debit=%d | credit=%d",
-            user_id, len(serialized), debit_count, credit_count,
+            user_id,
+            len(serialized),
+            debit_count,
+            credit_count,
         )
 
         return {
@@ -342,8 +312,8 @@ async def get_user_transactions(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.warning("Erro ao consultar Postgres/Pipeline: %s", exc)
+        logger.warning("Erro ao consultar transações: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao buscar transações: {str(exc)}"
+            detail=f"Erro ao buscar transações: {str(exc)}",
         )

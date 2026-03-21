@@ -146,7 +146,17 @@ async def get_shadow_invoices(
         # WHERE user_id = ? AND date >= now() - interval 90 days
         
         from app.runner import NexaRunner
-        runner = NexaRunner(mode="dev")
+        from app.core.config import settings
+        import os
+
+        mode = "prod" if os.getenv("APP_MODE", "dev") == "prod" else "dev"
+        if mode == "prod" and (not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
+            )
+
+        runner = NexaRunner(mode=mode)
         runner_result = runner.run(horizon_days=days_ahead)
         
         if not runner_result:
@@ -225,7 +235,17 @@ async def get_shadow_invoice_summary(user_id: str, _: str = Depends(get_current_
         logger.info(f"📊 Gerando summary para user_id={user_id}")
         
         from app.runner import NexaRunner
-        runner = NexaRunner(mode="dev")
+        from app.core.config import settings
+        import os
+
+        mode = "prod" if os.getenv("APP_MODE", "dev") == "prod" else "dev"
+        if mode == "prod" and (not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
+            )
+
+        runner = NexaRunner(mode=mode)
         runner_result = runner.run(horizon_days=30)
         
         shadow_data = runner_result.get("shadow_invoices", {})

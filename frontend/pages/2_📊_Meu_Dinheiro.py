@@ -2,7 +2,14 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-from utils.ui import load_css, kpi_card, section_header, badge
+from utils.ui import (
+    load_css,
+    kpi_card,
+    section_header,
+    badge,
+    render_sidebar_nav,
+    render_skeleton,
+)
 from utils.api import NexaAPIClient
 
 # ── Auth guard ────────────────────────────────────────────────────────────────
@@ -19,39 +26,44 @@ user_id = st.session_state.get("user_id") or st.session_state.get("username", ""
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown(f"""
-    <div style="padding:1rem 0.5rem 0.5rem 0.5rem;">
-        <div style="font-size:0.7rem;color:#475569;letter-spacing:0.1em;margin-bottom:4px;">CONTA</div>
-        <div style="font-weight:700;color:#e2e8f0;font-size:1rem;">@{user_id}</div>
-    </div>
-    <hr style="border-color:rgba(99,102,241,0.15);margin:0.4rem 0;">
-    """, unsafe_allow_html=True)
-
-    if st.button("← Voltar ao Início", use_container_width=True):
-        st.switch_page("app.py")
-
-    st.markdown("---")
+    render_sidebar_nav(username=user_id, current="money")
     if st.button("🔄 Atualizar dados", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("""
-<div style="margin-bottom:1.5rem;">
-  <p style="color:#6366f1;font-size:0.78rem;font-weight:600;letter-spacing:0.08em;margin-bottom:4px;">DASHBOARD FINANCEIRO</p>
+<div class="hero-banner">
+  <p class="hero-kicker">DASHBOARD FINANCEIRO</p>
   <h1 style="margin:0;">📊 Meu Dinheiro</h1>
-  <p style="color:#64748b;font-size:0.88rem;margin-top:6px;">Seus dados financeiros reais, via Open Finance</p>
+  <p class="hero-sub">Seus dados financeiros reais, via Open Finance</p>
 </div>
 """, unsafe_allow_html=True)
 
 # ── Carregar dados da API ─────────────────────────────────────────────────────
+loading_ph = st.empty()
 with st.spinner("⚡ Sincronizando dados via Open Finance…"):
+    with loading_ph.container():
+        render_skeleton(5)
     forecast     = api.get_forecast_summary(user_id)
     income_val   = 10_000.0
+    budget_income_fallback_used = True
     if forecast.get("success"):
-        income_val = forecast["data"].get("financial_health", {}).get("total_income", 10_000.0)
+        raw_income = forecast["data"].get("financial_health", {}).get("total_income", 10_000.0)
+        # O endpoint /budget exige monthly_income > 0
+        if raw_income and float(raw_income) > 0:
+            income_val = float(raw_income)
+            budget_income_fallback_used = False
+        else:
+            income_val = 10_000.0
+            budget_income_fallback_used = True
     budget       = api.get_budget_advice(user_id, monthly_income=income_val)
     goals        = api.get_goals_summary(user_id)
+    transactions = api.get_transactions(user_id, limit=300)
+    alerts       = api.get_alerts(user_id)
+    subs         = api.get_subscriptions(user_id)
+    health_hist  = api.get_health_score_history(user_id, months=6)
+loading_ph.empty()
 
 st.divider()
 
@@ -129,6 +141,28 @@ if forecast.get("success"):
     c8.metric("Nível de Risco", risk,
               delta=f"Burn: {burn_alert}")
 
+    # Executivo: waterfall receita vs gastos
+    section_header("🧮", "Fluxo Executivo")
+    wf = go.Figure(go.Waterfall(
+        name="Fluxo",
+        orientation="v",
+        measure=["relative", "relative", "total"],
+        x=["Renda", "Gastos", "Saldo"],
+        y=[total_income, -abs(total_exp), total_income - abs(total_exp)],
+        connector={"line": {"color": "rgba(148,163,184,0.4)"}},
+        increasing={"marker": {"color": "#10b981"}},
+        decreasing={"marker": {"color": "#ef4444"}},
+        totals={"marker": {"color": "#6366f1"}},
+    ))
+    wf.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(t=10, l=0, r=0, b=0),
+        font=dict(color="#94a3b8"),
+        height=280,
+    )
+    st.plotly_chart(wf, use_container_width=True)
+
 else:
     st.error("⚠️ Não foi possível carregar o Forecast. Veja instruções abaixo ↓")
 
@@ -136,6 +170,14 @@ else:
 #  SEÇÃO 2: Orçamento 50/30/20
 # ══════════════════════════════════════════════════════════════════════════════
 section_header("💰", "Regra 50/30/20")
+
+if budget_income_fallback_used:
+    st.warning(
+        "Atenção: sua renda mensal não foi identificada nas transações de crédito. "
+        "Para calcular o orçamento 50/30/20, usamos renda de referência de **R$ 10.000,00**."
+    )
+else:
+    st.caption(f"Orçamento calculado com renda real detectada: R$ {income_val:,.2f}")
 
 if budget.get("success"):
     b_data = budget["data"]
@@ -342,7 +384,21 @@ if forecast.get("success"):
 
     f_data  = forecast["data"]
     health  = f_data.get("financial_health", {})
-    top_cats = health.get("top_categories", [])
+    top_cats = health.get("top_categories", []) or []
+    if not top_cats and transactions.get("success"):
+        tx_rows = (transactions.get("data", {}) or {}).get("transactions", []) or []
+        if tx_rows:
+            df_tx = pd.DataFrame(tx_rows)
+            if "category" in df_tx.columns:
+                top_cats = (
+                    df_tx["category"]
+                    .fillna("Sem categoria")
+                    .astype(str)
+                    .value_counts()
+                    .head(5)
+                    .index
+                    .tolist()
+                )
     trend    = health.get("trend", "ESTÁVEL")
     burn_r   = health.get("burn_rate_ratio", 0)
     profile  = health.get("profile_type", "EQUILIBRADO")
@@ -386,6 +442,110 @@ if forecast.get("success"):
                 </div>
                 """, unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.info("Ainda não há categorias suficientes para exibir ranking.")
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SEÇÃO 6: Abas Operacionais (sem chat)
+# ══════════════════════════════════════════════════════════════════════════════
+section_header("🧩", "Operações Nexa (API real)")
+
+with st.expander("⚡ Centro de Ações", expanded=False):
+    a1, a2, a3 = st.columns(3)
+    with a1:
+        if st.button("🔄 Sincronizar Pluggy agora", use_container_width=True):
+            sync = api.sync_pluggy_transactions()
+            if sync.get("success"):
+                st.success("Sync concluído com sucesso.")
+            else:
+                st.warning(f"Falha no sync: {sync.get('error')}")
+    with a2:
+        if st.button("🧾 Recalcular orçamento", use_container_width=True):
+            _ = api.get_budget_advice(user_id, monthly_income=income_val)
+            st.success("Orçamento recalculado.")
+    with a3:
+        if st.button("📥 Atualizar transações", use_container_width=True):
+            _ = api.get_transactions(user_id, limit=300)
+            st.success("Transações atualizadas.")
+
+tab_tx, tab_alerts, tab_subs, tab_score = st.tabs([
+    "📜 Transações",
+    "🚨 Alertas",
+    "🔁 Assinaturas",
+    "❤️ Health Score",
+])
+
+with tab_tx:
+    if transactions.get("success"):
+        tx_data = (transactions.get("data", {}) or {})
+        tx_rows = tx_data.get("transactions", []) or []
+        st.caption(f"Total: {tx_data.get('total', 0)} · Débito: {tx_data.get('debit_count', 0)} · Crédito: {tx_data.get('credit_count', 0)}")
+        if tx_rows:
+            df = pd.DataFrame(tx_rows)
+            cols = [c for c in ["date", "description", "amount", "category", "transaction_type", "context_type"] if c in df.columns]
+            st.dataframe(df[cols] if cols else df, use_container_width=True, hide_index=True)
+        else:
+            st.info("Sem transações para mostrar.")
+    else:
+        st.warning(f"Falha ao carregar transações: {transactions.get('error')}")
+
+with tab_alerts:
+    if alerts.get("success"):
+        data = alerts.get("data", {}) or {}
+        rows = data.get("alerts", []) or []
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total", data.get("total_count", 0))
+        c2.metric("Críticos", data.get("critical_count", 0))
+        c3.metric("Warnings", data.get("warning_count", 0))
+        if rows:
+            for a in rows[:8]:
+                lvl = (a.get("level") or "INFO").upper()
+                emoji = "🔴" if lvl == "CRITICAL" else "🟡" if lvl == "WARNING" else "🔵"
+                st.markdown(f"**{emoji} {a.get('title','Alerta')}**  \n{a.get('message','')}")
+        else:
+            st.success("Sem alertas ativos no momento.")
+    else:
+        st.warning(f"Falha ao carregar alertas: {alerts.get('error')}")
+
+with tab_subs:
+    if subs.get("success"):
+        data = subs.get("data", {}) or {}
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Assinaturas", data.get("total_subscriptions", 0))
+        c2.metric("Custo Mensal", f"R$ {float(data.get('total_monthly_cost', 0) or 0):,.2f}")
+        c3.metric("Com alerta", data.get("alerted_count", 0))
+        st.caption(data.get("summary_text", ""))
+        rows = data.get("subscriptions", []) or []
+        if rows:
+            df = pd.DataFrame(rows)
+            cols = [c for c in ["description", "amount", "next_due_date", "confidence"] if c in df.columns]
+            st.dataframe(df[cols] if cols else df, use_container_width=True, hide_index=True)
+    else:
+        st.warning(f"Falha ao carregar assinaturas: {subs.get('error')}")
+
+with tab_score:
+    if health_hist.get("success"):
+        data = health_hist.get("data", {}) or {}
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Score atual", data.get("current_score", "—"))
+        c2.metric("Tendência", data.get("trend", "—"))
+        c3.metric("Qualidade", data.get("data_quality", "—"))
+        hist = data.get("history", []) or []
+        if hist:
+            dfh = pd.DataFrame(hist)
+            x_col = "date"
+            y_col = "score" if "score" in dfh.columns else "health_score"
+            if y_col in dfh.columns:
+                fig_hs = px.line(dfh, x=x_col, y=y_col, markers=True, title="Evolução do Health Score")
+                fig_hs.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    margin=dict(t=40, l=0, r=0, b=0),
+                    font=dict(color="#94a3b8"),
+                )
+                st.plotly_chart(fig_hs, use_container_width=True)
+    else:
+        st.warning(f"Falha ao carregar histórico de score: {health_hist.get('error')}")
 
 # ── Rodapé ────────────────────────────────────────────────────────────────────
 st.markdown("""

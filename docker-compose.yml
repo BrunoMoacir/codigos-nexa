@@ -5,7 +5,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: nexa-backend
     ports:
       - "8000:8000"
     volumes:
@@ -14,19 +13,18 @@ services:
       - ./backend/.env
     environment:
       - APP_MODE=prod
+      - APP_ENV=production
+      - DATABASE_URL=postgresql+psycopg2://nexa_user:nexa_secret@postgres:5432/nexa_db
     restart: unless-stopped
     depends_on:
       - postgres
 
   postgres:
     image: postgres:15-alpine
-    container_name: nexa-postgres
     environment:
       - POSTGRES_USER=nexa_user
       - POSTGRES_PASSWORD=nexa_secret
       - POSTGRES_DB=nexa_db
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped

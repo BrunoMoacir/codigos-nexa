@@ -1,6 +1,17 @@
 import streamlit as st
 import base64
 
+DESIGN_TOKENS = {
+    "primary": "#6366f1",
+    "secondary": "#8b5cf6",
+    "success": "#10b981",
+    "warning": "#f59e0b",
+    "danger": "#ef4444",
+    "text_main": "#e2e8f0",
+    "text_muted": "#94a3b8",
+    "surface": "rgba(15, 23, 42, 0.46)",
+}
+
 
 def load_css():
     """
@@ -110,7 +121,8 @@ def load_css():
 
     /* ── Inputs ─────────────────────────────────────────────── */
     .stTextInput > div > div > input,
-    .stNumberInput > div > div > input {
+    .stNumberInput > div > div > input,
+    [data-baseweb="select"] > div {
         border-radius: 10px !important;
         border: 1px solid rgba(99, 102, 241, 0.25) !important;
         background: rgba(15, 23, 42, 0.8) !important;
@@ -122,6 +134,47 @@ def load_css():
     .stNumberInput > div > div > input:focus {
         border-color: #6366f1 !important;
         box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25) !important;
+    }
+
+    /* ── Tabs ───────────────────────────────────────────────── */
+    [data-testid="stTabs"] button[role="tab"] {
+        border-radius: 10px !important;
+        border: 1px solid rgba(99, 102, 241, 0.2) !important;
+        background: rgba(15, 23, 42, 0.45) !important;
+        color: #cbd5e1 !important;
+        margin-right: 6px !important;
+    }
+    [data-testid="stTabs"] button[aria-selected="true"] {
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.35), rgba(139, 92, 246, 0.25)) !important;
+        color: #f8fafc !important;
+        border-color: rgba(129, 140, 248, 0.6) !important;
+    }
+
+    /* ── Dataframe / Table ─────────────────────────────────── */
+    [data-testid="stDataFrame"] {
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    [data-testid="stTable"] {
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    /* ── Expander ───────────────────────────────────────────── */
+    [data-testid="stExpander"] {
+        border: 1px solid rgba(99, 102, 241, 0.2) !important;
+        border-radius: 12px !important;
+        background: rgba(15, 23, 42, 0.35) !important;
+    }
+
+    /* ── JSON viewer card ───────────────────────────────────── */
+    [data-testid="stJson"] {
+        border: 1px solid rgba(99, 102, 241, 0.2);
+        border-radius: 12px;
+        padding: 6px;
+        background: rgba(2, 6, 23, 0.55);
     }
 
     /* ── Progress bars ──────────────────────────────────────── */
@@ -218,6 +271,74 @@ def load_css():
     }
     .section-header .icon { font-size: 1.4rem; }
     .section-header .title { font-size: 1.1rem; font-weight: 600; color: #e2e8f0; }
+
+    /* ── Hero banners ────────────────────────────────────────── */
+    .hero-banner {
+        background: linear-gradient(135deg, rgba(99,102,241,0.16), rgba(139,92,246,0.10));
+        border: 1px solid rgba(129, 140, 248, 0.35);
+        border-radius: 18px;
+        padding: 22px 24px;
+        margin-bottom: 14px;
+    }
+    .hero-kicker {
+        color: #a5b4fc;
+        font-size: 0.74rem;
+        font-weight: 700;
+        letter-spacing: 0.09em;
+        margin-bottom: 4px;
+    }
+    .hero-sub {
+        color: #94a3b8;
+        font-size: 0.88rem;
+        margin-top: 6px;
+    }
+
+    /* ── Navigation tiles ────────────────────────────────────── */
+    .nav-tile {
+        background: rgba(15, 23, 42, 0.46);
+        border: 1px solid rgba(148,163,184,0.22);
+        border-radius: 14px;
+        padding: 18px 20px;
+        transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+        min-height: 162px;
+    }
+    .nav-tile:hover {
+        transform: translateY(-2px);
+        border-color: rgba(129,140,248,0.58);
+        box-shadow: 0 8px 30px rgba(99,102,241,0.18);
+    }
+    .nav-tile-title {
+        font-weight: 700;
+        color: #e2e8f0;
+        font-size: 1rem;
+        margin-bottom: 6px;
+    }
+    .nav-tile-desc {
+        color: #94a3b8;
+        font-size: 0.8rem;
+        line-height: 1.5;
+    }
+
+    /* ── Skeleton loading ─────────────────────────────────────── */
+    @keyframes shimmer {
+        0% { background-position: -400px 0; }
+        100% { background-position: 400px 0; }
+    }
+    .skeleton-line {
+        height: 12px;
+        border-radius: 8px;
+        background: linear-gradient(90deg, rgba(148,163,184,0.16), rgba(148,163,184,0.35), rgba(148,163,184,0.16));
+        background-size: 800px 100%;
+        animation: shimmer 1.4s infinite linear;
+        margin-bottom: 10px;
+    }
+    .skeleton-card {
+        background: rgba(15, 23, 42, 0.5);
+        border: 1px solid rgba(148,163,184,0.18);
+        border-radius: 12px;
+        padding: 14px;
+        margin-bottom: 10px;
+    }
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
@@ -245,3 +366,30 @@ def section_header(icon: str, title: str) -> None:
 
 def badge(text: str, color: str = "purple") -> str:
     return f'<span class="badge badge-{color}">{text}</span>'
+
+
+def render_sidebar_nav(username: str, current: str):
+    st.markdown(f"""
+    <div style="padding:1rem 0.5rem 0.5rem 0.5rem;">
+        <div style="font-size:0.7rem;color:#475569;letter-spacing:0.1em;margin-bottom:4px;">CONTA</div>
+        <div style="font-weight:700;color:#e2e8f0;font-size:1rem;">@{username}</div>
+    </div>
+    <hr style="border-color:rgba(99,102,241,0.15);margin:0.4rem 0;">
+    <div style="font-size:0.68rem;color:#64748b;letter-spacing:0.08em;margin-bottom:8px;">NAVEGAÇÃO</div>
+    """, unsafe_allow_html=True)
+    if current == "home":
+        st.page_link("app.py", label="🏠 Início", disabled=True)
+    else:
+        st.page_link("app.py", label="🏠 Início")
+    st.page_link("pages/2_📊_Meu_Dinheiro.py", label="📊 Meu Dinheiro", disabled=current == "money")
+    st.page_link("pages/4_🧠_Estrategias_Nexa.py", label="🧠 Estratégias", disabled=current == "strategy")
+    st.page_link("pages/3_🔗_Conexoes.py", label="🔗 Conexões", disabled=current == "connections")
+    st.page_link("pages/1_💬_Chat_Inteligente.py", label="💬 Chat", disabled=current == "chat")
+
+
+def render_skeleton(lines: int = 4):
+    st.markdown('<div class="skeleton-card">', unsafe_allow_html=True)
+    for i in range(lines):
+        width = 95 - (i % 3) * 15
+        st.markdown(f'<div class="skeleton-line" style="width:{width}%;"></div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)

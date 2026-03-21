@@ -1,6 +1,6 @@
 import streamlit as st
 import time
-from utils.ui import load_css
+from utils.ui import load_css, render_sidebar_nav
 from utils.api import NexaAPIClient
 import streamlit.components.v1 as components
 
@@ -13,7 +13,7 @@ if "jwt_token" not in st.session_state or not st.session_state.jwt_token:
 st.set_page_config(
     page_title="Conexões · Nexa",
     page_icon="🔗",
-    layout="centered",
+    layout="wide",
 )
 load_css()
 
@@ -22,25 +22,16 @@ user_id = st.session_state.get("user_id")
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown(f"""
-    <div style="padding:1rem 0.5rem 0.5rem 0.5rem;">
-        <div style="font-size:0.7rem;color:#475569;letter-spacing:0.1em;margin-bottom:4px;">CONTA</div>
-        <div style="font-weight:700;color:#e2e8f0;font-size:1rem;">@{st.session_state.username}</div>
-    </div>
-    <hr style="border-color:rgba(99,102,241,0.15);margin:0.4rem 0 0.8rem 0;">
-    """, unsafe_allow_html=True)
-
-    if st.button("← Voltar ao Início", use_container_width=True):
-        st.switch_page("app.py")
+    render_sidebar_nav(username=st.session_state.username, current="connections")
 
 # ── Header ───────────────────────────────────────────────────────────────────
 st.markdown("""
-<div style="margin-bottom:2rem; text-align: center;">
-  <p style="color:#10b981;font-size:0.78rem;font-weight:600;letter-spacing:0.08em;margin-bottom:4px;">
+<div class="hero-banner" style="text-align:center;">
+  <p class="hero-kicker" style="color:#34d399;">
     OPEN FINANCE
   </p>
   <h1 style="margin:0; font-size:2.5rem;">🔗 Suas Conexões</h1>
-  <p style="color:#64748b;font-size:0.95rem;margin-top:6px; max-width: 500px; margin-left: auto; margin-right: auto;">
+  <p class="hero-sub" style="max-width: 500px; margin-left: auto; margin-right: auto;">
     Conecte suas contas bancárias de forma segura para alimentar a inteligência financeira do Nexa.
   </p>
 </div>
@@ -78,20 +69,25 @@ if not st.session_state.pluggy_token:
                 connector = item.get("connector", {})
                 status_icon = "✅" if item.get("status") == "UPDATED" else "⚠️"
                 st.markdown(f"""
-                <div style="background: rgba(99,102,241,0.08); border-radius: 8px; padding: 12px 16px; margin: 6px 0; border-left: 3px solid #6366f1;">
-                    <strong>{status_icon} {connector.get('name', 'Banco')}</strong> &nbsp;
-                    <span style="color:#94a3b8; font-size:0.85rem;">Última atualização: {item.get('lastUpdatedAt', '—')[:10] if item.get('lastUpdatedAt') else '—'}</span>
+                <div style="background: rgba(99,102,241,0.08); border-radius: 10px; padding: 14px 16px; margin: 8px 0; border-left: 3px solid #6366f1;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+                        <strong>{status_icon} {connector.get('name', 'Banco')}</strong>
+                        <span style="color:#94a3b8; font-size:0.82rem;">Última atualização: {item.get('lastUpdatedAt', '—')[:10] if item.get('lastUpdatedAt') else '—'}</span>
+                    </div>
                 </div>
                 """, unsafe_allow_html=True)
             st.divider()
         else:
             st.info("💡 Nenhuma conta bancária conectada ainda.")
     
-    # ── Botão de Sandbox para testes ─────────────────────────────────
-    st.markdown("#### 🧪 Testes com dados simulados")
-    col1, col2 = st.columns(2)
+    st.markdown("#### ✅ Conectar uma conta")
+
+    col1, col2 = st.columns([1.2, 1])
     with col1:
-        if st.button("🔌 Conectar Banco Real (Widget)", use_container_width=True, type="primary"):
+        st.markdown(
+            "Conecte um **banco real** pelo widget oficial da Pluggy. O Nexa não vê nem armazena suas credenciais."
+        )
+        if st.button("🔌 Conectar Banco (Widget Pluggy)", use_container_width=True, type="primary"):
             with st.spinner("Solicitando token seguro..."):
                 resp = api.create_pluggy_token()
                 if resp.get("success"):
@@ -99,15 +95,44 @@ if not st.session_state.pluggy_token:
                     st.rerun()
                 else:
                     st.error(f"Erro ao gerar token: {resp.get('error')}")
-    with col2:
-        if st.button("🏦 Criar Conta Sandbox (Pluggy Bank)", use_container_width=True):
-            with st.spinner("Criando conta de teste..."):
-                sandbox_resp = api.create_sandbox_item()
-                if sandbox_resp.get("success"):
-                    st.success("✅ Conta Sandbox criada! Recarregando dados...")
-                    st.rerun()
+
+        if st.button("🔄 Sincronizar transações agora", use_container_width=True):
+            with st.spinner("Sincronizando transações reais da Pluggy..."):
+                sync_resp = api.sync_pluggy_transactions()
+                if sync_resp.get("success"):
+                    totals = (sync_resp.get("data") or {}).get("totals", {})
+                    st.success(
+                        f"✅ Sync concluído: {totals.get('saved', 0)} transações salvas "
+                        f"em {totals.get('accounts', 0)} contas."
+                    )
                 else:
-                    st.error(f"Erro: {sandbox_resp.get('error')}")
+                    st.error(f"Erro ao sincronizar: {sync_resp.get('error')}")
+
+    with col2:
+        with st.expander("Sandbox Pluggy (diagnóstico)"):
+            st.caption(
+                "Sandbox é um conector de demonstração da própria Pluggy. A integração é real, "
+                "mas os dados **não** são de um banco real."
+            )
+            perf_level = st.selectbox(
+                "Volume de transações (sandbox)",
+                options=[
+                    ("Padrão (~1x)", 1),
+                    ("Médio (~100x)", 100),
+                    ("Alto (~500x)", 500),
+                    ("Stress (~1000x)", 1000),
+                ],
+                format_func=lambda x: x[0],
+                index=1,
+            )[1]
+            if st.button("🏦 Criar item Sandbox (Pluggy Bank)", use_container_width=True):
+                with st.spinner("Criando item Sandbox na Pluggy..."):
+                    sandbox_resp = api.create_sandbox_item(perf_multiplier=perf_level)
+                    if sandbox_resp.get("success"):
+                        st.success(f"✅ Item Sandbox criado ({perf_level}x)! Recarregando...")
+                        st.rerun()
+                    else:
+                        st.error(f"Erro: {sandbox_resp.get('error')}")
 
 else:
     st.success("✅ Conexão estabelecida com a provedora. Carregando widget...")

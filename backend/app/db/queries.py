@@ -13,16 +13,89 @@ from app.models.health_score import HealthScoreHistory
 logger = logging.getLogger(__name__)
 
 def get_connection():
-    """Conexão fallback para módulos legados do DuckDB."""
+    """Conexão DuckDB (fallback para dev).
+
+    Prioriza DUCKDB_PATH; caso não exista, usa backend/finance.duckdb.
+    """
     import duckdb
     import os
-    db_path = os.getenv("DUCKDB_PATH", "finance.duckdb")
-    return duckdb.connect(db_path)
+    from pathlib import Path
+
+    env_path = os.getenv("DUCKDB_PATH")
+    if env_path and Path(env_path).exists():
+        return duckdb.connect(env_path)
+
+    # Tenta múltiplos caminhos (relativo ao CWD ou absoluto)
+    candidates = [
+        Path("backend/finance.duckdb"),  # relativo
+        Path("finance.duckdb"),  # raiz
+        Path("backend/data/finance.duckdb"),  # alternativo
+    ]
+
+    for cand in candidates:
+        if cand.exists():
+            return duckdb.connect(str(cand.absolute()))
+
+    # Fallback: tenta a partir do arquivo deste módulo
+    module_dir = Path(__file__).resolve().parent
+    repo_root = module_dir.parents[3]
+    for subpath in ["backend/finance.duckdb", "finance.duckdb", "backend/data/finance.duckdb"]:
+        full_path = repo_root / subpath
+        if full_path.exists():
+            return duckdb.connect(str(full_path))
+
+    raise FileNotFoundError("finance.duckdb not found in expected locations")
+
+
+def _get_transactions_for_user_duckdb(user_id: str):
+    import polars as pl
+
+    try:
+        con = get_connection()
+        try:
+            pdf = con.execute(
+                """
+                SELECT
+                  transaction_id,
+                  date,
+                  amount,
+                  description,
+                  category,
+                  is_recurring,
+                  is_installment,
+                  context_type,
+                  context_confidence,
+                  context_override_by_user,
+                  pj_subcategory,
+                  transaction_type
+                FROM transactions_clean
+                WHERE user_id = ?
+                ORDER BY date
+                """,
+                [user_id],
+            ).fetchdf()
+        finally:
+            con.close()
+
+        if pdf is None or pdf.empty:
+            return pl.DataFrame()
+
+        df = pl.from_pandas(pdf)
+        if "date" in df.columns:
+            df = df.with_columns(pl.col("date").cast(pl.Date))
+        return df
+    except Exception as exc:
+        logger.info("DuckDB fallback sem dados/erro user=%s: %s", user_id, exc)
+        return pl.DataFrame()
 
 
 def get_transactions_for_user(user_id: str):
-    """
-    Busca transações limpas via SQLAlchemy do PostgreSQL.
+    """Busca transações do usuário.
+
+    Ordem:
+      1) Postgres (SQLAlchemy)
+      2) DuckDB (backend/finance.duckdb)
+
     Retorna polars.DataFrame.
     """
     import polars as pl
@@ -31,10 +104,15 @@ def get_transactions_for_user(user_id: str):
 
     db = SessionLocal()
     try:
-        transactions = db.query(Transaction).filter(Transaction.user_id == user_id).order_by(Transaction.date).all()
+        transactions = (
+            db.query(Transaction)
+            .filter(Transaction.user_id == user_id)
+            .order_by(Transaction.date)
+            .all()
+        )
         if not transactions:
-            return pl.DataFrame()
-            
+            return _get_transactions_for_user_duckdb(user_id)
+
         data = [
             {
                 "transaction_id": t.transaction_id,
@@ -42,18 +120,20 @@ def get_transactions_for_user(user_id: str):
                 "amount": float(t.amount) if t.amount else 0.0,
                 "description": t.description if t.description else "Sem descrição",
                 "category": t.category if t.category else "outros",
+                "transaction_type": getattr(t, "transaction_type", None),
                 "is_recurring": t.is_recurring,
                 "is_installment": t.is_installment,
                 "context_type": t.context_type,
                 "context_confidence": t.context_confidence,
                 "context_override_by_user": t.context_override_by_user,
-                "pj_subcategory": t.pj_subcategory
-            } for t in transactions
+                "pj_subcategory": t.pj_subcategory,
+            }
+            for t in transactions
         ]
         return pl.DataFrame(data)
     except Exception as exc:
-        logger.warning("get_transactions_for_user | user=%s erro: %s", user_id, exc)
-        return pl.DataFrame()
+        logger.warning("Postgres indisponível, caindo para DuckDB | user=%s erro=%s", user_id, exc)
+        return _get_transactions_for_user_duckdb(user_id)
     finally:
         db.close()
 
@@ -131,6 +211,7 @@ def save_transactions_clean(
             "predicted_category": "category",
             "pf_pj_label": "context_type",
             "pf_pj_confidence": "context_confidence",
+            "transaction_date": "date",
         }
         for old_name, new_name in rename_map.items():
             if old_name in df.columns and new_name not in df.columns:
