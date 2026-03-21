@@ -53,8 +53,11 @@ class PluggyClient:
         if not self.access_token:
             self.authenticate()
 
+        # Alguns endpoints aceitam X-API-KEY (v1) e outros pedem Authorization: Bearer.
+        # Enviamos ambos para compatibilidade.
         return {
-            "X-API-KEY": self.access_token, # Pluggy v1 auth header
+            "X-API-KEY": self.access_token,
+            "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json",
         }
 
@@ -79,16 +82,18 @@ class PluggyClient:
         response.raise_for_status()
         return response.json()
 
-    def create_sandbox_item(self) -> dict:
+    def create_sandbox_item(self, clientUserId: str | None = None) -> dict:
         url = f"{self.BASE_URL}/items"
 
-        payload = {
+        payload: dict = {
             "connectorId": 0,
             "parameters": {
                 "user": "user-ok",
                 "password": "password-ok",
             },
         }
+        if clientUserId:
+            payload["clientUserId"] = clientUserId
 
         response = requests.post(
             url,

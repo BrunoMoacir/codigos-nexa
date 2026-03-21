@@ -105,7 +105,17 @@ async def get_notifications(
         from app.cashflow.burn_rate import BurnRateAnalyzer
         from app.goals.tracker import GoalTracker
 
-        runner = NexaRunner(mode="dev")
+        import os
+        from app.core.config import settings
+
+        mode = "prod" if os.getenv("APP_MODE", "dev") == "prod" else "dev"
+        if mode == "prod" and (not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
+            )
+
+        runner = NexaRunner(mode=mode)
         runner_result = runner.run(horizon_days=30)
 
         transactions_data = runner_result.get("transactions", {})

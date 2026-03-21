@@ -42,10 +42,11 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Status do backend
+    # Status do backend (usa o mesmo host do api.base_url)
+    api_root = api.base_url.rsplit("/api/v1", 1)[0] if "/api/v1" in api.base_url else api.base_url
     try:
         import requests as req
-        r_health = req.get("http://localhost:8000/health", timeout=2)
+        r_health = req.get(f"{api_root}/health", timeout=2)
         backend_ok = r_health.status_code == 200
     except Exception:
         backend_ok = False
@@ -62,7 +63,10 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     if not backend_ok:
-        st.error("Backend offline! Rode:\n```\ncd backend\nuvicorn app.main:app --reload\n```")
+        st.error(
+            "Backend offline! Se estiver em Docker, verifique o container. "
+            "Se estiver local, rode:\n```\ncd backend\nuvicorn app.main:app --reload\n```"
+        )
 
     # Sugestões
     st.markdown("""

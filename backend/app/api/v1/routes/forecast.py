@@ -99,7 +99,21 @@ async def fetch_user_transactions(user_id: str, horizon_days: int = 30):
         from app.core.config import settings
 
         app_mode = os.getenv("APP_MODE", "dev")
-        if app_mode == "dev" or settings.APP_ENV != "production":
+        mode = "prod" if app_mode == "prod" else "dev"
+
+        # Se APP_MODE=prod, usa Pluggy REAL (sem mocks)
+        if mode == "prod":
+            if not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
+                )
+            runner_prod = NexaRunner(mode="prod")
+            result = runner_prod.run(horizon_days=horizon_days)
+            return result
+
+        # Em dev, sem dados reais, permite mock
+        if settings.APP_ENV != "production":
             logger.warning(
                 "⚠️ Sem dados reais para user=%s — usando Pluggy mock (APP_MODE=%s, APP_ENV=%s)",
                 user_id,

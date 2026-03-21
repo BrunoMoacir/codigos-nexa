@@ -1,11 +1,13 @@
+import os
 import requests
 import streamlit as st
 
+
 class NexaAPIClient:
     """Cliente HTTP para a API Nexa."""
-    
-    def __init__(self, base_url: str = "http://localhost:8000/api/v1"):
-        self.base_url = base_url
+
+    def __init__(self, base_url: str | None = None):
+        self.base_url = base_url or os.getenv("NEXA_API_BASE_URL", "http://localhost:8000/api/v1")
         
     def _headers(self):
         token = st.session_state.get("jwt_token")

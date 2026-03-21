@@ -284,12 +284,21 @@ async def get_alerts(user_id: str, _: str = Depends(get_current_user)) -> Alerts
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
         from app.runner import NexaRunner
+        from app.core.config import settings
         from app.etl.income_profiler import IncomeProfiler
         from app.etl.spending_anomaly_detector import SpendingAnomalyDetector
+        import os
         import polars as pl
         from datetime import date as date_type
 
-        runner = NexaRunner(mode="dev")
+        mode = "prod" if os.getenv("APP_MODE", "dev") == "prod" else "dev"
+        if mode == "prod" and (not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
+            )
+
+        runner = NexaRunner(mode=mode)
         runner_result = runner.run(horizon_days=30)
 
         # MI.6: Estimar renda a partir das transações para contextualizar alertas

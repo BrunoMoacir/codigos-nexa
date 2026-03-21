@@ -13,7 +13,7 @@ if "jwt_token" not in st.session_state or not st.session_state.jwt_token:
 st.set_page_config(
     page_title="Conexões · Nexa",
     page_icon="🔗",
-    layout="centered",
+    layout="wide",
 )
 load_css()
 
@@ -78,20 +78,25 @@ if not st.session_state.pluggy_token:
                 connector = item.get("connector", {})
                 status_icon = "✅" if item.get("status") == "UPDATED" else "⚠️"
                 st.markdown(f"""
-                <div style="background: rgba(99,102,241,0.08); border-radius: 8px; padding: 12px 16px; margin: 6px 0; border-left: 3px solid #6366f1;">
-                    <strong>{status_icon} {connector.get('name', 'Banco')}</strong> &nbsp;
-                    <span style="color:#94a3b8; font-size:0.85rem;">Última atualização: {item.get('lastUpdatedAt', '—')[:10] if item.get('lastUpdatedAt') else '—'}</span>
+                <div style="background: rgba(99,102,241,0.08); border-radius: 10px; padding: 14px 16px; margin: 8px 0; border-left: 3px solid #6366f1;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+                        <strong>{status_icon} {connector.get('name', 'Banco')}</strong>
+                        <span style="color:#94a3b8; font-size:0.82rem;">Última atualização: {item.get('lastUpdatedAt', '—')[:10] if item.get('lastUpdatedAt') else '—'}</span>
+                    </div>
                 </div>
                 """, unsafe_allow_html=True)
             st.divider()
         else:
             st.info("💡 Nenhuma conta bancária conectada ainda.")
     
-    # ── Botão de Sandbox para testes ─────────────────────────────────
-    st.markdown("#### 🧪 Testes com dados simulados")
-    col1, col2 = st.columns(2)
+    st.markdown("#### ✅ Conectar uma conta")
+
+    col1, col2 = st.columns([1.2, 1])
     with col1:
-        if st.button("🔌 Conectar Banco Real (Widget)", use_container_width=True, type="primary"):
+        st.markdown(
+            "Conecte um **banco real** pelo widget oficial da Pluggy. O Nexa não vê nem armazena suas credenciais."
+        )
+        if st.button("🔌 Conectar Banco (Widget Pluggy)", use_container_width=True, type="primary"):
             with st.spinner("Solicitando token seguro..."):
                 resp = api.create_pluggy_token()
                 if resp.get("success"):
@@ -99,15 +104,21 @@ if not st.session_state.pluggy_token:
                     st.rerun()
                 else:
                     st.error(f"Erro ao gerar token: {resp.get('error')}")
+
     with col2:
-        if st.button("🏦 Criar Conta Sandbox (Pluggy Bank)", use_container_width=True):
-            with st.spinner("Criando conta de teste..."):
-                sandbox_resp = api.create_sandbox_item()
-                if sandbox_resp.get("success"):
-                    st.success("✅ Conta Sandbox criada! Recarregando dados...")
-                    st.rerun()
-                else:
-                    st.error(f"Erro: {sandbox_resp.get('error')}")
+        with st.expander("Sandbox Pluggy (diagnóstico)"):
+            st.caption(
+                "Sandbox é um conector de demonstração da própria Pluggy. A integração é real, "
+                "mas os dados **não** são de um banco real."
+            )
+            if st.button("🏦 Criar item Sandbox (Pluggy Bank)", use_container_width=True):
+                with st.spinner("Criando item Sandbox na Pluggy..."):
+                    sandbox_resp = api.create_sandbox_item()
+                    if sandbox_resp.get("success"):
+                        st.success("✅ Item Sandbox criado! Recarregando...")
+                        st.rerun()
+                    else:
+                        st.error(f"Erro: {sandbox_resp.get('error')}")
 
 else:
     st.success("✅ Conexão estabelecida com a provedora. Carregando widget...")

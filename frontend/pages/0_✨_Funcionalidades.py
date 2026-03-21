@@ -1,6 +1,7 @@
 import streamlit as st
 import json
-from utils.ui import load_css, section_header
+import pandas as pd
+from utils.ui import load_css, section_header, kpi_card, badge
 from utils.api import NexaAPIClient
 
 if "jwt_token" not in st.session_state or not st.session_state.jwt_token:
@@ -84,8 +85,17 @@ with tabs[0]:
                 data = resp.json()
                 
                 if resp.status_code == 200:
-                    st.success(f"✅ {data.get('total', 0)} transações encontradas")
-                    st.json(data)
+                    total = data.get("total", 0)
+                    st.success(f"✅ {total} transações encontradas")
+
+                    results = data.get("results", []) or []
+                    if results:
+                        df = pd.DataFrame(results)
+                        show_cols = [c for c in ["date", "description", "amount", "category", "transaction_type", "type"] if c in df.columns]
+                        st.dataframe(df[show_cols] if show_cols else df, use_container_width=True, hide_index=True)
+
+                    with st.expander("Ver JSON bruto"):
+                        st.json(data)
                 else:
                     st.error(f"Erro {resp.status_code}: {data.get('detail', 'Desconhecido')}")
             except Exception as e:
@@ -102,8 +112,22 @@ with tabs[1]:
         with st.spinner("Calculando forecast…"):
             resp = api.get_forecast_summary(user_id)
             if resp.get("success"):
+                data = resp["data"]
                 st.success("✅ Forecast carregado")
-                st.json(resp["data"])
+
+                health = data.get("financial_health", {})
+                sts    = data.get("safe_to_spend", {})
+
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    kpi_card("Health Score", f"{(health.get('health_score') or health.get('score') or 0):.0f} / 100", color="green")
+                with c2:
+                    kpi_card("Safe to Spend", f"R$ {float(sts.get('safe_to_spend_total', 0)):,.2f}", sub=f"R$ {float(sts.get('safe_to_spend_daily', 0)):,.2f}/dia", color="purple")
+                with c3:
+                    kpi_card("Risco", str(sts.get("risk_level", "LOW")), sub=f"Perfil: {health.get('profile_type', '—')}", color="yellow")
+
+                with st.expander("Ver JSON bruto"):
+                    st.json(data)
             else:
                 st.error(f"Erro: {resp.get('error')}")
 
@@ -118,8 +142,29 @@ with tabs[2]:
         with st.spinner("Carregando metas…"):
             resp = api.get_goals_summary(user_id)
             if resp.get("success"):
+                data = resp["data"]
                 st.success("✅ Metas carregadas")
-                st.json(resp["data"])
+
+                goals = data.get("goals", []) or []
+                if goals:
+                    for g in goals[:8]:
+                        pct = g.get("progress_pct", 0)
+                        st.markdown(
+                            f"<div class='glass-card' style='padding:16px 18px;'>"
+                            f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
+                            f"<b>{g.get('name','Meta')}</b> {badge(f'{pct:.0f}%', 'purple')}"
+                            f"</div>"
+                            f"<div style='color:#94a3b8;font-size:0.8rem;margin-top:6px;'>"
+                            f"R$ {g.get('current_amount',0):,.2f} de R$ {g.get('target_amount',0):,.2f}"
+                            f"</div>"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
+                else:
+                    st.info("Nenhuma meta cadastrada ainda.")
+
+                with st.expander("Ver JSON bruto"):
+                    st.json(data)
             else:
                 st.error(f"Erro: {resp.get('error')}")
 
@@ -136,8 +181,17 @@ with tabs[3]:
         with st.spinner("Calculando orçamento…"):
             resp = api.get_budget_advice(user_id, monthly_income=monthly_income)
             if resp.get("success"):
+                data = resp["data"]
                 st.success("✅ Orçamento calculado")
-                st.json(resp["data"])
+
+                st.info(data.get("summary_text", ""))
+                groups = data.get("group_summary", []) or []
+                if groups:
+                    df = pd.DataFrame(groups)
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+
+                with st.expander("Ver JSON bruto"):
+                    st.json(data)
             else:
                 st.error(f"Erro: {resp.get('error')}")
 
@@ -154,18 +208,34 @@ with tabs[4]:
             with st.spinner("Buscando contas…"):
                 resp = api.get_pluggy_items()
                 if resp.get("success"):
+                    data = resp["data"]
                     st.success("✅ Contas encontradas")
-                    st.json(resp["data"])
+                    results = data.get("results", []) or []
+                    if results:
+                        df = pd.DataFrame([
+                            {
+                                "Banco": (it.get("connector", {}) or {}).get("name"),
+                                "Status": it.get("status"),
+                                "Atualizado": (it.get("lastUpdatedAt") or "")[:10],
+                                "Item ID": it.get("id"),
+                            }
+                            for it in results
+                        ])
+                        st.dataframe(df, use_container_width=True, hide_index=True)
+
+                    with st.expander("Ver JSON bruto"):
+                        st.json(data)
                 else:
                     st.error(f"Erro: {resp.get('error')}")
     
     with col2:
-        if st.button("🧪 Criar Sandbox", key="btn_sandbox", use_container_width=True):
-            with st.spinner("Criando conta test…"):
+        if st.button("🧪 Criar item Sandbox", key="btn_sandbox", use_container_width=True):
+            with st.spinner("Criando item Sandbox na Pluggy…"):
                 resp = api.create_sandbox_item()
                 if resp.get("success"):
                     st.success("✅ Sandbox criado")
-                    st.json(resp["data"])
+                    with st.expander("Ver JSON bruto"):
+                        st.json(resp["data"])
                 else:
                     st.error(f"Erro: {resp.get('error')}")
 
@@ -213,7 +283,8 @@ with tabs[5]:
                     resp = requests.get(url, headers=api._headers(), timeout=10)
                     if resp.status_code == 200:
                         st.success("✅ Overrides carregados")
-                        st.json(resp.json())
+                        with st.expander("Ver JSON bruto"):
+                            st.json(resp.json())
                     else:
                         st.error(f"Erro {resp.status_code}")
                 except Exception as e:
@@ -237,7 +308,14 @@ with tabs[6]:
                 if resp.status_code == 200:
                     data = resp.json()
                     st.success(f"✅ Score atual: {data.get('current_score', '—')}/100 ({data.get('trend', '—')})")
-                    st.json(data)
+
+                    history = data.get("history", []) or []
+                    if history:
+                        df = pd.DataFrame(history)
+                        st.dataframe(df, use_container_width=True, hide_index=True)
+
+                    with st.expander("Ver JSON bruto"):
+                        st.json(data)
                 else:
                     st.error(f"Erro {resp.status_code}: {resp.json().get('detail', 'Desconhecido')}")
             except Exception as e:

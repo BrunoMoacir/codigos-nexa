@@ -49,7 +49,7 @@ def login_screen():
 
     with tab_login:
         with st.form("login_form", clear_on_submit=False):
-            username = st.text_input("Email/Usuário", placeholder="🪪  ex: golden_user_777 ou golden@nexa.com", label_visibility="collapsed")
+            username = st.text_input("Email", placeholder="📧  ex: seuemail@dominio.com", label_visibility="collapsed")
             password = st.text_input("Senha", placeholder="🔑  Senha", type="password", label_visibility="collapsed")
 
             col_btn, _ = st.columns([3, 1])
@@ -58,7 +58,7 @@ def login_screen():
 
             if submit:
                 if not username or not password:
-                    st.error("Preencha usuário e senha.")
+                    st.error("Preencha e-mail e senha.")
                 else:
                     with st.spinner("Autenticando…"):
                         time.sleep(0.4)
@@ -83,22 +83,26 @@ def login_screen():
                 submit_reg = st.form_submit_button("Criar minha conta ✦", use_container_width=True)
 
             if submit_reg:
-                if not reg_name or not reg_user or not reg_pass:
-                    st.error("Preencha nome, usuário e senha.")
+                if not reg_name or not reg_email or not reg_pass:
+                    st.error("Preencha nome, e-mail e senha.")
                 elif len(reg_pass) < 6:
                     st.error("A senha deve ter pelo menos 6 caracteres.")
                 else:
                     with st.spinner("Criando sua conta Nexa…"):
-                        resp = api.register(reg_user, reg_pass, reg_name, reg_email)
-                        
+                        resp = api.register(reg_email, reg_pass, reg_name)
+
                     if resp.get("success"):
-                        st.success("🎉 Conta criada com sucesso! Faça login abaixo ou aguarde o redirecionamento...")
                         # Auto-login após register
-                        st.session_state.username = reg_user
-                        st.session_state.user_id = resp.get("user_id")
-                        st.session_state.jwt_token = resp.get("token")
-                        time.sleep(1.5)
-                        st.rerun()
+                        with st.spinner("Entrando…"):
+                            login = api.login(reg_email, reg_pass)
+                        if login.get("success"):
+                            st.session_state.username = reg_email
+                            st.session_state.user_id = login.get("user_id")
+                            st.success("🎉 Conta criada e login feito! Abrindo seu painel…")
+                            time.sleep(0.8)
+                            st.rerun()
+                        else:
+                            st.success("🎉 Conta criada com sucesso! Faça login na aba Entrar.")
                     else:
                         st.error(f"❌ Erro ao criar conta: {resp.get('error')}")
 
@@ -131,17 +135,21 @@ def home_screen():
         if st.button("Sair →", use_container_width=True):
             st.session_state.jwt_token = None
             st.session_state.username = None
+            st.session_state.user_id = None
             st.rerun()
 
     # Cabeçalho
     hora = time.localtime().tm_hour
     saudacao = "Bom dia" if hora < 12 else "Boa tarde" if hora < 18 else "Boa noite"
+    display_name = (st.session_state.username or "").split("@")[0].split("_")[0]
+    display_name = display_name.title() if display_name else ""
+
     st.markdown(f"""
     <div style="margin-bottom:1.5rem;">
         <p style="color:#6366f1;font-size:0.85rem;font-weight:600;letter-spacing:0.06em;margin-bottom:4px;">
             NEXA CENTRAL
         </p>
-        <h1 style="margin:0; font-size:2rem;">{saudacao}, {st.session_state.username.split('_')[0].title()} 👋</h1>
+        <h1 style="margin:0; font-size:2rem;">{saudacao}{', ' + display_name if display_name else ''} 👋</h1>
         <p style="color:#64748b;font-size:0.9rem;margin-top:6px;">
             Escolha uma seção abaixo para começar.
         </p>

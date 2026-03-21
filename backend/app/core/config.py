@@ -4,8 +4,18 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# Resolve .env a partir do diretório backend/, independente do CWD
+_backend_dir = Path(__file__).resolve().parents[2]
+_env_file = _backend_dir / ".env"
+
+
 class Settings(BaseSettings):
     """Centraliza todas as variáveis de ambiente do projeto."""
+
+    model_config = SettingsConfigDict(
+        env_file=str(_env_file) if _env_file.exists() else None,
+        extra="ignore",
+    )
 
     # Credenciais da Pluggy (opcionais em dev — rotas Pluggy falham se vazio)
     PLUGGY_CLIENT_ID: str = ""
@@ -35,15 +45,6 @@ class Settings(BaseSettings):
     # Ambiente
     APP_ENV: str = "development"   # "development" | "production"
     LOG_LEVEL: str = "INFO"
-
-
-# Resolve .env a partir do diretório backend/, independente do CWD
-_backend_dir = Path(__file__).resolve().parents[2]
-_env_file = _backend_dir / ".env"
-model_config = SettingsConfigDict(
-    env_file=str(_env_file) if _env_file.exists() else None,
-    extra="ignore",
-)
 
 
 settings = Settings()
