@@ -47,10 +47,16 @@ with st.spinner("⚡ Sincronizando dados via Open Finance…"):
         render_skeleton(5)
     forecast     = api.get_forecast_summary(user_id)
     income_val   = 10_000.0
+    budget_income_fallback_used = True
     if forecast.get("success"):
         raw_income = forecast["data"].get("financial_health", {}).get("total_income", 10_000.0)
         # O endpoint /budget exige monthly_income > 0
-        income_val = float(raw_income) if raw_income and float(raw_income) > 0 else 10_000.0
+        if raw_income and float(raw_income) > 0:
+            income_val = float(raw_income)
+            budget_income_fallback_used = False
+        else:
+            income_val = 10_000.0
+            budget_income_fallback_used = True
     budget       = api.get_budget_advice(user_id, monthly_income=income_val)
     goals        = api.get_goals_summary(user_id)
     transactions = api.get_transactions(user_id, limit=300)
@@ -164,6 +170,14 @@ else:
 #  SEÇÃO 2: Orçamento 50/30/20
 # ══════════════════════════════════════════════════════════════════════════════
 section_header("💰", "Regra 50/30/20")
+
+if budget_income_fallback_used:
+    st.warning(
+        "Atenção: sua renda mensal não foi identificada nas transações de crédito. "
+        "Para calcular o orçamento 50/30/20, usamos renda de referência de **R$ 10.000,00**."
+    )
+else:
+    st.caption(f"Orçamento calculado com renda real detectada: R$ {income_val:,.2f}")
 
 if budget.get("success"):
     b_data = budget["data"]
