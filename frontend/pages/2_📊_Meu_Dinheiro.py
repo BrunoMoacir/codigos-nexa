@@ -49,7 +49,9 @@ with st.spinner("⚡ Sincronizando dados via Open Finance…"):
     forecast     = api.get_forecast_summary(user_id)
     income_val   = 10_000.0
     if forecast.get("success"):
-        income_val = forecast["data"].get("financial_health", {}).get("total_income", 10_000.0)
+        raw_income = forecast["data"].get("financial_health", {}).get("total_income", 10_000.0)
+        # O endpoint /budget exige monthly_income > 0
+        income_val = float(raw_income) if raw_income and float(raw_income) > 0 else 10_000.0
     budget       = api.get_budget_advice(user_id, monthly_income=income_val)
     goals        = api.get_goals_summary(user_id)
 
