@@ -82,13 +82,22 @@ class PluggyClient:
         response.raise_for_status()
         return response.json()
 
-    def create_sandbox_item(self, clientUserId: str | None = None) -> dict:
+    def create_sandbox_item(
+        self,
+        clientUserId: str | None = None,
+        perf_multiplier: int | None = None,
+    ) -> dict:
         url = f"{self.BASE_URL}/items"
+
+        user_value = "user-ok"
+        if perf_multiplier and perf_multiplier > 0:
+            bounded = min(perf_multiplier, 5000)
+            user_value = f"user-ok-perf-{bounded}x"
 
         payload: dict = {
             "connectorId": 0,
             "parameters": {
-                "user": "user-ok",
+                "user": user_value,
                 "password": "password-ok",
             },
         }

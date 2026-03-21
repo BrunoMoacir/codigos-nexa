@@ -82,11 +82,11 @@ class NexaAPIClient:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def create_sandbox_item(self) -> dict:
+    def create_sandbox_item(self, perf_multiplier: int = 1) -> dict:
         """Cria um item Sandbox (Pluggy Bank) para testes."""
         try:
             resp = requests.post(
-                f"{self.base_url}/pluggy/sandbox",
+                f"{self.base_url}/pluggy/sandbox?perf_multiplier={perf_multiplier}",
                 headers=self._headers(),
                 timeout=20
             )

@@ -123,11 +123,22 @@ if not st.session_state.pluggy_token:
                 "Sandbox é um conector de demonstração da própria Pluggy. A integração é real, "
                 "mas os dados **não** são de um banco real."
             )
+            perf_level = st.selectbox(
+                "Volume de transações (sandbox)",
+                options=[
+                    ("Padrão (~1x)", 1),
+                    ("Médio (~100x)", 100),
+                    ("Alto (~500x)", 500),
+                    ("Stress (~1000x)", 1000),
+                ],
+                format_func=lambda x: x[0],
+                index=1,
+            )[1]
             if st.button("🏦 Criar item Sandbox (Pluggy Bank)", use_container_width=True):
                 with st.spinner("Criando item Sandbox na Pluggy..."):
-                    sandbox_resp = api.create_sandbox_item()
+                    sandbox_resp = api.create_sandbox_item(perf_multiplier=perf_level)
                     if sandbox_resp.get("success"):
-                        st.success("✅ Item Sandbox criado! Recarregando...")
+                        st.success(f"✅ Item Sandbox criado ({perf_level}x)! Recarregando...")
                         st.rerun()
                     else:
                         st.error(f"Erro: {sandbox_resp.get('error')}")

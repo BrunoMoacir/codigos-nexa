@@ -226,6 +226,7 @@ def list_user_items(
 
 @router.post("/sandbox", summary="Cria um Item de Sandbox para testes")
 def create_sandbox_item(
+    perf_multiplier: int = 1,
     current_user_str: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -238,7 +239,10 @@ def create_sandbox_item(
 
     try:
         pluggy = PluggyClient()
-        result = pluggy.create_sandbox_item(clientUserId=str(current_user_str))
+        result = pluggy.create_sandbox_item(
+            clientUserId=str(current_user_str),
+            perf_multiplier=perf_multiplier,
+        )
 
         item_id = None
         connector_name = None
