@@ -156,50 +156,46 @@ def home_screen():
     c1, c2 = st.columns(2, gap="large")
     with c1:
         st.markdown("""
-        <a href="/Meu_Dinheiro" target="_self" style="text-decoration:none;">
           <div class="nav-tile">
             <div style="font-size:1.8rem;">📊</div>
             <div class="nav-tile-title">Meu Dinheiro</div>
             <div class="nav-tile-desc">KPIs, cashflow, regra 50/30/20, metas e operações em tempo real.</div>
             <div style="margin-top:10px;"><span class="badge badge-green">Dados Reais</span></div>
           </div>
-        </a>
         """, unsafe_allow_html=True)
+        st.page_link("pages/2_📊_Meu_Dinheiro.py", label="→ Acessar Meu Dinheiro")
     with c2:
         st.markdown("""
-        <a href="/Estrategias_Nexa" target="_self" style="text-decoration:none;">
           <div class="nav-tile">
             <div style="font-size:1.8rem;">🧠</div>
             <div class="nav-tile-title">Estratégias Nexa</div>
             <div class="nav-tile-desc">Optimizer, Architect, Fiscal Intelligence, peers e alertas de ação.</div>
             <div style="margin-top:10px;"><span class="badge badge-purple">Premium</span></div>
           </div>
-        </a>
         """, unsafe_allow_html=True)
+        st.page_link("pages/4_🧠_Estrategias_Nexa.py", label="→ Acessar Estratégias")
 
     c3, c4 = st.columns(2, gap="large")
     with c3:
         st.markdown("""
-        <a href="/Conexoes" target="_self" style="text-decoration:none;">
           <div class="nav-tile">
             <div style="font-size:1.8rem;">🔗</div>
             <div class="nav-tile-title">Conexões Open Finance</div>
             <div class="nav-tile-desc">Conecte bancos reais via Pluggy e sincronize transações com 1 clique.</div>
             <div style="margin-top:10px;"><span class="badge badge-yellow">Pluggy</span></div>
           </div>
-        </a>
         """, unsafe_allow_html=True)
+        st.page_link("pages/3_🔗_Conexoes.py", label="→ Acessar Conexões")
     with c4:
         st.markdown("""
-        <a href="/Chat_Inteligente" target="_self" style="text-decoration:none;">
           <div class="nav-tile">
             <div style="font-size:1.8rem;">💬</div>
             <div class="nav-tile-title">Chat Inteligente</div>
             <div class="nav-tile-desc">Assistente financeiro com ferramentas analíticas e contexto da sua conta.</div>
             <div style="margin-top:10px;"><span class="badge badge-purple">LangGraph IA</span></div>
           </div>
-        </a>
         """, unsafe_allow_html=True)
+        st.page_link("pages/1_💬_Chat_Inteligente.py", label="→ Acessar Chat")
 
     section_header("⚡", "Acesso rápido")
     q1, q2, q3 = st.columns(3)
