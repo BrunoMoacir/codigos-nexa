@@ -211,6 +211,7 @@ def save_transactions_clean(
             "predicted_category": "category",
             "pf_pj_label": "context_type",
             "pf_pj_confidence": "context_confidence",
+            "transaction_date": "date",
         }
         for old_name, new_name in rename_map.items():
             if old_name in df.columns and new_name not in df.columns:
