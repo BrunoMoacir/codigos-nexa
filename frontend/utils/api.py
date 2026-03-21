@@ -140,6 +140,46 @@ class NexaAPIClient:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    def get_transactions(self, user_id: str, limit: int = 200) -> dict:
+        try:
+            url = f"{self.base_url}/transactions/{user_id}?limit={limit}"
+            resp = requests.get(url, headers=self._headers(), timeout=15)
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_alerts(self, user_id: str) -> dict:
+        try:
+            url = f"{self.base_url}/alerts/{user_id}"
+            resp = requests.get(url, headers=self._headers(), timeout=10)
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_subscriptions(self, user_id: str) -> dict:
+        try:
+            url = f"{self.base_url}/subscriptions/{user_id}"
+            resp = requests.get(url, headers=self._headers(), timeout=10)
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_health_score_history(self, user_id: str, months: int = 6) -> dict:
+        try:
+            url = f"{self.base_url}/health-score/history/{user_id}?months={months}"
+            resp = requests.get(url, headers=self._headers(), timeout=15)
+            if resp.status_code == 200:
+                return {"success": True, "data": resp.json()}
+            return {"success": False, "error": f"Erro {resp.status_code}: {resp.text}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def post_chat_message(self, user_id: str, message: str) -> dict:
         try:
             url = f"{self.base_url}/chat/"

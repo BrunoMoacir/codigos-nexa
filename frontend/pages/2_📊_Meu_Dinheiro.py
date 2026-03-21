@@ -54,6 +54,10 @@ with st.spinner("⚡ Sincronizando dados via Open Finance…"):
         income_val = float(raw_income) if raw_income and float(raw_income) > 0 else 10_000.0
     budget       = api.get_budget_advice(user_id, monthly_income=income_val)
     goals        = api.get_goals_summary(user_id)
+    transactions = api.get_transactions(user_id, limit=300)
+    alerts       = api.get_alerts(user_id)
+    subs         = api.get_subscriptions(user_id)
+    health_hist  = api.get_health_score_history(user_id, months=6)
 
 st.divider()
 
@@ -344,7 +348,21 @@ if forecast.get("success"):
 
     f_data  = forecast["data"]
     health  = f_data.get("financial_health", {})
-    top_cats = health.get("top_categories", [])
+    top_cats = health.get("top_categories", []) or []
+    if not top_cats and transactions.get("success"):
+        tx_rows = (transactions.get("data", {}) or {}).get("transactions", []) or []
+        if tx_rows:
+            df_tx = pd.DataFrame(tx_rows)
+            if "category" in df_tx.columns:
+                top_cats = (
+                    df_tx["category"]
+                    .fillna("Sem categoria")
+                    .astype(str)
+                    .value_counts()
+                    .head(5)
+                    .index
+                    .tolist()
+                )
     trend    = health.get("trend", "ESTÁVEL")
     burn_r   = health.get("burn_rate_ratio", 0)
     profile  = health.get("profile_type", "EQUILIBRADO")
@@ -388,6 +406,92 @@ if forecast.get("success"):
                 </div>
                 """, unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.info("Ainda não há categorias suficientes para exibir ranking.")
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SEÇÃO 6: Abas Operacionais (sem chat)
+# ══════════════════════════════════════════════════════════════════════════════
+section_header("🧩", "Operações Nexa (API real)")
+
+tab_tx, tab_alerts, tab_subs, tab_score = st.tabs([
+    "📜 Transações",
+    "🚨 Alertas",
+    "🔁 Assinaturas",
+    "❤️ Health Score",
+])
+
+with tab_tx:
+    if transactions.get("success"):
+        tx_data = (transactions.get("data", {}) or {})
+        tx_rows = tx_data.get("transactions", []) or []
+        st.caption(f"Total: {tx_data.get('total', 0)} · Débito: {tx_data.get('debit_count', 0)} · Crédito: {tx_data.get('credit_count', 0)}")
+        if tx_rows:
+            df = pd.DataFrame(tx_rows)
+            cols = [c for c in ["date", "description", "amount", "category", "transaction_type", "context_type"] if c in df.columns]
+            st.dataframe(df[cols] if cols else df, use_container_width=True, hide_index=True)
+        else:
+            st.info("Sem transações para mostrar.")
+    else:
+        st.warning(f"Falha ao carregar transações: {transactions.get('error')}")
+
+with tab_alerts:
+    if alerts.get("success"):
+        data = alerts.get("data", {}) or {}
+        rows = data.get("alerts", []) or []
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total", data.get("total_count", 0))
+        c2.metric("Críticos", data.get("critical_count", 0))
+        c3.metric("Warnings", data.get("warning_count", 0))
+        if rows:
+            for a in rows[:8]:
+                lvl = (a.get("level") or "INFO").upper()
+                emoji = "🔴" if lvl == "CRITICAL" else "🟡" if lvl == "WARNING" else "🔵"
+                st.markdown(f"**{emoji} {a.get('title','Alerta')}**  \n{a.get('message','')}")
+        else:
+            st.success("Sem alertas ativos no momento.")
+    else:
+        st.warning(f"Falha ao carregar alertas: {alerts.get('error')}")
+
+with tab_subs:
+    if subs.get("success"):
+        data = subs.get("data", {}) or {}
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Assinaturas", data.get("total_subscriptions", 0))
+        c2.metric("Custo Mensal", f"R$ {float(data.get('total_monthly_cost', 0) or 0):,.2f}")
+        c3.metric("Com alerta", data.get("alerted_count", 0))
+        st.caption(data.get("summary_text", ""))
+        rows = data.get("subscriptions", []) or []
+        if rows:
+            df = pd.DataFrame(rows)
+            cols = [c for c in ["description", "amount", "next_due_date", "confidence"] if c in df.columns]
+            st.dataframe(df[cols] if cols else df, use_container_width=True, hide_index=True)
+    else:
+        st.warning(f"Falha ao carregar assinaturas: {subs.get('error')}")
+
+with tab_score:
+    if health_hist.get("success"):
+        data = health_hist.get("data", {}) or {}
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Score atual", data.get("current_score", "—"))
+        c2.metric("Tendência", data.get("trend", "—"))
+        c3.metric("Qualidade", data.get("data_quality", "—"))
+        hist = data.get("history", []) or []
+        if hist:
+            dfh = pd.DataFrame(hist)
+            x_col = "date"
+            y_col = "score" if "score" in dfh.columns else "health_score"
+            if y_col in dfh.columns:
+                fig_hs = px.line(dfh, x=x_col, y=y_col, markers=True, title="Evolução do Health Score")
+                fig_hs.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    margin=dict(t=40, l=0, r=0, b=0),
+                    font=dict(color="#94a3b8"),
+                )
+                st.plotly_chart(fig_hs, use_container_width=True)
+    else:
+        st.warning(f"Falha ao carregar histórico de score: {health_hist.get('error')}")
 
 # ── Rodapé ────────────────────────────────────────────────────────────────────
 st.markdown("""
