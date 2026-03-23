@@ -160,7 +160,23 @@ else:
                 container: document.getElementById('pluggy-container'),
                 onSuccess: function(itemData) {{
                     console.log('Success:', itemData);
-                    window.parent.postMessage({{type: 'pluggy-success', item: itemData}}, '*');
+                    // Dispara fetch para salvar no backend Nexa
+                    fetch("{api.base_url}/pluggy/items", {{
+                        method: "POST",
+                        headers: {{
+                            "Content-Type": "application/json",
+                            "Authorization": "Bearer {st.session_state.jwt_token}"
+                        }},
+                        body: JSON.stringify({{
+                            item_id: itemData.item.id,
+                            connector_name: itemData.item.connector.name
+                        }})
+                    }}).then(function() {{
+                        window.parent.postMessage({{type: 'pluggy-success', item: itemData}}, '*');
+                    }}).catch(function(e) {{
+                        console.error("Save error:", e);
+                        window.parent.postMessage({{type: 'pluggy-success', item: itemData}}, '*');
+                    }});
                 }},
                 onError: function(error) {{
                     console.error('Error:', error);

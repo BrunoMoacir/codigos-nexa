@@ -117,6 +117,10 @@ def _sync_item_transactions(
 class ConnectTokenResponse(BaseModel):
     connect_token: str
 
+class SaveItemRequest(BaseModel):
+    item_id: str
+    connector_name: Optional[str] = None
+
 @router.post("/connect-token", response_model=ConnectTokenResponse, summary="Gera um Connect Token para o Widget")
 def create_connect_token(current_user_str: str = Depends(get_current_user)):
     """Gera um connect_token obrigatório para inicializar o Widget Pluggy no Frontend."""
@@ -221,6 +225,38 @@ def list_user_items(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Falha ao comunicar com a Pluggy: {str(e)}",
+        )
+
+@router.post("/items", summary="Salva um Item conectado pelo Widget")
+def save_user_item(
+    request: SaveItemRequest,
+    current_user_str: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Quando o Widget do frontend conecta uma conta com sucesso, salva o item_id."""
+    try:
+        existing = db.query(PluggyItem).filter(
+            PluggyItem.user_id == str(current_user_str),
+            PluggyItem.item_id == request.item_id
+        ).first()
+
+        if not existing:
+            record = PluggyItem(
+                id=str(uuid.uuid4()),
+                user_id=str(current_user_str),
+                item_id=request.item_id,
+                connector_name=request.connector_name,
+            )
+            db.add(record)
+            db.commit()
+
+        return {"success": True, "message": "Item salvo com sucesso"}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Erro ao salvar item do widget: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Falha ao salvar item da Pluggy",
         )
 
 
