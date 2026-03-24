@@ -232,7 +232,7 @@ def run_etl_pipeline(
             )
             profile = UserProfileAnalyzer().analyze(df, income_profile=income_profile)
             logger.info(f"   ✅ Step 7 concluído: perfil={profile.profile_type}, "
-                        f"score={profile.health_score}")
+                        f"score={profile.score}")
         except Exception as e:
             logger.error(f"   ❌ Erro no Step 7: {e}", exc_info=True)
             logger.warning("   Continuando sem análise de perfil")
