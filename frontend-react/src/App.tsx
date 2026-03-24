@@ -1,13 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AuthGuard } from './components/layout/AuthGuard';
-import { MainLayout } from './components/layout/MainLayout';
+import { Toaster } from 'react-hot-toast';
 import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import { DashboardPage } from './pages/DashboardPage';
-import { ChatPage } from './pages/ChatPage';
-import { ConnectionsPage } from './pages/ConnectionsPage';
 import { StrategiesPage } from './pages/StrategiesPage';
+import { ConnectionsPage } from './pages/ConnectionsPage';
+import { ChatPage } from './pages/ChatPage';
 
 // Configurar React Query
 const queryClient = new QueryClient({
@@ -20,31 +19,59 @@ const queryClient = new QueryClient({
   },
 });
 
+// AuthGuard simples
+const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const isAuthenticated = !!localStorage.getItem('jwt_token');
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+};
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: 'rgba(15, 23, 42, 0.95)',
+            color: '#fff',
+            borderRadius: '12px',
+            border: '1px solid rgba(99, 102, 241, 0.3)',
+            backdropFilter: 'blur(12px)',
+          },
+          success: {
+            iconTheme: {
+              primary: '#10b981',
+              secondary: '#fff',
+            },
+          },
+          error: {
+            iconTheme: {
+              primary: '#ef4444',
+              secondary: '#fff',
+            },
+          },
+        }}
+      />
       <BrowserRouter>
         <Routes>
           {/* Rota pública */}
           <Route path="/login" element={<LoginPage />} />
 
           {/* Rotas protegidas */}
-          <Route
-            element={
-              <AuthGuard>
-                <MainLayout />
-              </AuthGuard>
-            }
-          >
-            <Route path="/" element={<Navigate to="/home" replace />} />
-            <Route path="/home" element={<HomePage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/chat" element={<ChatPage />} />
-            <Route path="/connections" element={<ConnectionsPage />} />
-            <Route path="/strategies" element={<StrategiesPage />} />
-          </Route>
+          <Route path="/home" element={<AuthGuard><HomePage /></AuthGuard>} />
+          <Route path="/dashboard" element={<AuthGuard><DashboardPage /></AuthGuard>} />
+          <Route path="/strategies" element={<AuthGuard><StrategiesPage /></AuthGuard>} />
+          <Route path="/connections" element={<AuthGuard><ConnectionsPage /></AuthGuard>} />
+          <Route path="/chat" element={<AuthGuard><ChatPage /></AuthGuard>} />
 
-          {/* Fallback para 404 */}
+          {/* Redirecionamentos */}
+          <Route path="/" element={<Navigate to="/home" replace />} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
       </BrowserRouter>
