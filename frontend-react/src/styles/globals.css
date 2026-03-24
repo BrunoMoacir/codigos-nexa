@@ -48,14 +48,16 @@ h3 {
 .glass-card {
   border-radius: 1.5rem;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 1.5rem;
+  padding: 2rem;
   margin-bottom: 1.25rem;
-  backdrop-filter: blur(24px);
+  backdrop-filter: blur(32px);
   transition: all 300ms ease-out;
   position: relative;
   overflow: hidden;
-  background: linear-gradient(145deg, rgba(30, 41, 59, 0.4), rgba(15, 23, 42, 0.6));
-  box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.2);
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7));
+  box-shadow:
+    0 4px 24px -1px rgba(0, 0, 0, 0.3),
+    0 0 80px rgba(99, 102, 241, 0.1);
 }
 
 .glass-card::before {
@@ -76,7 +78,9 @@ h3 {
 .glass-card:hover {
   transform: translateY(-0.25rem);
   border-color: rgba(99, 102, 241, 0.4);
-  box-shadow: 0 12px 40px rgba(99, 102, 241, 0.15);
+  box-shadow:
+    0 12px 40px rgba(99, 102, 241, 0.2),
+    0 0 100px rgba(124, 58, 237, 0.15);
 }
 
 /* ── KPI Cards ───────────────────────────────────────────── */
@@ -277,46 +281,84 @@ h3 {
 
 /* ── Buttons ────────────────────────────────────────────── */
 .btn-primary {
-  padding: 0.625rem 1.25rem;
+  padding: 0.875rem 1.5rem;
   border-radius: 0.75rem;
   font-family: 'Inter', sans-serif;
-  font-weight: 600;
-  font-size: 0.875rem;
+  font-weight: 700;
+  font-size: 0.9375rem;
   letter-spacing: 0.025em;
   color: white;
-  transition: all 300ms;
+  transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
   background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);
+  box-shadow:
+    0 4px 14px rgba(79, 70, 229, 0.5),
+    0 10px 40px rgba(124, 58, 237, 0.3);
   border: none;
   cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-primary::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  transition: left 500ms;
+}
+
+.btn-primary:hover::before {
+  left: 100%;
 }
 
 .btn-primary:hover {
-  transform: translateY(-0.125rem);
-  box-shadow: 0 8px 25px rgba(124, 58, 237, 0.6);
+  transform: translateY(-2px);
+  box-shadow:
+    0 8px 25px rgba(124, 58, 237, 0.7),
+    0 15px 50px rgba(124, 58, 237, 0.4);
 }
 
 .btn-primary:active {
   transform: translateY(0);
-  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);
+  box-shadow:
+    0 4px 14px rgba(79, 70, 229, 0.5),
+    0 10px 40px rgba(124, 58, 237, 0.3);
 }
 
 /* ── Inputs ──────────────────────────────────────────────── */
 .input-modern {
   border-radius: 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 0.625rem 1rem;
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  padding: 0.875rem 1.25rem;
   font-family: 'Inter', sans-serif;
+  font-size: 0.9375rem;
   color: rgb(248 250 252);
   backdrop-filter: blur(12px);
-  transition: all 200ms;
-  background: rgba(15, 23, 42, 0.6);
+  transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  background: rgba(15, 23, 42, 0.7);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.input-modern::placeholder {
+  color: rgb(100 116 139);
+}
+
+.input-modern:hover {
+  border-color: rgba(139, 92, 246, 0.3);
+  background: rgba(15, 23, 42, 0.8);
 }
 
 .input-modern:focus {
   outline: none;
   border-color: #8b5cf6;
-  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.25);
+  background: rgba(15, 23, 42, 0.9);
+  box-shadow:
+    0 0 0 4px rgba(139, 92, 246, 0.15),
+    inset 0 2px 4px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
 }
 
 /* ── Skeleton Loading ─────────────────────────────────────────────── */
@@ -333,4 +375,56 @@ h3 {
   50% {
     opacity: 0.5;
   }
+}
+
+/* ── Custom Animations ────────────────────────────────────────────── */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(139, 92, 246, 0.6);
+  }
+}
+
+/* ── Utility Classes ───────────────────────────────────────────────── */
+.animate-fadeInUp {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-glow {
+  animation: glow 2s ease-in-out infinite;
 }

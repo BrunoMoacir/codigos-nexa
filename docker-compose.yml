@@ -14,7 +14,7 @@ services:
     environment:
       - APP_MODE=prod
       - APP_ENV=production
-      - DATABASE_URL=postgresql+psycopg2://nexa_user:nexa_secret@postgres:5432/nexa_db
+      - DATABASE_URL=postgresql+psycopg2://nexa_user:nexa_password@postgres:5432/nexa_db
     restart: unless-stopped
     depends_on:
       - postgres

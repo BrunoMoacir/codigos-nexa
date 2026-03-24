@@ -11,6 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from app.api.v1.router import router as api_router
 from app.api.v1.routes.dashboard import router as dashboard_router
 from app.core.database import Base, engine
+from fastapi.middleware.cors import CORSMiddleware
 
 # Importa modelos para registrar no metadata (necessário para create_all)
 from app.models.user import User  # noqa: F401
@@ -35,6 +36,15 @@ app = FastAPI(
 # Registra o limiter e o handler de erro 429
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Registra as rotas da API v1
 app.include_router(api_router, prefix="/api/v1")
