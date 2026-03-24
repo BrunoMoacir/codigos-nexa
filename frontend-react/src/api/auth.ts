@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { LoginRequest, LoginResponse, RegisterRequest, RegisterResponse } from './types';
+import type { LoginResponse, RegisterRequest, RegisterResponse } from './types';
 
 /**
  * Login com OAuth2 Password Flow

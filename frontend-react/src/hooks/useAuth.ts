@@ -1,4 +1,5 @@
-import { useMutation, UseMutationResult } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
+import type { UseMutationResult } from '@tanstack/react-query';
 import { login as loginApi, register as registerApi, logout as logoutApi } from '../api/auth';
 import { useAuthStore } from '../store/authStore';
 import type { LoginResponse, RegisterRequest, RegisterResponse } from '../api/types';
