@@ -1,16 +1,54 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+
+interface Module {
+  icon: string;
+  label: string;
+  desc: string;
+  path: string;
+  tag?: string;
+}
+
+const modules: Module[] = [
+  {
+    icon: '↗',
+    label: 'Meu Dinheiro',
+    desc: 'KPIs, cashflow, regra 50/30/20 e operações em tempo real.',
+    path: '/dashboard',
+    tag: 'Dados reais',
+  },
+  {
+    icon: '◈',
+    label: 'Estratégias Nexa',
+    desc: 'Optimizer, Architect, Fiscal Intelligence e alertas de ação.',
+    path: '/strategies',
+    tag: 'Premium',
+  },
+  {
+    icon: '⌁',
+    label: 'Conexões Open Finance',
+    desc: 'Conecte bancos via Pluggy e sincronize com 1 clique.',
+    path: '/connections',
+    tag: 'Pluggy',
+  },
+  {
+    icon: '◍',
+    label: 'Chat Inteligente',
+    desc: 'Assistente financeiro com ferramentas analíticas contextuais.',
+    path: '/chat',
+    tag: 'LangGraph IA',
+  },
+];
 
 export const HomePage: React.FC = () => {
   const navigate = useNavigate();
+
   const hora = new Date().getHours();
   const saudacao = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
 
   const userId = localStorage.getItem('user_id') || '';
   const displayName = userId
-    ? userId.split('@')[0].split('_')[0].charAt(0).toUpperCase() +
-      userId.split('@')[0].split('_')[0].slice(1)
+    ? (userId.split('@')[0].split('_')[0]).replace(/^./, (c) => c.toUpperCase())
     : '';
 
   const handleLogout = () => {
@@ -19,246 +57,388 @@ export const HomePage: React.FC = () => {
     window.location.href = '/login';
   };
 
-  const modules = [
-    {
-      id: 'dashboard',
-      icon: '💎',
-      title: 'Meu Dinheiro',
-      description: 'KPIs, cashflow, regra 50/30/20, metas e operações em tempo real.',
-      badge: 'Dados Reais',
-      badgeColor: 'from-emerald-500 to-green-600',
-      gradient: 'from-emerald-500/20 to-green-600/20',
-      route: '/dashboard',
-    },
-    {
-      id: 'strategies',
-      icon: '🧠',
-      title: 'Estratégias Nexa',
-      description: 'Optimizer, Architect, Fiscal Intelligence, peers e alertas de ação.',
-      badge: 'Premium',
-      badgeColor: 'from-purple-500 to-indigo-600',
-      gradient: 'from-purple-500/20 to-indigo-600/20',
-      route: '/strategies',
-    },
-    {
-      id: 'connections',
-      icon: '🔗',
-      title: 'Conexões Open Finance',
-      description: 'Conecte bancos reais via Pluggy e sincronize transações com 1 clique.',
-      badge: 'Pluggy',
-      badgeColor: 'from-amber-500 to-orange-600',
-      gradient: 'from-amber-500/20 to-orange-600/20',
-      route: '/connections',
-    },
-    {
-      id: 'chat',
-      icon: '💬',
-      title: 'Chat Inteligente',
-      description: 'Assistente financeiro com ferramentas analíticas e contexto da sua conta.',
-      badge: 'LangGraph IA',
-      badgeColor: 'from-purple-500 to-pink-600',
-      gradient: 'from-purple-500/20 to-pink-600/20',
-      route: '/chat',
-    },
-  ];
-
-  const quickStats = [
-    {
-      label: 'Modo',
-      value: 'Teste Real',
-      subtitle: 'sem mock',
-      color: 'text-emerald-400',
-    },
-    {
-      label: 'Fonte',
-      value: 'Open Finance',
-      subtitle: 'Pluggy integrado',
-      color: 'text-indigo-400',
-    },
-    {
-      label: 'Cobertura',
-      value: 'Módulos ativos',
-      subtitle: 'Dashboard + Estratégias',
-      color: 'text-purple-400',
-    },
-  ];
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950/30 to-slate-950 relative overflow-hidden">
-      {/* Padrão de grade de fundo */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,#4f4f4f12_1px,transparent_1px),linear-gradient(to_bottom,#4f4f4f12_1px,transparent_1px)] bg-[size:4rem_4rem]" />
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
 
-      {/* Conteúdo principal */}
-      <div className="relative z-10">
-        {/* Header */}
-        <motion.header
-          className="border-b border-purple-900/30 bg-slate-900/40 backdrop-blur-xl"
-          initial={{ y: -100 }}
-          animate={{ y: 0 }}
-          transition={{ duration: 0.5 }}
-        >
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-purple-500/50">
-                  <span className="text-2xl">💜</span>
-                </div>
-                <div>
-                  <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-200 to-purple-400 bg-clip-text text-transparent">
-                    Nexa
-                  </h1>
-                  <p className="text-xs text-slate-500">Inteligência Financeira</p>
-                </div>
-              </div>
+        .hp-root {
+          font-family: 'Inter', system-ui, sans-serif;
+          min-height: 100vh;
+          background: #fafafa;
+          color: #111;
+          display: flex;
+        }
 
-              <motion.button
-                onClick={handleLogout}
-                className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium text-sm transition-all border border-slate-700"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+        /* ── Sidebar ── */
+        .hp-sidebar {
+          width: 220px;
+          flex-shrink: 0;
+          background: #fff;
+          border-right: 1px solid #ebebeb;
+          display: flex;
+          flex-direction: column;
+          padding: 28px 20px;
+          gap: 32px;
+        }
+        .hp-sidebar-logo {
+          font-size: 17px;
+          font-weight: 600;
+          letter-spacing: -0.3px;
+          color: #111;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .hp-sidebar-logo-dot {
+          width: 8px; height: 8px;
+          border-radius: 50%;
+          background: #111;
+        }
+        .hp-sidebar-nav {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          flex: 1;
+        }
+        .hp-nav-item {
+          padding: 8px 10px;
+          border-radius: 8px;
+          font-size: 13.5px;
+          font-weight: 450;
+          color: #888;
+          cursor: pointer;
+          transition: all 0.12s ease;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          border: none;
+          background: none;
+          width: 100%;
+          text-align: left;
+          font-family: inherit;
+        }
+        .hp-nav-item:hover {
+          background: #f4f4f5;
+          color: #111;
+        }
+        .hp-nav-item.active {
+          background: #f4f4f5;
+          color: #111;
+          font-weight: 500;
+        }
+        .hp-nav-icon {
+          font-size: 14px;
+          width: 18px;
+          text-align: center;
+          flex-shrink: 0;
+        }
+        .hp-sidebar-footer {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .hp-user-chip {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 8px 10px;
+          border-radius: 8px;
+          background: #f4f4f5;
+        }
+        .hp-user-avatar {
+          width: 28px; height: 28px;
+          border-radius: 50%;
+          background: #111;
+          color: #fff;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 11px;
+          font-weight: 600;
+          flex-shrink: 0;
+        }
+        .hp-user-name {
+          font-size: 12.5px;
+          font-weight: 500;
+          color: #111;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .hp-logout-btn {
+          padding: 8px 10px;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 450;
+          color: #999;
+          cursor: pointer;
+          border: none;
+          background: none;
+          text-align: left;
+          font-family: inherit;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          transition: color 0.12s;
+        }
+        .hp-logout-btn:hover { color: #ef4444; }
+
+        /* ── Main ── */
+        .hp-main {
+          flex: 1;
+          padding: 48px 56px;
+          max-width: 860px;
+        }
+        .hp-greeting-wrap {
+          margin-bottom: 40px;
+        }
+        .hp-greeting-label {
+          font-size: 12px;
+          font-weight: 500;
+          color: #aaa;
+          letter-spacing: 0.8px;
+          text-transform: uppercase;
+          margin-bottom: 6px;
+        }
+        .hp-greeting-title {
+          font-size: 28px;
+          font-weight: 600;
+          letter-spacing: -0.6px;
+          color: #111;
+          margin: 0;
+        }
+        .hp-greeting-sub {
+          font-size: 14px;
+          color: #999;
+          margin-top: 6px;
+        }
+
+        /* Section label */
+        .hp-section-label {
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.9px;
+          text-transform: uppercase;
+          color: #bbb;
+          margin: 0 0 16px;
+        }
+
+        /* Module grid */
+        .hp-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+          margin-bottom: 40px;
+        }
+        @media (max-width: 900px) { .hp-grid { grid-template-columns: 1fr; } }
+
+        .hp-card {
+          background: #fff;
+          border: 1px solid #ebebeb;
+          border-radius: 12px;
+          padding: 22px 24px;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .hp-card:hover {
+          border-color: #d0d0d0;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.05);
+          transform: translateY(-1px);
+        }
+        .hp-card-top {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .hp-card-icon {
+          font-size: 18px;
+          color: #555;
+          font-weight: 300;
+          width: 32px;
+          height: 32px;
+          border-radius: 8px;
+          background: #f4f4f5;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .hp-card-tag {
+          font-size: 10.5px;
+          font-weight: 500;
+          color: #888;
+          background: #f4f4f5;
+          border-radius: 100px;
+          padding: 3px 10px;
+        }
+        .hp-card-label {
+          font-size: 14.5px;
+          font-weight: 600;
+          color: #111;
+          letter-spacing: -0.2px;
+        }
+        .hp-card-desc {
+          font-size: 13px;
+          color: #999;
+          line-height: 1.5;
+        }
+        .hp-card-cta {
+          font-size: 12px;
+          font-weight: 500;
+          color: #555;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          margin-top: 2px;
+          transition: color 0.12s;
+        }
+        .hp-card:hover .hp-card-cta { color: #111; }
+
+        /* Stats strip */
+        .hp-stats {
+          display: flex;
+          gap: 12px;
+          margin-bottom: 40px;
+        }
+        .hp-stat {
+          flex: 1;
+          background: #fff;
+          border: 1px solid #ebebeb;
+          border-radius: 10px;
+          padding: 16px 20px;
+        }
+        .hp-stat-label {
+          font-size: 11px;
+          font-weight: 500;
+          color: #bbb;
+          letter-spacing: 0.6px;
+          text-transform: uppercase;
+          margin-bottom: 6px;
+        }
+        .hp-stat-value {
+          font-size: 16px;
+          font-weight: 600;
+          color: #111;
+        }
+        .hp-stat-sub {
+          font-size: 11.5px;
+          color: #bbb;
+          margin-top: 2px;
+        }
+
+        /* Tip */
+        .hp-tip {
+          background: #fff;
+          border: 1px solid #ebebeb;
+          border-radius: 10px;
+          padding: 14px 20px;
+          font-size: 13px;
+          color: #888;
+          line-height: 1.5;
+        }
+        .hp-tip strong { color: #555; font-weight: 500; }
+      `}</style>
+
+      <div className="hp-root">
+        {/* ── Sidebar ── */}
+        <aside className="hp-sidebar">
+          <div className="hp-sidebar-logo">
+            <div className="hp-sidebar-logo-dot" />
+            Nexa
+          </div>
+
+          <nav className="hp-sidebar-nav">
+            {[
+              { icon: '⌂', label: 'Início', path: '/home', active: true },
+              { icon: '↗', label: 'Meu Dinheiro', path: '/dashboard', active: false },
+              { icon: '◈', label: 'Estratégias', path: '/strategies', active: false },
+              { icon: '⌁', label: 'Conexões', path: '/connections', active: false },
+              { icon: '◍', label: 'Chat IA', path: '/chat', active: false },
+            ].map((item) => (
+              <button
+                key={item.path}
+                onClick={() => navigate(item.path)}
+                className={`hp-nav-item ${item.active ? 'active' : ''}`}
               >
-                Sair
-              </motion.button>
+                <span className="hp-nav-icon">{item.icon}</span>
+                {item.label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="hp-sidebar-footer">
+            <div className="hp-user-chip">
+              <div className="hp-user-avatar">
+                {displayName ? displayName[0].toUpperCase() : 'U'}
+              </div>
+              <div className="hp-user-name">{displayName || 'Usuário'}</div>
+            </div>
+            <button className="hp-logout-btn" onClick={handleLogout}>
+              ← Sair
+            </button>
+          </div>
+        </aside>
+
+        {/* ── Main ── */}
+        <main className="hp-main">
+          {/* Greeting */}
+          <div className="hp-greeting-wrap">
+            <div className="hp-greeting-label">Nexa Central</div>
+            <h1 className="hp-greeting-title">
+              {saudacao}{displayName ? `, ${displayName}` : ''}.
+            </h1>
+            <p className="hp-greeting-sub">
+              Aqui está seu cockpit financeiro. Escolha um módulo para começar.
+            </p>
+          </div>
+
+          {/* Stats */}
+          <p className="hp-section-label">Visão Rápida</p>
+          <div className="hp-stats">
+            <div className="hp-stat">
+              <div className="hp-stat-label">Modo</div>
+              <div className="hp-stat-value">Produção</div>
+              <div className="hp-stat-sub">Sem dados mock</div>
+            </div>
+            <div className="hp-stat">
+              <div className="hp-stat-label">Fonte</div>
+              <div className="hp-stat-value">Open Finance</div>
+              <div className="hp-stat-sub">Pluggy integrado</div>
+            </div>
+            <div className="hp-stat">
+              <div className="hp-stat-label">Módulos</div>
+              <div className="hp-stat-value">4 ativos</div>
+              <div className="hp-stat-sub">Dashboard + IA</div>
             </div>
           </div>
-        </motion.header>
 
-        {/* Hero Section */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <motion.div
-            className="text-center mb-12"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-          >
-            <div className="inline-block px-4 py-1 bg-purple-500/10 border border-purple-500/30 rounded-full mb-4">
-              <span className="text-purple-300 text-sm font-semibold tracking-wide">
-                NEXA CENTRAL
-              </span>
-            </div>
+          {/* Modules */}
+          <p className="hp-section-label">Módulos</p>
+          <div className="hp-grid">
+            {modules.map((m) => (
+              <div className="hp-card" key={m.path} onClick={() => navigate(m.path)}>
+                <div className="hp-card-top">
+                  <div className="hp-card-icon">{m.icon}</div>
+                  {m.tag && <span className="hp-card-tag">{m.tag}</span>}
+                </div>
+                <div className="hp-card-label">{m.label}</div>
+                <div className="hp-card-desc">{m.desc}</div>
+                <div className="hp-card-cta">Acessar →</div>
+              </div>
+            ))}
+          </div>
 
-            <h2 className="text-5xl sm:text-6xl font-black mb-4 bg-gradient-to-r from-slate-100 via-purple-200 to-slate-100 bg-clip-text text-transparent">
-              {saudacao}
-              {displayName && `, ${displayName}`} 👋
-            </h2>
-
-            <p className="text-lg text-slate-400 max-w-3xl mx-auto">
-              Seu cockpit financeiro completo: visão diária, conexões bancárias e
-              estratégia avançada.
-            </p>
-          </motion.div>
-
-          {/* Módulos Principais */}
-          <motion.div
-            className="mb-12"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-          >
-            <div className="flex items-center gap-3 mb-6">
-              <span className="text-3xl">🧭</span>
-              <h3 className="text-2xl font-bold text-slate-100">Módulos principais</h3>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {modules.map((module, index) => (
-                <motion.div
-                  key={module.id}
-                  className="group relative bg-slate-900/50 backdrop-blur-xl rounded-2xl p-6 border border-slate-800 hover:border-purple-500/50 transition-all cursor-pointer overflow-hidden"
-                  onClick={() => navigate(module.route)}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: 0.1 * index }}
-                  whileHover={{ scale: 1.02, y: -5 }}
-                >
-                  {/* Fundo gradiente */}
-                  <div className={`absolute inset-0 bg-gradient-to-br ${module.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
-
-                  {/* Conteúdo */}
-                  <div className="relative z-10">
-                    <div className="flex items-start justify-between mb-4">
-                      <span className="text-5xl">{module.icon}</span>
-                      <div className={`px-3 py-1 bg-gradient-to-r ${module.badgeColor} rounded-full text-xs font-bold text-white shadow-lg`}>
-                        {module.badge}
-                      </div>
-                    </div>
-
-                    <h4 className="text-xl font-bold text-slate-100 mb-2 group-hover:text-purple-300 transition-colors">
-                      {module.title}
-                    </h4>
-
-                    <p className="text-sm text-slate-400 mb-4">
-                      {module.description}
-                    </p>
-
-                    <div className="flex items-center text-purple-400 font-semibold text-sm group-hover:translate-x-2 transition-transform">
-                      <span>Acessar</span>
-                      <svg className="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-
-          {/* Acesso Rápido */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.4 }}
-          >
-            <div className="flex items-center gap-3 mb-6">
-              <span className="text-3xl">⚡</span>
-              <h3 className="text-2xl font-bold text-slate-100">Acesso rápido</h3>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-              {quickStats.map((stat, index) => (
-                <motion.div
-                  key={stat.label}
-                  className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-6 border border-slate-800 text-center"
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.5, delay: 0.1 * index }}
-                >
-                  <div className="text-xs text-slate-500 uppercase tracking-wider mb-2 font-semibold">
-                    {stat.label}
-                  </div>
-                  <div className={`text-2xl font-bold ${stat.color} mb-1`}>
-                    {stat.value}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    {stat.subtitle}
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-
-          {/* Dica */}
-          <motion.div
-            className="bg-indigo-500/10 border border-indigo-500/30 rounded-2xl p-6 text-center"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.6, delay: 0.6 }}
-          >
-            <div className="flex items-center justify-center gap-2 text-indigo-300">
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-              </svg>
-              <p className="text-sm">
-                <strong className="font-bold">Dica:</strong> Abra{' '}
-                <span className="font-semibold text-indigo-200">Meu Dinheiro</span> para validar
-                consistência dos dados e depois use{' '}
-                <span className="font-semibold text-indigo-200">Estratégias Nexa</span> para
-                recomendações acionáveis.
-              </p>
-            </div>
-          </motion.div>
-        </div>
+          {/* Tip */}
+          <div className="hp-tip">
+            💡 Dica: Abra <strong>Meu Dinheiro</strong> para validar os dados das suas
+            contas conectadas e use <strong>Estratégias</strong> para recomendações
+            acionáveis personalizadas.
+          </div>
+        </main>
       </div>
-    </div>
+    </>
   );
 };
