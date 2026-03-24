@@ -18,6 +18,8 @@ services:
     restart: unless-stopped
     depends_on:
       - postgres
+    networks:
+      - nexa-network
 
   postgres:
     image: postgres:15-alpine
@@ -30,6 +32,30 @@ services:
     ports:
       - "5432:5432"
     restart: unless-stopped
+    networks:
+      - nexa-network
+
+  # Frontend React
+  frontend:
+    build:
+      context: ./frontend-react
+      dockerfile: Dockerfile
+      target: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend-react:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000/api/v1
+    depends_on:
+      - api
+    networks:
+      - nexa-network
+
+networks:
+  nexa-network:
+    driver: bridge
 
 volumes:
   postgres_data:
