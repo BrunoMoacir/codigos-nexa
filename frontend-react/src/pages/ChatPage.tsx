@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { AppShell } from '../components/layout/AppShell';
 import { nexaApi } from '../api/nexa';
@@ -11,15 +11,47 @@ type Message = {
 
 export const ChatPage: React.FC = () => {
   const userId = localStorage.getItem('user_id') || '';
-  const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<Message[]>([
-    {
+  const storageKey = useMemo(() => `nexa-chat-history:${userId || 'anon'}`, [userId]);
+  const defaultAssistantMessage = useMemo<Message>(
+    () => ({
       role: 'assistant',
       content:
         'Olá! Sou o assistente Nexa. Posso analisar seu orçamento, metas, cartões e simulações de compra.',
       ts: new Date().toISOString(),
-    },
-  ]);
+    }),
+    []
+  );
+
+  const [input, setInput] = useState('');
+  const [messages, setMessages] = useState<Message[]>([defaultAssistantMessage]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) {
+        setMessages([defaultAssistantMessage]);
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as Message[];
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        setMessages([defaultAssistantMessage]);
+        return;
+      }
+
+      setMessages(parsed);
+    } catch {
+      setMessages([defaultAssistantMessage]);
+    }
+  }, [defaultAssistantMessage, storageKey]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(messages));
+    } catch {
+      // Ignora falha de persistência no navegador.
+    }
+  }, [messages, storageKey]);
 
   const chatMutation = useMutation({
     mutationFn: (message: string) => nexaApi.sendChatMessage(userId, message),
@@ -62,6 +94,16 @@ export const ChatPage: React.FC = () => {
     chatMutation.mutate(text);
   };
 
+  const clearChat = () => {
+    const initial = [defaultAssistantMessage];
+    setMessages(initial);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(initial));
+    } catch {
+      // Ignora falha de persistência no navegador.
+    }
+  };
+
   return (
     <AppShell
       current="chat"
@@ -79,6 +121,23 @@ export const ChatPage: React.FC = () => {
           minHeight: 580,
         }}
       >
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+          <button
+            onClick={clearChat}
+            style={{
+              border: '1px solid #ddd',
+              background: '#fff',
+              color: '#444',
+              borderRadius: 8,
+              padding: '6px 10px',
+              cursor: 'pointer',
+              fontSize: 12,
+            }}
+          >
+            Limpar conversa
+          </button>
+        </div>
+
         <div style={{ overflowY: 'auto', padding: 6 }}>
           {messages.map((m, idx) => (
             <div
