@@ -85,46 +85,15 @@ async def fetch_user_transactions(user_id: str, horizon_days: int = 30):
     try:
         from app.runner import NexaRunner
 
-        # ── 1. Tentar dados reais do DuckDB ──────────────────────
+        # ── 1. Tentar dados reais do banco (Postgres/DuckDB) ──────
         runner = NexaRunner(mode="dev")  # mode não importa para run_from_db
         result = runner.run_from_db(user_id=user_id, horizon_days=horizon_days)
 
         if result is not None and result.get("status") == "success":
-            logger.info("✅ Pipeline executado com dados REAIS do DuckDB para user=%s", user_id)
+            logger.info("✅ Pipeline executado com dados REAIS do banco para user=%s", user_id)
             return result
 
-        # ── 2. Fallback: mock APENAS fora de produção ─────────────
-        # Observação: alguns testes/setups podem setar APP_MODE=prod, mas ainda assim
-        # queremos permitir mock em ambientes não-prod (APP_ENV=development).
-        from app.core.config import settings
-
-        app_mode = os.getenv("APP_MODE", "dev")
-        mode = "prod" if app_mode == "prod" else "dev"
-
-        # Se APP_MODE=prod, usa Pluggy REAL (sem mocks)
-        if mode == "prod":
-            if not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
-                )
-            runner_prod = NexaRunner(mode="prod")
-            result = runner_prod.run(horizon_days=horizon_days)
-            return result
-
-        # Em dev, sem dados reais, permite mock
-        if settings.APP_ENV != "production":
-            logger.warning(
-                "⚠️ Sem dados reais para user=%s — usando Pluggy mock (APP_MODE=%s, APP_ENV=%s)",
-                user_id,
-                app_mode,
-                settings.APP_ENV,
-            )
-            runner_dev = NexaRunner(mode="dev")
-            result = runner_dev.run(horizon_days=horizon_days)
-            return result
-
-        logger.error("❌ Sem dados reais para user=%s em modo PRODUÇÃO", user_id)
+        logger.error("❌ Sem dados reais para user=%s", user_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Nenhum dado financeiro encontrado para o usuário {user_id}. "

@@ -168,7 +168,30 @@ if forecast.get("success"):
     st.plotly_chart(wf, use_container_width=True)
 
 else:
-    st.error("⚠️ Não foi possível carregar o Forecast. Veja instruções abaixo ↓")
+    st.markdown("""
+    <div class="glass-card" style="text-align:center; padding: 60px 20px; border-color: rgba(99, 102, 241, 0.4); margin-top: 32px;">
+        <div style="font-size: 3.5rem; margin-bottom: 16px; animation: float 3s ease-in-out infinite;">🏦</div>
+        <h2 style="margin-bottom: 12px; color: #f8fafc;">Nenhum dado financeiro encontrado</h2>
+        <p style="color: #cbd5e1; font-size: 1.05rem; max-width: 500px; margin: 0 auto 32px auto; line-height: 1.6;">
+            Seu perfil está zerado. Para que a Nexa possa gerar o seu <strong>Forecast</strong>, analisar seu <strong>Burn Rate</strong> e calcular seu <strong>Score</strong>, você precisa conectar sua conta bancária.
+        </p>
+    </div>
+    <style>
+    @keyframes float {
+        0% { transform: translateY(0px); }
+        50% { transform: translateY(-10px); }
+        100% { transform: translateY(0px); }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    col_a, col_b, col_c = st.columns([1, 1.5, 1])
+    with col_b:
+        if st.button("🔌 Conectar Contas Bancárias", use_container_width=True):
+            st.switch_page("pages/3_🔗_Conexoes.py")
+            
+    # Impede renderização quebrada do resto do painel (como Orçamento, etc)
+    st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  SEÇÃO 2: Orçamento 50/30/20
