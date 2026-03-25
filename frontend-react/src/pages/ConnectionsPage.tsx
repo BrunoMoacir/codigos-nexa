@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { AppShell } from '../components/layout/AppShell';
@@ -24,12 +24,47 @@ const button: React.CSSProperties = {
 export const ConnectionsPage: React.FC = () => {
   const [perfMultiplier, setPerfMultiplier] = useState(100);
   const [connectToken, setConnectToken] = useState<string>('');
+  const [widgetError, setWidgetError] = useState<string>('');
+  const [widgetInfo, setWidgetInfo] = useState<string>('');
   const token = localStorage.getItem('jwt_token') || '';
+  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
   const itemsQuery = useQuery({
     queryKey: ['pluggy-items'],
     queryFn: () => nexaApi.getPluggyItems(),
   });
+
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const payload = event.data;
+      if (!payload || typeof payload !== 'object') {
+        return;
+      }
+
+      if (payload.type === 'pluggy-success') {
+        setWidgetError('');
+        setWidgetInfo('Conta conectada com sucesso. Atualize a lista para ver o item.');
+        toast.success('Conta conectada com sucesso.');
+        itemsQuery.refetch();
+      }
+
+      if (payload.type === 'pluggy-error') {
+        const code = payload.errorCode || payload.code || payload.error?.code || 'desconhecido';
+        const message = payload.message || payload.error?.message || 'Falha ao conectar conta na Pluggy.';
+        const composed = `Erro Pluggy (${code}): ${message}`;
+        setWidgetError(composed);
+        setWidgetInfo('');
+        toast.error(composed);
+      }
+
+      if (payload.type === 'pluggy-close') {
+        setWidgetInfo('Widget fechado.');
+      }
+    };
+
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [itemsQuery.refetch]);
 
   const syncMutation = useMutation({
     mutationFn: () => nexaApi.syncPluggyTransactions(),
@@ -173,6 +208,49 @@ export const ConnectionsPage: React.FC = () => {
           <p style={{ fontSize: 13, color: '#666', marginBottom: 10 }}>
             Token gerado com sucesso. Use o widget oficial para conectar um banco real.
           </p>
+          <div
+            style={{
+              fontSize: 12,
+              color: '#92400e',
+              background: '#fffbeb',
+              border: '1px solid #fde68a',
+              borderRadius: 8,
+              padding: 10,
+              marginBottom: 10,
+            }}
+          >
+            Se o widget exibir "Aplicação demo", a própria Pluggy pode bloquear conexões reais neste ambiente e permitir apenas Sandbox.
+          </div>
+          {widgetError && (
+            <div
+              style={{
+                fontSize: 12,
+                color: '#991b1b',
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: 8,
+                padding: 10,
+                marginBottom: 10,
+              }}
+            >
+              {widgetError}
+            </div>
+          )}
+          {widgetInfo && (
+            <div
+              style={{
+                fontSize: 12,
+                color: '#1d4ed8',
+                background: '#eff6ff',
+                border: '1px solid #bfdbfe',
+                borderRadius: 8,
+                padding: 10,
+                marginBottom: 10,
+              }}
+            >
+              {widgetInfo}
+            </div>
+          )}
           <iframe
             title="pluggy-connect"
             srcDoc={`
@@ -190,7 +268,7 @@ export const ConnectionsPage: React.FC = () => {
         connectToken: '${connectToken}',
         container: document.getElementById('pluggy-container'),
         onSuccess: function(itemData) {
-          fetch('http://localhost:8000/api/v1/pluggy/items', {
+          fetch('${apiBase}/pluggy/items', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -202,6 +280,17 @@ export const ConnectionsPage: React.FC = () => {
             }),
           });
           window.parent.postMessage({ type: 'pluggy-success' }, '*');
+        },
+        onError: function(error) {
+          window.parent.postMessage({
+            type: 'pluggy-error',
+            errorCode: error?.code || error?.errorCode,
+            message: error?.message || error?.description,
+            error,
+          }, '*');
+        },
+        onClose: function() {
+          window.parent.postMessage({ type: 'pluggy-close' }, '*');
         },
       });
       pluggy.init();
