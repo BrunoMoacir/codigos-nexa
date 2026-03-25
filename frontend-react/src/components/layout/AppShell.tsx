@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 type AppShellTab = 'home' | 'dashboard' | 'strategies' | 'connections' | 'chat';
@@ -20,6 +20,7 @@ const navItems: Array<{ key: AppShellTab; icon: string; label: string; path: str
 
 export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, children }) => {
   const navigate = useNavigate();
+  const [isMobile, setIsMobile] = useState<boolean>(() => window.innerWidth < 980);
   const userId = localStorage.getItem('user_id') || '';
   const displayName = userId
     ? userId.split('@')[0].split('_')[0].replace(/^./, (c) => c.toUpperCase())
@@ -31,32 +32,70 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
     window.location.href = '/login';
   };
 
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 980);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   return (
-    <div style={{ minHeight: '100vh', background: '#fafafa', color: '#111', display: 'flex', fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div
+      style={{
+        minHeight: '100vh',
+        background: '#fafafa',
+        color: '#111',
+        display: 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
+        fontFamily: 'Inter, system-ui, sans-serif',
+      }}
+    >
       <aside
-        style={{
-          width: 220,
-          flexShrink: 0,
-          background: '#fff',
-          borderRight: '1px solid #ebebeb',
-          display: 'flex',
-          flexDirection: 'column',
-          padding: '28px 20px',
-          gap: 32,
-        }}
+        style={
+          isMobile
+            ? {
+                width: '100%',
+                flexShrink: 0,
+                background: '#fff',
+                borderBottom: '1px solid #ebebeb',
+                display: 'grid',
+                gap: 10,
+                padding: '14px 14px 12px',
+              }
+            : {
+                width: 220,
+                flexShrink: 0,
+                background: '#fff',
+                borderRight: '1px solid #ebebeb',
+                display: 'flex',
+                flexDirection: 'column',
+                padding: '28px 20px',
+                gap: 32,
+              }
+        }
       >
         <div style={{ fontSize: 17, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 8, height: 8, borderRadius: 999, background: '#111' }} />
           Nexa
         </div>
 
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
+        <nav
+          style={
+            isMobile
+              ? {
+                  display: 'flex',
+                  gap: 6,
+                  overflowX: 'auto',
+                  paddingBottom: 2,
+                }
+              : { display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }
+          }
+        >
           {navItems.map((item) => (
             <button
               key={item.key}
               onClick={() => navigate(item.path)}
               style={{
-                padding: '8px 10px',
+                padding: isMobile ? '7px 10px' : '8px 10px',
                 borderRadius: 8,
                 fontSize: 13.5,
                 fontWeight: item.key === current ? 500 : 450,
@@ -66,9 +105,10 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
                 cursor: 'pointer',
                 textAlign: 'left',
                 display: 'flex',
-                gap: 10,
+                gap: 8,
                 alignItems: 'center',
                 fontFamily: 'inherit',
+                whiteSpace: 'nowrap',
               }}
             >
               <span style={{ width: 18, textAlign: 'center' }}>{item.icon}</span>
@@ -77,7 +117,13 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
           ))}
         </nav>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div
+          style={
+            isMobile
+              ? { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }
+              : { display: 'flex', flexDirection: 'column', gap: 8 }
+          }
+        >
           <div
             style={{
               display: 'flex',
@@ -86,6 +132,7 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
               padding: '8px 10px',
               borderRadius: 8,
               background: '#f4f4f5',
+              minWidth: 0,
             }}
           >
             <div
@@ -120,6 +167,7 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
               background: 'transparent',
               textAlign: 'left',
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
             }}
           >
             ← Sair
@@ -127,12 +175,12 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
         </div>
       </aside>
 
-      <main style={{ flex: 1, padding: '42px 56px 56px', maxWidth: 1100, width: '100%' }}>
+      <main style={{ flex: 1, padding: isMobile ? '20px 14px 24px' : '42px 56px 56px', maxWidth: 1100, width: '100%' }}>
         <div style={{ marginBottom: 30 }}>
           <div style={{ fontSize: 12, fontWeight: 500, color: '#aaa', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>
             Nexa
           </div>
-          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 600, letterSpacing: -0.6, color: '#111' }}>{title}</h1>
+          <h1 style={{ margin: 0, fontSize: isMobile ? 24 : 28, fontWeight: 600, letterSpacing: -0.6, color: '#111' }}>{title}</h1>
           <p style={{ marginTop: 6, color: '#999', fontSize: 14 }}>{subtitle}</p>
         </div>
         {children}

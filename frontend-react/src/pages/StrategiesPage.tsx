@@ -138,6 +138,11 @@ export const StrategiesPage: React.FC = () => {
   const peerData = peerQuery.data || {};
   const notifications = notificationsQuery.data?.notifications || notificationsQuery.data?.results || [];
 
+  const isOptimizerLoading = portfolioQuery.isLoading || cardsQuery.isLoading || promotionsQuery.isLoading;
+  const isArchitectLoading = architectHistory.isLoading || architectMetrics.isLoading;
+  const isFiscalLoading = fiscalReport.isLoading || fiscalMixed.isLoading;
+  const isPeersLoading = peerQuery.isLoading || notificationsQuery.isLoading;
+
   const topPeerInsights = useMemo(() => {
     const rawInsights = peerData?.insights || peerData?.highlights || [];
     if (Array.isArray(rawInsights) && rawInsights.length > 0) {
@@ -162,7 +167,7 @@ export const StrategiesPage: React.FC = () => {
       title="Estratégias Nexa"
       subtitle="Optimizer, Architect, Fiscal Intelligence e alertas proativos."
     >
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         {[
           ['optimizer', 'Optimizer'],
           ['architect', 'Architect'],
@@ -189,9 +194,12 @@ export const StrategiesPage: React.FC = () => {
 
       {tab === 'optimizer' && (
         <div style={{ display: 'grid', gap: 12 }}>
+          {isOptimizerLoading && (
+            <div style={{ ...card, color: '#777', fontSize: 14 }}>Carregando dados do Optimizer...</div>
+          )}
           <div style={card}>
             <div style={sectionTitle}>Portfólio ideal de cartões</div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
               <input
                 type="number"
                 value={income}
@@ -205,7 +213,7 @@ export const StrategiesPage: React.FC = () => {
                 <option value={4}>4 cartões</option>
               </select>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 10 }}>
               <div style={{ border: '1px solid #eee', borderRadius: 8, padding: 10 }}>
                 <div style={metricLabel}>Retorno anual</div>
                 <div style={metricValue}>{currency(toNumber(portfolioQuery.data?.total_annual_return))}</div>
@@ -228,7 +236,7 @@ export const StrategiesPage: React.FC = () => {
                 {portfolioCards.slice(0, 4).map((item: any, idx: number) => (
                   <div
                     key={`${item.card_id || item.id || idx}`}
-                    style={{ border: '1px solid #eee', borderRadius: 10, padding: 10, display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 10 }}
+                    style={{ border: '1px solid #eee', borderRadius: 10, padding: 10, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', gap: 10 }}
                   >
                     <div>
                       <div style={{ fontWeight: 600, fontSize: 14 }}>{item.name || item.card_name || item.card_id || 'Cartão recomendado'}</div>
@@ -246,7 +254,7 @@ export const StrategiesPage: React.FC = () => {
             )}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
             <div style={card}>
               <div style={sectionTitle}>Custo de oportunidade</div>
               <select
@@ -298,6 +306,9 @@ export const StrategiesPage: React.FC = () => {
 
       {tab === 'architect' && (
         <div style={{ display: 'grid', gap: 12 }}>
+          {isArchitectLoading && (
+            <div style={{ ...card, color: '#777', fontSize: 14 }}>Carregando histórico e métricas do Architect...</div>
+          )}
           <div style={card}>
             <div style={sectionTitle}>Simulação estratégica</div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -320,7 +331,7 @@ export const StrategiesPage: React.FC = () => {
 
             {!architectMutation.isPending && Object.keys(architectResult).length > 0 && (
               <div style={{ display: 'grid', gap: 10 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
                   <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
                     <div style={metricLabel}>Estratégia recomendada</div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: '#111' }}>
@@ -337,7 +348,7 @@ export const StrategiesPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
                   <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
                     <div style={metricLabel}>Custo esperado</div>
                     <div style={metricValue}>{currency(toNumber(architectResult?.costs?.expected_cost))}</div>
@@ -378,7 +389,7 @@ export const StrategiesPage: React.FC = () => {
             )}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
             <div style={card}>
               <div style={sectionTitle}>Histórico</div>
               {(!Array.isArray(architectHistory.data) || architectHistory.data.length === 0) && (
@@ -414,9 +425,12 @@ export const StrategiesPage: React.FC = () => {
 
       {tab === 'fiscal' && (
         <div style={{ display: 'grid', gap: 12 }}>
+          {isFiscalLoading && (
+            <div style={{ ...card, color: '#777', fontSize: 14 }}>Carregando relatório fiscal...</div>
+          )}
           <div style={card}>
             <div style={sectionTitle}>Parâmetros fiscais</div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
               <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value || new Date().getFullYear()))} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8 }} />
               <select value={month} onChange={(e) => setMonth(e.target.value === '' ? '' : Number(e.target.value))} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8 }}>
                 <option value="">Todos</option>
@@ -426,7 +440,7 @@ export const StrategiesPage: React.FC = () => {
               </select>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
             <div style={card}>
               <div style={sectionTitle}>Relatório Fiscal</div>
               <div style={{ display: 'grid', gap: 8 }}>
@@ -464,7 +478,10 @@ export const StrategiesPage: React.FC = () => {
       )}
 
       {tab === 'peers' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+          {isPeersLoading && (
+            <div style={{ ...card, color: '#777', fontSize: 14 }}>Carregando benchmark e notificações...</div>
+          )}
           <div style={card}>
             <div style={sectionTitle}>Benchmark com pares</div>
             <input
