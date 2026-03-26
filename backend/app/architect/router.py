@@ -175,7 +175,7 @@ async def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
         "presente (NPV) compatível com a liquidez do usuário."
     ),
 )
-async def simulate(request: SimulationRequest, _: str = Depends(get_current_user)) -> SimulationResponse:
+async def simulate(request: SimulationRequest, current_user: str = Depends(get_current_user)) -> SimulationResponse:
     """
     Simula as 3 estratégias de aquisição e recomenda a melhor.
 
@@ -211,6 +211,8 @@ async def simulate(request: SimulationRequest, _: str = Depends(get_current_user
     - `422`: Request com regras de negócio inválidas (principal muito baixo, etc.)
     - `500`: Erro interno inesperado
     """
+    if current_user != request.user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     logger.info(
         "POST /architect/simulate | user=%s target=%.2f",
         request.user_id,
@@ -330,7 +332,7 @@ async def list_simulations(
         default=None,
         description="Filtrar por tipo de bem: IMOVEL, VEICULO, REFORMA, VIAGEM, OUTRO",
     ),
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ) -> List[Dict[str, Any]]:
     """
     Lista o histórico de simulações de um usuário.
@@ -347,6 +349,8 @@ async def list_simulations(
     GET /api/v1/architect/simulations?user_id=user_123&limit=5&asset_type=VEICULO
     ```
     """
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     logger.info(
         "GET /architect/simulations | user=%s limit=%d asset_type=%s",
         user_id,
@@ -605,7 +609,7 @@ async def get_sensitivity(
 )
 async def get_metrics(
     user_id: str = Query(..., description="ID do usuário"),
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """
     Retorna métricas agregadas de simulações do usuário.
@@ -631,6 +635,8 @@ async def get_metrics(
     }
     ```
     """
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     logger.info("GET /architect/metrics | user=%s", user_id)
 
     try:
@@ -715,7 +721,7 @@ async def timing_scenarios(
         default=None,
         description="Janelas de espera separadas por vírgula. Ex: '0,3,6,12'. Padrão: 0,3,6,12",
     ),
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ) -> List[TimingScenario]:
     """
     Responde: *"E se eu esperar X meses antes de comprar?"*
@@ -742,6 +748,8 @@ async def timing_scenarios(
     ]
     ```
     """
+    if current_user != request.user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     logger.info(
         "POST /architect/timing-scenarios | user=%s target=%.2f savings=%.2f",
         request.user_id,

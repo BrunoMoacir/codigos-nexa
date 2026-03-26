@@ -38,7 +38,7 @@ router = APIRouter(prefix="/safe-to-spend", tags=["Safe-to-Spend"])
         "Fonte: NexaRunner (dados Pluggy mock em dev, Pluggy real em prod)."
     ),
 )
-async def get_safe_to_spend(user_id: str, _: str = Depends(get_current_user)) -> dict:
+async def get_safe_to_spend(user_id: str, current_user: str = Depends(get_current_user)) -> dict:
     """
     Retorna safe-to-spend consolidado com spent_to_date do mês corrente.
 
@@ -56,6 +56,9 @@ async def get_safe_to_spend(user_id: str, _: str = Depends(get_current_user)) ->
     }
     ```
     """
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+
     logger.info("GET /safe-to-spend/%s", user_id)
 
     try:

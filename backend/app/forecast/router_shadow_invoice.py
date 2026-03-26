@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 async def get_shadow_invoices(
     user_id: str,
     days_ahead: int = 60,
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ) -> ShadowInvoiceListResponse:
     """
     Retorna obrigações financeiras futuras detectadas automaticamente.
@@ -128,12 +128,14 @@ async def get_shadow_invoices(
     - 100% determinístico (sem IA nesta etapa)
     - Sempre disponível mesmo quando Open Finance falha
     - Confidence score indica quantas vezes o padrão foi visto
-    
+
     **Erros possíveis:**
     - 404: Usuário não encontrado
     - 500: Erro ao processar dados
     """
-    
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+
     try:
         logger.info(f"🔍 Processando shadow invoices para user_id={user_id} (days_ahead={days_ahead})...")
         
@@ -213,7 +215,7 @@ async def get_shadow_invoices(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.get("/{user_id}/summary")
-async def get_shadow_invoice_summary(user_id: str, _: str = Depends(get_current_user)):
+async def get_shadow_invoice_summary(user_id: str, current_user: str = Depends(get_current_user)):
     """
     Retorna resumo das obrigações detectadas (apenas números chave).
     
@@ -231,6 +233,9 @@ async def get_shadow_invoice_summary(user_id: str, _: str = Depends(get_current_
     ```
     """
     
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+
     try:
         logger.info(f"📊 Gerando summary para user_id={user_id}")
         

@@ -2,7 +2,7 @@
 # Rotas REST da Funcionalidade 2: Nexa Optimizer
 
 import logging
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, status
 from app.core.security import get_current_user
 from typing import Optional
 
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/optimizer", tags=["Optimizer (F2)"])
 @router.post("/analyze", response_model=OptimizationReport)
 async def analyze_cards(
     request: OptimizationRequest,
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ) -> OptimizationReport:
     """
     Analisa os gastos do usuário e recomenda o melhor cartão de crédito.
@@ -27,6 +27,8 @@ async def analyze_cards(
     3. Simula o retorno matemático e aplica regras de risco e elegibilidade.
     4. Retorna um relatório completo detalhando por que cada cartão é (ou não) recomendado.
     """
+    if current_user != request.user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     logger.info(f"[API] Solicitando otimização de cartões para user_id={request.user_id}")
     
     try:
@@ -69,8 +71,10 @@ from app.optimizer.opportunity_cost import OpportunityCostCalculator
 from app.optimizer.profiler import ConsumptionProfiler
 
 @router.get("/reports/{user_id}")
-async def list_user_reports(user_id: str, _: str = Depends(get_current_user)):
+async def list_user_reports(user_id: str, current_user: str = Depends(get_current_user)):
     """Retorna o histórico resumido de otimizações de um usuário."""
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     reports = get_optimization_reports(user_id)
     return {"reports": reports}
 
@@ -98,7 +102,7 @@ async def get_opportunity_cost(
     user_id: str,
     current_card_id: str,
     months: int = 3,
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ):
     """
     Calcula quanto o usuário deixou de ganhar por usar o cartão atual
@@ -126,6 +130,8 @@ async def get_opportunity_cost(
     }
     ```
     """
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     try:
         from app.core.db.queries import get_transactions_for_user
 
@@ -209,7 +215,7 @@ async def get_card_portfolio(
     user_id: str,
     max_cards: int = Query(default=3, ge=1, le=5, description="Máximo de cartões na carteira"),
     monthly_income: _Optional[float] = Query(default=None, description="Renda mensal (R$) para cálculo de elegibilidade"),
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ):
     """
     Calcula a carteira ideal de cartões para o perfil de gastos do usuário.
@@ -245,6 +251,8 @@ async def get_card_portfolio(
 
     logger.info(f"[API] Portfolio multi-cartão para user={user_id} max_cards={max_cards}")
 
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     # ── 1. Buscar transações ────────────────────────────────────────
     try:
         transactions_df = get_transactions_for_user(user_id)

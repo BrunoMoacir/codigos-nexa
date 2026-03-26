@@ -118,7 +118,7 @@ async def fetch_user_transactions(user_id: str, horizon_days: int = 30):
 async def get_forecast(
     user_id: str,
     horizon_days: int = 30,
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ) -> ForecastResponse:
     """
     Retorna previsão financeira consolidada do usuário.
@@ -172,6 +172,9 @@ async def get_forecast(
     - 500: Erro ao processar dados
     """
     
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+
     try:
         logger.info(f"📊 Iniciando forecast para user_id={user_id} (horizon={horizon_days})...")
         

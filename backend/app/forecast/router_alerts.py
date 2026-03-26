@@ -223,7 +223,7 @@ def generate_high_commitment_alert(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.get("/{user_id}", response_model=AlertsResponse)
-async def get_alerts(user_id: str, _: str = Depends(get_current_user)) -> AlertsResponse:
+async def get_alerts(user_id: str, current_user: str = Depends(get_current_user)) -> AlertsResponse:
     """
     Retorna alertas ativos para o usuário.
     
@@ -276,6 +276,9 @@ async def get_alerts(user_id: str, _: str = Depends(get_current_user)) -> Alerts
     5. Consolidar alertas
     """
     
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+
     try:
         logger.info(f"🚨 Gerando alertas para user_id={user_id}")
         
@@ -399,13 +402,15 @@ async def get_alerts(user_id: str, _: str = Depends(get_current_user)) -> Alerts
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.delete("/{user_id}/{alert_id}")
-async def dismiss_alert(user_id: str, alert_id: str, _: str = Depends(get_current_user)):
+async def dismiss_alert(user_id: str, alert_id: str, current_user: str = Depends(get_current_user)):
     """
     Marca um alerta como lido/ignorado.
-    
+
     TODO: Implementar persistência no Postgres
     """
-    
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+
     logger.info(f"🔇 Ignorando alerta {alert_id} do user {user_id}")
     
     return {

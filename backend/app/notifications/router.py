@@ -61,7 +61,7 @@ async def get_notifications(
         default=True,
         description="Se False, retorna apenas CRITICAL e WARNING.",
     ),
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ) -> dict:
     """
     Retorna notificações proativas baseadas no histórico real do usuário.
@@ -96,6 +96,9 @@ async def get_notifications(
     logger.info("GET /notifications/%s | income=R$%.0f", user_id, monthly_income)
 
     ctx = NotificationContext()
+
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
 
     # ── 1. NexaRunner: busca transações e cashflow ─────────────────
     try:

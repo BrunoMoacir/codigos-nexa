@@ -3,10 +3,11 @@ app/api/v1/routes/analyze.py
 Endpoint principal de análise financeira (Safe-to-Spend)
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 import polars as pl
 
 from app.agent.graph import build_financial_agent
+from app.core.security import get_current_user
 
 router = APIRouter(
     prefix="/analyze",
@@ -23,7 +24,7 @@ def _get_agent():
 
 
 @router.post("")
-def analyze(transactions: list[dict]):
+def analyze(transactions: list[dict], current_user: str = Depends(get_current_user)):
     """
     Recebe transações e retorna Safe-to-Spend + explicação.
     """

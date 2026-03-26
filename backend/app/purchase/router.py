@@ -18,7 +18,7 @@ router = APIRouter(prefix="/purchase", tags=["Purchase Advisor (F7)"])
 @router.post("/analyze", response_model=PurchaseRecommendation)
 async def analyze_purchase(
     request: PurchaseRequest,
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ) -> PurchaseRecommendation:
     """
     **F7 — Modo Compra Inteligente**
@@ -43,6 +43,8 @@ async def analyze_purchase(
     }
     ```
     """
+    if current_user != request.user_id:
+        raise HTTPException(status_code=403, detail="Acesso negado")
     logger.info(
         "[API] F7 purchase/analyze | user=%s amount=%.2f category=%s",
         request.user_id, request.amount, request.category,

@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.security import get_current_user
 
 router = APIRouter(
     prefix="/banks",
@@ -15,7 +16,7 @@ except ImportError:
 
 
 @router.get("/simulate/{bank}")
-def simulate_bank_endpoint(bank: str):
+def simulate_bank_endpoint(bank: str, _: str = Depends(get_current_user)):
     if not _SIMULATION_AVAILABLE:
         raise HTTPException(
             status_code=503,

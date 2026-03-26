@@ -34,8 +34,10 @@ Dados começam a fluir novamente
 import logging
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.core.security import get_current_user
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # IMPORTS: Pluggy
@@ -88,8 +90,11 @@ class ReconnectRequest(BaseModel):
 @router.post("/{user_id}", response_model=ConnectUrlResponse)
 async def create_reconnect_url(
     user_id: str,
-    request: ReconnectRequest | None = None
+    request: ReconnectRequest | None = None,
+    current_user: str = Depends(get_current_user)
 ) -> ConnectUrlResponse:
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     """
     Gera URL de reconexão para o usuário.
     
@@ -184,7 +189,13 @@ async def create_reconnect_url(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.post("/{user_id}/callback")
-async def reconnect_callback(user_id: str, connection_id: str):
+async def reconnect_callback(
+    user_id: str,
+    connection_id: str,
+    current_user: str = Depends(get_current_user)
+):
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     """
     Webhook chamado pela Pluggy após usuário conectar.
     

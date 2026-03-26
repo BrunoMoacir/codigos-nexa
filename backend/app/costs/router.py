@@ -19,7 +19,7 @@ router = APIRouter(prefix="/costs", tags=["Custos Bancários (F5)"])
 @router.get("/raio-x/{user_id}", response_model=BankCostReport)
 async def get_bank_cost_report(
     user_id: str,
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ) -> BankCostReport:
     """
     **F5 — Raio-X de Custos Bancários**
@@ -35,6 +35,9 @@ async def get_bank_cost_report(
     `ANUIDADE_CARTAO`, `TARIFA_MANUTENCAO`, `TED_DOC`, `SAQUE`,
     `JUROS_ROTATIVO`, `SEGURO_PRESTAMISTA`, `PACOTE_SERVICOS`, `IOF`
     """
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+
     logger.info("[API] F5 costs/raio-x | user=%s", user_id)
 
     # ── 1. Buscar transações ──────────────────────────────────────

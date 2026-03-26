@@ -53,9 +53,12 @@ async def compare_peers(
         le=12,
         description="Meses de histórico de transações a considerar (padrão: 3).",
     ),
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ) -> dict:
     """Compara o perfil de gastos do usuário com benchmarks da faixa de renda."""
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+
     import polars as pl
     import datetime
 

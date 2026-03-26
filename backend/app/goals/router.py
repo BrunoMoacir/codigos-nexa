@@ -62,13 +62,15 @@ class UpdateProgressRequest(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/{user_id}", status_code=201)
-async def create_goal(user_id: str, body: CreateGoalRequest, _: str = Depends(get_current_user)):
+async def create_goal(user_id: str, body: CreateGoalRequest, current_user: str = Depends(get_current_user)):
     """
     MX.2 — Cria uma nova meta financeira para o usuário.
 
     Calcula automaticamente a contribuição mensal necessária baseada
     no valor restante e na data alvo.
     """
+    if current_user != user_id:
+        raise HTTPException(status_code=403, detail="Acesso negado.")
     from app.goals.tracker import GoalTracker
     try:
         goal = GoalTracker().create_goal(
@@ -89,11 +91,13 @@ async def create_goal(user_id: str, body: CreateGoalRequest, _: str = Depends(ge
 async def list_goals(
     user_id: str,
     status: str = Query(default="ACTIVE", description="Status: ACTIVE | COMPLETED | ABANDONED"),
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ):
     """
     MX.2 — Lista as metas do usuário filtradas por status, com projeções.
     """
+    if current_user != user_id:
+        raise HTTPException(status_code=403, detail="Acesso negado.")
     from app.goals.tracker import GoalTracker
     tracker = GoalTracker()
     goals = tracker.list_goals(user_id=user_id, status=status)

@@ -23,7 +23,7 @@ import logging
 from typing import List, Literal, Optional
 
 import polars as pl
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -147,7 +147,7 @@ def get_health_score_history_endpoint(
     user_id: str,
     months: int = Query(default=6, ge=1, le=24, description="Meses de histórico"),
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ) -> HealthScoreHistoryResponse:
     """
     Retorna o histórico do score de saúde financeira do usuário.
@@ -174,6 +174,9 @@ def get_health_score_history_endpoint(
     }
     ```
     """
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+
     logger.info(f"[health-score] Solicitado histórico para user={user_id} months={months}")
 
     # ── 1. Buscar transações (Direto pela Sessão/Thread do FastAPI) ─

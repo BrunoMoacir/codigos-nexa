@@ -53,7 +53,7 @@ async def get_budget_advice(
         le=12,
         description="Meses de histórico a considerar (padrão: 3, máximo: 12).",
     ),
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ) -> dict:
     """
     Retorna sugestão de orçamento 50/30/20 baseada no histórico real do usuário.
@@ -74,6 +74,9 @@ async def get_budget_advice(
     > em 8 p.p. Desejos: 22% (ideal 30%) — dentro do esperado.
     > Poupança: 6% (ideal 20%) — abaixo do ideal. Faltam R$1.120/mês para atingir a meta."
     """
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+
     logger.info("GET /budget/%s | income=R$%.0f | history=%dm", user_id, monthly_income, history_months)
 
     # ── 1. Buscar transações do Postgres ────────────────────────────────

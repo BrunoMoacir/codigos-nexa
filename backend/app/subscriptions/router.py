@@ -2,7 +2,7 @@
 # M1.5 — Detecção de Assinaturas Esquecidas
 
 import logging
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, status
 from app.core.security import get_current_user
 from typing import Optional
 
@@ -19,7 +19,7 @@ async def get_subscriptions(
         le=24,
         description="Janela de histórico em meses para detectar recorrência (mín: 2, máx: 24)",
     ),
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ):
     """
     M1.5 — Detecta assinaturas recorrentes e sinaliza as possivelmente esquecidas.
@@ -55,6 +55,9 @@ async def get_subscriptions(
     }
     ```
     """
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+
     from app.core.db.queries import get_transactions_for_user
     from app.subscriptions.subscription_detector import detect_subscriptions
     import polars as pl

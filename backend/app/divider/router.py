@@ -1,6 +1,6 @@
 # app/api/v1/routes/context_override.py
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, status
 from pydantic import BaseModel
 from typing import List, Literal, Optional
 from sqlalchemy.orm import Session
@@ -41,8 +41,10 @@ def override_transaction_context(
     request: ContextOverrideRequest,
     user_id: str = Query(..., description="ID do usuário"),
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ):
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     logger.info(f"Recebido override user={user_id} txn={request.transaction_id} -> {request.corrected_context}")
     
     try:
@@ -73,11 +75,13 @@ def override_transaction_context(
 def list_user_overrides(
     user_id: str = Query(..., description="ID do usuário"),
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ):
     """
     Lista histórico de correções manuais do usuário.
     """
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     try:
         overrides_data = get_context_overrides(db, user_id)
         
@@ -102,11 +106,13 @@ def list_user_overrides(
 def get_stats(
     user_id: str = Query(..., description="ID do usuário"),
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ):
     """
     Retorna contagem de overrides (ex: {"PF": 5, "PJ": 2}).
     """
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     try:
         return get_override_stats(db, user_id)
     except Exception as e:

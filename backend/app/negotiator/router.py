@@ -20,7 +20,7 @@ router = APIRouter(prefix="/negotiator", tags=["Negotiator Bot (F13)"])
 @router.post("/generate-script", response_model=NegotiationReport)
 async def generate_negotiation_script(
     request: NegotiationRequest,
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ) -> NegotiationReport:
     """
     **F13 — Negotiator Bot**
@@ -37,6 +37,8 @@ async def generate_negotiation_script(
     - `ANUIDADE_ALTA` — anuidade > R$ 30/mês nos últimos 12 meses
     - `HEALTH_SCORE_ALTO` — score ≥ 70 sem outros triggers (renegociação proativa)
     """
+    if current_user != request.user_id:
+        raise HTTPException(status_code=403, detail="Acesso negado")
     logger.info("[API] F13 negotiator/generate-script | user=%s bank=%s", request.user_id, request.bank_name)
 
     # ── 1. Buscar transações ──────────────────────────────────────
