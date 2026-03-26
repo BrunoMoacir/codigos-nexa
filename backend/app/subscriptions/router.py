@@ -56,7 +56,7 @@ async def get_subscriptions(
     ```
     """
     from app.core.db.queries import get_transactions_for_user
-    from app.forecast.etl.subscription_detector import detect_subscriptions
+    from app.subscriptions.subscription_detector import detect_subscriptions
     import polars as pl
 
     # 1. Buscar transações do PostgreSQL

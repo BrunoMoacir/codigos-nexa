@@ -235,6 +235,25 @@ export const DashboardPage: React.FC = () => {
       .slice(0, 6);
   }, [shadowInvoices]);
 
+  const shadowSubscriptions = useMemo(() => {
+    return shadowInvoices
+      .filter((invoice: any) => String(invoice.type || '').toUpperCase() === 'SUBSCRIPTION')
+      .map((invoice: any) => ({
+        merchant: invoice.description || 'Assinatura',
+        monthly_amount: Math.abs(Number(invoice.amount || 0)),
+        subscription_category: 'servico_recorrente',
+      }));
+  }, [shadowInvoices]);
+
+  const usingSubscriptionFallback = subscriptionsQuery.isError || (subscriptions.length === 0 && shadowSubscriptions.length > 0);
+  const displaySubscriptions = usingSubscriptionFallback ? shadowSubscriptions : subscriptions;
+  const displaySubscriptionCount = usingSubscriptionFallback
+    ? shadowSubscriptions.length
+    : Number(subscriptionsQuery.data?.total_subscriptions || subscriptions.length);
+  const displaySubscriptionCost = usingSubscriptionFallback
+    ? shadowSubscriptions.reduce((sum: number, s: any) => sum + Number(s.monthly_amount || 0), 0)
+    : Number(subscriptionsQuery.data?.total_monthly_cost || 0);
+
   const showSkeleton = isLoading && !forecastQuery.data && !budgetQuery.data && !txQuery.data;
 
   const renderSkeletonBlock = (height = 80) => (
@@ -545,13 +564,18 @@ export const DashboardPage: React.FC = () => {
 
         <div style={cardStyle}>
           <div style={titleStyle}>Assinaturas Ativas</div>
+          {subscriptionsQuery.isError && (
+            <div style={{ fontSize: 12, color: '#92400e', marginBottom: 6 }}>
+              Endpoint de assinaturas indisponível; exibindo estimativa via obrigações futuras.
+            </div>
+          )}
           <div style={{ fontSize: 14, color: '#444', marginBottom: 6 }}>
-            Assinaturas: {subscriptionsQuery.data?.total_subscriptions || subscriptions.length}
+            Assinaturas: {displaySubscriptionCount}
           </div>
           <div style={{ fontSize: 14, color: '#444', marginBottom: 8 }}>
-            Custo mensal: {currency(subscriptionsQuery.data?.total_monthly_cost || 0)}
+            Custo mensal: {currency(displaySubscriptionCost)}
           </div>
-          {subscriptions.slice(0, 4).map((sub: any, idx: number) => (
+          {displaySubscriptions.slice(0, 4).map((sub: any, idx: number) => (
             <div
               key={`${sub.merchant || sub.name || 'sub'}-${idx}`}
               style={{
@@ -592,7 +616,7 @@ export const DashboardPage: React.FC = () => {
               </div>
             </div>
           ))}
-          {subscriptions.length === 0 && (
+          {displaySubscriptions.length === 0 && (
             <div style={{ color: '#777', fontSize: 14 }}>Nenhuma assinatura detectada.</div>
           )}
         </div>
