@@ -19,6 +19,7 @@ const cardStyle: React.CSSProperties = {
   border: '1px solid #ebebeb',
   borderRadius: 12,
   padding: 18,
+  boxShadow: '0 1px 2px rgba(16, 24, 40, 0.06)',
 };
 
 const titleStyle: React.CSSProperties = {
@@ -277,13 +278,13 @@ export const DashboardPage: React.FC = () => {
 
       {showSkeleton && (
         <div style={{ display: 'grid', gap: 12, marginBottom: 14 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
             {renderSkeletonBlock()}
             {renderSkeletonBlock()}
             {renderSkeletonBlock()}
             {renderSkeletonBlock()}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
             {renderSkeletonBlock(220)}
             {renderSkeletonBlock(220)}
           </div>
@@ -334,7 +335,7 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 12, marginBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 12 }}>
         <div style={cardStyle}>
           <div style={titleStyle}>Orçamento 50/30/20</div>
           {Number(forecastQuery.data?.financial_health?.total_income || 0) <= 0 && (
@@ -367,11 +368,11 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 12 }}>
         <div style={cardStyle}>
           <div style={titleStyle}>Safe-to-Spend (Consumo do Orçamento)</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '210px 1fr', gap: 10, alignItems: 'center' }}>
-            <div style={{ height: 180 }}>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ height: 180, width: 200, flexShrink: 0 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <RadialBarChart
                   innerRadius="72%"
@@ -423,7 +424,7 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 12 }}>
         <div style={cardStyle}>
           <div style={titleStyle}>Categorias (Mais estouradas primeiro)</div>
           {categoryBreakdown.length === 0 && <div style={{ color: '#777' }}>Sem dados de categorias no período.</div>}
@@ -474,7 +475,7 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 12 }}>
         <div style={cardStyle}>
           <div style={titleStyle}>Metas Financeiras</div>
           {goals.length === 0 && <div style={{ color: '#777', fontSize: 14 }}>Nenhuma meta cadastrada.</div>}
@@ -548,7 +549,7 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 12 }}>
         <div style={cardStyle}>
           <div style={titleStyle}>Alertas Ativos</div>
           <div style={{ marginBottom: 10 }}>

@@ -42,7 +42,7 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
     <div
       style={{
         minHeight: '100vh',
-        background: '#fafafa',
+        background: 'transparent',
         color: '#111',
         display: 'flex',
         flexDirection: isMobile ? 'column' : 'row',
@@ -64,12 +64,15 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
             : {
                 width: 220,
                 flexShrink: 0,
-                background: '#fff',
+                background: '#fbfbfc',
                 borderRight: '1px solid #ebebeb',
                 display: 'flex',
                 flexDirection: 'column',
                 padding: '28px 20px',
                 gap: 32,
+                position: 'sticky',
+                top: 0,
+                height: '100vh',
               }
         }
       >
@@ -100,7 +103,7 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
                 fontSize: 13.5,
                 fontWeight: item.key === current ? 500 : 450,
                 color: item.key === current ? '#111' : '#888',
-                background: item.key === current ? '#f4f4f5' : 'transparent',
+                background: item.key === current ? '#eceff5' : 'transparent',
                 border: 'none',
                 cursor: 'pointer',
                 textAlign: 'left',
@@ -131,7 +134,7 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
               gap: 10,
               padding: '8px 10px',
               borderRadius: 8,
-              background: '#f4f4f5',
+              background: '#eceff5',
               minWidth: 0,
             }}
           >
@@ -175,7 +178,7 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
         </div>
       </aside>
 
-      <main style={{ flex: 1, padding: isMobile ? '20px 14px 24px' : '42px 56px 56px', maxWidth: 1100, width: '100%' }}>
+      <main style={{ flex: 1, padding: isMobile ? '20px 14px 24px' : '40px 44px 44px', maxWidth: 1280, width: '100%' }}>
         <div style={{ marginBottom: 30 }}>
           <div style={{ fontSize: 12, fontWeight: 500, color: '#aaa', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>
             Nexa
