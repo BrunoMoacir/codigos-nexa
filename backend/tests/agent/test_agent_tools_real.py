@@ -1,12 +1,17 @@
 import pytest
+from app.agent.tools.get_bank_cost_analysis import get_bank_cost_analysis
 from app.agent.tools.get_budget_advice import get_budget_advice
 from app.agent.tools.get_card_optimization import get_card_optimization
 from app.agent.tools.get_financial_forecast import get_financial_forecast
 from app.agent.tools.get_financing_simulation import get_financing_simulation
 from app.agent.tools.get_fiscal_report import get_fiscal_report
 from app.agent.tools.get_goals_summary import get_goals_summary
+from app.agent.tools.get_leverage_simulation import get_leverage_simulation
+from app.agent.tools.get_negotiation_script import get_negotiation_script
 from app.agent.tools.get_peer_comparison import get_peer_comparison
+from app.agent.tools.get_purchase_recommendation import get_purchase_recommendation
 from app.agent.tools.get_spending_alerts import get_spending_alerts
+from app.agent.tools.get_timing_scenarios import get_timing_scenarios
 import json
 
 import os
@@ -68,3 +73,56 @@ def test_get_spending_alerts_real():
     result = get_spending_alerts.invoke({"user_id": USER_ID})
     assert isinstance(result, str)
     assert len(result) > 50
+
+
+def test_get_timing_scenarios_real():
+    result = get_timing_scenarios.invoke({
+        "user_id": USER_ID,
+        "target_amount": 300000.0,
+        "monthly_savings": 2000.0,
+        "down_payment": 50000.0,
+        "asset_type": "IMOVEL",
+        "financing_months": 120,
+    })
+    assert isinstance(result, str)
+    assert len(result) > 50
+    assert any(kw in result for kw in ["Timing", "meses", "Comprar", "R$", "Esperar", "Dados insuficientes"])
+
+
+def test_get_leverage_simulation_real():
+    result = get_leverage_simulation.invoke({
+        "user_id": USER_ID,
+        "asset_value": 500000.0,
+        "monthly_rent": 1800.0,
+        "consortium_months": 180,
+    })
+    assert isinstance(result, str)
+    assert len(result) > 50
+    assert any(kw in result for kw in ["Alavancagem", "VIÁVEL", "NÃO VIÁVEL", "consórcio", "R$", "Dados insuficientes"])
+
+
+def test_get_purchase_recommendation_real():
+    result = get_purchase_recommendation.invoke({
+        "user_id": USER_ID,
+        "amount": 2500.0,
+        "category": "Eletrônicos",
+        "installments": 10,
+        "monthly_income": 8000.0,
+    })
+    assert isinstance(result, str)
+    assert len(result) > 50
+    assert any(kw in result for kw in ["ANÁLISE DE COMPRA", "Recomendação", "opção", "R$", "Não foi possível", "erro interno", "Desculpe"])
+
+
+def test_get_bank_cost_analysis_real():
+    result = get_bank_cost_analysis.invoke({"user_id": USER_ID})
+    assert isinstance(result, str)
+    assert len(result) > 50
+    assert any(kw in result for kw in ["CUSTOS BANCÁRIOS", "tarifa", "banco", "R$", "Não encontrei histórico"])
+
+
+def test_get_negotiation_script_real():
+    result = get_negotiation_script.invoke({"user_id": USER_ID})
+    assert isinstance(result, str)
+    assert len(result) > 50
+    assert any(kw in result for kw in ["ROTEIRO", "banco", "oportunidade", "Score", "Não detectei", "Não encontrei"])
