@@ -14,8 +14,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Agent Chat"])
 limiter = Limiter(key_func=get_remote_address)
 
-# Carrega o grafo do agente (pode demorar no primeiro boot)
-agent_app = build_financial_agent()
+_agent_app = None
+
+def _get_agent():
+    global _agent_app
+    if _agent_app is None:
+        _agent_app = build_financial_agent()
+    return _agent_app
 
 
 class ChatRequest(BaseModel):
@@ -68,7 +73,7 @@ async def chat_with_agent(
         # O thread_id agrupa o histórico na memória do agente
         config = {"configurable": {"thread_id": chat_request.user_id}}
 
-        result = agent_app.invoke(inputs, config=config)
+        result = _get_agent().invoke(inputs, config=config)
 
         # A resposta final do LLM estará na última mensagem do state
         messages = result.get("messages", [])

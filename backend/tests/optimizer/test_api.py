@@ -30,7 +30,7 @@ def test_analyze_endpoint_missing_user_id():
     assert response.status_code == 422 
 
 def test_analyze_endpoint_validation_error(monkeypatch):
-    monkeypatch.setattr("app.db.queries.get_connection", lambda: MockConnection())
+    monkeypatch.setattr("app.core.db.queries.get_connection", lambda: MockConnection())
     response = client.post(
         "/optimizer/analyze",
         json={
@@ -47,7 +47,7 @@ def test_analyze_endpoint_validation_error(monkeypatch):
 
 def test_analyze_endpoint_success(monkeypatch):
     # Mock duckdb save to prevent test state pollution
-    monkeypatch.setattr("app.db.queries.get_connection", lambda: MockConnection())
+    monkeypatch.setattr("app.core.db.queries.get_connection", lambda: MockConnection())
     monkeypatch.setattr("app.optimizer.services.optimizer_service.save_optimization_report", lambda r: None)
     
     response = client.post(
