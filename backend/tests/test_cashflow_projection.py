@@ -1,6 +1,6 @@
 import polars as pl
 
-from app.cashflow.projector import CashflowProjector
+from app.forecast.cashflow.projector import CashflowProjector
 
 
 def test_cashflow_projection():

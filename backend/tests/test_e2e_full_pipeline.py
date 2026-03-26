@@ -116,7 +116,7 @@ def test_02_pluggy_mock_integration():
     Simula o fluxo real de Open Finance.
     """
     _sep("02. Pluggy Mock — Open Finance Integration")
-    from app.integrations.open_finance.pluggy_mock import MockPluggyClient
+    from app.core.integrations.pluggy_mock import MockPluggyClient
 
     pluggy = MockPluggyClient()
 
@@ -156,8 +156,8 @@ def test_03_etl_pipeline_with_realistic_data():
     random.seed(42)
 
     # Import ETL components
-    from app.schemas.transaction import TransactionBatchResult
-    from app.etl import (
+    from app.core.schemas.transaction import TransactionBatchResult
+    from app.forecast.etl import (
         TransactionIngestor, TransactionClassifier,
         RecurringDetector, DataQualityValidator, UserProfileAnalyzer,
     )

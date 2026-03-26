@@ -88,23 +88,23 @@ if str(backend_dir) not in sys.path:
 
 # Imports
 import polars as pl
-from app.schemas.transaction import (
+from app.core.schemas.transaction import (
     TransactionWebhook,
     TransactionBatchResult,
     RejectedTransaction,
     TransactionOut
 )
-from app.schemas.enums import DataStatus, TransactionStatus, Currency
+from app.core.schemas.enums import DataStatus, TransactionStatus, Currency
 
-from app.etl import (
+from app.forecast.etl import (
     TransactionIngestor,
     TransactionClassifier,
     RecurringDetector,
     DataQualityValidator,
     UserProfileAnalyzer,
-    run_shadow_invoice_detection,
-    print_recurring_stats
+    print_recurring_stats,
 )
+from app.subscriptions.shadow_invoices.runner import run_shadow_invoice_detection
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

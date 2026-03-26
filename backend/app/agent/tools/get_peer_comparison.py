@@ -49,7 +49,7 @@ def get_peer_comparison(
         
     try:
         from app.peers.peer_comparison import PeerComparator
-        from app.db.queries import get_transactions_for_user
+        from app.core.db.queries import get_transactions_for_user
         import polars as pl
         import datetime
 

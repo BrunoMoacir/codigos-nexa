@@ -1,0 +1,163 @@
+"""
+app/api/v1/routes/budget.py — Orçamento Inteligente (M1.3)
+
+Endpoint: GET /budget/{user_id}?monthly_income=8000
+
+Retorna sugestão de orçamento 50/30/20 baseada no histórico de transações.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Optional
+
+import polars as pl
+from fastapi import APIRouter, HTTPException, Query, status, Depends
+from app.core.security import get_current_user
+
+from app.budget.budget_advisor import BudgetAdvisor, BudgetSuggestion, GroupSummary
+from app.core.db.queries import get_transactions_for_user
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/budget", tags=["Budget"])
+
+_advisor = BudgetAdvisor(history_months=3)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ENDPOINT: GET /budget/{user_id}
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@router.get(
+    "/{user_id}",
+    status_code=status.HTTP_200_OK,
+    summary="M1.3 — Orçamento Inteligente por Categoria",
+    description=(
+        "Analisa o histórico de transações dos últimos 3 meses e sugere limites "
+        "de gasto por categoria usando a regra 50/30/20 adaptada ao perfil real. "
+        "Retorna alocações por grupo (essenciais/desejos/poupança), cortes sugeridos "
+        "e texto explicativo em linguagem natural."
+    ),
+)
+async def get_budget_advice(
+    user_id: str,
+    monthly_income: float = Query(
+        ...,
+        gt=0,
+        description="Renda mensal líquida do usuário (R$). Obrigatório para calcular os percentuais 50/30/20.",
+    ),
+    history_months: int = Query(
+        default=3,
+        ge=1,
+        le=12,
+        description="Meses de histórico a considerar (padrão: 3, máximo: 12).",
+    ),
+    _: str = Depends(get_current_user),
+) -> dict:
+    """
+    Retorna sugestão de orçamento 50/30/20 baseada no histórico real do usuário.
+
+    **Como usar:**
+    ```
+    GET /api/v1/budget/{user_id}?monthly_income=8000
+    ```
+
+    **Resposta inclui:**
+    - `group_summary`: resumo por grupo (essenciais / desejos / poupança)
+    - `allocations`: detalhamento por categoria
+    - `actionable_cuts`: cortes concretos ordenados por potencial de economia
+    - `summary_text`: texto explicativo em português
+
+    **Exemplo de summary_text:**
+    > "Com base nos últimos 3 meses: Essenciais: 58% (ideal 50%) — acima do ideal
+    > em 8 p.p. Desejos: 22% (ideal 30%) — dentro do esperado.
+    > Poupança: 6% (ideal 20%) — abaixo do ideal. Faltam R$1.120/mês para atingir a meta."
+    """
+    logger.info("GET /budget/%s | income=R$%.0f | history=%dm", user_id, monthly_income, history_months)
+
+    # ── 1. Buscar transações do Postgres ────────────────────────────────
+    try:
+        transactions_df = get_transactions_for_user(user_id)
+    except Exception as exc:
+        logger.error("Erro ao buscar transações para budget/%s: %s", user_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao acessar dados de transações.",
+        )
+
+    if transactions_df.is_empty():
+        # Em dev (ou usuário novo), não retornar 404 — devolve sugestão padrão 50/30/20
+        # com baixa confiança e sem cortes.
+        group_summary = [
+            GroupSummary(
+                group="essenciais",
+                current_amount=0.0,
+                current_pct=0.0,
+                target_pct=0.50,
+                suggested_amount=monthly_income * 0.50,
+                status="WITHIN",
+                delta_pct=-0.50,
+            ),
+            GroupSummary(
+                group="desejos",
+                current_amount=0.0,
+                current_pct=0.0,
+                target_pct=0.30,
+                suggested_amount=monthly_income * 0.30,
+                status="WITHIN",
+                delta_pct=-0.30,
+            ),
+            GroupSummary(
+                group="poupanca",
+                current_amount=0.0,
+                current_pct=0.0,
+                target_pct=0.20,
+                suggested_amount=monthly_income * 0.20,
+                status="WITHIN",
+                delta_pct=-0.20,
+            ),
+        ]
+
+        suggestion = BudgetSuggestion(
+            income=monthly_income,
+            history_months=0,
+            total_expenses_avg=0.0,
+            expenses_pct_income=0.0,
+            savings_gap=0.0,
+            group_summary=group_summary,
+            allocations=[],
+            actionable_cuts=[],
+            summary_text=(
+                "Sem transações para este usuário ainda. Mostrando a regra padrão 50/30/20 "
+                "(Essenciais 50%, Desejos 30%, Poupança 20%)."
+            ),
+            confidence=0.0,
+        )
+        return suggestion.to_dict()
+
+    # ── 2. Montar DataFrame para o formato exigido ──────────────────
+    if "date" in transactions_df.columns:
+        transactions_df = transactions_df.rename({"date": "transaction_date"})
+
+    # ── 3. Gerar sugestão ──────────────────────────────────────────
+    advisor = BudgetAdvisor(history_months=history_months)
+    try:
+        suggestion = advisor.suggest(transactions_df, monthly_income=monthly_income)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        logger.error("BudgetAdvisor falhou para %s: %s", user_id, exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao calcular sugestão de orçamento.",
+        )
+
+    logger.info(
+        "GET /budget/%s | cortes=%d | conf=%.2f | gap_poupanca=R$%.0f",
+        user_id, len(suggestion.actionable_cuts), suggestion.confidence, suggestion.savings_gap,
+    )
+    return suggestion.to_dict()

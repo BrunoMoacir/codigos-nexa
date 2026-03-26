@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from datetime import date
 from unittest.mock import patch, MagicMock
 
-from app.api.v1.routes.health_score import router
+from app.health_score.router import router
 
 app = FastAPI()
 app.include_router(router)
@@ -42,11 +42,11 @@ def _transactions_df() -> pl.DataFrame:
 def test_history_no_transactions(monkeypatch):
     """Quando não há transações, retorna data_quality='NO_TRANSACTIONS' e score 0."""
     monkeypatch.setattr(
-        "app.api.v1.routes.health_score._fetch_transactions_sync",
+        "app.health_score.router._fetch_transactions_sync",
         lambda user_id: _empty_df()
     )
     monkeypatch.setattr(
-        "app.api.v1.routes.health_score.get_health_score_history",
+        "app.health_score.router.get_health_score_history",
         lambda user_id, months: []
     )
 
@@ -68,15 +68,15 @@ def test_history_with_enough_transactions(monkeypatch):
         return True
 
     monkeypatch.setattr(
-        "app.api.v1.routes.health_score._fetch_transactions_sync",
+        "app.health_score.router._fetch_transactions_sync",
         lambda user_id: _transactions_df()
     )
     monkeypatch.setattr(
-        "app.api.v1.routes.health_score.save_health_score_snapshot",
+        "app.health_score.router.save_health_score_snapshot",
         mock_save
     )
     monkeypatch.setattr(
-        "app.api.v1.routes.health_score.get_health_score_history",
+        "app.health_score.router.get_health_score_history",
         lambda user_id, months: [{"date": "2026-03", "health_score": 65, "savings_rate": 0.1, "profile_type": "EQUILIBRADO", "safe_to_spend": None}]
     )
 
@@ -96,7 +96,7 @@ def test_history_with_enough_transactions(monkeypatch):
 def test_trend_improving(monkeypatch):
     """Tendência IMPROVING quando score aumentou ≥ 3 pontos nos últimos 3 meses."""
     monkeypatch.setattr(
-        "app.api.v1.routes.health_score._fetch_transactions_sync",
+        "app.health_score.router._fetch_transactions_sync",
         lambda user_id: _empty_df()
     )
     history_data = [
@@ -106,7 +106,7 @@ def test_trend_improving(monkeypatch):
         {"date": "2026-02", "health_score": 70, "savings_rate": 0.12, "profile_type": "EQUILIBRADO", "safe_to_spend": None},
     ]
     monkeypatch.setattr(
-        "app.api.v1.routes.health_score.get_health_score_history",
+        "app.health_score.router.get_health_score_history",
         lambda user_id, months: history_data
     )
 
@@ -121,7 +121,7 @@ def test_trend_improving(monkeypatch):
 def test_trend_declining(monkeypatch):
     """Tendência DECLINING quando score caiu ≥ 3 pontos."""
     monkeypatch.setattr(
-        "app.api.v1.routes.health_score._fetch_transactions_sync",
+        "app.health_score.router._fetch_transactions_sync",
         lambda user_id: _empty_df()
     )
     history_data = [
@@ -130,7 +130,7 @@ def test_trend_declining(monkeypatch):
         {"date": "2026-02", "health_score": 55, "savings_rate": 0.02, "profile_type": "GASTADOR", "safe_to_spend": None},
     ]
     monkeypatch.setattr(
-        "app.api.v1.routes.health_score.get_health_score_history",
+        "app.health_score.router.get_health_score_history",
         lambda user_id, months: history_data
     )
 
@@ -148,11 +148,11 @@ def test_months_query_param(monkeypatch):
         return []
 
     monkeypatch.setattr(
-        "app.api.v1.routes.health_score._fetch_transactions_sync",
+        "app.health_score.router._fetch_transactions_sync",
         lambda user_id: _empty_df()
     )
     monkeypatch.setattr(
-        "app.api.v1.routes.health_score.get_health_score_history",
+        "app.health_score.router.get_health_score_history",
         capture_months
     )
 

@@ -13,7 +13,13 @@ router = APIRouter(
     tags=["Financial Analysis"]
 )
 
-agent = build_financial_agent()
+_agent = None
+
+def _get_agent():
+    global _agent
+    if _agent is None:
+        _agent = build_financial_agent()
+    return _agent
 
 
 @router.post("")
@@ -24,7 +30,7 @@ def analyze(transactions: list[dict]):
 
     df = pl.DataFrame(transactions)
 
-    final_state = agent.invoke({
+    final_state = _get_agent().invoke({
         "transactions": df
     })
 

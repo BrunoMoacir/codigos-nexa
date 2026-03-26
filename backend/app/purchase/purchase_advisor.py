@@ -153,7 +153,7 @@ class PurchaseAdvisor:
     def _fetch_transactions(self, user_id: str) -> pl.DataFrame:
         """Busca transações limpas do PostgreSQL. Retorna DataFrame vazio em caso de falha."""
         try:
-            from app.db.queries import get_transactions_for_user
+            from app.core.db.queries import get_transactions_for_user
             return get_transactions_for_user(user_id)
         except Exception as exc:
             logger.warning("PurchaseAdvisor | erro ao buscar transações: %s", exc)
@@ -170,8 +170,8 @@ class PurchaseAdvisor:
             return None
 
         try:
-            from app.cashflow.projector import CashflowProjector
-            from app.cashflow.safe_to_spend import SafeToSpendCalculator
+            from app.forecast.cashflow.projector import CashflowProjector
+            from app.forecast.cashflow.safe_to_spend import SafeToSpendCalculator
 
             projection_df = CashflowProjector().project(
                 transactions_df=transactions_df,

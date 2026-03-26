@@ -216,7 +216,7 @@ def test_update_progress_partial():
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from app.api.v1.routes.goals import router as goals_router
+from app.goals.router import router as goals_router
 
 _app = FastAPI()
 _app.include_router(goals_router)

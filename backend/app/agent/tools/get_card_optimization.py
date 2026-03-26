@@ -87,7 +87,7 @@ def get_card_optimization(
         )
 
         # MI.8: contexto de renda para o LLM — sinaliza fonte e confiança
-        from app.etl.income_profiler import IncomeProfiler
+        from app.forecast.etl.income_profiler import IncomeProfiler
         income_context_lines = []
         if monthly_income:
             income_context_lines.append(

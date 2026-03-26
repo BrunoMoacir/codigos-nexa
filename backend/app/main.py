@@ -14,14 +14,14 @@ from app.core.database import Base, engine
 from fastapi.middleware.cors import CORSMiddleware
 
 # Importa modelos para registrar no metadata (necessário para create_all)
-from app.models.user import User  # noqa: F401
-from app.models.transaction import Transaction  # noqa: F401
-from app.models.financial_goal import FinancialGoal  # noqa: F401
-from app.models.health_score import HealthScoreHistory  # noqa: F401
-from app.models.context_override import ContextOverride  # noqa: F401
-from app.models.optimization_report import OptimizationReport  # noqa: F401
-from app.models.architect import ArchitectSimulation, ArchitectSimulationMetrics  # noqa: F401
-from app.models.pluggy_item import PluggyItem  # noqa: F401
+from app.core.models.user import User  # noqa: F401
+from app.core.models.transaction import Transaction  # noqa: F401
+from app.goals.models import FinancialGoal  # noqa: F401
+from app.health_score.models import HealthScoreHistory  # noqa: F401
+from app.divider.models import ContextOverride  # noqa: F401
+from app.optimizer.models_orm import OptimizationReport  # noqa: F401
+from app.architect.models_orm import ArchitectSimulation, ArchitectSimulationMetrics  # noqa: F401
+from app.core.models.pluggy_item import PluggyItem  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

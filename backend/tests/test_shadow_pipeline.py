@@ -1,9 +1,9 @@
 from datetime import datetime, timezone
 
-from app.integrations.open_finance.pluggy_mock import MockPluggyClient
-from app.schemas.transaction import TransactionBatchResult
-from app.etl.ingestor import TransactionIngestor
-from app.etl.shadow_invoices import run_shadow_invoice_detection
+from app.core.integrations.pluggy_mock import MockPluggyClient
+from app.core.schemas.transaction import TransactionBatchResult
+from app.forecast.etl.ingestor import TransactionIngestor
+from app.subscriptions.shadow_invoices.runner import run_shadow_invoice_detection
 
 
 def test_shadow_invoice_pipeline():

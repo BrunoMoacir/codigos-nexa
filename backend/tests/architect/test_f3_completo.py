@@ -768,7 +768,7 @@ class TestRegressao:
         (isso está coberto em test_db.py com DuckDB :memory:).
         """
         try:
-            from app.db.queries.architect_queries import (
+            from app.architect.queries import (
                 save_simulation,
                 get_simulation,
                 get_user_simulations,

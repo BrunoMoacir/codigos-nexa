@@ -1,75 +1,74 @@
 """
 app/api/v1/router.py - Router Principal da API V1
 
-╔══════════════════════════════════════════════════════════════════════╗
-║ O QUE ESTE ARQUIVO FAZ                                               ║
-╚══════════════════════════════════════════════════════════════════════╝
-
 Registra TODAS as rotas disponíveis da API v1.
-
-Funciona como o ponto central: qualquer endpoint novo deve ser
-importado e registrado aqui.
-
-╔══════════════════════════════════════════════════════════════════════╗
-║ ROTAS DISPONÍVEIS                                                    ║
-╚══════════════════════════════════════════════════════════════════════╝
-
-CORE ENGINE:
-  GET  /forecast/{user_id}              Previsão consolidada (cashflow + safe-to-spend)
-  GET  /shadow_invoice/{user_id}        Obrigações futuras detectadas
-  GET  /shadow_invoice/{user_id}/summary Resumo de obrigações
-  GET  /alerts/{user_id}                Alertas ativos (token, saldo, etc)
-  POST /reconnect/{user_id}             Gerar URL de reconexão
-
-TRANSAÇÕES (ETL):
-  POST /transactions/webhook            Webhook de transações (Pluggy)
-  GET  /transactions/{user_id}          Buscar transações do usuário
-
-TESTES/desenvolvimento:
-  (Other routers for testing)
-
-DOCUMENTAÇÃO:
-  GET  /docs                            Swagger UI (auto-generated)
-  GET  /redoc                           ReDoc (auto-generated)
+Cada feature tem seu próprio router.py auto-contido.
 """
 
 from fastapi import APIRouter
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# IMPORTS: Rotas Existentes (teste/desenvolvimento)
+# IMPORTS: Rotas compartilhadas (teste/desenvolvimento)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 from app.api.v1.routes import bank_simulation
 from app.api.v1.routes import analyze
-
-# TODO: Criar os arquivos antes de ativar
-# from app.api.v1.routes import pluggy_test   # routes/pluggy_test.py ainda não existe
-# from app.api.v1.routes import cashflow       # routes/cashflow.py ainda não existe
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# IMPORTS: CORE ENGINE (NOVO!)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-# Transações: webhook + get
-from app.api.v1.routes import transactions
-
-# ✨ NOVO: Auth (Login e Register)
 from app.api.v1.routes import auth
-
-# ✨ NOVO: Forecast (previsão consolidada)
-from app.api.v1.routes import forecast
-
-# ✨ NOVO: Conexões Open Finance (Widget Pluggy)
 from app.api.v1.routes import pluggy
-
-# ✨ NOVO: Shadow Invoices (obrigações futuras)
-from app.api.v1.routes import shadow_invoice
-
-# ✨ NOVO: Alerts (avisos ao usuário)
-from app.api.v1.routes import alerts
-
-# ✨ NOVO: Reconnect (reconectar consentimento)
 from app.api.v1.routes import reconnect
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# IMPORTS: Feature routers
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# F1 - Forecast (ETL + cashflow engine)
+from app.forecast.router import router as forecast_router
+from app.forecast.router_transactions import router as transactions_router
+from app.forecast.router_shadow_invoice import router as shadow_invoice_router
+from app.forecast.router_alerts import router as alerts_router
+from app.forecast.router_safe_to_spend import router as safe_to_spend_router
+
+# F2 - Optimizer
+from app.optimizer.router import router as optimizer_router
+
+# F3 - Architect
+from app.architect.router import router as architect_router
+
+# F4 - Divider (PF/PJ classification + context override)
+from app.divider.router import router as divider_router
+
+# F5 - Costs (Raio-X de Custos Bancários)
+from app.costs.router import router as costs_router
+
+# F7 - Purchase (Modo Compra Inteligente)
+from app.purchase.router import router as purchase_router
+
+# F13 - Negotiator (Roteiro de Negociação)
+from app.negotiator.router import router as negotiator_router
+
+# M1.3 - Budget (Orçamento Inteligente)
+from app.budget.router import router as budget_router
+
+# M1.5 - Subscriptions
+from app.subscriptions.router import router as subscriptions_router
+
+# M4.1 - Fiscal Report (Relatório Fiscal PJ)
+from app.fiscal.router import router as fiscal_router
+
+# MX.1 - Health Score
+from app.health_score.router import router as health_score_router
+
+# MX.2 - Goals (Metas Financeiras)
+from app.goals.router import router as goals_router
+
+# MX.3 - Notifications (Notificações Proativas)
+from app.notifications.router import router as notifications_router
+
+# MX.4 - Peers (Comparação com Perfis Similares)
+from app.peers.router import router as peers_router
+
+# AI Chat Agent
+from app.agent.router import router as agent_router
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CRIAR ROUTER PRINCIPAL
@@ -78,98 +77,64 @@ from app.api.v1.routes import reconnect
 router = APIRouter()
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# REGISTRAR ROTAS: Testes/Desenvolvimento
+# REGISTRAR ROTAS: Compartilhadas
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 router.include_router(bank_simulation.router)
 router.include_router(analyze.router)
-
-# TODO: Criar os arquivos antes de ativar
-# router.include_router(pluggy_test.router)
-# router.include_router(cashflow.router)
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# REGISTRAR ROTAS: CORE ENGINE (PRODUÇÃO)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-# 0️⃣ Auth: POST /auth/register, POST /auth/token
 router.include_router(auth.router)
-
-# 1️⃣ Transações: POST /transactions/webhook (ingestão de dados)
-#    GET  /transactions/{user_id} (buscar dados)
-router.include_router(transactions.router)
-
-# 2️⃣ Forecast: GET /forecast/{user_id} (previsão consolidada)
-router.include_router(forecast.router)
-
-# ✨ NOVO: Conexões Open Finance (Widget Pluggy)
 router.include_router(pluggy.router, prefix="/pluggy", tags=["Pluggy Analytics"])
-
-# 3️⃣ Shadow Invoice: GET /shadow_invoice/{user_id} (obrigações futuras)
-router.include_router(shadow_invoice.router)
-
-# 4️⃣ Alerts: GET /alerts/{user_id} (avisos)
-router.include_router(alerts.router)
-
-# 5️⃣ Reconnect: POST /reconnect/{user_id} (reconectar consentimento)
 router.include_router(reconnect.router)
 
-# 6️⃣ Context Override: POST /context/override (F4 - Nexa Divider)
-from app.api.v1.routes import context_override
-router.include_router(context_override.router)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# REGISTRAR ROTAS: Features
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# 7️⃣ Architect: POST /architect/simulate (F3 - Nexa Architect)
-from app.api.v1.routes import architect
-router.include_router(architect.router)
+# F1 - Forecast
+router.include_router(transactions_router)
+router.include_router(forecast_router)
+router.include_router(shadow_invoice_router)
+router.include_router(alerts_router)
+router.include_router(safe_to_spend_router)
 
-# 8️⃣ Optimizer: POST /optimizer/analyze (F2 - Nexa Optimizer)
-from app.api.v1.routes import optimizer
-router.include_router(optimizer.router)
+# F2 - Optimizer
+router.include_router(optimizer_router)
 
-# 9️⃣ Agent Chat: POST /chat (F2/F3 - Nexa IA Chat)
-from app.api.v1.routes import chat
-router.include_router(chat.router)
+# F3 - Architect
+router.include_router(architect_router)
 
-# 🔟 Health Score History: GET /health-score/history/{user_id} (MX.1)
-from app.api.v1.routes import health_score
-router.include_router(health_score.router)
-# 1️⃣1️⃣ Subscriptions: GET /subscriptions/{user_id} (M1.5)
-from app.api.v1.routes import subscriptions
-router.include_router(subscriptions.router)
+# F4 - Divider
+router.include_router(divider_router)
 
-# 1️⃣2️⃣ Goals: /goals/{user_id} (MX.2)
-from app.api.v1.routes import goals
-router.include_router(goals.router)
+# F5 - Costs
+router.include_router(costs_router)
 
-# 1️⃣3️⃣ Budget: /budget/{user_id} (M1.3 — Orçamento Inteligente)
-from app.api.v1.routes import budget
-router.include_router(budget.router)
+# F7 - Purchase
+router.include_router(purchase_router)
 
-# 1️⃣4️⃣ Notifications: /notifications/{user_id} (MX.3 — Notificações Proativas)
-from app.api.v1.routes import notifications
-router.include_router(notifications.router)
+# F13 - Negotiator
+router.include_router(negotiator_router)
 
-# 1️⃣5️⃣ Fiscal Report: /fiscal-report/{user_id} (M4.1 — Relatório Fiscal PJ)
-from app.api.v1.routes import fiscal_report
-router.include_router(fiscal_report.router)
+# M1.3 - Budget
+router.include_router(budget_router)
 
-# 1️⃣6️⃣ Peers: /peers/compare/{user_id} (MX.4 — Comparação com Perfis Similares)
-from app.api.v1.routes import peers
-router.include_router(peers.router)
+# M1.5 - Subscriptions
+router.include_router(subscriptions_router)
 
-# 1️⃣7️⃣ Safe-to-Spend: /safe-to-spend/{user_id} (F1 — Gauge + Ritmo de Gastos)
-from app.api.v1.routes import safe_to_spend
-router.include_router(safe_to_spend.router)
+# M4.1 - Fiscal
+router.include_router(fiscal_router)
 
-# 1️⃣8️⃣ Purchase Advisor: POST /purchase/analyze (F7 — Modo Compra Inteligente)
-from app.api.v1.routes import purchase
-router.include_router(purchase.router)
+# MX.1 - Health Score
+router.include_router(health_score_router)
 
-# 1️⃣9️⃣ Custos Bancários: GET /costs/raio-x/{user_id} (F5 — Raio-X de Custos)
-from app.api.v1.routes import costs
-router.include_router(costs.router)
+# MX.2 - Goals
+router.include_router(goals_router)
 
-# 2️⃣0️⃣ Negotiator Bot: POST /negotiator/generate-script (F13 — Roteiro de Negociação)
-from app.api.v1.routes import negotiator
-router.include_router(negotiator.router)
+# MX.3 - Notifications
+router.include_router(notifications_router)
 
+# MX.4 - Peers
+router.include_router(peers_router)
+
+# AI Chat Agent
+router.include_router(agent_router)

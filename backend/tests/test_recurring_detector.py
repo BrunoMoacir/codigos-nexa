@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 
-from app.integrations.open_finance.pluggy_mock import MockPluggyClient
-from app.schemas.transaction import TransactionBatchResult
-from app.etl.ingestor import TransactionIngestor
+from app.core.integrations.pluggy_mock import MockPluggyClient
+from app.core.schemas.transaction import TransactionBatchResult
+from app.forecast.etl.ingestor import TransactionIngestor
 from app.core.recurrence import RecurringDetector
 
 

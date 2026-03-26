@@ -21,7 +21,7 @@ from app.optimizer.profiler import ConsumptionProfiler
 from app.optimizer.simulator import CardSimulator
 from app.optimizer.ranking import CardRanking
 from app.optimizer.validators.input_validator import InputValidator
-from app.db.queries.optimizer_queries import save_optimization_report
+from app.optimizer.queries import save_optimization_report
 
 logger = logging.getLogger(__name__)
 

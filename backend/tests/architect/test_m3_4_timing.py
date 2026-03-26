@@ -193,7 +193,7 @@ def test_duplicate_scenarios_not_repeated():
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from app.api.v1.routes.architect import router as arch_router
+from app.architect.router import router as arch_router
 
 _app = FastAPI()
 _app.include_router(arch_router)

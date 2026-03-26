@@ -224,7 +224,7 @@ def test_empty_tracker_no_error():
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from app.api.v1.routes.optimizer import router as opt_router
+from app.optimizer.router import router as opt_router
 
 _app = FastAPI()
 _app.include_router(opt_router)

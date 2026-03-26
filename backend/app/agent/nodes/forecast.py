@@ -1,5 +1,5 @@
-from app.cashflow.projector import CashflowProjector
-from app.cashflow.safe_to_spend import SafeToSpendCalculator
+from app.forecast.cashflow.projector import CashflowProjector
+from app.forecast.cashflow.safe_to_spend import SafeToSpendCalculator
 
 def forecast_node(state):
     """Node do LangGraph que faz forecast."""

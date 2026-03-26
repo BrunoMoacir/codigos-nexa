@@ -28,35 +28,35 @@ logger = logging.getLogger(__name__)
 # Integrações Open Finance
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-from app.integrations.open_finance.pluggy import PluggyClient
-from app.integrations.open_finance.pluggy_mock import MockPluggyClient
+from app.core.integrations.pluggy import PluggyClient
+from app.core.integrations.pluggy_mock import MockPluggyClient
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Schemas (para validação de batch)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-from app.schemas.transaction import TransactionBatchResult
+from app.core.schemas.transaction import TransactionBatchResult
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ETLs (Pipeline completo)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-from app.etl import (
+from app.forecast.etl import (
     TransactionIngestor,
     TransactionClassifier,
     RecurringDetector,
     run_shadow_invoice_detection,
-    PFPJClassifier,  # Novo classificador PF/PJ
 )
+from app.divider.classifier import PFPJClassifier
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Cashflow (Projeção + Safe-to-Spend)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-from app.cashflow.projector import CashflowProjector
-from app.cashflow.safe_to_spend import SafeToSpendCalculator
-from app.cashflow.burn_rate import BurnRateAnalyzer
-from app.etl.income_profiler import IncomeProfiler
+from app.forecast.cashflow.projector import CashflowProjector
+from app.forecast.cashflow.safe_to_spend import SafeToSpendCalculator
+from app.forecast.cashflow.burn_rate import BurnRateAnalyzer
+from app.forecast.etl.income_profiler import IncomeProfiler
 
 
 class NexaRunner:
@@ -355,7 +355,7 @@ class NexaRunner:
         Returns:
             dict com mesma estrutura de `run()`, ou None se não houver dados.
         """
-        from app.db.queries import get_transactions_for_user
+        from app.core.db.queries import get_transactions_for_user
 
         logger.info("📡 [run_from_db] Buscando transações reais para user=%s", user_id)
 

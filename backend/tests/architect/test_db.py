@@ -33,7 +33,7 @@ from unittest.mock import MagicMock
 import duckdb
 import pytest
 
-from app.db.queries.architect_queries import (
+from app.architect.queries import (
     _ensure_tables_exist,
     get_simulation,
     get_user_latest_simulation,

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 from decimal import Decimal
 
-from app.schemas.transaction import TransactionWebhook
+from app.core.schemas.transaction import TransactionWebhook
 
 
 def adapt_simulation_to_webhook(raw: list[dict]) -> list[TransactionWebhook]:

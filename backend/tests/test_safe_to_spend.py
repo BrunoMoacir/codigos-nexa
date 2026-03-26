@@ -1,6 +1,6 @@
 import polars as pl
 
-from app.cashflow.safe_to_spend import SafeToSpendCalculator
+from app.forecast.cashflow.safe_to_spend import SafeToSpendCalculator
 
 
 def test_safe_to_spend():

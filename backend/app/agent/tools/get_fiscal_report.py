@@ -47,7 +47,7 @@ def get_fiscal_report(
     logger.info("[Tool] get_fiscal_report user=%s year=%d month=%s", user_id, year, month)
 
     try:
-        from app.etl.fiscal_report import FiscalReportService
+        from app.fiscal.fiscal_report import FiscalReportService
 
         service = FiscalReportService()
         report = service.generate(user_id=user_id, year=year, month=month)

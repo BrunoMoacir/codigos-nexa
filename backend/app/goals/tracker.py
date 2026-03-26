@@ -285,7 +285,7 @@ class GoalTracker:
     def list_goals(self, user_id: str, status: str = "ACTIVE") -> list[Goal]:
         """Lista metas do usuário filtradas por status."""
         from app.core.database import SessionLocal
-        from app.models.financial_goal import FinancialGoal
+        from app.goals.models import FinancialGoal
         db = SessionLocal()
         try:
             rows = db.query(FinancialGoal).filter(
@@ -331,7 +331,7 @@ class GoalTracker:
     def _persist(self, goal: Goal) -> None:
         """Insere a meta no PostgreSQL via SQLAlchemy."""
         from app.core.database import SessionLocal
-        from app.models.financial_goal import FinancialGoal
+        from app.goals.models import FinancialGoal
         db = SessionLocal()
         try:
             row = FinancialGoal(
@@ -350,7 +350,7 @@ class GoalTracker:
     def _update(self, goal: Goal) -> None:
         """Atualiza a meta no PostgreSQL via SQLAlchemy."""
         from app.core.database import SessionLocal
-        from app.models.financial_goal import FinancialGoal
+        from app.goals.models import FinancialGoal
         db = SessionLocal()
         try:
             db.query(FinancialGoal).filter(FinancialGoal.goal_id == goal.goal_id).update({
@@ -367,7 +367,7 @@ class GoalTracker:
     def _load(self, goal_id: str) -> Goal:
         """Carrega uma meta do PostgreSQL. Lança LookupError se não encontrada."""
         from app.core.database import SessionLocal
-        from app.models.financial_goal import FinancialGoal
+        from app.goals.models import FinancialGoal
         db = SessionLocal()
         try:
             row = db.query(FinancialGoal).filter(FinancialGoal.goal_id == goal_id).first()

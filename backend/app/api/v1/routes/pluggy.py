@@ -9,14 +9,14 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from app.integrations.open_finance.pluggy import PluggyClient
+from app.core.integrations.pluggy import PluggyClient
 from app.core.security import get_current_user
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.pluggy_item import PluggyItem
-from app.schemas.transaction import TransactionBatchResult
-from app.etl import TransactionIngestor
-from app.etl.runner import run_etl_pipeline
+from app.core.models.pluggy_item import PluggyItem
+from app.core.schemas.transaction import TransactionBatchResult
+from app.forecast.etl import TransactionIngestor
+from app.forecast.etl.runner import run_etl_pipeline
 
 logger = logging.getLogger(__name__)
 
