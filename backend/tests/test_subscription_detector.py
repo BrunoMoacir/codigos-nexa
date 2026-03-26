@@ -5,7 +5,7 @@ import datetime
 import pytest
 import polars as pl
 
-from app.etl.subscription_detector import (
+from app.subscriptions.subscription_detector import (
     SubscriptionDetector,
     AlertReason,
     detect_subscriptions,
@@ -192,7 +192,7 @@ def test_total_monthly_cost_correct():
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from app.api.v1.routes.subscriptions import router as sub_router
+from app.subscriptions.router import router as sub_router
 
 _app = FastAPI()
 _app.include_router(sub_router)

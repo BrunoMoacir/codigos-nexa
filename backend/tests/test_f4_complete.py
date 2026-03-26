@@ -32,9 +32,9 @@ import polars as pl
 import joblib
 
 # Imports do sistema
-from app.etl.runner import run_etl_pipeline
-from app.etl.pf_pj_classifier import PFPJClassifier, PFPJFallbackClassifier
-from app.integrations.open_finance.pluggy_mock import MockPluggyClient
+from app.forecast.etl.runner import run_etl_pipeline
+from app.divider.classifier import PFPJClassifier, PFPJFallbackClassifier
+from app.core.integrations.pluggy_mock import MockPluggyClient
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

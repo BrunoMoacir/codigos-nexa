@@ -147,7 +147,7 @@ def test_roi_explanation_not_empty():
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from app.api.v1.routes.optimizer import router
+from app.optimizer.router import router
 
 _app = FastAPI()
 _app.include_router(router)

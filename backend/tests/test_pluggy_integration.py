@@ -10,7 +10,7 @@ Objetivo:
 Este teste valida APENAS a integração externa.
 """
 
-from app.integrations.open_finance.pluggy_mock import MockPluggyClient
+from app.core.integrations.pluggy_mock import MockPluggyClient
 
 
 def test_pluggy_mock_flow():

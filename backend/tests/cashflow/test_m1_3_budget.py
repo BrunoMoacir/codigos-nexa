@@ -5,7 +5,7 @@ import pytest
 from datetime import date
 import polars as pl
 
-from app.cashflow.budget_advisor import (
+from app.budget.budget_advisor import (
     BudgetAdvisor,
     BudgetSuggestion,
     CategoryAllocation,
@@ -318,7 +318,7 @@ def test_suggest_budget_convenience():
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from app.api.v1.routes.budget import router as budget_router
+from app.budget.router import router as budget_router
 
 _app = FastAPI()
 _app.include_router(budget_router)

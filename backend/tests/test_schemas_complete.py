@@ -104,7 +104,7 @@ def info(msg: str):
 
 def test_transaction_webhook():
     """Testa TransactionWebhook (schema de entrada)."""
-    from app.schemas.transaction import TransactionWebhook
+    from app.core.schemas.transaction import TransactionWebhook
     
     subheader("TESTE 1.1: TransactionWebhook - Dados Válidos")
     
@@ -198,7 +198,7 @@ def test_transaction_webhook():
 
 def test_transaction_batch_result():
     """Testa TransactionBatchResult (validação tolerante)."""
-    from app.schemas.transaction import TransactionBatchResult
+    from app.core.schemas.transaction import TransactionBatchResult
     
     subheader("TESTE 1.5: TransactionBatchResult - Validação Tolerante")
     
@@ -263,7 +263,7 @@ def test_transaction_batch_result():
 
 def test_shadow_invoice_schemas():
     """Testa schemas de Shadow Invoices."""
-    from app.schemas.shadow_invoice import (
+    from app.forecast.schemas_shadow_invoice import (
         ShadowInvoiceResponse,
         ShadowInvoiceListResponse
     )
@@ -332,7 +332,7 @@ def test_shadow_invoice_schemas():
 
 def test_cashflow_schemas():
     """Testa schemas de Cashflow."""
-    from app.schemas.cashflow import (
+    from app.forecast.schemas_cashflow import (
         CashflowProjectionPoint,
         CashflowSummaryResponse,
         CashflowProjectionResponse
@@ -424,7 +424,7 @@ def test_cashflow_schemas():
 
 def test_safe_to_spend_schemas():
     """Testa schemas de Safe-to-Spend."""
-    from app.schemas.safe_to_spend import (
+    from app.forecast.schemas_safe_to_spend import (
         SafeToSpendResponse,
         SafeToSpendDetailedResponse
     )
@@ -494,14 +494,14 @@ def test_safe_to_spend_schemas():
 
 def test_forecast_schemas():
     """Testa schemas de Forecast."""
-    from app.schemas.forecast import (
+    from app.forecast.schemas_forecast import (
         FinancialHealthResponse,
         MonthlyForecastResponse,
         ForecastResponse
     )
-    from app.schemas.cashflow import CashflowSummaryResponse
-    from app.schemas.safe_to_spend import SafeToSpendResponse
-    from app.schemas.shadow_invoice import ShadowInvoiceListResponse
+    from app.forecast.schemas_cashflow import CashflowSummaryResponse
+    from app.forecast.schemas_safe_to_spend import SafeToSpendResponse
+    from app.forecast.schemas_shadow_invoice import ShadowInvoiceListResponse
     
     subheader("TESTE 5.1: FinancialHealthResponse")
     
@@ -628,8 +628,8 @@ def test_forecast_schemas():
 
 def test_edge_cases():
     """Testa edge cases e validações de limites."""
-    from app.schemas.safe_to_spend import SafeToSpendResponse
-    from app.schemas.cashflow import CashflowSummaryResponse
+    from app.forecast.schemas_safe_to_spend import SafeToSpendResponse
+    from app.forecast.schemas_cashflow import CashflowSummaryResponse
     
     subheader("TESTE 6.1: Valores Limite")
     
@@ -684,7 +684,7 @@ def test_edge_cases():
     subheader("TESTE 6.3: Ranges Inválidos")
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
-    from app.schemas.forecast import FinancialHealthResponse
+    from app.forecast.schemas_forecast import FinancialHealthResponse
     
     # Health score > 100
     try:

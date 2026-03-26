@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 # Mocking external dependencies before importing the main app router
-from app.api.v1.routes.optimizer import router as optimizer_router
+from app.optimizer.router import router as optimizer_router
 from fastapi import FastAPI
 
 app = FastAPI()

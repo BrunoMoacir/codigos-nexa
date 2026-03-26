@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
-from app.api.v1.routes.optimizer import router as optimizer_router
+from app.optimizer.router import router as optimizer_router
 from app.optimizer.models import OptimizationRequest
 
 app = FastAPI()

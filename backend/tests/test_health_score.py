@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from datetime import date
 from unittest.mock import patch, MagicMock
 
-from app.api.v1.routes.health_score import router
+from app.health_score.router import router
 
 app = FastAPI()
 app.include_router(router)

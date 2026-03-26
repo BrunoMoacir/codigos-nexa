@@ -46,8 +46,8 @@ from app.forecast.etl import (
     TransactionClassifier,
     RecurringDetector,
     run_shadow_invoice_detection,
-    PFPJClassifier,  # Novo classificador PF/PJ
 )
+from app.divider.classifier import PFPJClassifier
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Cashflow (Projeção + Safe-to-Spend)

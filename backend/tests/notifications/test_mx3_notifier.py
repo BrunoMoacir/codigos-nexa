@@ -410,7 +410,7 @@ def test_notifier_to_dict_valid_json_structure():
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from app.api.v1.routes.notifications import router as notif_router
+from app.notifications.router import router as notif_router
 
 _app = FastAPI()
 _app.include_router(notif_router)

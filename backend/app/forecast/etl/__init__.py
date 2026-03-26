@@ -20,6 +20,7 @@ from .profiles import UserProfileAnalyzer
 from .income_profiler import IncomeProfile, IncomeProfiler
 
 from .bank_strategy import get_bank_strategy
+from app.subscriptions.shadow_invoices.runner import run_shadow_invoice_detection
 
 __all__ = [
     "TransactionIngestor",
@@ -33,4 +34,5 @@ __all__ = [
     "IncomeProfile",
     "IncomeProfiler",
     "get_bank_strategy",
+    "run_shadow_invoice_detection",
 ]
