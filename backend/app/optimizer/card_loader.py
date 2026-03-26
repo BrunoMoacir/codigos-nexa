@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Optional
 from app.optimizer.models import CardRecord, CardFlag, BenefitTag
 
 if TYPE_CHECKING:
-    from app.etl.income_profiler import IncomeProfile, IncomePattern
+    from app.forecast.etl.income_profiler import IncomeProfile, IncomePattern
 
 # Limiar de estabilidade abaixo do qual renda PJ/MIXED é penalizada
 _PJ_INSTABILITY_THRESHOLD: float = 0.5
@@ -163,7 +163,7 @@ class CardKnowledgeBase:
 
         # --- Penalidade por instabilidade de renda PJ/MIXED (MI.3) ---
         if income_profile is not None:
-            from app.etl.income_profiler import IncomePattern
+            from app.forecast.etl.income_profiler import IncomePattern
             is_variable_income = income_profile.income_pattern in (
                 IncomePattern.PJ, IncomePattern.MIXED
             )

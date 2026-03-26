@@ -11,7 +11,7 @@ from app.core.security import (
     create_access_token,
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
-from app.db.users import get_user_by_email, create_user
+from app.core.db.users import get_user_by_email, create_user
 from app.core.database import get_db
 from sqlalchemy.orm import Session
 

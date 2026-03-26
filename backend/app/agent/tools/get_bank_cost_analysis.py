@@ -4,7 +4,7 @@ import logging
 from langchain_core.tools import tool
 
 from app.costs.bank_fee_analyzer import BankFeeAnalyzer
-from app.db.queries import get_transactions_for_user
+from app.core.db.queries import get_transactions_for_user
 
 logger = logging.getLogger(__name__)
 

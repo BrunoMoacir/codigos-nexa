@@ -11,7 +11,7 @@ from typing import Optional
 
 import polars as pl
 
-from app.etl.income_profiler import IncomeProfile, IncomeProfiler
+from app.forecast.etl.income_profiler import IncomeProfile, IncomeProfiler
 
 # TODO: migrar para structlog (dependência já declarada em pyproject.toml)
 # quando o projeto configurar o handler global, substituir por:

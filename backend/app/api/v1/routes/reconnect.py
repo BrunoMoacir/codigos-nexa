@@ -41,7 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # IMPORTS: Pluggy
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-from app.integrations.open_finance.pluggy import PluggyClient
+from app.core.integrations.pluggy import PluggyClient
 from app.core.config import settings
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -32,7 +32,7 @@ def get_budget_advice(
     """
     logger.info(f"[Tool] get_budget_advice para {user_id}, renda=R${monthly_income:.0f}")
     try:
-        from app.cashflow.budget_advisor import BudgetAdvisor
+        from app.budget.budget_advisor import BudgetAdvisor
         from app.runner import NexaRunner
         import polars as pl
 

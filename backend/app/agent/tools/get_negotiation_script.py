@@ -3,7 +3,7 @@ import logging
 
 from langchain_core.tools import tool
 
-from app.db.queries import get_transactions_for_user
+from app.core.db.queries import get_transactions_for_user
 from app.negotiator.opportunity_detector import NegotiationOpportunityDetector
 from app.negotiator.script_generator import NegotiationScriptGenerator
 

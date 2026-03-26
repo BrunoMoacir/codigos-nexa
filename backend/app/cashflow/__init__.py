@@ -1,38 +1,12 @@
 # app/cashflow/__init__.py
-"""
-Módulo Cashflow - Análise de Fluxo de Caixa
+# LEGACY COMPATIBILITY LAYER
+# All cashflow modules have moved to app.forecast.cashflow (engine) and app.budget (budget_advisor)
 
-COMPONENTES:
-    - CashflowProjector: Projeção diária (30 dias)
-    - SafeToSpendCalculator: Cálculo de gastos seguros  
-    - CashflowEngine: Orquestrador completo
-    - BudgetAdvisor: Orçamento inteligente 50/30/20 (M1.3)
-
-USAGE BÁSICO (RECOMENDADO):
-    from app.cashflow import CashflowEngine
-    
-    engine = CashflowEngine()
-    result = engine.analyze(transactions_df, shadow_invoices_df)
-
-USAGE AVANÇADO (Componentes individuais):
-    from app.cashflow import CashflowProjector, SafeToSpendCalculator, BudgetAdvisor
-    
-    projector = CashflowProjector(horizon_days=30)
-    projection_df = projector.project(transactions_df, shadow_df)
-    
-    advisor = BudgetAdvisor()
-    suggestion = advisor.suggest(transactions_df, monthly_income=8000.0)
-"""
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# IMPORTS
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-from .projector import CashflowProjector, ProjectionSummary
-from .safe_to_spend import SafeToSpendCalculator, SafeToSpendResult
-from .burn_rate import BurnRateAnalyzer, BurnRateReport, CategoryBurnRate
-from .engine import CashflowEngine
-from .budget_advisor import (
+from app.forecast.cashflow.projector import CashflowProjector, ProjectionSummary
+from app.forecast.cashflow.safe_to_spend import SafeToSpendCalculator, SafeToSpendResult
+from app.forecast.cashflow.burn_rate import BurnRateAnalyzer, BurnRateReport, CategoryBurnRate
+from app.forecast.cashflow.engine import CashflowEngine
+from app.budget.budget_advisor import (
     BudgetAdvisor,
     BudgetSuggestion,
     CategoryAllocation,
@@ -40,10 +14,6 @@ from .budget_advisor import (
     GroupSummary,
     suggest_budget,
 )
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# API PÚBLICA
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 __all__ = [
     "CashflowProjector",
@@ -54,7 +24,6 @@ __all__ = [
     "BurnRateReport",
     "CategoryBurnRate",
     "CashflowEngine",
-    # M1.3 — Orçamento Inteligente
     "BudgetAdvisor",
     "BudgetSuggestion",
     "CategoryAllocation",
@@ -62,6 +31,3 @@ __all__ = [
     "GroupSummary",
     "suggest_budget",
 ]
-
-__version__ = "2.1.0"
-__author__ = "Nexa AI Team"
