@@ -447,19 +447,19 @@ backend/
 
 ```bash
 # Migracoes de banco
-python scripts/apply_migrations.py
+python scripts/db/apply_migrations.py
 
 # Treinar modelo PF/PJ
-python scripts/train_pf_pj_classifier.py
+python scripts/ml/train_pf_pj_classifier.py
 
 # Validar modelo PF/PJ
-python scripts/validate_pf_pj_classifier.py
+python scripts/ml/validate_pf_pj_classifier.py
 
 # Criar dataset rotulado
-python scripts/create_labeled_dataset.py
+python scripts/ml/create_labeled_dataset.py
 
 # Testar API manualmente
-python scripts/test_api.py
+python scripts/debug/test_api.py
 ```
 
 ---

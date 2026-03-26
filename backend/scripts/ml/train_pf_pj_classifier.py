@@ -21,11 +21,11 @@ import sys
 import os
 
 # Adicionar o diretório backend ao path para imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 def load_training_data():
     """Carrega dataset de treinamento"""
-    data_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'training_dataset_pf_pj.parquet')
+    data_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'training_dataset_pf_pj.parquet')
     df = pl.read_parquet(data_path)
     print(f"📊 Dataset carregado: {len(df)} amostras")
 
@@ -127,12 +127,12 @@ def evaluate_model(rf_model, X, y, y_pred, X_test, y_test):
 def save_model(rf_model, encoders, scaler):
     """Salva modelo e preprocessors"""
     # Salva modelo
-    model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'pf_pj_classifier.pkl')
+    model_path = os.path.join(os.path.dirname(__file__), '..', '..', 'models', 'pf_pj_classifier.pkl')
     joblib.dump(rf_model, model_path)
 
     # Salva encoders e scaler
-    encoders_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'feature_encoders.pkl')
-    scaler_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'feature_scaler.pkl')
+    encoders_path = os.path.join(os.path.dirname(__file__), '..', '..', 'models', 'feature_encoders.pkl')
+    scaler_path = os.path.join(os.path.dirname(__file__), '..', '..', 'models', 'feature_scaler.pkl')
     joblib.dump(encoders, encoders_path)
     joblib.dump(scaler, scaler_path)
 

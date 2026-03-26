@@ -7,9 +7,11 @@ import shutil
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-DB_PATH = "finance.duckdb"
-DATA_DB_PATH = "data/transactions.duckdb"
-MIGRATIONS_DIR = "app/db/migrations"
+from pathlib import Path
+_BACKEND_DIR = Path(__file__).parent.parent.parent
+DB_PATH = str(_BACKEND_DIR / "finance.duckdb")
+DATA_DB_PATH = str(_BACKEND_DIR / "data" / "transactions.duckdb")
+MIGRATIONS_DIR = str(_BACKEND_DIR / "app" / "db" / "migrations")
 
 def init_db():
     """

@@ -16,7 +16,7 @@ import sys
 import os
 
 # Adicionar o diretório backend ao path para imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 # Keywords discriminatórias
 PJ_KEYWORDS = [
