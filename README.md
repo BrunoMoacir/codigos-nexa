@@ -473,7 +473,9 @@ python scripts/debug/test_api.py
 | [docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md) | Cheatsheet do dev: comandos, estrutura, como adicionar rotas |
 | [docs/FRONTEND_GRAFICOS.md](docs/FRONTEND_GRAFICOS.md) | Spec dos componentes visuais com mapeamento de endpoints |
 | [docs/NEXA_ESTRATEGIA_TECNICA.md](docs/NEXA_ESTRATEGIA_TECNICA.md) | Estrategia tecnica do produto |
-| [docs/ARCHITECT_F3.md](docs/ARCHITECT_F3.md) | Documentacao do modulo Architect (F3) |
+| [docs/ARCHITECT_F3.md](docs/ARCHITECT_F3.md) | Documentacao do modulo Architect (F3) — implementacao atual |
+| [docs/NEXA_ARCHITECT_V2_SPEC.md](docs/NEXA_ARCHITECT_V2_SPEC.md) | Especificacao tecnica v2.0: modelos estocasticos, data layer, risk engine, behavioral finance |
 | [docs/PF_PJ_VALIDATION_REPORT.md](docs/PF_PJ_VALIDATION_REPORT.md) | Relatorio de validacao do classificador PF/PJ (89% acuracia) |
+| [docs/BACKEND_REFERENCE.md](docs/BACKEND_REFERENCE.md) | Referencia completa de todos os arquivos e pastas do backend — o que cada um faz, como usar |
 
 
