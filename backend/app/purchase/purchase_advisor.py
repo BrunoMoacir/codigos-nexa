@@ -97,7 +97,7 @@ class PurchaseAdvisor:
                 self._build_card_parcelado_option(
                     amount=request.amount,
                     installments=request.installments,
-                    best_card_name=best_card_name,
+                    card_name=best_card_name,
                     reward_rate=reward_rate,
                 )
             )

@@ -111,7 +111,7 @@ def test_get_purchase_recommendation_real():
     })
     assert isinstance(result, str)
     assert len(result) > 50
-    assert any(kw in result for kw in ["ANÁLISE DE COMPRA", "Recomendação", "opção", "R$", "Não foi possível", "erro interno", "Desculpe"])
+    assert any(kw in result for kw in ["ANÁLISE DE COMPRA", "Recomendação", "opção", "R$", "Não foi possível"])
 
 
 def test_get_bank_cost_analysis_real():
