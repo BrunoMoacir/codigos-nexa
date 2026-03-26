@@ -28,7 +28,7 @@ import traceback
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 # Adicionar backend ao path
-current_dir = Path(__file__).parent.resolve()
+current_dir = Path(__file__).parent.parent.parent.resolve()
 if str(current_dir) not in sys.path:
     sys.path.insert(0, str(current_dir))
 

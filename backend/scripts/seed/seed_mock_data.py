@@ -14,7 +14,7 @@ import duckdb
 from datetime import date, timedelta
 from pathlib import Path
 
-DB_PATH = str(Path(__file__).parent / "finance.duckdb")
+DB_PATH = str(Path(__file__).parent.parent.parent / "finance.duckdb")
 USER_ID = "test_user_nexa"
 ACCOUNT_ID = "acc_mock_001"
 

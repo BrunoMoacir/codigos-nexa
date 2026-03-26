@@ -20,14 +20,14 @@ from datetime import datetime
 import json
 
 # Adicionar backend ao path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from app.etl.pf_pj_classifier import PFPJClassifier
 
 def load_real_transactions():
     """Carrega transações reais do DuckDB"""
     try:
-        conn = duckdb.connect(os.path.join(os.path.dirname(__file__), '..', 'data', 'transactions.duckdb'))
+        conn = duckdb.connect(os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'transactions.duckdb'))
         df = conn.execute('SELECT * FROM transactions').fetchdf()
         conn.close()
 
@@ -248,7 +248,7 @@ def main():
     results, stats = validate_classifier(classifier, synthetic_df)
 
     # Salva resultados
-    output_file = os.path.join(os.path.dirname(__file__), '..', 'docs', 'pf_pj_validation_results.json')
+    output_file = os.path.join(os.path.dirname(__file__), '..', '..', 'docs', 'pf_pj_validation_results.json')
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump({
             'validation_date': datetime.now().isoformat(),

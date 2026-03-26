@@ -19,7 +19,7 @@ import sys
 import os
 
 # Adicionar o diretório backend ao path para imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 # Palavras-chave para scoring
 PF_KEYWORDS = [
@@ -202,11 +202,11 @@ def create_training_dataset():
     training_df = df.select(feature_cols)
 
     # Salva dataset
-    output_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'training_dataset_pf_pj.parquet')
+    output_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'training_dataset_pf_pj.parquet')
     training_df.write_parquet(output_path)
 
     # Também salva CSV para visualização
-    csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'training_dataset_pf_pj.csv')
+    csv_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'training_dataset_pf_pj.csv')
     training_df.write_csv(csv_path)
 
     print(f"✅ Dataset criado com {len(training_df)} amostras")
