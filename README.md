@@ -468,11 +468,12 @@ python scripts/test_api.py
 
 | Arquivo | Conteudo |
 |---|---|
-| [backend/app/project_docs/ARCHITECTURE.md](backend/app/project_docs/ARCHITECTURE.md) | Arquitetura detalhada com diagramas de fluxo |
-| [backend/app/project_docs/DOCUMENTACAO_COMPLETA.md](backend/app/project_docs/DOCUMENTACAO_COMPLETA.md) | Documentacao tecnica completa de todos os modulos |
-| [backend/app/project_docs/MELHORIA_FUNCIONALIDADES.md](backend/app/project_docs/MELHORIA_FUNCIONALIDADES.md) | Melhorias implementadas por funcionalidade |
-| [backend/app/project_docs/HOW_TO_TEST.md](backend/app/project_docs/HOW_TO_TEST.md) | Guia de testes (6 metodos) |
-| [backend/app/project_docs/PRODUCTION_CHECKLIST.md](backend/app/project_docs/PRODUCTION_CHECKLIST.md) | Checklist para ir a producao |
-| [backend/docs/pf_pj_validation_report.md](backend/docs/pf_pj_validation_report.md) | Relatorio de validacao do classificador PF/PJ |
+| [docs/SETUP_LOCAL.md](docs/SETUP_LOCAL.md) | Setup local sem Docker, fallback DuckDB, troubleshooting |
+| [docs/ENDPOINTS_SUMMARY.md](docs/ENDPOINTS_SUMMARY.md) | Referencia completa de todos os endpoints (parametros, responses, curl) |
+| [docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md) | Cheatsheet do dev: comandos, estrutura, como adicionar rotas |
+| [docs/FRONTEND_GRAFICOS.md](docs/FRONTEND_GRAFICOS.md) | Spec dos componentes visuais com mapeamento de endpoints |
+| [docs/NEXA_ESTRATEGIA_TECNICA.md](docs/NEXA_ESTRATEGIA_TECNICA.md) | Estrategia tecnica do produto |
+| [docs/ARCHITECT_F3.md](docs/ARCHITECT_F3.md) | Documentacao do modulo Architect (F3) |
+| [docs/PF_PJ_VALIDATION_REPORT.md](docs/PF_PJ_VALIDATION_REPORT.md) | Relatorio de validacao do classificador PF/PJ (89% acuracia) |
 
 
