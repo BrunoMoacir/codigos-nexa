@@ -46,8 +46,8 @@ from app.forecast.etl import (
     TransactionIngestor,
     TransactionClassifier,
     RecurringDetector,
-    run_shadow_invoice_detection
 )
+from app.subscriptions.shadow_invoices.runner import run_shadow_invoice_detection
 from app.forecast.cashflow import CashflowEngine
 from app.forecast.schemas_forecast import ForecastResponse, build_forecast_response
 from app.forecast.schemas_safe_to_spend import SafeToSpendResponse
