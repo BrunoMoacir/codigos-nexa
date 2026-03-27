@@ -31,10 +31,10 @@ pyarrow>=15.0.0
 # ============================================
 # AI/LLM (opcional - comente se não usar)
 # ============================================
-langgraph>=1.0.0
-langchain>=0.1.0
-langchain-openai>=0.0.5
-langchain-anthropic>=0.1.0
+langgraph>=1.0.0,<2.0.0
+langchain>=0.3.0,<0.4.0
+langchain-openai>=0.2.0,<0.3.0
+langchain-anthropic>=0.3.0,<0.4.0
 
 # ============================================
 # Machine Learning (opcional)
