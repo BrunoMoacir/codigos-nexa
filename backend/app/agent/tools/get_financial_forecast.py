@@ -34,12 +34,10 @@ def get_financial_forecast(
     """
     logger.info(f"[Tool] get_financial_forecast para {user_id}")
     try:
-        from app.runner import NexaRunner
-
-        runner = NexaRunner(mode="dev")
+        from app.runner import get_runner
 
         # Busca dados REAIS do banco para este usuário
-        result = runner.run_from_db(user_id=user_id, horizon_days=horizon_days)
+        result = get_runner().run_from_db(user_id=user_id, horizon_days=horizon_days)
 
         if result is None:
             # Sem dados = usuário não conectou banco ainda. NÃO usar mock.

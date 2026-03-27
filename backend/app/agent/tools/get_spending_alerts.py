@@ -39,7 +39,6 @@ def get_spending_alerts(
     """
     logger.info(f"[Tool] get_spending_alerts para {user_id}")
     try:
-        from app.runner import NexaRunner
         from app.notifications.notifier import ProactiveNotifier, NotificationContext
         import polars as pl
 
@@ -48,10 +47,10 @@ def get_spending_alerts(
 
         # 1. NexaRunner alerts — usando dados REAIS do DuckDB
         try:
-            runner = NexaRunner(mode="dev")
-            result = runner.run_from_db(user_id=user_id, horizon_days=30)
+            from app.runner import get_runner
+            result = get_runner().run_from_db(user_id=user_id, horizon_days=30)
             if result is None:
-                result = runner.run(horizon_days=30)  # fallback para mock
+                result = {}  # sem dados reais — não usa mock
 
             alerts = result.get("alerts", [])
             if alerts:

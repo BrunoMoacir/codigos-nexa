@@ -141,8 +141,8 @@ class FiscalReportService:
             if df.is_empty():
                 return []
 
-            # Filtrar apenas PJ
-            df = df.filter(pl.col("context_type") == "PJ")
+            # Filtrar apenas PJ — fill_null garante que registros sem context_type não passem
+            df = df.filter(pl.col("context_type").fill_null("") == "PJ")
 
             # Filtrar por ano
             df = df.with_columns(pl.col("date").cast(pl.Date))

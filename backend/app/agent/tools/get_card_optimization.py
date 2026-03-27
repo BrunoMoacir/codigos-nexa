@@ -39,9 +39,8 @@ def get_card_optimization(
             "type": pl.Utf8
         })
         try:
-            from app.runner import NexaRunner
-            runner = NexaRunner(mode="dev")
-            result = runner.run_from_db(user_id=user_id, horizon_days=30)
+            from app.runner import get_runner
+            result = get_runner().run_from_db(user_id=user_id, horizon_days=30)
             if result and result.get("status") == "success":
                 raw_df = result.get("transactions", {}).get("clean_df", pl.DataFrame())
                 if not raw_df.is_empty():

@@ -33,14 +33,13 @@ def get_budget_advice(
     logger.info(f"[Tool] get_budget_advice para {user_id}, renda=R${monthly_income:.0f}")
     try:
         from app.budget.budget_advisor import BudgetAdvisor
-        from app.runner import NexaRunner
+        from app.runner import get_runner
         import polars as pl
 
         # Buscar transações REAIS do DuckDB
-        runner = NexaRunner(mode="dev")
         transactions_df = pl.DataFrame()
 
-        result = runner.run_from_db(user_id=user_id, horizon_days=30)
+        result = get_runner().run_from_db(user_id=user_id, horizon_days=30)
         if result and result.get("status") == "success":
             transactions_df = result.get("transactions", {}).get("clean_df", pl.DataFrame())
             logger.info(f"[Tool] Usando {len(transactions_df)} transações reais do DuckDB")

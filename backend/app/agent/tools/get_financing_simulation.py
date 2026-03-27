@@ -98,19 +98,18 @@ def get_financing_simulation(
 
         request = SimulationRequest(**req_kwargs)
 
-        # Tentar buscar safe_to_spend da F1 para melhorar o cálculo de liquidez
+        # Tentar buscar safe_to_spend real do usuário (F1) para melhorar o cálculo de liquidez
         safe_to_spend_value: Optional[float] = None
         try:
-            from app.runner import NexaRunner
-            runner = NexaRunner(mode="dev")
-            result = runner.run(horizon_days=30)
-            if result.get("status") == "success":
-                sts = result["projections"].get("safe_to_spend")
+            from app.runner import get_runner
+            result_f1 = get_runner().run_from_db(user_id=user_id, horizon_days=30)
+            if result_f1 and result_f1.get("status") == "success":
+                sts = result_f1["projections"].get("safe_to_spend")
                 if sts:
                     safe_to_spend_value = sts.safe_to_spend_total
         except Exception as f1_err:
             logger.debug("[Tool] F1 indisponivel para get_financing_simulation: %s", f1_err)
-            # LiquidityValidator usara max_monthly_budget como fallback
+            # LiquidityValidator usará max_monthly_budget como fallback
 
         service = ArchitectService()
         response = service.simulate(request, safe_to_spend=safe_to_spend_value)
