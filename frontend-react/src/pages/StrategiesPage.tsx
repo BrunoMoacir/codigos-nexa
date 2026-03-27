@@ -4,7 +4,7 @@ import { AppShell } from '../components/layout/AppShell';
 import { nexaApi } from '../api/nexa';
 
 const card: React.CSSProperties = {
-  background: '#fff',
+  background: 'var(--bg-surface)',
   border: '1px solid #ebebeb',
   borderRadius: 12,
   padding: 16,
@@ -14,7 +14,7 @@ const sectionTitle: React.CSSProperties = {
   marginBottom: 10,
   fontWeight: 600,
   fontSize: 15,
-  color: '#1a1a2e',
+  color: 'var(--text-primary)',
 };
 
 const metricLabel: React.CSSProperties = {
@@ -25,7 +25,7 @@ const metricLabel: React.CSSProperties = {
 
 const metricValue: React.CSSProperties = {
   fontSize: 20,
-  color: '#111',
+  color: 'var(--text-primary)',
   fontWeight: 700,
 };
 
@@ -179,8 +179,8 @@ export const StrategiesPage: React.FC = () => {
             onClick={() => setTab(key as any)}
             style={{
               border: '1px solid #ddd',
-              background: tab === key ? '#111' : '#fff',
-              color: tab === key ? '#fff' : '#111',
+              background: tab === key ? 'var(--text-primary)' : 'var(--bg-surface)',
+              color: tab === key ? 'var(--bg-surface)' : 'var(--text-primary)',
               borderRadius: 8,
               padding: '8px 12px',
               cursor: 'pointer',
@@ -195,7 +195,7 @@ export const StrategiesPage: React.FC = () => {
       {tab === 'optimizer' && (
         <div style={{ display: 'grid', gap: 12 }}>
           {isOptimizerLoading && (
-            <div style={{ ...card, color: '#777', fontSize: 14 }}>Carregando dados do Optimizer...</div>
+            <div style={{ ...card, color: 'var(--text-muted)', fontSize: 14 }}>Carregando dados do Optimizer...</div>
           )}
           <div style={card}>
             <div style={sectionTitle}>Portfólio ideal de cartões</div>
@@ -229,7 +229,7 @@ export const StrategiesPage: React.FC = () => {
             </div>
 
             {portfolioCards.length === 0 && (
-              <div style={{ color: '#777', fontSize: 14 }}>Nenhuma recomendação de portfólio para os parâmetros atuais.</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Nenhuma recomendação de portfólio para os parâmetros atuais.</div>
             )}
             {portfolioCards.length > 0 && (
               <div style={{ display: 'grid', gap: 8 }}>
@@ -244,7 +244,7 @@ export const StrategiesPage: React.FC = () => {
                         Cashback: {toNumber(item.cashback_pct || item.cashback || 0).toFixed(2)}%
                       </div>
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#111' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
                       {currency(toNumber(item.annual_return || item.estimated_return || 0))}
                     </div>
                     <div style={{ fontSize: 12, color: '#6b7280' }}>ano</div>
@@ -270,7 +270,7 @@ export const StrategiesPage: React.FC = () => {
                 ))}
               </select>
 
-              {!currentCard && <div style={{ color: '#777', fontSize: 14 }}>Selecione um cartão para analisar troca e perda de retorno.</div>}
+              {!currentCard && <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Selecione um cartão para analisar troca e perda de retorno.</div>}
 
               {currentCard && (
                 <div style={{ display: 'grid', gap: 8 }}>
@@ -280,7 +280,7 @@ export const StrategiesPage: React.FC = () => {
                   </div>
                   <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
                     <div style={metricLabel}>Melhor alternativa</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#111' }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
                       {opportunityQuery.data?.best_alternative || opportunityQuery.data?.recommended_card || 'Sem recomendação específica'}
                     </div>
                   </div>
@@ -290,10 +290,10 @@ export const StrategiesPage: React.FC = () => {
 
             <div style={card}>
               <div style={sectionTitle}>Promoções ativas</div>
-              {promotions.length === 0 && <div style={{ color: '#777', fontSize: 14 }}>Nenhuma promoção ativa no momento.</div>}
+              {promotions.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Nenhuma promoção ativa no momento.</div>}
               {promotions.slice(0, 5).map((promo: any, idx: number) => (
                 <div key={`${promo.id || promo.title || idx}`} style={{ borderBottom: '1px solid #f2f2f2', padding: '8px 0' }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#111' }}>{promo.title || promo.name || 'Promoção'}</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{promo.title || promo.name || 'Promoção'}</div>
                   <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
                     {promo.description || promo.details || 'Condição promocional disponível.'}
                   </div>
@@ -307,7 +307,7 @@ export const StrategiesPage: React.FC = () => {
       {tab === 'architect' && (
         <div style={{ display: 'grid', gap: 12 }}>
           {isArchitectLoading && (
-            <div style={{ ...card, color: '#777', fontSize: 14 }}>Carregando histórico e métricas do Architect...</div>
+            <div style={{ ...card, color: 'var(--text-muted)', fontSize: 14 }}>Carregando histórico e métricas do Architect...</div>
           )}
           <div style={card}>
             <div style={sectionTitle}>Simulação estratégica</div>
@@ -317,16 +317,16 @@ export const StrategiesPage: React.FC = () => {
               <input type="number" value={months} onChange={(e) => setMonths(Number(e.target.value || 0))} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8 }} />
               <button
                 onClick={() => architectMutation.mutate()}
-                style={{ border: '1px solid #111', background: '#111', color: '#fff', borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}
+                style={{ border: '1px solid #111', background: 'var(--text-primary)', color: 'var(--bg-surface)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}
               >
                 Simular
               </button>
             </div>
 
-            {architectMutation.isPending && <div style={{ color: '#777', fontSize: 14 }}>Processando simulação...</div>}
+            {architectMutation.isPending && <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Processando simulação...</div>}
 
             {!architectMutation.isPending && Object.keys(architectResult).length === 0 && (
-              <div style={{ color: '#777', fontSize: 14 }}>Execute uma simulação para comparar estratégias e custos.</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Execute uma simulação para comparar estratégias e custos.</div>
             )}
 
             {!architectMutation.isPending && Object.keys(architectResult).length > 0 && (
@@ -334,7 +334,7 @@ export const StrategiesPage: React.FC = () => {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
                   <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
                     <div style={metricLabel}>Estratégia recomendada</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: '#111' }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
                       {architectResult.recommended_strategy || 'N/A'}
                     </div>
                   </div>
@@ -367,8 +367,8 @@ export const StrategiesPage: React.FC = () => {
                       .slice(0, 5)
                       .map(([key, value]) => (
                         <div key={key} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                          <span style={{ color: '#444', textTransform: 'capitalize' }}>{key.replaceAll('_', ' ')}</span>
-                          <strong style={{ color: '#111' }}>{currency(toNumber(value))}</strong>
+                          <span style={{ color: 'var(--text-secondary)', textTransform: 'capitalize' }}>{key.replaceAll('_', ' ')}</span>
+                          <strong style={{ color: 'var(--text-primary)' }}>{currency(toNumber(value))}</strong>
                         </div>
                       ))}
                   </div>
@@ -377,10 +377,10 @@ export const StrategiesPage: React.FC = () => {
                 <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
                   <div style={{ ...metricLabel, marginBottom: 8 }}>Plano de ação</div>
                   {architectActionPlan.length === 0 && (
-                    <div style={{ fontSize: 13, color: '#777' }}>Sem plano detalhado disponível.</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Sem plano detalhado disponível.</div>
                   )}
                   {architectActionPlan.slice(0, 5).map((step: any, idx: number) => (
-                    <div key={`${step.step || idx}`} style={{ fontSize: 13, color: '#444', marginBottom: 6 }}>
+                    <div key={`${step.step || idx}`} style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
                       {idx + 1}. {step.action || 'Executar próxima etapa.'}
                     </div>
                   ))}
@@ -393,11 +393,11 @@ export const StrategiesPage: React.FC = () => {
             <div style={card}>
               <div style={sectionTitle}>Histórico</div>
               {(!Array.isArray(architectHistory.data) || architectHistory.data.length === 0) && (
-                <div style={{ color: '#777', fontSize: 14 }}>Nenhuma simulação prévia encontrada.</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Nenhuma simulação prévia encontrada.</div>
               )}
               {Array.isArray(architectHistory.data) && architectHistory.data.slice(0, 5).map((sim: any, idx: number) => (
                 <div key={`${sim.simulation_id || idx}`} style={{ borderBottom: '1px solid #f2f2f2', padding: '8px 0' }}>
-                  <div style={{ fontSize: 13, color: '#111', fontWeight: 600 }}>{sim.recommended_strategy || 'Estratégia simulada'}</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>{sim.recommended_strategy || 'Estratégia simulada'}</div>
                   <div style={{ fontSize: 12, color: '#6b7280' }}>
                     {sim.created_at ? String(sim.created_at).slice(0, 10) : 'Data indisponível'}
                   </div>
@@ -413,7 +413,7 @@ export const StrategiesPage: React.FC = () => {
                 </div>
                 <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
                   <div style={metricLabel}>Estratégia mais usada</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#111' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
                     {architectMetrics.data?.most_common_strategy || architectMetrics.data?.top_strategy || 'N/A'}
                   </div>
                 </div>
@@ -426,7 +426,7 @@ export const StrategiesPage: React.FC = () => {
       {tab === 'fiscal' && (
         <div style={{ display: 'grid', gap: 12 }}>
           {isFiscalLoading && (
-            <div style={{ ...card, color: '#777', fontSize: 14 }}>Carregando relatório fiscal...</div>
+            <div style={{ ...card, color: 'var(--text-muted)', fontSize: 14 }}>Carregando relatório fiscal...</div>
           )}
           <div style={card}>
             <div style={sectionTitle}>Parâmetros fiscais</div>
@@ -480,7 +480,7 @@ export const StrategiesPage: React.FC = () => {
       {tab === 'peers' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
           {isPeersLoading && (
-            <div style={{ ...card, color: '#777', fontSize: 14 }}>Carregando benchmark e notificações...</div>
+            <div style={{ ...card, color: 'var(--text-muted)', fontSize: 14 }}>Carregando benchmark e notificações...</div>
           )}
           <div style={card}>
             <div style={sectionTitle}>Benchmark com pares</div>
@@ -501,9 +501,9 @@ export const StrategiesPage: React.FC = () => {
               </div>
               <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
                 <div style={{ ...metricLabel, marginBottom: 8 }}>Insights</div>
-                {topPeerInsights.length === 0 && <div style={{ color: '#777', fontSize: 13 }}>Sem insights disponíveis para a faixa atual.</div>}
+                {topPeerInsights.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Sem insights disponíveis para a faixa atual.</div>}
                 {topPeerInsights.map((insight, idx) => (
-                  <div key={`${idx}-${insight}`} style={{ fontSize: 13, color: '#444', marginBottom: 5 }}>
+                  <div key={`${idx}-${insight}`} style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 5 }}>
                     • {insight}
                   </div>
                 ))}
@@ -512,10 +512,10 @@ export const StrategiesPage: React.FC = () => {
           </div>
           <div style={card}>
             <div style={sectionTitle}>Notificações</div>
-            {notifications.length === 0 && <div style={{ color: '#777', fontSize: 14 }}>Sem notificações recentes.</div>}
+            {notifications.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Sem notificações recentes.</div>}
             {notifications.slice(0, 8).map((note: any, idx: number) => (
               <div key={`${note.id || idx}`} style={{ borderBottom: '1px solid #f2f2f2', padding: '8px 0' }}>
-                <div style={{ fontSize: 14, color: '#111', fontWeight: 600 }}>
+                <div style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 600 }}>
                   {note.title || note.type || 'Notificação'}
                 </div>
                 <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>

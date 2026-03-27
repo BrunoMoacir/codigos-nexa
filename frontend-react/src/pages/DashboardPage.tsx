@@ -15,7 +15,7 @@ import { AppShell } from '../components/layout/AppShell';
 import { nexaApi } from '../api/nexa';
 
 const cardStyle: React.CSSProperties = {
-  background: '#fff',
+  background: 'var(--bg-surface)',
   border: '1px solid #ebebeb',
   borderRadius: 12,
   padding: 18,
@@ -26,7 +26,7 @@ const titleStyle: React.CSSProperties = {
   fontSize: 11,
   letterSpacing: 0.8,
   textTransform: 'uppercase',
-  color: '#aaa',
+  color: 'var(--text-muted)',
   marginBottom: 8,
   fontWeight: 600,
 };
@@ -274,7 +274,7 @@ export const DashboardPage: React.FC = () => {
       title="Meu Dinheiro"
       subtitle="Dados reais via Open Finance com visão executiva do seu fluxo."
     >
-      {isLoading && <p style={{ color: '#888', marginBottom: 14 }}>Carregando dados financeiros...</p>}
+      {isLoading && <p style={{ color: 'var(--text-muted)', marginBottom: 14 }}>Carregando dados financeiros...</p>}
 
       {showSkeleton && (
         <div style={{ display: 'grid', gap: 12, marginBottom: 14 }}>
@@ -308,28 +308,28 @@ export const DashboardPage: React.FC = () => {
         <div style={cardStyle}>
           <div style={titleStyle}>Renda Mensal</div>
           <div style={{ fontSize: 24, fontWeight: 700 }}>{currency(financialHealth.total_income || 0)}</div>
-          <div style={{ color: '#777', fontSize: 12, marginTop: 6 }}>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>
             Perfil: {financialHealth.profile_type || 'EQUILIBRADO'}
           </div>
         </div>
         <div style={cardStyle}>
           <div style={titleStyle}>Safe To Spend</div>
           <div style={{ fontSize: 24, fontWeight: 700 }}>{currency(safeToSpend.safe_to_spend_total || 0)}</div>
-          <div style={{ color: '#777', fontSize: 12, marginTop: 6 }}>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>
             {currency(safeToSpend.safe_to_spend_daily || 0)}/dia
           </div>
         </div>
         <div style={cardStyle}>
           <div style={titleStyle}>Health Score</div>
           <div style={{ fontSize: 24, fontWeight: 700 }}>{Number(financialHealth.health_score || 0).toFixed(0)} / 100</div>
-          <div style={{ color: '#777', fontSize: 12, marginTop: 6 }}>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>
             Poupança: {((financialHealth.savings_rate || 0) * 100).toFixed(1)}%
           </div>
         </div>
         <div style={cardStyle}>
           <div style={titleStyle}>Gastos Mensais</div>
           <div style={{ fontSize: 24, fontWeight: 700 }}>{currency(financialHealth.total_expenses || 0)}</div>
-          <div style={{ color: '#777', fontSize: 12, marginTop: 6 }}>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>
             Risco: {safeToSpend.risk_level || 'LOW'}
           </div>
         </div>
@@ -343,13 +343,13 @@ export const DashboardPage: React.FC = () => {
               Renda não detectada nas transações. Usando referência de {currency(10000)} para cálculo do orçamento.
             </div>
           )}
-          <div style={{ color: '#444', fontSize: 14, marginBottom: 8 }}>{budgetQuery.data?.summary_text || 'Sem resumo disponível.'}</div>
+          <div style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 8 }}>{budgetQuery.data?.summary_text || 'Sem resumo disponível.'}</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
             {(budgetQuery.data?.group_summary || []).slice(0, 3).map((g: any) => (
               <div key={g.group} style={{ border: '1px solid #eee', borderRadius: 8, padding: 10 }}>
                 <div style={{ fontWeight: 600, fontSize: 13, textTransform: 'capitalize' }}>{g.group}</div>
                 <div style={{ marginTop: 6, fontSize: 18, fontWeight: 700 }}>{Number(g.current_pct || 0).toFixed(1)}%</div>
-                <div style={{ color: '#777', fontSize: 12 }}>meta {Number(g.target_pct || 0).toFixed(0)}%</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>meta {Number(g.target_pct || 0).toFixed(0)}%</div>
               </div>
             ))}
           </div>
@@ -358,7 +358,7 @@ export const DashboardPage: React.FC = () => {
         <div style={cardStyle}>
           <div style={titleStyle}>Obrigações Futuras</div>
           <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>{currency(Math.abs(Number(shadow.total_monthly_impact || 0)))}/mês</div>
-          <div style={{ color: '#666', fontSize: 13, lineHeight: 1.6 }}>
+          <div style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.6 }}>
             {Number(shadow.total_count || 0)} itens detectados
             <br />
             {Number(shadow.subscriptions_count || 0)} assinaturas
@@ -386,14 +386,14 @@ export const DashboardPage: React.FC = () => {
               </ResponsiveContainer>
             </div>
             <div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: '#1a1a2e' }}>{consumedPct.toFixed(0)}%</div>
-              <div style={{ color: '#666', fontSize: 13, marginTop: 4 }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>{consumedPct.toFixed(0)}%</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>
                 De {currency(monthlyBudget)} você já gastou {currency(spentToDate)}
               </div>
-              <div style={{ color: '#666', fontSize: 13, marginTop: 4 }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>
                 Limite diário sugerido: {currency(Number(safeToSpend.safe_to_spend_daily || 0))}
               </div>
-              <div style={{ color: '#666', fontSize: 13, marginTop: 4 }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>
                 Nível de risco: {safeToSpend.risk_level || 'LOW'}
               </div>
             </div>
@@ -402,16 +402,16 @@ export const DashboardPage: React.FC = () => {
 
         <div style={cardStyle}>
           <div style={titleStyle}>Ritmo de Gastos no Mês</div>
-          <div style={{ color: '#666', fontSize: 13, marginBottom: 6 }}>
+          <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 6 }}>
             Dia {dayOfMonth} de {daysInMonth} ({(monthProgress * 100).toFixed(0)}% do mês)
           </div>
-          <div style={{ color: '#444', fontSize: 13, marginBottom: 4 }}>
+          <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 4 }}>
             Esperado até hoje: {currency(expectedSpendToDate)}
           </div>
-          <div style={{ color: '#444', fontSize: 13, marginBottom: 10 }}>
+          <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 10 }}>
             Gasto real até hoje: {currency(spentToDate)}
           </div>
-          <div style={{ height: 12, width: '100%', background: '#f4f6f9', borderRadius: 999, overflow: 'hidden' }}>
+          <div style={{ height: 12, width: '100%', background: 'var(--bg-hover)', borderRadius: 999, overflow: 'hidden' }}>
             <div
               style={{
                 height: '100%',
@@ -420,14 +420,14 @@ export const DashboardPage: React.FC = () => {
               }}
             />
           </div>
-          <div style={{ marginTop: 8, fontSize: 13, color: '#666' }}>Ritmo atual: {pacePct.toFixed(0)}%</div>
+          <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>Ritmo atual: {pacePct.toFixed(0)}%</div>
         </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 12 }}>
         <div style={cardStyle}>
           <div style={titleStyle}>Categorias (Mais estouradas primeiro)</div>
-          {categoryBreakdown.length === 0 && <div style={{ color: '#777' }}>Sem dados de categorias no período.</div>}
+          {categoryBreakdown.length === 0 && <div style={{ color: 'var(--text-muted)' }}>Sem dados de categorias no período.</div>}
           {categoryBreakdown.map((row: any) => {
             const pct = Math.max(0, row.pct);
             const width = Math.min(100, pct);
@@ -436,10 +436,10 @@ export const DashboardPage: React.FC = () => {
             return (
               <div key={row.category} style={{ marginBottom: 10 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <div style={{ fontSize: 13, color: '#1a1a2e', fontWeight: 600 }}>{row.category}</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>{row.category}</div>
                   <div style={{ fontSize: 12, color: '#6b7280' }}>{pct.toFixed(0)}%</div>
                 </div>
-                <div style={{ height: 8, borderRadius: 99, background: '#f4f6f9', overflow: 'hidden' }}>
+                <div style={{ height: 8, borderRadius: 99, background: 'var(--bg-hover)', overflow: 'hidden' }}>
                   <div style={{ width: `${width}%`, height: '100%', background: color }} />
                 </div>
                 <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>
@@ -452,7 +452,7 @@ export const DashboardPage: React.FC = () => {
 
         <div style={cardStyle}>
           <div style={titleStyle}>Gastos Diários (últimos 14 dias)</div>
-          {dailySpendWithColor.length === 0 && <div style={{ color: '#777' }}>Sem transações de débito para o gráfico.</div>}
+          {dailySpendWithColor.length === 0 && <div style={{ color: 'var(--text-muted)' }}>Sem transações de débito para o gráfico.</div>}
           {dailySpendWithColor.length > 0 && (
             <div style={{ height: 240 }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -478,21 +478,21 @@ export const DashboardPage: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 12 }}>
         <div style={cardStyle}>
           <div style={titleStyle}>Metas Financeiras</div>
-          {goals.length === 0 && <div style={{ color: '#777', fontSize: 14 }}>Nenhuma meta cadastrada.</div>}
+          {goals.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Nenhuma meta cadastrada.</div>}
           {goals.slice(0, 3).map((goal: any) => {
             const pct = Number(goal.progress_pct || 0);
             return (
               <div key={goal.id || goal.name} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #f0f0f0' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                   <strong style={{ fontSize: 14 }}>{goal.name || 'Meta'}</strong>
-                  <span style={{ fontSize: 13, color: '#555' }}>{pct.toFixed(0)}%</span>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{pct.toFixed(0)}%</span>
                 </div>
-                <div style={{ height: 7, background: '#f0f0f0', borderRadius: 99, overflow: 'hidden' }}>
+                <div style={{ height: 7, background: 'var(--border-color)', borderRadius: 99, overflow: 'hidden' }}>
                   <div
                     style={{
                       width: `${Math.min(100, pct)}%`,
                       height: '100%',
-                      background: '#111',
+                      background: 'var(--text-primary)',
                     }}
                   />
                 </div>
@@ -504,7 +504,7 @@ export const DashboardPage: React.FC = () => {
         <div style={cardStyle}>
           <div style={titleStyle}>Agenda Financeira</div>
           {agendaItems.length === 0 && (
-            <div style={{ color: '#777', fontSize: 14 }}>
+            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>
               Sem compromissos futuros detectados no momento.
             </div>
           )}
@@ -539,10 +539,10 @@ export const DashboardPage: React.FC = () => {
                   {urgency.icon}
                 </div>
                 <div>
-                  <div style={{ fontSize: 13, color: '#1a1a2e', fontWeight: 600 }}>{item.description}</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>{item.description}</div>
                   <div style={{ fontSize: 12, color: urgency.color, marginTop: 2 }}>{urgency.label}</div>
                 </div>
-                <div style={{ fontSize: 13, color: '#444', fontWeight: 600 }}>{currency(item.amount)}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>{currency(item.amount)}</div>
               </div>
             );
           })}
@@ -553,13 +553,13 @@ export const DashboardPage: React.FC = () => {
         <div style={cardStyle}>
           <div style={titleStyle}>Alertas Ativos</div>
           <div style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 14, color: '#444', marginBottom: 6 }}>Alertas ativos: {alerts.length}</div>
+            <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 6 }}>Alertas ativos: {alerts.length}</div>
             {(alerts || []).slice(0, 3).map((alert: any) => (
-              <div key={alert.id || alert.title} style={{ fontSize: 13, color: '#666', marginBottom: 5 }}>
+              <div key={alert.id || alert.title} style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 5 }}>
                 • {alert.title || alert.type || 'Alerta'}
               </div>
             ))}
-            {alerts.length === 0 && <div style={{ color: '#777', fontSize: 14 }}>Nenhum alerta no momento.</div>}
+            {alerts.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Nenhum alerta no momento.</div>}
           </div>
         </div>
 
@@ -570,10 +570,10 @@ export const DashboardPage: React.FC = () => {
               Endpoint de assinaturas indisponível; exibindo estimativa via obrigações futuras.
             </div>
           )}
-          <div style={{ fontSize: 14, color: '#444', marginBottom: 6 }}>
+          <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 6 }}>
             Assinaturas: {displaySubscriptionCount}
           </div>
-          <div style={{ fontSize: 14, color: '#444', marginBottom: 8 }}>
+          <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 8 }}>
             Custo mensal: {currency(displaySubscriptionCost)}
           </div>
           {displaySubscriptions.slice(0, 4).map((sub: any, idx: number) => (
@@ -605,32 +605,32 @@ export const DashboardPage: React.FC = () => {
                 S
               </div>
               <div>
-                <div style={{ fontSize: 13, color: '#1a1a2e', fontWeight: 600 }}>
+                <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
                   {sub.merchant || sub.name || 'Assinatura'}
                 </div>
                 <div style={{ fontSize: 12, color: '#6b7280' }}>
                   {(sub.subscription_category || sub.category || 'serviço').toString().replaceAll('_', ' ')}
                 </div>
               </div>
-              <div style={{ fontSize: 13, color: '#444', fontWeight: 600 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>
                 {currency(Number(sub.monthly_amount || sub.amount || 0))}
               </div>
             </div>
           ))}
           {displaySubscriptions.length === 0 && (
-            <div style={{ color: '#777', fontSize: 14 }}>Nenhuma assinatura detectada.</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Nenhuma assinatura detectada.</div>
           )}
         </div>
       </div>
 
       <div style={cardStyle}>
         <div style={titleStyle}>Transações Recentes</div>
-        {transactions.length === 0 && <div style={{ color: '#777' }}>Sem transações para exibir.</div>}
+        {transactions.length === 0 && <div style={{ color: 'var(--text-muted)' }}>Sem transações para exibir.</div>}
         {transactions.length > 0 && (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr style={{ textAlign: 'left', color: '#888', borderBottom: '1px solid #f0f0f0' }}>
+                <tr style={{ textAlign: 'left', color: 'var(--text-muted)', borderBottom: '1px solid #f0f0f0' }}>
                   <th style={{ padding: '8px 6px' }}>Data</th>
                   <th style={{ padding: '8px 6px' }}>Descrição</th>
                   <th style={{ padding: '8px 6px' }}>Categoria</th>
@@ -642,9 +642,9 @@ export const DashboardPage: React.FC = () => {
                   const value = Number(tx.amount || 0);
                   return (
                     <tr key={tx.transaction_id || tx.id} style={{ borderBottom: '1px solid #f7f7f7' }}>
-                      <td style={{ padding: '8px 6px', color: '#666' }}>{tx.date || '-'}</td>
+                      <td style={{ padding: '8px 6px', color: 'var(--text-muted)' }}>{tx.date || '-'}</td>
                       <td style={{ padding: '8px 6px' }}>{tx.description || '-'}</td>
-                      <td style={{ padding: '8px 6px', color: '#666' }}>{tx.category || '-'}</td>
+                      <td style={{ padding: '8px 6px', color: 'var(--text-muted)' }}>{tx.category || '-'}</td>
                       <td style={{ padding: '8px 6px', textAlign: 'right', color: value < 0 ? '#b91c1c' : '#166534', fontWeight: 600 }}>
                         {currency(value)}
                       </td>
@@ -657,7 +657,7 @@ export const DashboardPage: React.FC = () => {
         )}
       </div>
 
-      <div style={{ marginTop: 12, color: '#777', fontSize: 13 }}>
+      <div style={{ marginTop: 12, color: 'var(--text-muted)', fontSize: 13 }}>
         Saldo projetado 30d: {currency(Number(cashflow.ending_balance || 0))}
       </div>
     </AppShell>

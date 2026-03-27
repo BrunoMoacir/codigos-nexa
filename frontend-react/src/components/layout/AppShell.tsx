@@ -38,12 +38,35 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  const [theme, setTheme] = useState<'light'|'dark'>(() => {
+    return (localStorage.getItem('nexa-theme') as 'light'|'dark') || 'light';
+  });
+
+  const toggleTheme = () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    localStorage.setItem('nexa-theme', newTheme);
+    if (newTheme === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  };
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  }, [theme]);
+
   return (
     <div
       style={{
         minHeight: '100vh',
         background: 'transparent',
-        color: '#111',
+        color: 'var(--text-primary)',
         display: 'flex',
         flexDirection: isMobile ? 'column' : 'row',
         fontFamily: 'Inter, system-ui, sans-serif',
@@ -55,7 +78,7 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
             ? {
                 width: '100%',
                 flexShrink: 0,
-                background: '#fff',
+                background: 'var(--bg-surface)',
                 borderBottom: '1px solid #ebebeb',
                 display: 'grid',
                 gap: 10,
@@ -64,7 +87,7 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
             : {
                 width: 220,
                 flexShrink: 0,
-                background: '#fbfbfc',
+                background: 'var(--bg-main)',
                 borderRight: '1px solid #ebebeb',
                 display: 'flex',
                 flexDirection: 'column',
@@ -77,7 +100,7 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
         }
       >
         <div style={{ fontSize: 17, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 8, height: 8, borderRadius: 999, background: '#111' }} />
+          <div style={{ width: 8, height: 8, borderRadius: 999, background: 'var(--text-primary)' }} />
           Nexa
         </div>
 
@@ -102,8 +125,8 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
                 borderRadius: 8,
                 fontSize: 13.5,
                 fontWeight: item.key === current ? 500 : 450,
-                color: item.key === current ? '#111' : '#888',
-                background: item.key === current ? '#eceff5' : 'transparent',
+                color: item.key === current ? 'var(--text-primary)' : 'var(--text-muted)',
+                background: item.key === current ? 'var(--bg-active)' : 'transparent',
                 border: 'none',
                 cursor: 'pointer',
                 textAlign: 'left',
@@ -134,7 +157,7 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
               gap: 10,
               padding: '8px 10px',
               borderRadius: 8,
-              background: '#eceff5',
+              background: 'var(--bg-active)',
               minWidth: 0,
             }}
           >
@@ -143,8 +166,8 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
                 width: 28,
                 height: 28,
                 borderRadius: 999,
-                background: '#111',
-                color: '#fff',
+                background: 'var(--text-primary)',
+                color: 'var(--bg-surface)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -154,10 +177,33 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
             >
               {displayName[0]?.toUpperCase() || 'U'}
             </div>
-            <div style={{ fontSize: 12.5, fontWeight: 500, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {displayName}
             </div>
           </div>
+          
+          <button
+            onClick={toggleTheme}
+            style={{
+              padding: '8px 10px',
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 450,
+              color: 'var(--text-muted)',
+              border: 'none',
+              background: 'transparent',
+              textAlign: 'left',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              display: 'flex',
+              gap: 8,
+              alignItems: 'center',
+            }}
+          >
+            <span>{theme === 'light' ? '🌙' : '☀️'}</span>
+            Modo {theme === 'light' ? 'Escuro' : 'Claro'}
+          </button>
+
           <button
             onClick={handleLogout}
             style={{
@@ -165,7 +211,7 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
               borderRadius: 8,
               fontSize: 13,
               fontWeight: 450,
-              color: '#999',
+              color: 'var(--text-muted)',
               border: 'none',
               background: 'transparent',
               textAlign: 'left',
@@ -180,11 +226,11 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
 
       <main style={{ flex: 1, padding: isMobile ? '20px 14px 24px' : '40px 44px 44px', maxWidth: 1280, width: '100%' }}>
         <div style={{ marginBottom: 30 }}>
-          <div style={{ fontSize: 12, fontWeight: 500, color: '#aaa', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-muted)', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>
             Nexa
           </div>
-          <h1 style={{ margin: 0, fontSize: isMobile ? 24 : 28, fontWeight: 600, letterSpacing: -0.6, color: '#111' }}>{title}</h1>
-          <p style={{ marginTop: 6, color: '#999', fontSize: 14 }}>{subtitle}</p>
+          <h1 style={{ margin: 0, fontSize: isMobile ? 24 : 28, fontWeight: 600, letterSpacing: -0.6, color: 'var(--text-primary)' }}>{title}</h1>
+          <p style={{ marginTop: 6, color: 'var(--text-muted)', fontSize: 14 }}>{subtitle}</p>
         </div>
         {children}
       </main>

@@ -5,7 +5,7 @@ import { AppShell } from '../components/layout/AppShell';
 import { nexaApi } from '../api/nexa';
 
 const card: React.CSSProperties = {
-  background: '#fff',
+  background: 'var(--bg-surface)',
   border: '1px solid #ebebeb',
   borderRadius: 12,
   padding: 18,
@@ -13,8 +13,8 @@ const card: React.CSSProperties = {
 
 const button: React.CSSProperties = {
   border: '1px solid #111',
-  background: '#111',
-  color: '#fff',
+  background: 'var(--text-primary)',
+  color: 'var(--bg-surface)',
   borderRadius: 8,
   padding: '10px 12px',
   fontSize: 13,
@@ -113,12 +113,12 @@ export const ConnectionsPage: React.FC = () => {
     >
       <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 12, marginBottom: 12 }}>
         <div style={card}>
-          <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: 'uppercase', color: '#aaa', marginBottom: 8, fontWeight: 600 }}>
+          <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>
             Contas conectadas
           </div>
-          {itemsQuery.isLoading && <p style={{ color: '#888' }}>Carregando conexões...</p>}
+          {itemsQuery.isLoading && <p style={{ color: 'var(--text-muted)' }}>Carregando conexões...</p>}
           {!itemsQuery.isLoading && items.length === 0 && (
-            <p style={{ color: '#666' }}>Nenhuma conta conectada no momento.</p>
+            <p style={{ color: 'var(--text-muted)' }}>Nenhuma conta conectada no momento.</p>
           )}
           {items.map((item: any) => {
             const connector = item.connector || {};
@@ -140,9 +140,9 @@ export const ConnectionsPage: React.FC = () => {
               >
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{name}</div>
-                  <div style={{ fontSize: 12, color: '#777' }}>Status: {status}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Status: {status}</div>
                 </div>
-                <div style={{ fontSize: 12, color: '#777', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                   {lastUpdated ? `Atualizado: ${lastUpdated}` : 'Sem atualização'}
                 </div>
               </div>
@@ -151,7 +151,7 @@ export const ConnectionsPage: React.FC = () => {
         </div>
 
         <div style={card}>
-          <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: 'uppercase', color: '#aaa', marginBottom: 10, fontWeight: 600 }}>
+          <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10, fontWeight: 600 }}>
             Ações rápidas
           </div>
           <div style={{ display: 'grid', gap: 8 }}>
@@ -170,7 +170,7 @@ export const ConnectionsPage: React.FC = () => {
               {syncMutation.isPending ? 'Sincronizando...' : 'Sincronizar transações'}
             </button>
             <button
-              style={{ ...button, background: '#fff', color: '#111' }}
+              style={{ ...button, background: 'var(--bg-surface)', color: 'var(--text-primary)' }}
               onClick={() => itemsQuery.refetch()}
             >
               Atualizar lista
@@ -202,10 +202,10 @@ export const ConnectionsPage: React.FC = () => {
 
       {connectToken && (
         <div style={card}>
-          <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: 'uppercase', color: '#aaa', marginBottom: 8, fontWeight: 600 }}>
+          <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>
             Widget Pluggy
           </div>
-          <p style={{ fontSize: 13, color: '#666', marginBottom: 10 }}>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>
             Token gerado com sucesso. Use o widget oficial para conectar um banco real.
           </p>
           <div

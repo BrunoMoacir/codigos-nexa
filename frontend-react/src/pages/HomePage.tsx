@@ -65,6 +65,29 @@ export const HomePage: React.FC = () => {
     window.location.href = '/login';
   };
 
+  const [theme, setTheme] = React.useState<'light'|'dark'>(() => {
+    return (localStorage.getItem('nexa-theme') as 'light'|'dark') || 'light';
+  });
+
+  const toggleTheme = () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    localStorage.setItem('nexa-theme', newTheme);
+    if (newTheme === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  };
+
+  React.useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  }, [theme]);
+
   return (
     <>
       <style>{`
@@ -73,8 +96,8 @@ export const HomePage: React.FC = () => {
         .hp-root {
           font-family: 'Inter', system-ui, sans-serif;
           min-height: 100vh;
-          background: #fafafa;
-          color: #111;
+          background: var(--bg-main);
+          color: var(--text-primary);
           display: flex;
         }
 
@@ -82,8 +105,8 @@ export const HomePage: React.FC = () => {
         .hp-sidebar {
           width: 220px;
           flex-shrink: 0;
-          background: #fff;
-          border-right: 1px solid #ebebeb;
+          background: var(--bg-surface);
+          border-right: 1px solid var(--border-color);
           display: flex;
           flex-direction: column;
           padding: 28px 20px;
@@ -93,7 +116,7 @@ export const HomePage: React.FC = () => {
           font-size: 17px;
           font-weight: 600;
           letter-spacing: -0.3px;
-          color: #111;
+          color: var(--text-primary);
           display: flex;
           align-items: center;
           gap: 8px;
@@ -101,7 +124,7 @@ export const HomePage: React.FC = () => {
         .hp-sidebar-logo-dot {
           width: 8px; height: 8px;
           border-radius: 50%;
-          background: #111;
+          background: var(--text-primary);
         }
         .hp-sidebar-nav {
           display: flex;
@@ -114,7 +137,7 @@ export const HomePage: React.FC = () => {
           border-radius: 8px;
           font-size: 13.5px;
           font-weight: 450;
-          color: #888;
+          color: var(--text-muted);
           cursor: pointer;
           transition: all 0.12s ease;
           display: flex;
@@ -127,12 +150,12 @@ export const HomePage: React.FC = () => {
           font-family: inherit;
         }
         .hp-nav-item:hover {
-          background: #f4f4f5;
-          color: #111;
+          background: var(--bg-hover);
+          color: var(--text-primary);
         }
         .hp-nav-item.active {
-          background: #f4f4f5;
-          color: #111;
+          background: var(--bg-hover);
+          color: var(--text-primary);
           font-weight: 500;
         }
         .hp-nav-icon {
@@ -152,13 +175,13 @@ export const HomePage: React.FC = () => {
           gap: 10px;
           padding: 8px 10px;
           border-radius: 8px;
-          background: #f4f4f5;
+          background: var(--bg-hover);
         }
         .hp-user-avatar {
           width: 28px; height: 28px;
           border-radius: 50%;
-          background: #111;
-          color: #fff;
+          background: var(--text-primary);
+          color: var(--bg-surface);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -169,7 +192,7 @@ export const HomePage: React.FC = () => {
         .hp-user-name {
           font-size: 12.5px;
           font-weight: 500;
-          color: #111;
+          color: var(--text-primary);
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -179,7 +202,7 @@ export const HomePage: React.FC = () => {
           border-radius: 8px;
           font-size: 13px;
           font-weight: 450;
-          color: #999;
+          color: var(--text-muted);
           cursor: pointer;
           border: none;
           background: none;
@@ -204,7 +227,7 @@ export const HomePage: React.FC = () => {
         .hp-greeting-label {
           font-size: 12px;
           font-weight: 500;
-          color: #aaa;
+          color: var(--text-muted);
           letter-spacing: 0.8px;
           text-transform: uppercase;
           margin-bottom: 6px;
@@ -213,12 +236,12 @@ export const HomePage: React.FC = () => {
           font-size: 28px;
           font-weight: 600;
           letter-spacing: -0.6px;
-          color: #111;
+          color: var(--text-primary);
           margin: 0;
         }
         .hp-greeting-sub {
           font-size: 14px;
-          color: #999;
+          color: var(--text-muted);
           margin-top: 6px;
         }
 
@@ -228,7 +251,7 @@ export const HomePage: React.FC = () => {
           font-weight: 600;
           letter-spacing: 0.9px;
           text-transform: uppercase;
-          color: #bbb;
+          color: var(--text-muted);
           margin: 0 0 16px;
         }
 
@@ -242,8 +265,8 @@ export const HomePage: React.FC = () => {
         @media (max-width: 900px) { .hp-grid { grid-template-columns: 1fr; } }
 
         .hp-card {
-          background: #fff;
-          border: 1px solid #ebebeb;
+          background: var(--bg-surface);
+          border: 1px solid var(--border-color);
           border-radius: 12px;
           padding: 22px 24px;
           cursor: pointer;
@@ -253,7 +276,7 @@ export const HomePage: React.FC = () => {
           gap: 10px;
         }
         .hp-card:hover {
-          border-color: #d0d0d0;
+          border-color: var(--text-muted);
           box-shadow: 0 4px 16px rgba(0,0,0,0.05);
           transform: translateY(-1px);
         }
@@ -264,12 +287,12 @@ export const HomePage: React.FC = () => {
         }
         .hp-card-icon {
           font-size: 18px;
-          color: #555;
+          color: var(--text-secondary);
           font-weight: 300;
           width: 32px;
           height: 32px;
           border-radius: 8px;
-          background: #f4f4f5;
+          background: var(--bg-hover);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -277,33 +300,33 @@ export const HomePage: React.FC = () => {
         .hp-card-tag {
           font-size: 10.5px;
           font-weight: 500;
-          color: #888;
-          background: #f4f4f5;
+          color: var(--text-muted);
+          background: var(--bg-hover);
           border-radius: 100px;
           padding: 3px 10px;
         }
         .hp-card-label {
           font-size: 14.5px;
           font-weight: 600;
-          color: #111;
+          color: var(--text-primary);
           letter-spacing: -0.2px;
         }
         .hp-card-desc {
           font-size: 13px;
-          color: #999;
+          color: var(--text-muted);
           line-height: 1.5;
         }
         .hp-card-cta {
           font-size: 12px;
           font-weight: 500;
-          color: #555;
+          color: var(--text-secondary);
           display: flex;
           align-items: center;
           gap: 4px;
           margin-top: 2px;
           transition: color 0.12s;
         }
-        .hp-card:hover .hp-card-cta { color: #111; }
+        .hp-card:hover .hp-card-cta { color: var(--text-primary); }
 
         /* Stats strip */
         .hp-stats {
@@ -313,15 +336,15 @@ export const HomePage: React.FC = () => {
         }
         .hp-stat {
           flex: 1;
-          background: #fff;
-          border: 1px solid #ebebeb;
+          background: var(--bg-surface);
+          border: 1px solid var(--border-color);
           border-radius: 10px;
           padding: 16px 20px;
         }
         .hp-stat-label {
           font-size: 11px;
           font-weight: 500;
-          color: #bbb;
+          color: var(--text-muted);
           letter-spacing: 0.6px;
           text-transform: uppercase;
           margin-bottom: 6px;
@@ -329,25 +352,25 @@ export const HomePage: React.FC = () => {
         .hp-stat-value {
           font-size: 16px;
           font-weight: 600;
-          color: #111;
+          color: var(--text-primary);
         }
         .hp-stat-sub {
           font-size: 11.5px;
-          color: #bbb;
+          color: var(--text-muted);
           margin-top: 2px;
         }
 
         /* Tip */
         .hp-tip {
-          background: #fff;
-          border: 1px solid #ebebeb;
+          background: var(--bg-surface);
+          border: 1px solid var(--border-color);
           border-radius: 10px;
           padding: 14px 20px;
           font-size: 13px;
-          color: #888;
+          color: var(--text-muted);
           line-height: 1.5;
         }
-        .hp-tip strong { color: #555; font-weight: 500; }
+        .hp-tip strong { color: var(--text-secondary); font-weight: 500; }
       `}</style>
 
       <div className="hp-root">
@@ -384,6 +407,10 @@ export const HomePage: React.FC = () => {
               </div>
               <div className="hp-user-name">{displayName || 'Usuário'}</div>
             </div>
+            <button className="hp-logout-btn" onClick={toggleTheme}>
+              <span>{theme === 'light' ? '🌙' : '☀️'}</span>
+              <span>Modo {theme === 'light' ? 'Escuro' : 'Claro'}</span>
+            </button>
             <button className="hp-logout-btn" onClick={handleLogout}>
               ← Sair
             </button>

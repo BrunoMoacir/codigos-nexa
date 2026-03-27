@@ -112,7 +112,7 @@ export const ChatPage: React.FC = () => {
     >
       <div
         style={{
-          background: '#fff',
+          background: 'var(--bg-surface)',
           border: '1px solid #ebebeb',
           borderRadius: 12,
           padding: 14,
@@ -126,8 +126,8 @@ export const ChatPage: React.FC = () => {
             onClick={clearChat}
             style={{
               border: '1px solid #ddd',
-              background: '#fff',
-              color: '#444',
+              background: 'var(--bg-surface)',
+              color: 'var(--text-secondary)',
               borderRadius: 8,
               padding: '6px 10px',
               cursor: 'pointer',
@@ -153,8 +153,8 @@ export const ChatPage: React.FC = () => {
                   maxWidth: '78%',
                   borderRadius: 10,
                   padding: '10px 12px',
-                  background: m.role === 'user' ? '#111' : '#f5f5f5',
-                  color: m.role === 'user' ? '#fff' : '#222',
+                  background: m.role === 'user' ? 'var(--text-primary)' : '#f5f5f5',
+                  color: m.role === 'user' ? 'var(--bg-surface)' : '#222',
                   fontSize: 14,
                   lineHeight: 1.5,
                   whiteSpace: 'pre-wrap',
@@ -190,8 +190,8 @@ export const ChatPage: React.FC = () => {
             disabled={chatMutation.isPending}
             style={{
               border: '1px solid #111',
-              background: '#111',
-              color: '#fff',
+              background: 'var(--text-primary)',
+              color: 'var(--bg-surface)',
               borderRadius: 8,
               padding: '10px 14px',
               cursor: 'pointer',
