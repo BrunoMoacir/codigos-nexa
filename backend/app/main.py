@@ -11,6 +11,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.api.v1.router import router as api_router
 from app.api.v1.routes.dashboard import router as dashboard_router
+from app.core.config import settings
 from app.core.database import Base, engine
 from fastapi.middleware.cors import CORSMiddleware
 
