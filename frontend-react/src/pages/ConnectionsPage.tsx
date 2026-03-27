@@ -27,7 +27,7 @@ export const ConnectionsPage: React.FC = () => {
   const [widgetError, setWidgetError] = useState<string>('');
   const [widgetInfo, setWidgetInfo] = useState<string>('');
   const token = localStorage.getItem('jwt_token') || '';
-  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+  const apiBase = import.meta.env.VITE_API_URL || 'https://codigos-nexa-production.up.railway.app/api/v1';
 
   const itemsQuery = useQuery({
     queryKey: ['pluggy-items'],

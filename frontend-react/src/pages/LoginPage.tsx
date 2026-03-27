@@ -24,7 +24,10 @@ export const LoginPage: React.FC = () => {
       const formData = new URLSearchParams();
       formData.append('username', loginEmail);
       formData.append('password', loginPassword);
-      const response = await fetch('http://localhost:8000/api/v1/auth/token', {
+      
+      const apiURL = import.meta.env.VITE_API_URL || 'https://codigos-nexa-production.up.railway.app/api/v1';
+      
+      const response = await fetch(`${apiURL}/auth/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: formData,
@@ -60,7 +63,9 @@ export const LoginPage: React.FC = () => {
     setIsLoading(true);
     const toastId = toast.loading('Criando conta…');
     try {
-      const response = await fetch('http://localhost:8000/api/v1/auth/register', {
+      const apiURL = import.meta.env.VITE_API_URL || 'https://codigos-nexa-production.up.railway.app/api/v1';
+
+      const response = await fetch(`${apiURL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: registerEmail, password: registerPassword, full_name: registerName }),
