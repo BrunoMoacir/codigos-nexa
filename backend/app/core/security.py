@@ -11,7 +11,7 @@ from app.core.config import settings
 # Configurações do JWT
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 dias para o MVP
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 horas — token comprometido expira em no máximo 1 dia
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")

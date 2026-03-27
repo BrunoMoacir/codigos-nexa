@@ -367,11 +367,11 @@ class GoalTracker:
         db = SessionLocal()
         try:
             db.query(FinancialGoal).filter(FinancialGoal.goal_id == goal.goal_id).update({
-                "current_amount": goal.current_amount,
-                "monthly_contribution_needed": goal.monthly_contribution_needed,
-                "monthly_contribution_actual": goal.monthly_contribution_actual,
-                "status": goal.status,
-                "updated_at": goal.updated_at,
+                FinancialGoal.current_amount: goal.current_amount,
+                FinancialGoal.monthly_contribution_needed: goal.monthly_contribution_needed,
+                FinancialGoal.monthly_contribution_actual: goal.monthly_contribution_actual,
+                FinancialGoal.status: goal.status,
+                FinancialGoal.updated_at: goal.updated_at,
             })
             db.commit()
         finally:
