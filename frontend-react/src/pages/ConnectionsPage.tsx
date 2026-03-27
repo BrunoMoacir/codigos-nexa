@@ -6,7 +6,7 @@ import { nexaApi } from '../api/nexa';
 
 const card: React.CSSProperties = {
   background: 'var(--bg-surface)',
-  border: '1px solid #ebebeb',
+  border: '1px solid var(--border-color)',
   borderRadius: 12,
   padding: 18,
 };
@@ -129,7 +129,7 @@ export const ConnectionsPage: React.FC = () => {
               <div
                 key={item.id || item.item_id || `${name}-${status}`}
                 style={{
-                  border: '1px solid #eee',
+                  border: '1px solid var(--border-color)',
                   borderRadius: 10,
                   padding: 12,
                   marginBottom: 8,
@@ -182,7 +182,7 @@ export const ConnectionsPage: React.FC = () => {
             <select
               value={perfMultiplier}
               onChange={(e) => setPerfMultiplier(Number(e.target.value))}
-              style={{ width: '100%', padding: 9, border: '1px solid #ddd', borderRadius: 8, marginBottom: 8 }}
+              style={{ width: '100%', padding: 9, border: '1px solid var(--border-color)', borderRadius: 8, marginBottom: 8 }}
             >
               <option value={1}>Padrão (1x)</option>
               <option value={100}>Médio (100x)</option>
@@ -298,7 +298,7 @@ export const ConnectionsPage: React.FC = () => {
   </body>
 </html>
             `}
-            style={{ width: '100%', height: 660, border: '1px solid #eee', borderRadius: 10 }}
+            style={{ width: '100%', height: 660, border: '1px solid var(--border-color)', borderRadius: 10 }}
           />
         </div>
       )}

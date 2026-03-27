@@ -113,7 +113,7 @@ export const ChatPage: React.FC = () => {
       <div
         style={{
           background: 'var(--bg-surface)',
-          border: '1px solid #ebebeb',
+          border: '1px solid var(--border-color)',
           borderRadius: 12,
           padding: 14,
           display: 'grid',
@@ -125,7 +125,7 @@ export const ChatPage: React.FC = () => {
           <button
             onClick={clearChat}
             style={{
-              border: '1px solid #ddd',
+              border: '1px solid var(--border-color)',
               background: 'var(--bg-surface)',
               color: 'var(--text-secondary)',
               borderRadius: 8,
@@ -153,8 +153,8 @@ export const ChatPage: React.FC = () => {
                   maxWidth: '78%',
                   borderRadius: 10,
                   padding: '10px 12px',
-                  background: m.role === 'user' ? 'var(--text-primary)' : '#f5f5f5',
-                  color: m.role === 'user' ? 'var(--bg-surface)' : '#222',
+                  background: m.role === 'user' ? 'var(--text-primary)' : 'var(--bg-hover)',
+                  color: m.role === 'user' ? 'var(--bg-surface)' : 'var(--text-primary)',
                   fontSize: 14,
                   lineHeight: 1.5,
                   whiteSpace: 'pre-wrap',
@@ -166,7 +166,7 @@ export const ChatPage: React.FC = () => {
           ))}
         </div>
 
-        <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 10, display: 'flex', gap: 8 }}>
+        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 10, display: 'flex', gap: 8 }}>
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -179,10 +179,12 @@ export const ChatPage: React.FC = () => {
             placeholder="Pergunte sobre orçamento, metas, cartões ou simulações..."
             style={{
               flex: 1,
-              border: '1px solid #ddd',
+              border: '1px solid var(--border-color)',
               borderRadius: 8,
               padding: '10px 12px',
               fontSize: 14,
+              background: 'var(--bg-surface)',
+              color: 'var(--text-primary)',
             }}
           />
           <button

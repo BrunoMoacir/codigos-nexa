@@ -16,10 +16,10 @@ import { nexaApi } from '../api/nexa';
 
 const cardStyle: React.CSSProperties = {
   background: 'var(--bg-surface)',
-  border: '1px solid #ebebeb',
+  border: '1px solid var(--border-color)',
   borderRadius: 12,
   padding: 18,
-  boxShadow: '0 1px 2px rgba(16, 24, 40, 0.06)',
+  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
 };
 
 const titleStyle: React.CSSProperties = {
@@ -346,7 +346,7 @@ export const DashboardPage: React.FC = () => {
           <div style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 8 }}>{budgetQuery.data?.summary_text || 'Sem resumo disponível.'}</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
             {(budgetQuery.data?.group_summary || []).slice(0, 3).map((g: any) => (
-              <div key={g.group} style={{ border: '1px solid #eee', borderRadius: 8, padding: 10 }}>
+              <div key={g.group} style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 10 }}>
                 <div style={{ fontWeight: 600, fontSize: 13, textTransform: 'capitalize' }}>{g.group}</div>
                 <div style={{ marginTop: 6, fontSize: 18, fontWeight: 700 }}>{Number(g.current_pct || 0).toFixed(1)}%</div>
                 <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>meta {Number(g.target_pct || 0).toFixed(0)}%</div>
@@ -437,12 +437,12 @@ export const DashboardPage: React.FC = () => {
               <div key={row.category} style={{ marginBottom: 10 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                   <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>{row.category}</div>
-                  <div style={{ fontSize: 12, color: '#6b7280' }}>{pct.toFixed(0)}%</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{pct.toFixed(0)}%</div>
                 </div>
                 <div style={{ height: 8, borderRadius: 99, background: 'var(--bg-hover)', overflow: 'hidden' }}>
                   <div style={{ width: `${width}%`, height: '100%', background: color }} />
                 </div>
-                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
                   {currency(row.spent)} de {currency(row.budget)}
                 </div>
               </div>
@@ -518,7 +518,7 @@ export const DashboardPage: React.FC = () => {
                   gridTemplateColumns: 'auto 1fr auto',
                   gap: 10,
                   alignItems: 'center',
-                  borderBottom: '1px solid #f2f2f2',
+                  borderBottom: '1px solid var(--border-color)',
                   padding: '9px 0',
                 }}
               >
@@ -584,7 +584,7 @@ export const DashboardPage: React.FC = () => {
                 gridTemplateColumns: 'auto 1fr auto',
                 gap: 10,
                 alignItems: 'center',
-                borderBottom: '1px solid #f2f2f2',
+                borderBottom: '1px solid var(--border-color)',
                 padding: '8px 0',
               }}
             >
@@ -608,7 +608,7 @@ export const DashboardPage: React.FC = () => {
                 <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
                   {sub.merchant || sub.name || 'Assinatura'}
                 </div>
-                <div style={{ fontSize: 12, color: '#6b7280' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                   {(sub.subscription_category || sub.category || 'serviço').toString().replaceAll('_', ' ')}
                 </div>
               </div>

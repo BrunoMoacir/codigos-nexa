@@ -15,17 +15,39 @@
   --border-color: #ebebeb;
   --bg-hover: #f4f4f5;
   --bg-active: #eceff5;
+
+  /* Cores semânticas */
+  --color-danger: #b91c1c;
+  --color-danger-bg: #fecaca;
+  --color-warning: #F39C12;
+  --color-warning-bg: #fffbeb;
+  --color-warning-border: #fde68a;
+  --color-warning-text: #92400e;
+  --color-info: #0978F6;
+  --color-info-text: #1d4ed8;
+  --color-success: #166534;
 }
 
 [data-theme='dark'] {
   --bg-main: #0a0a0a;
-  --bg-surface: #111;
+  --bg-surface: #141414;
   --text-primary: #ededed;
   --text-secondary: #a1a1aa;
   --text-muted: #71717a;
-  --border-color: #27272a;
-  --bg-hover: #18181b;
-  --bg-active: #27272a;
+  --border-color: #222;
+  --bg-hover: #1f1f1f;
+  --bg-active: #252525;
+
+  /* Cores semânticas - modo escuro */
+  --color-danger: #ef4444;
+  --color-danger-bg: #3f1515;
+  --color-warning: #facc15;
+  --color-warning-bg: #2a2510;
+  --color-warning-border: #4a3f10;
+  --color-warning-text: #fde68a;
+  --color-info: #3b82f6;
+  --color-info-text: #60a5fa;
+  --color-success: #22c55e;
 }
 
 * {
@@ -40,15 +62,33 @@ body,
   margin: 0;
 }
 
+html {
+  transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 body {
   background: var(--bg-main);
   color: var(--text-primary);
-  transition: background-color 0.2s, color 0.2s;
+  transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-button,
+/* Transições suaves para todos elementos que usam CSS variables */
+div, section, article, aside, nav, main, header, footer {
+  transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+button {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 input,
 select,
 textarea {
   font: inherit;
+  transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }

@@ -5,7 +5,7 @@ import { nexaApi } from '../api/nexa';
 
 const card: React.CSSProperties = {
   background: 'var(--bg-surface)',
-  border: '1px solid #ebebeb',
+  border: '1px solid var(--border-color)',
   borderRadius: 12,
   padding: 16,
 };
@@ -19,7 +19,7 @@ const sectionTitle: React.CSSProperties = {
 
 const metricLabel: React.CSSProperties = {
   fontSize: 12,
-  color: '#6b7280',
+  color: 'var(--text-muted)',
   marginBottom: 4,
 };
 
@@ -178,7 +178,7 @@ export const StrategiesPage: React.FC = () => {
             key={key}
             onClick={() => setTab(key as any)}
             style={{
-              border: '1px solid #ddd',
+              border: '1px solid var(--border-color)',
               background: tab === key ? 'var(--text-primary)' : 'var(--bg-surface)',
               color: tab === key ? 'var(--bg-surface)' : 'var(--text-primary)',
               borderRadius: 8,
@@ -204,9 +204,9 @@ export const StrategiesPage: React.FC = () => {
                 type="number"
                 value={income}
                 onChange={(e) => setIncome(Number(e.target.value || 0))}
-                style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8, width: 180 }}
+                style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8, width: 180 }}
               />
-              <select value={maxCards} onChange={(e) => setMaxCards(Number(e.target.value))} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8 }}>
+              <select value={maxCards} onChange={(e) => setMaxCards(Number(e.target.value))} style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }}>
                 <option value={1}>1 cartão</option>
                 <option value={2}>2 cartões</option>
                 <option value={3}>3 cartões</option>
@@ -214,15 +214,15 @@ export const StrategiesPage: React.FC = () => {
               </select>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 10 }}>
-              <div style={{ border: '1px solid #eee', borderRadius: 8, padding: 10 }}>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 10 }}>
                 <div style={metricLabel}>Retorno anual</div>
                 <div style={metricValue}>{currency(toNumber(portfolioQuery.data?.total_annual_return))}</div>
               </div>
-              <div style={{ border: '1px solid #eee', borderRadius: 8, padding: 10 }}>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 10 }}>
                 <div style={metricLabel}>Custo anuidade</div>
                 <div style={metricValue}>{currency(toNumber(portfolioQuery.data?.total_annuity_cost))}</div>
               </div>
-              <div style={{ border: '1px solid #eee', borderRadius: 8, padding: 10 }}>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 10 }}>
                 <div style={metricLabel}>Ganho líquido</div>
                 <div style={metricValue}>{currency(toNumber(portfolioQuery.data?.net_annual_gain))}</div>
               </div>
@@ -236,18 +236,18 @@ export const StrategiesPage: React.FC = () => {
                 {portfolioCards.slice(0, 4).map((item: any, idx: number) => (
                   <div
                     key={`${item.card_id || item.id || idx}`}
-                    style={{ border: '1px solid #eee', borderRadius: 10, padding: 10, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', gap: 10 }}
+                    style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', gap: 10 }}
                   >
                     <div>
                       <div style={{ fontWeight: 600, fontSize: 14 }}>{item.name || item.card_name || item.card_id || 'Cartão recomendado'}</div>
-                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                         Cashback: {toNumber(item.cashback_pct || item.cashback || 0).toFixed(2)}%
                       </div>
                     </div>
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
                       {currency(toNumber(item.annual_return || item.estimated_return || 0))}
                     </div>
-                    <div style={{ fontSize: 12, color: '#6b7280' }}>ano</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>ano</div>
                   </div>
                 ))}
               </div>
@@ -260,7 +260,7 @@ export const StrategiesPage: React.FC = () => {
               <select
                 value={currentCard}
                 onChange={(e) => setCurrentCard(e.target.value)}
-                style={{ width: '100%', border: '1px solid #ddd', borderRadius: 8, padding: 8, marginBottom: 10 }}
+                style={{ width: '100%', border: '1px solid var(--border-color)', borderRadius: 8, padding: 8, marginBottom: 10 }}
               >
                 <option value="">Selecione seu cartão atual</option>
                 {optimizerCards.map((c: any) => (
@@ -274,11 +274,11 @@ export const StrategiesPage: React.FC = () => {
 
               {currentCard && (
                 <div style={{ display: 'grid', gap: 8 }}>
-                  <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                     <div style={metricLabel}>Perda estimada</div>
                     <div style={metricValue}>{currency(toNumber(opportunityQuery.data?.lost_value || opportunityQuery.data?.opportunity_cost || 0))}</div>
                   </div>
-                  <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                     <div style={metricLabel}>Melhor alternativa</div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
                       {opportunityQuery.data?.best_alternative || opportunityQuery.data?.recommended_card || 'Sem recomendação específica'}
@@ -292,9 +292,9 @@ export const StrategiesPage: React.FC = () => {
               <div style={sectionTitle}>Promoções ativas</div>
               {promotions.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Nenhuma promoção ativa no momento.</div>}
               {promotions.slice(0, 5).map((promo: any, idx: number) => (
-                <div key={`${promo.id || promo.title || idx}`} style={{ borderBottom: '1px solid #f2f2f2', padding: '8px 0' }}>
+                <div key={`${promo.id || promo.title || idx}`} style={{ borderBottom: '1px solid var(--border-color)', padding: '8px 0' }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{promo.title || promo.name || 'Promoção'}</div>
-                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                     {promo.description || promo.details || 'Condição promocional disponível.'}
                   </div>
                 </div>
@@ -312,9 +312,9 @@ export const StrategiesPage: React.FC = () => {
           <div style={card}>
             <div style={sectionTitle}>Simulação estratégica</div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-              <input type="number" value={targetAmount} onChange={(e) => setTargetAmount(Number(e.target.value || 0))} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8 }} />
-              <input type="number" value={downPayment} onChange={(e) => setDownPayment(Number(e.target.value || 0))} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8 }} />
-              <input type="number" value={months} onChange={(e) => setMonths(Number(e.target.value || 0))} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8 }} />
+              <input type="number" value={targetAmount} onChange={(e) => setTargetAmount(Number(e.target.value || 0))} style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }} />
+              <input type="number" value={downPayment} onChange={(e) => setDownPayment(Number(e.target.value || 0))} style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }} />
+              <input type="number" value={months} onChange={(e) => setMonths(Number(e.target.value || 0))} style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }} />
               <button
                 onClick={() => architectMutation.mutate()}
                 style={{ border: '1px solid #111', background: 'var(--text-primary)', color: 'var(--bg-surface)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}
@@ -332,34 +332,34 @@ export const StrategiesPage: React.FC = () => {
             {!architectMutation.isPending && Object.keys(architectResult).length > 0 && (
               <div style={{ display: 'grid', gap: 10 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-                  <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                     <div style={metricLabel}>Estratégia recomendada</div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
                       {architectResult.recommended_strategy || 'N/A'}
                     </div>
                   </div>
-                  <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                     <div style={metricLabel}>Confiança</div>
                     <div style={metricValue}>{(toNumber(architectResult.confidence_score) * 100).toFixed(0)}%</div>
                   </div>
-                  <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                     <div style={metricLabel}>Prazo alvo</div>
                     <div style={metricValue}>{toNumber(architectResult.months_to_achieve)} meses</div>
                   </div>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-                  <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                     <div style={metricLabel}>Custo esperado</div>
                     <div style={metricValue}>{currency(toNumber(architectResult?.costs?.expected_cost))}</div>
                   </div>
-                  <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                     <div style={metricLabel}>Liquidez impactada</div>
                     <div style={metricValue}>{(toNumber(architectResult.liquidity_impact) * 100).toFixed(0)}%</div>
                   </div>
                 </div>
 
-                <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                   <div style={{ ...metricLabel, marginBottom: 8 }}>Comparativo NPV</div>
                   <div style={{ display: 'grid', gap: 7 }}>
                     {Object.entries(architectNpv)
@@ -374,7 +374,7 @@ export const StrategiesPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                   <div style={{ ...metricLabel, marginBottom: 8 }}>Plano de ação</div>
                   {architectActionPlan.length === 0 && (
                     <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Sem plano detalhado disponível.</div>
@@ -396,9 +396,9 @@ export const StrategiesPage: React.FC = () => {
                 <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Nenhuma simulação prévia encontrada.</div>
               )}
               {Array.isArray(architectHistory.data) && architectHistory.data.slice(0, 5).map((sim: any, idx: number) => (
-                <div key={`${sim.simulation_id || idx}`} style={{ borderBottom: '1px solid #f2f2f2', padding: '8px 0' }}>
+                <div key={`${sim.simulation_id || idx}`} style={{ borderBottom: '1px solid var(--border-color)', padding: '8px 0' }}>
                   <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>{sim.recommended_strategy || 'Estratégia simulada'}</div>
-                  <div style={{ fontSize: 12, color: '#6b7280' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     {sim.created_at ? String(sim.created_at).slice(0, 10) : 'Data indisponível'}
                   </div>
                 </div>
@@ -407,11 +407,11 @@ export const StrategiesPage: React.FC = () => {
             <div style={card}>
               <div style={sectionTitle}>Métricas</div>
               <div style={{ display: 'grid', gap: 8 }}>
-                <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                   <div style={metricLabel}>Simulações totais</div>
                   <div style={metricValue}>{toNumber(architectMetrics.data?.total_simulations)}</div>
                 </div>
-                <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                   <div style={metricLabel}>Estratégia mais usada</div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
                     {architectMetrics.data?.most_common_strategy || architectMetrics.data?.top_strategy || 'N/A'}
@@ -431,8 +431,8 @@ export const StrategiesPage: React.FC = () => {
           <div style={card}>
             <div style={sectionTitle}>Parâmetros fiscais</div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-              <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value || new Date().getFullYear()))} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8 }} />
-              <select value={month} onChange={(e) => setMonth(e.target.value === '' ? '' : Number(e.target.value))} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8 }}>
+              <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value || new Date().getFullYear()))} style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }} />
+              <select value={month} onChange={(e) => setMonth(e.target.value === '' ? '' : Number(e.target.value))} style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }}>
                 <option value="">Todos</option>
                 {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                   <option key={m} value={m}>{m}</option>
@@ -444,15 +444,15 @@ export const StrategiesPage: React.FC = () => {
             <div style={card}>
               <div style={sectionTitle}>Relatório Fiscal</div>
               <div style={{ display: 'grid', gap: 8 }}>
-                <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                   <div style={metricLabel}>Total dedutível</div>
                   <div style={metricValue}>{currency(toNumber(fiscalData.total_deductible || fiscalData.deductible_total))}</div>
                 </div>
-                <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                   <div style={metricLabel}>Economia estimada</div>
                   <div style={metricValue}>{currency(toNumber(fiscalData.estimated_savings || fiscalData.tax_savings))}</div>
                 </div>
-                <div style={{ fontSize: 13, color: '#6b7280' }}>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
                   {fiscalData.summary_text || 'Dados fiscais consolidados para o período selecionado.'}
                 </div>
               </div>
@@ -460,15 +460,15 @@ export const StrategiesPage: React.FC = () => {
             <div style={card}>
               <div style={sectionTitle}>Uso Misto PF/PJ</div>
               <div style={{ display: 'grid', gap: 8 }}>
-                <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                   <div style={metricLabel}>Transações com uso misto</div>
                   <div style={metricValue}>{toNumber(mixedUseData.total_mixed_transactions || mixedUseData.count)}</div>
                 </div>
-                <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                   <div style={metricLabel}>Percentual misto</div>
                   <div style={metricValue}>{toNumber(mixedUseData.mixed_pct || mixedUseData.percentage).toFixed(1)}%</div>
                 </div>
-                <div style={{ fontSize: 13, color: '#6b7280' }}>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
                   {mixedUseData.summary_text || 'Monitoramento de transações com potencial sobreposição entre PF e PJ.'}
                 </div>
               </div>
@@ -488,18 +488,18 @@ export const StrategiesPage: React.FC = () => {
               type="number"
               value={income}
               onChange={(e) => setIncome(Number(e.target.value || 0))}
-              style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8, width: 180, marginBottom: 10 }}
+              style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8, width: 180, marginBottom: 10 }}
             />
             <div style={{ display: 'grid', gap: 8 }}>
-              <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                 <div style={metricLabel}>Score de comparação</div>
                 <div style={metricValue}>{toNumber(peerData.peer_score || peerData.comparison_score)}</div>
               </div>
-              <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                 <div style={metricLabel}>Posição de gastos</div>
                 <div style={metricValue}>{toNumber(peerData.expense_percentile).toFixed(0)}%</div>
               </div>
-              <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                 <div style={{ ...metricLabel, marginBottom: 8 }}>Insights</div>
                 {topPeerInsights.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Sem insights disponíveis para a faixa atual.</div>}
                 {topPeerInsights.map((insight, idx) => (
@@ -514,11 +514,11 @@ export const StrategiesPage: React.FC = () => {
             <div style={sectionTitle}>Notificações</div>
             {notifications.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Sem notificações recentes.</div>}
             {notifications.slice(0, 8).map((note: any, idx: number) => (
-              <div key={`${note.id || idx}`} style={{ borderBottom: '1px solid #f2f2f2', padding: '8px 0' }}>
+              <div key={`${note.id || idx}`} style={{ borderBottom: '1px solid var(--border-color)', padding: '8px 0' }}>
                 <div style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 600 }}>
                   {note.title || note.type || 'Notificação'}
                 </div>
-                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                   {note.message || note.description || 'Atualização financeira disponível.'}
                 </div>
               </div>

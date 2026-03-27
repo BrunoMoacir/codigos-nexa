@@ -105,7 +105,7 @@ export const LoginPage: React.FC = () => {
           display: grid;
           grid-template-columns: 1fr 1fr;
           background: #fff;
-          color: #111;
+          color: var(--text-primary);
         }
         @media (max-width: 768px) {
           .lp-root { grid-template-columns: 1fr; }
@@ -121,7 +121,7 @@ export const LoginPage: React.FC = () => {
           padding: 48px;
         }
         .lp-logo-text {
-          color: #fff;
+          color: var(--bg-surface);
           font-size: 20px;
           font-weight: 600;
           letter-spacing: -0.4px;
@@ -151,7 +151,7 @@ export const LoginPage: React.FC = () => {
         .lp-hero-title {
           font-size: 36px;
           font-weight: 600;
-          color: #fff;
+          color: var(--bg-surface);
           line-height: 1.25;
           letter-spacing: -0.8px;
           margin: 0;
@@ -199,11 +199,11 @@ export const LoginPage: React.FC = () => {
           font-weight: 600;
           letter-spacing: -0.4px;
           margin: 0 0 4px;
-          color: #111;
+          color: var(--text-primary);
         }
         .lp-form-header p {
           font-size: 14px;
-          color: #888;
+          color: var(--text-muted);
           margin: 0;
         }
 
@@ -225,11 +225,11 @@ export const LoginPage: React.FC = () => {
           cursor: pointer;
           transition: all 0.15s ease;
           background: transparent;
-          color: #888;
+          color: var(--text-muted);
         }
         .lp-tab.active {
           background: #fff;
-          color: #111;
+          color: var(--text-primary);
           box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
 
@@ -246,14 +246,14 @@ export const LoginPage: React.FC = () => {
           border-radius: 10px;
           font-size: 14px;
           font-family: inherit;
-          color: #111;
+          color: var(--text-primary);
           background: #fff;
           outline: none;
           transition: border-color 0.15s;
           box-sizing: border-box;
         }
         .lp-input::placeholder { color: #bbb; }
-        .lp-input:focus { border-color: #111; }
+        .lp-input:focus { border-color: var(--text-primary); }
         .lp-input:disabled { background: #fafafa; color: #999; }
 
         /* Button */
@@ -261,7 +261,7 @@ export const LoginPage: React.FC = () => {
           width: 100%;
           padding: 12px;
           background: #111;
-          color: #fff;
+          color: var(--bg-surface);
           border: none;
           border-radius: 10px;
           font-size: 14px;
@@ -281,7 +281,7 @@ export const LoginPage: React.FC = () => {
           color: #aaa;
           line-height: 1.6;
         }
-        .lp-form-footer a { color: #888; text-decoration: underline; cursor: pointer; }
+        .lp-form-footer a { color: var(--text-muted); text-decoration: underline; cursor: pointer; }
       `}</style>
 
       <div className="lp-root">

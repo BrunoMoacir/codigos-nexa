@@ -21,14 +21,16 @@ const navItems: Array<{ key: AppShellTab; icon: string; label: string; path: str
 export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, children }) => {
   const navigate = useNavigate();
   const [isMobile, setIsMobile] = useState<boolean>(() => window.innerWidth < 980);
-  const userId = localStorage.getItem('user_id') || '';
-  const displayName = userId
-    ? userId.split('@')[0].split('_')[0].replace(/^./, (c) => c.toUpperCase())
-    : 'Usuário';
+
+  const userName = localStorage.getItem('user_name') || '';
+  const userEmail = localStorage.getItem('user_email') || '';
+  const displayName = userName || (userEmail ? userEmail.split('@')[0] : 'Usuário');
 
   const handleLogout = () => {
     localStorage.removeItem('jwt_token');
     localStorage.removeItem('user_id');
+    localStorage.removeItem('user_name');
+    localStorage.removeItem('user_email');
     window.location.href = '/login';
   };
 
@@ -39,47 +41,73 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
   }, []);
 
   const [theme, setTheme] = useState<'light'|'dark'>(() => {
-    return (localStorage.getItem('nexa-theme') as 'light'|'dark') || 'light';
+    return (localStorage.getItem('theme') as 'light'|'dark') || 'light';
   });
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
-    localStorage.setItem('nexa-theme', newTheme);
-    if (newTheme === 'dark') {
-      document.documentElement.setAttribute('data-theme', 'dark');
-    } else {
-      document.documentElement.removeAttribute('data-theme');
-    }
+    localStorage.setItem('theme', newTheme);
+    document.documentElement.setAttribute('data-theme', newTheme);
   };
 
   useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.setAttribute('data-theme', 'dark');
-    } else {
-      document.documentElement.removeAttribute('data-theme');
-    }
+    document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: 'transparent',
-        color: 'var(--text-primary)',
-        display: 'flex',
-        flexDirection: isMobile ? 'column' : 'row',
-        fontFamily: 'Inter, system-ui, sans-serif',
-      }}
-    >
+    <>
+      <style>{`
+        .app-shell-wrapper {
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .app-shell-sidebar {
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .app-shell-nav-item {
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .app-shell-nav-item:hover {
+          background: var(--bg-hover) !important;
+          transform: translateX(2px);
+        }
+        .app-shell-btn {
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .app-shell-btn:hover {
+          background: var(--bg-hover) !important;
+          color: var(--text-primary) !important;
+        }
+        .app-shell-user-chip {
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .app-shell-avatar {
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .app-shell-border {
+          transition: border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+      `}</style>
+      <div
+        className="app-shell-wrapper"
+        style={{
+          minHeight: '100vh',
+          background: 'transparent',
+          color: 'var(--text-primary)',
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          fontFamily: 'Inter, system-ui, sans-serif',
+        }}
+      >
       <aside
+        className="app-shell-sidebar app-shell-border"
         style={
           isMobile
             ? {
                 width: '100%',
                 flexShrink: 0,
                 background: 'var(--bg-surface)',
-                borderBottom: '1px solid #ebebeb',
+                borderBottom: '1px solid var(--border-color)',
                 display: 'grid',
                 gap: 10,
                 padding: '14px 14px 12px',
@@ -88,7 +116,7 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
                 width: 220,
                 flexShrink: 0,
                 background: 'var(--bg-main)',
-                borderRight: '1px solid #ebebeb',
+                borderRight: '1px solid var(--border-color)',
                 display: 'flex',
                 flexDirection: 'column',
                 padding: '28px 20px',
@@ -120,6 +148,7 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
             <button
               key={item.key}
               onClick={() => navigate(item.path)}
+              className="app-shell-nav-item"
               style={{
                 padding: isMobile ? '7px 10px' : '8px 10px',
                 borderRadius: 8,
@@ -151,6 +180,7 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
           }
         >
           <div
+            className="app-shell-user-chip"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -162,6 +192,7 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
             }}
           >
             <div
+              className="app-shell-avatar"
               style={{
                 width: 28,
                 height: 28,
@@ -181,9 +212,10 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
               {displayName}
             </div>
           </div>
-          
+
           <button
             onClick={toggleTheme}
+            className="app-shell-btn"
             style={{
               padding: '8px 10px',
               borderRadius: 8,
@@ -200,12 +232,13 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
               alignItems: 'center',
             }}
           >
-            <span>{theme === 'light' ? '🌙' : '☀️'}</span>
-            Modo {theme === 'light' ? 'Escuro' : 'Claro'}
+            <span>{theme === 'light' ? '☾' : '☀'}</span>
+            Modo {theme === 'light' ? 'escuro' : 'claro'}
           </button>
 
           <button
             onClick={handleLogout}
+            className="app-shell-btn"
             style={{
               padding: '8px 10px',
               borderRadius: 8,
@@ -235,5 +268,6 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
         {children}
       </main>
     </div>
+    </>
   );
 };
