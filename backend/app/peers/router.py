@@ -14,6 +14,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, status, Depends
 from app.core.security import get_current_user
+from app.core.cache import cache_response
 
 from app.core.db.queries import get_transactions_for_user
 from app.peers.peer_comparison import PeerComparator
@@ -40,6 +41,7 @@ _comparator = PeerComparator()
         "percentil estimado de poupança vs. perfis similares."
     ),
 )
+@cache_response(prefix="peers", ttl=1800)  # 30 min
 async def compare_peers(
     user_id: str,
     monthly_income: float = Query(

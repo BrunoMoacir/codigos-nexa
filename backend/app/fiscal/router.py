@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Query, Depends, status
 from app.core.security import get_current_user
+from app.core.cache import cache_response
 from pydantic import BaseModel
 from typing import Optional
 import logging
@@ -46,6 +47,7 @@ class FiscalReportResponse(BaseModel):
 
 
 @router.get("/{user_id}", response_model=FiscalReportResponse)
+@cache_response(prefix="fiscal", ttl=1800)  # 30 min
 async def get_fiscal_report(
     user_id: str,
     year: int = Query(default=None, description="Ano do relatorio (padrao: ano atual)"),

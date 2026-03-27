@@ -14,6 +14,7 @@ from typing import Optional
 import polars as pl
 from fastapi import APIRouter, HTTPException, Query, status, Depends
 from app.core.security import get_current_user
+from app.core.cache import cache_response
 
 from app.budget.budget_advisor import BudgetAdvisor, BudgetSuggestion, GroupSummary
 from app.core.db.queries import get_transactions_for_user
@@ -40,6 +41,7 @@ _advisor = BudgetAdvisor(history_months=3)
         "e texto explicativo em linguagem natural."
     ),
 )
+@cache_response(prefix="budget", ttl=1800)  # 30 min
 async def get_budget_advice(
     user_id: str,
     monthly_income: float = Query(

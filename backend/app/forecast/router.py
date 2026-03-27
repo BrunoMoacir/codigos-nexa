@@ -37,6 +37,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, status, Depends
 from app.core.security import get_current_user
+from app.core.cache import cache_response
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # IMPORTS: Engine & Processamento
@@ -115,6 +116,7 @@ async def fetch_user_transactions(user_id: str, horizon_days: int = 30):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.get("/{user_id}", response_model=ForecastResponse)
+@cache_response(prefix="forecast", ttl=900)  # 15 min
 async def get_forecast(
     user_id: str,
     horizon_days: int = 30,

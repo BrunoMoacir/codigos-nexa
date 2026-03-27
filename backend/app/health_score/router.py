@@ -33,6 +33,7 @@ from app.core.db.queries import (
 )
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.core.cache import cache_response
 from app.forecast.etl.profiles import UserProfileAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -143,6 +144,7 @@ def _fetch_transactions_sync(db: Session, user_id: str) -> pl.DataFrame:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.get("/history/{user_id}", response_model=HealthScoreHistoryResponse)
+@cache_response(prefix="health_score", ttl=1800)  # 30 min
 def get_health_score_history_endpoint(
     user_id: str,
     months: int = Query(default=6, ge=1, le=24, description="Meses de histórico"),
