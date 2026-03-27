@@ -6,6 +6,26 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  --bg-main: #fafafa;
+  --bg-surface: #fff;
+  --text-primary: #111;
+  --text-secondary: #555;
+  --text-muted: #888;
+  --border-color: #ebebeb;
+  --bg-hover: #f4f4f5;
+  --bg-active: #eceff5;
+}
+
+[data-theme='dark'] {
+  --bg-main: #0a0a0a;
+  --bg-surface: #111;
+  --text-primary: #ededed;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --border-color: #27272a;
+  --bg-hover: #18181b;
+  --bg-active: #27272a;
 }
 
 * {
@@ -21,8 +41,9 @@ body,
 }
 
 body {
-  background: radial-gradient(circle at top right, #f4f7ff 0%, #f8fafc 35%, #f7f7f8 100%);
-  color: #111;
+  background: var(--bg-main);
+  color: var(--text-primary);
+  transition: background-color 0.2s, color 0.2s;
 }
 
 button,
