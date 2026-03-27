@@ -1,0 +1,78 @@
+FROM python:3.12-slim
+
+# Variáveis de ambiente
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/backend \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app/backend
+
+# Instalar dependências do sistema
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copiar e instalar dependências Python
+COPY backend/requirements.railway.txt /tmp/requirements.txt
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install -r /tmp/requirements.txt
+
+# Copiar código da aplicação
+COPY backend/ /app/backend/
+
+# Script de inicialização
+COPY <<'EOF' /app/start.sh
+#!/bin/bash
+set -e
+
+echo "=========================================="
+echo "🚀 NEXA API - RAILWAY STARTUP"
+echo "=========================================="
+echo ""
+
+# Mostrar informações de ambiente
+echo "📦 Python version: $(python --version)"
+echo "🌍 APP_ENV: ${APP_ENV:-not set}"
+echo "🔗 DATABASE_URL: $(if [ -n "$DATABASE_URL" ]; then echo "✅ configured"; else echo "❌ NOT SET"; fi)"
+echo "🔑 SECRET_KEY: $(if [ -n "$SECRET_KEY" ]; then echo "✅ configured"; else echo "❌ NOT SET"; fi)"
+echo "🤖 LLM_PROVIDER: ${LLM_PROVIDER:-not set}"
+echo "🚪 PORT: ${PORT:-8000}"
+echo ""
+
+# Verificar se as variáveis críticas estão configuradas
+if [ -z "$DATABASE_URL" ]; then
+    echo "⚠️  WARNING: DATABASE_URL not set - database connections will fail"
+fi
+
+if [ -z "$SECRET_KEY" ]; then
+    echo "⚠️  WARNING: SECRET_KEY not set - using default (INSECURE)"
+fi
+
+echo "=========================================="
+echo "🌟 Starting Uvicorn server..."
+echo "=========================================="
+echo ""
+
+# Iniciar uvicorn
+exec uvicorn app.main:app \
+    --host 0.0.0.0 \
+    --port ${PORT:-8000} \
+    --log-level info \
+    --access-log
+EOF
+
+RUN chmod +x /app/start.sh
+
+# Expor porta
+EXPOSE ${PORT:-8000}
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
+
+# Comando de inicialização
+CMD ["/app/start.sh"]

@@ -1,0 +1,28 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/backend
+
+WORKDIR /app/backend
+
+# Instalar apenas o essencial
+RUN pip install --no-cache-dir \
+    fastapi==0.128.0 \
+    uvicorn[standard]==0.40.0 \
+    pydantic==2.12.5 \
+    pydantic-settings==2.12.0
+
+# Copiar apenas o necessário
+COPY backend/app/main_minimal.py /app/backend/app/main_minimal.py
+COPY backend/app/__init__.py /app/backend/app/__init__.py 2>/dev/null || true
+
+# Criar __init__.py se não existir
+RUN touch /app/backend/app/__init__.py
+
+# Verificação e startup
+CMD echo "🚀 Starting Nexa API (Minimal)..." && \
+    echo "📍 Working directory: $(pwd)" && \
+    echo "📁 Files:" && ls -la /app/backend/app/ && \
+    echo "🌐 Starting uvicorn on port ${PORT:-8000}..." && \
+    uvicorn app.main_minimal:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info
