@@ -10,7 +10,6 @@ Avaliação: Accuracy, Precision, Recall, F1-Score
 """
 
 import polars as pl
-import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import classification_report, confusion_matrix
@@ -28,41 +27,46 @@ def load_training_data():
     data_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'training_dataset_pf_pj.parquet')
     df = pl.read_parquet(data_path)
     print(f"📊 Dataset carregado: {len(df)} amostras")
+    return df
 
-    # Converte para pandas para sklearn
-    df_pd = df.to_pandas()
-    return df_pd
-
-def preprocess_features(df):
+def preprocess_features(df: pl.DataFrame):
     """Pré-processa features para ML"""
-    # Separa features e target
     feature_cols = [
         'hour_of_day', 'day_of_week', 'is_weekend', 'is_business_hour',
         'amount', 'amount_abs', 'amount_log', 'transaction_type', 'amount_category',
         'pf_keyword_score', 'pj_keyword_score', 'has_business_terms',
         'category', 'merchant_category', 'is_recurring'
     ]
+    categorical_cols = ['transaction_type', 'amount_category', 'category', 'merchant_category']
+    numerical_cols = ['hour_of_day', 'day_of_week', 'amount', 'amount_abs', 'amount_log',
+                      'pf_keyword_score', 'pj_keyword_score']
 
-    X = df[feature_cols].copy()
-    y = df['label'].map({'PF': 0, 'PJ': 1})  # Encode labels
+    # Encode labels
+    y = np.array([0 if v == 'PF' else 1 for v in df['label'].to_list()])
+
+    # Build float numpy matrix in correct column order
+    X = np.zeros((len(df), len(feature_cols)), dtype=float)
+    col_idx = {col: i for i, col in enumerate(feature_cols)}
 
     # Encode categorical features
-    categorical_cols = ['transaction_type', 'amount_category', 'category', 'merchant_category']
-
     encoders = {}
     for col in categorical_cols:
+        col_data = df[col].cast(pl.Utf8).to_numpy().astype(str)
         encoder = LabelEncoder()
-        X[col] = encoder.fit_transform(X[col].astype(str))
+        X[:, col_idx[col]] = encoder.fit_transform(col_data).astype(float)
         encoders[col] = encoder
 
+    # Copy numerical features
+    for col in feature_cols:
+        if col not in categorical_cols:
+            X[:, col_idx[col]] = df[col].cast(pl.Float64).to_numpy()
+
     # Scale numerical features
-    numerical_cols = ['hour_of_day', 'day_of_week', 'amount', 'amount_abs', 'amount_log',
-                     'pf_keyword_score', 'pj_keyword_score']
-
     scaler = StandardScaler()
-    X[numerical_cols] = scaler.fit_transform(X[numerical_cols])
+    num_indices = [col_idx[col] for col in numerical_cols]
+    X[:, num_indices] = scaler.fit_transform(X[:, num_indices])
 
-    return X, y, encoders, scaler
+    return X, y, encoders, scaler, feature_cols
 
 def train_random_forest(X, y):
     """Treina modelo Random Forest"""
@@ -92,7 +96,7 @@ def train_random_forest(X, y):
 
     return rf_model, X_train, X_test, y_train, y_test, y_pred, y_pred_proba
 
-def evaluate_model(rf_model, X, y, y_pred, X_test, y_test):
+def evaluate_model(rf_model, X, y, y_pred, X_test, y_test, feature_cols):
     """Avalia performance do modelo"""
     print("\n📊 AVALIAÇÃO DO MODELO")
     print("=" * 40)
@@ -112,17 +116,18 @@ def evaluate_model(rf_model, X, y, y_pred, X_test, y_test):
     # Cross-validation
     cv_scores = cross_val_score(rf_model, X, y, cv=5, scoring='accuracy')
     print(f"Cross-Validation Accuracy: {cv_scores.mean():.3f} (+/- {cv_scores.std() * 2:.3f})")
-    # Feature importance
-    feature_importance = pd.DataFrame({
-        'feature': X.columns,
-        'importance': rf_model.feature_importances_
-    }).sort_values('importance', ascending=False)
 
+    # Feature importance usando numpy/sorted list
+    importances = sorted(
+        zip(feature_cols, rf_model.feature_importances_),
+        key=lambda x: x[1],
+        reverse=True,
+    )
     print("\n🔍 Top 10 Features Mais Importantes:")
-    for i, row in feature_importance.head(10).iterrows():
-        print(f"   {row['feature']}: {row['importance']:.3f}")
+    for feat, imp in importances[:10]:
+        print(f"   {feat}: {imp:.3f}")
 
-    return feature_importance
+    return importances
 
 def save_model(rf_model, encoders, scaler):
     """Salva modelo e preprocessors"""
@@ -147,17 +152,19 @@ def main():
 
     # Carrega dados
     df = load_training_data()
-    print(f"   Distribuição: PF={len(df[df['label']=='PF'])}, PJ={len(df[df['label']=='PJ'])}")
+    pf_count = df.filter(pl.col('label') == 'PF').height
+    pj_count = df.filter(pl.col('label') == 'PJ').height
+    print(f"   Distribuição: PF={pf_count}, PJ={pj_count}")
 
     # Pré-processa
-    X, y, encoders, scaler = preprocess_features(df)
+    X, y, encoders, scaler, feature_cols = preprocess_features(df)
     print(f"   Features: {X.shape[1]} colunas")
 
     # Treina modelo
     rf_model, X_train, X_test, y_train, y_test, y_pred, y_pred_proba = train_random_forest(X, y)
 
     # Avalia
-    feature_importance = evaluate_model(rf_model, X, y, y_pred, X_test, y_test)
+    feature_importance = evaluate_model(rf_model, X, y, y_pred, X_test, y_test, feature_cols)
 
     # Salva modelo
     save_model(rf_model, encoders, scaler)
@@ -167,10 +174,10 @@ def main():
 
     # Teste rápido
     print("\n🧪 Teste rápido com primeira amostra:")
-    sample = X.iloc[0:1]
+    sample = X[0:1]
     prediction = rf_model.predict(sample)[0]
     proba = rf_model.predict_proba(sample)[0]
-    actual = 'PF' if y.iloc[0] == 0 else 'PJ'
+    actual = 'PF' if y[0] == 0 else 'PJ'
     predicted = 'PF' if prediction == 0 else 'PJ'
 
     print(f"   Real: {actual} | Previsto: {predicted}")

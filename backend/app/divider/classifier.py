@@ -12,7 +12,7 @@ Uso no pipeline:
 """
 
 import polars as pl
-import pandas as pd
+import numpy as np
 import joblib
 import logging
 import os
@@ -139,27 +139,37 @@ class PFPJClassifier:
             # Extrai features
             features = self._extract_features(transaction)
 
-            # Converte para DataFrame pandas
-            features_df = pd.DataFrame([features])
+            # Colunas na mesma ordem do treinamento
+            _feature_cols = [
+                'hour_of_day', 'day_of_week', 'is_weekend', 'is_business_hour',
+                'amount', 'amount_abs', 'amount_log', 'transaction_type', 'amount_category',
+                'pf_keyword_score', 'pj_keyword_score', 'has_business_terms',
+                'category', 'merchant_category', 'is_recurring',
+            ]
+            _categorical_cols = ['transaction_type', 'amount_category', 'category', 'merchant_category']
+            _numerical_cols = ['hour_of_day', 'day_of_week', 'amount', 'amount_abs', 'amount_log',
+                               'pf_keyword_score', 'pj_keyword_score']
 
-            # Encode categóricas
-            for col in ['transaction_type', 'amount_category', 'category', 'merchant_category']:
-                if col in features_df.columns and col in self.encoders:
-                    # Trata valores desconhecidos mapeando para a primeira classe conhecida
+            # Encode categóricas diretamente no dict
+            encoded = dict(features)
+            for col in _categorical_cols:
+                if col in self.encoders:
                     encoder = self.encoders[col]
-                    features_df[col] = features_df[col].astype(str).apply(
-                        lambda x: x if x in encoder.classes_ else encoder.classes_[0]
-                    )
-                    features_df[col] = encoder.transform(features_df[col])
+                    val = str(encoded.get(col, ''))
+                    if val not in encoder.classes_:
+                        val = encoder.classes_[0]
+                    encoded[col] = int(encoder.transform([val])[0])
+
+            # Constrói array numpy na ordem correta de colunas
+            X = np.array([[encoded.get(col, 0) for col in _feature_cols]], dtype=float)
 
             # Scale numéricas
-            numerical_cols = ['hour_of_day', 'day_of_week', 'amount', 'amount_abs', 'amount_log',
-                             'pf_keyword_score', 'pj_keyword_score']
-            features_df[numerical_cols] = self.scaler.transform(features_df[numerical_cols])
+            _num_indices = [_feature_cols.index(col) for col in _numerical_cols]
+            X[:, _num_indices] = self.scaler.transform(X[:, _num_indices])
 
             # Prediz
-            prediction_proba = self.model.predict_proba(features_df)[0]
-            prediction_idx = self.model.predict(features_df)[0]
+            prediction_proba = self.model.predict_proba(X)[0]
+            prediction_idx = self.model.predict(X)[0]
 
             # Converte para labels
             prediction = 'PF' if prediction_idx == 0 else 'PJ'

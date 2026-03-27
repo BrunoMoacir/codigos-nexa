@@ -12,7 +12,6 @@ Validações:
 """
 
 import polars as pl
-import pandas as pd
 import duckdb
 import sys
 import os
@@ -28,11 +27,8 @@ def load_real_transactions():
     """Carrega transações reais do DuckDB"""
     try:
         conn = duckdb.connect(os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'transactions.duckdb'))
-        df = conn.execute('SELECT * FROM transactions').fetchdf()
+        real_df = conn.execute('SELECT * FROM transactions').pl()
         conn.close()
-
-        # Converte para polars
-        real_df = pl.from_pandas(df)
 
         print(f"📊 Carregadas {len(real_df)} transações reais do DuckDB")
         return real_df

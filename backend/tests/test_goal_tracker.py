@@ -217,9 +217,11 @@ def test_update_progress_partial():
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from app.goals.router import router as goals_router
+from app.core.security import get_current_user
 
 _app = FastAPI()
 _app.include_router(goals_router)
+_app.dependency_overrides[get_current_user] = lambda: "u1"
 _client = TestClient(_app)
 
 

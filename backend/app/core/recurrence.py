@@ -1,5 +1,5 @@
-#app/core/recurrency.py
-import pandas as pd
+# app/core/recurrence.py
+import polars as pl
 from typing import List, Dict
 
 
@@ -15,43 +15,40 @@ def detect_recurring(transactions: List[Dict]) -> List[Dict]:
     Retorna:
       Lista de padrões recorrentes detectados
     """
-
     if not transactions:
         return []
 
-    df = pd.DataFrame(transactions)
+    df = pl.DataFrame(transactions)
 
-    if df.empty:
+    if df.is_empty():
         return []
 
-    df["date"] = pd.to_datetime(df["date"])
-    df["month"] = df["date"].dt.to_period("M")
-    df["description"] = df["description"].str.lower().str.strip()
-
-    grouped = (
-        df.groupby(["description", "amount"])
-        .agg(
-            months=("month", "nunique"),
-            total_occurrences=("amount", "count"),
-        )
-        .reset_index()
+    df = df.with_columns([
+        pl.col("date").cast(pl.Date).alias("date"),
+        pl.col("description").str.to_lowercase().str.strip_chars().alias("description"),
+    ])
+    df = df.with_columns(
+        pl.col("date").dt.truncate("1mo").alias("month")
     )
 
-    recurring = grouped[grouped["months"] >= 2]
+    grouped = (
+        df.group_by(["description", "amount"])
+        .agg([
+            pl.col("month").n_unique().alias("months"),
+            pl.len().alias("total_occurrences"),
+        ])
+        .filter(pl.col("months") >= 2)
+    )
 
-    patterns = []
-
-    for _, row in recurring.iterrows():
-        patterns.append(
-            {
-                "description": row["description"],
-                "amount": float(row["amount"]),
-                "months": int(row["months"]),
-                "occurrences": int(row["total_occurrences"]),
-            }
-        )
-
-    return patterns
+    return [
+        {
+            "description": row["description"],
+            "amount": float(row["amount"]),
+            "months": int(row["months"]),
+            "occurrences": int(row["total_occurrences"]),
+        }
+        for row in grouped.to_dicts()
+    ]
 
 
 class RecurringDetector:
@@ -64,29 +61,17 @@ class RecurringDetector:
     """
 
     _EMPTY_SCHEMA = {
-        "description": "pl.Utf8",
-        "amount": "pl.Float64",
-        "months": "pl.Int64",
-        "occurrences": "pl.Int64",
+        "description": pl.Utf8,
+        "amount": pl.Float64,
+        "months": pl.Int64,
+        "occurrences": pl.Int64,
     }
 
-    def run(self, df) -> "pl.DataFrame":
-        import polars as pl
-
-        _empty = pl.DataFrame(
-            schema={
-                "description": pl.Utf8,
-                "amount": pl.Float64,
-                "months": pl.Int64,
-                "occurrences": pl.Int64,
-            }
-        )
+    def run(self, df) -> pl.DataFrame:
+        _empty = pl.DataFrame(schema=self._EMPTY_SCHEMA)
 
         transactions = df.to_dicts() if hasattr(df, "to_dicts") else df
 
-        # detect_recurring() espera colunas específicas (date, description, amount).
-        # Se o DataFrame de entrada usar nomes diferentes, retorna resultado vazio
-        # em vez de propagar o erro — esse é o comportamento esperado do core.
         try:
             patterns = detect_recurring(transactions)
         except (KeyError, TypeError, ValueError):

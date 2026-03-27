@@ -53,7 +53,7 @@ def _get_transactions_for_user_duckdb(user_id: str):
     try:
         con = get_connection()
         try:
-            pdf = con.execute(
+            df = con.execute(
                 """
                 SELECT
                   transaction_id,
@@ -73,14 +73,13 @@ def _get_transactions_for_user_duckdb(user_id: str):
                 ORDER BY date
                 """,
                 [user_id],
-            ).fetchdf()
+            ).pl()
         finally:
             con.close()
 
-        if pdf is None or pdf.empty:
+        if df is None or df.is_empty():
             return pl.DataFrame()
 
-        df = pl.from_pandas(pdf)
         if "date" in df.columns:
             df = df.with_columns(pl.col("date").cast(pl.Date))
         return df

@@ -411,9 +411,11 @@ def test_notifier_to_dict_valid_json_structure():
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from app.notifications.router import router as notif_router
+from app.core.security import get_current_user
 
 _app = FastAPI()
 _app.include_router(notif_router)
+_app.dependency_overrides[get_current_user] = lambda: "test_user"
 _client = TestClient(_app)
 
 
