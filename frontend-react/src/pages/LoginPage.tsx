@@ -36,6 +36,11 @@ export const LoginPage: React.FC = () => {
         const data = await response.json();
         localStorage.setItem('jwt_token', data.access_token);
         localStorage.setItem('user_id', data.user_id);
+        localStorage.setItem('user_email', loginEmail);
+        if (data.full_name) {
+          localStorage.setItem('user_name', data.full_name);
+        }
+        
         toast.success('Bem-vindo!', { id: toastId });
         setTimeout(() => navigate('/home'), 600);
       } else {

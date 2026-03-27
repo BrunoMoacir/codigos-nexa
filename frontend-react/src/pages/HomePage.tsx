@@ -46,14 +46,22 @@ export const HomePage: React.FC = () => {
   const hora = new Date().getHours();
   const saudacao = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
 
-  const userId = localStorage.getItem('user_id') || '';
-  const displayName = userId
-    ? (userId.split('@')[0].split('_')[0]).replace(/^./, (c) => c.toUpperCase())
-    : '';
+  const storedName = localStorage.getItem('user_name') || '';
+  const storedEmail = localStorage.getItem('user_email') || '';
+  
+  const [displayName] = React.useState(() => {
+    if (storedName) {
+      return storedName.split(' ')[0].replace(/^./, (c) => c.toUpperCase());
+    }
+    if (storedEmail) return storedEmail.split('@')[0].replace(/^./, (c) => c.toUpperCase());
+    
+    return '';
+  });
 
   const handleLogout = () => {
     localStorage.removeItem('jwt_token');
     localStorage.removeItem('user_id');
+    localStorage.removeItem('user_email');
     window.location.href = '/login';
   };
 

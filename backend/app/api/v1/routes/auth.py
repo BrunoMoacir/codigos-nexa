@@ -27,6 +27,7 @@ class Token(BaseModel):
     access_token: str
     token_type: str
     user_id: str
+    full_name: str | None = None
 
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def register(user: UserCreate, db: Session = Depends(get_db)):
@@ -80,5 +81,6 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
     return {
         "access_token": access_token, 
         "token_type": "bearer",
-        "user_id": user["user_id"]
+        "user_id": user["user_id"],
+        "full_name": user.get("full_name")
     }
