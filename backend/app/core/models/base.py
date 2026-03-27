@@ -9,4 +9,5 @@ from app.health_score.models import HealthScoreHistory
 from app.goals.models import FinancialGoal
 from app.architect.models_orm import ArchitectSimulation, ArchitectSimulationMetrics
 from app.optimizer.models_orm import OptimizationReport
+from app.agent.models import ChatMessage
 
