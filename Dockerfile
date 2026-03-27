@@ -3,7 +3,8 @@ FROM python:3.12-slim
 # Definir variaveis de ambiente
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/backend
+    PYTHONPATH=/app/backend \
+    PORT=8000
 
 WORKDIR /app/backend
 
@@ -21,5 +22,9 @@ RUN pip install --upgrade pip && \
 # Copiar projeto
 COPY backend/ /app/backend/
 
-# Comando de inicializacao da API (porta 8000)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Expor porta (Railway usa a variável $PORT)
+EXPOSE $PORT
+
+# Comando de inicializacao da API
+# Railway define $PORT automaticamente
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}

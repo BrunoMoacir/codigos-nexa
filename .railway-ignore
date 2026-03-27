@@ -1,0 +1,16 @@
+venv/
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+.git/
+.env
+.github/
+.vscode/
+finance.duckdb
+frontend/
+frontend-react/
+tests/
+*.md
+.gitignore
+docker-compose.yml
