@@ -282,16 +282,29 @@ class GoalTracker:
             suggestion=suggestion,
         )
 
-    def list_goals(self, user_id: str, status: str = "ACTIVE") -> list[Goal]:
-        """Lista metas do usuário filtradas por status."""
+    def list_goals(
+        self,
+        user_id: str,
+        status: str = "ACTIVE",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Goal]:
+        """Lista metas do usuário filtradas por status, com paginação."""
         from app.core.database import SessionLocal
         from app.goals.models import FinancialGoal
         db = SessionLocal()
         try:
-            rows = db.query(FinancialGoal).filter(
-                FinancialGoal.user_id == user_id,
-                FinancialGoal.status == status,
-            ).order_by(FinancialGoal.created_at.desc()).all()
+            rows = (
+                db.query(FinancialGoal)
+                .filter(
+                    FinancialGoal.user_id == user_id,
+                    FinancialGoal.status == status,
+                )
+                .order_by(FinancialGoal.created_at.desc())
+                .offset(offset)
+                .limit(limit)
+                .all()
+            )
             return [self._row_to_goal({c.name: getattr(r, c.name) for c in r.__table__.columns}) for r in rows]
         except Exception as e:
             logger.error(f"[GoalTracker] Erro ao listar metas: {e}")
