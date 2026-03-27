@@ -61,8 +61,12 @@ class UpdateProgressRequest(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+# Todos os endpoints usam `def` (síncrono) porque GoalTracker executa I/O
+# síncrono via psycopg2. FastAPI roda `def` endpoints em thread pool
+# automaticamente, evitando bloqueio do event loop do uvicorn.
+
 @router.post("/{user_id}", status_code=201)
-async def create_goal(user_id: str, body: CreateGoalRequest, current_user: str = Depends(get_current_user)):
+def create_goal(user_id: str, body: CreateGoalRequest, current_user: str = Depends(get_current_user)):
     """
     MX.2 — Cria uma nova meta financeira para o usuário.
 
@@ -88,22 +92,28 @@ async def create_goal(user_id: str, body: CreateGoalRequest, current_user: str =
 
 
 @router.get("/{user_id}")
-async def list_goals(
+def list_goals(
     user_id: str,
     status: str = Query(default="ACTIVE", description="Status: ACTIVE | COMPLETED | ABANDONED"),
+    limit: int = Query(default=50, ge=1, le=200, description="Máximo de metas retornadas"),
+    offset: int = Query(default=0, ge=0, description="Número de metas a pular (paginação)"),
     current_user: str = Depends(get_current_user),
 ):
     """
     MX.2 — Lista as metas do usuário filtradas por status, com projeções.
+
+    Suporta paginação via `limit` e `offset`.
     """
     if current_user != user_id:
         raise HTTPException(status_code=403, detail="Acesso negado.")
     from app.goals.tracker import GoalTracker
     tracker = GoalTracker()
-    goals = tracker.list_goals(user_id=user_id, status=status)
+    goals = tracker.list_goals(user_id=user_id, status=status, limit=limit, offset=offset)
     return {
         "user_id": user_id,
         "status_filter": status,
+        "limit": limit,
+        "offset": offset,
         "total": len(goals),
         "goals": [
             {
@@ -116,7 +126,7 @@ async def list_goals(
 
 
 @router.get("/{user_id}/{goal_id}")
-async def get_goal(user_id: str, goal_id: str, _: str = Depends(get_current_user)):
+def get_goal(user_id: str, goal_id: str, _: str = Depends(get_current_user)):
     """
     MX.2 — Detalhe de uma meta com projeção completa.
     """
@@ -137,7 +147,7 @@ async def get_goal(user_id: str, goal_id: str, _: str = Depends(get_current_user
 
 
 @router.patch("/{user_id}/{goal_id}/progress")
-async def update_progress(user_id: str, goal_id: str, body: UpdateProgressRequest, _: str = Depends(get_current_user)):
+def update_progress(user_id: str, goal_id: str, body: UpdateProgressRequest, _: str = Depends(get_current_user)):
     """
     MX.2 — Atualiza o progresso de uma meta (adiciona ao current_amount).
 
@@ -167,7 +177,7 @@ async def update_progress(user_id: str, goal_id: str, body: UpdateProgressReques
 
 
 @router.delete("/{user_id}/{goal_id}", status_code=200)
-async def abandon_goal(user_id: str, goal_id: str, _: str = Depends(get_current_user)):
+def abandon_goal(user_id: str, goal_id: str, _: str = Depends(get_current_user)):
     """
     MX.2 — Abandona uma meta (marca como ABANDONED).
     """

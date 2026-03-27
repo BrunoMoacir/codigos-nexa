@@ -231,8 +231,13 @@ def save_transactions_clean(
             
         # Preparar statement de UPSERT do Postgres via sqlalchemy.dialects.postgresql
         stmt = insert(Transaction).values(records)
+        # stmt.excluded[col] é a referência correta à coluna na cláusula EXCLUDED.
+        # Usamos cols_to_save (já calculado acima) para garantir que só
+        # referenciamos colunas que existem no INSERT.
         update_dict = {
-            c.name: c for c in stmt.excluded if c.name not in ["transaction_id"]
+            col: stmt.excluded[col]
+            for col in cols_to_save
+            if col != "transaction_id"
         }
         
         upsert_stmt = stmt.on_conflict_do_update(

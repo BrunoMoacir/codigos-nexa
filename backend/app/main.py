@@ -11,6 +11,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.api.v1.router import router as api_router
 from app.api.v1.routes.dashboard import router as dashboard_router
+from app.core.config import settings
 from app.core.database import Base, engine
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -52,10 +53,11 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS
+# CORS — origens controladas por ALLOWED_ORIGINS no .env
+# Em produção defina: ALLOWED_ORIGINS=["https://app.nexa.com"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

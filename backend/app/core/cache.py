@@ -69,12 +69,17 @@ def invalidate_user_cache(user_id: str) -> int:
     return 0
 
 
+# Versão do schema de cache. Incrementar aqui invalida todas as entradas
+# antigas automaticamente, sem precisar esperar o TTL expirar.
+_CACHE_VERSION = "v1"
+
+
 def _build_key(prefix: str, kwargs: dict) -> str:
     parts = sorted(
         f"{k}={v}" for k, v in kwargs.items()
         if k not in _SKIP_KWARGS and v is not None
     )
-    return f"nexa:cache:{prefix}:" + ":".join(parts)
+    return f"nexa:cache:{_CACHE_VERSION}:{prefix}:" + ":".join(parts)
 
 
 def cache_response(prefix: str, ttl: int = 900):

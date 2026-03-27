@@ -282,16 +282,29 @@ class GoalTracker:
             suggestion=suggestion,
         )
 
-    def list_goals(self, user_id: str, status: str = "ACTIVE") -> list[Goal]:
-        """Lista metas do usuário filtradas por status."""
+    def list_goals(
+        self,
+        user_id: str,
+        status: str = "ACTIVE",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Goal]:
+        """Lista metas do usuário filtradas por status, com paginação."""
         from app.core.database import SessionLocal
         from app.goals.models import FinancialGoal
         db = SessionLocal()
         try:
-            rows = db.query(FinancialGoal).filter(
-                FinancialGoal.user_id == user_id,
-                FinancialGoal.status == status,
-            ).order_by(FinancialGoal.created_at.desc()).all()
+            rows = (
+                db.query(FinancialGoal)
+                .filter(
+                    FinancialGoal.user_id == user_id,
+                    FinancialGoal.status == status,
+                )
+                .order_by(FinancialGoal.created_at.desc())
+                .offset(offset)
+                .limit(limit)
+                .all()
+            )
             return [self._row_to_goal({c.name: getattr(r, c.name) for c in r.__table__.columns}) for r in rows]
         except Exception as e:
             logger.error(f"[GoalTracker] Erro ao listar metas: {e}")
@@ -354,11 +367,11 @@ class GoalTracker:
         db = SessionLocal()
         try:
             db.query(FinancialGoal).filter(FinancialGoal.goal_id == goal.goal_id).update({
-                "current_amount": goal.current_amount,
-                "monthly_contribution_needed": goal.monthly_contribution_needed,
-                "monthly_contribution_actual": goal.monthly_contribution_actual,
-                "status": goal.status,
-                "updated_at": goal.updated_at,
+                FinancialGoal.current_amount: goal.current_amount,
+                FinancialGoal.monthly_contribution_needed: goal.monthly_contribution_needed,
+                FinancialGoal.monthly_contribution_actual: goal.monthly_contribution_actual,
+                FinancialGoal.status: goal.status,
+                FinancialGoal.updated_at: goal.updated_at,
             })
             db.commit()
         finally:

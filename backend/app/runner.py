@@ -2,6 +2,12 @@
 app/runner.py
 
 Runner financeiro da Nexa — versão integrada com Pluggy real e Mock.
+Use `get_runner(mode)` em vez de `NexaRunner(mode)` diretamente para
+reaproveitar a instância entre chamadas e evitar reinicializar os 9
+componentes do pipeline a cada request.
+
+    from app.runner import get_runner
+    result = get_runner().run_from_db(user_id=user_id)
 
 Este runner orquestra todo o pipeline financeiro:
 
@@ -473,3 +479,23 @@ class NexaRunner:
                 "status": "error",
                 "error": str(e),
             }
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Singleton helpers — evita reinicializar 9 componentes por chamada
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_runners: dict[str, NexaRunner] = {}
+
+
+def get_runner(mode: str = "dev") -> NexaRunner:
+    """
+    Retorna uma instância cacheada de NexaRunner para o modo solicitado.
+
+    Substitui `NexaRunner(mode=...)` em chamadas recorrentes (ex: tools do agente)
+    para evitar reinicializar os 9 componentes do pipeline a cada request.
+    Thread-safe para o caso de uso single-process do uvicorn.
+    """
+    if mode not in _runners:
+        _runners[mode] = NexaRunner(mode=mode)
+    return _runners[mode]

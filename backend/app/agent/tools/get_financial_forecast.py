@@ -34,17 +34,19 @@ def get_financial_forecast(
     """
     logger.info(f"[Tool] get_financial_forecast para {user_id}")
     try:
-        from app.runner import NexaRunner
+        from app.runner import get_runner
 
-        runner = NexaRunner(mode="dev")
-
-        # Tentar dados REAIS do DuckDB primeiro
-        result = runner.run_from_db(user_id=user_id, horizon_days=horizon_days)
+        # Busca dados REAIS do banco para este usuário
+        result = get_runner().run_from_db(user_id=user_id, horizon_days=horizon_days)
 
         if result is None:
-            # Fallback para dados mock se não houver dados no banco
-            logger.warning(f"[Tool] Sem dados no DuckDB para user={user_id}, usando mock")
-            result = runner.run(horizon_days=horizon_days)
+            # Sem dados = usuário não conectou banco ainda. NÃO usar mock.
+            logger.warning(f"[Tool] Sem dados no banco para user={user_id}")
+            return (
+                "Ainda não há transações conectadas para este usuário. "
+                "Para ver o diagnóstico financeiro real, conecte uma conta bancária via Open Finance "
+                "na seção 'Conectar conta' do aplicativo."
+            )
 
         if not result or result.get("status") != "success":
             return (

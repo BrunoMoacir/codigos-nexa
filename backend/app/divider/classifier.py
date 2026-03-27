@@ -74,6 +74,10 @@ class PFPJClassifier:
         """
         Classifica batch de transações PF/PJ e adiciona subcategoria para PJ.
 
+        Usa expressões Polars nativas (vetorizado) para a classificação principal,
+        evitando loop Python por linha. O ML é aplicado antes se o modelo estiver
+        disponível e a confiança for alta.
+
         Args:
             transactions_df: DataFrame com transações (depois do ETL Ingestor)
 
@@ -83,14 +87,61 @@ class PFPJClassifier:
         """
         logger.info(f"Classificando {len(transactions_df)} transacoes PF/PJ...")
 
-        rows = list(transactions_df.iter_rows(named=True))
-        classifications = [self._classify_single(row) for row in rows]
+        fb = self.fallback_classifier
 
-        # Subcategoria PJ: só classifica quem foi rotulado PJ
+        # Se modelo ML disponível, classifica linha por linha (caminho existente).
+        # Em produção sem modelo treinado, self.model é sempre None.
+        if self.model is not None:
+            rows = list(transactions_df.iter_rows(named=True))
+            classifications = [self._classify_single(row) for row in rows]
+        else:
+            # ── Classificação vetorizada via Polars expressions ────────────────
+            import re
+
+            # Normaliza colunas de texto para lowercase uma única vez
+            desc_col = pl.col("description").fill_null("").str.to_lowercase()
+            merch_col = (
+                pl.col("merchant").fill_null("").str.to_lowercase()
+                if "merchant" in transactions_df.columns
+                else pl.lit("")
+            )
+            amount_abs = pl.col("amount").abs()
+
+            # Padrões regex: une keywords com "|" para uma única passagem por linha
+            pj_kw  = "|".join(re.escape(k) for k in fb.pj_keywords)
+            pf_kw  = "|".join(re.escape(k) for k in fb.pf_keywords)
+            pj_mch = "|".join(re.escape(m) for m in ["microsoft", "fornecedor", "imobiliaria", "cemig", "contador"])
+            pf_mch = "|".join(re.escape(m) for m in ["uber", "netflix", "starbucks", "cinepolis", "spotify"])
+
+            label_expr = (
+                pl.when(pl.col("category").fill_null("").is_in(fb.pj_categories))
+                .then(pl.lit("PJ"))
+                .when(desc_col.str.contains(pj_kw))
+                .then(pl.lit("PJ"))
+                .when(amount_abs > 2000)
+                .then(pl.lit("PJ"))
+                .when(desc_col.str.contains(pf_kw))
+                .then(pl.lit("PF"))
+                .when(merch_col.str.contains(pj_mch))
+                .then(pl.lit("PJ"))
+                .when(merch_col.str.contains(pf_mch))
+                .then(pl.lit("PF"))
+                .otherwise(pl.lit("UNCERTAIN"))
+            )
+
+            classifications = (
+                transactions_df
+                .with_columns(label_expr.alias("pf_pj_label"))
+                ["pf_pj_label"]
+                .to_list()
+            )
+
+        # Subcategoria PJ: map_elements apenas nas linhas rotuladas como PJ
         pj_classifier = get_pj_subcategory_classifier()
+        rows_for_subcat = list(transactions_df.iter_rows(named=True))
         subcategories = [
             pj_classifier.classify(row) if label == "PJ" else None
-            for row, label in zip(rows, classifications)
+            for row, label in zip(rows_for_subcat, classifications)
         ]
 
         result_df = transactions_df.with_columns([

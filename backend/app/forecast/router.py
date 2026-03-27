@@ -62,10 +62,6 @@ from app.forecast.etl.profiles import UserProfileAnalyzer
 router = APIRouter(prefix="/forecast", tags=["Forecast"])
 logger = logging.getLogger(__name__)
 
-# TODO: Conectar com banco de dados para buscar transações por user_id
-# Por enquanto, vamos usar dados mock para testes
-
-
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # HELPER: Buscar transações por usuário
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
