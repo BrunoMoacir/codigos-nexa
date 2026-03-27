@@ -434,7 +434,7 @@ def test_api_returns_200_or_graceful():
 
 
 def test_api_response_structure():
-    resp = _client.get("/notifications/user_xyz")
+    resp = _client.get("/notifications/test_user")
     assert resp.status_code == 200
     data = resp.json()
     assert "by_priority" in data
@@ -447,7 +447,7 @@ def test_api_include_info_false_filters():
     """
     include_info=false deve retornar apenas CRITICAL e WARNING.
     """
-    resp = _client.get("/notifications/user_xyz?include_info=false")
+    resp = _client.get("/notifications/test_user?include_info=false")
     assert resp.status_code == 200
     data = resp.json()
     for n in data["notifications"]:
