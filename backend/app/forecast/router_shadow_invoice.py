@@ -157,7 +157,7 @@ async def get_shadow_invoices(
         runner_result = get_runner(mode).run(horizon_days=days_ahead)
         
         if not runner_result:
-            logger.warning(f"⚠️ Nenhuma transação encontrada para user_id={user_id}")
+            logger.warning("⚠️ Nenhuma transação encontrada para user_id=%s", user_id)
             # Retornar lista vazia (não é erro, apenas nenhum padrão detectado)
             return ShadowInvoiceListResponse(
                 invoices=[],

@@ -62,7 +62,7 @@ def get_subscriptions(
     try:
         transactions_df = get_transactions_for_user(user_id)
     except Exception as e:
-        logger.error(f"[Subscriptions] Erro ao buscar transações: {e}", exc_info=True)
+        logger.error("[Subscriptions] Erro ao buscar transações: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao acessar dados do usuário.")
 
 
@@ -96,7 +96,7 @@ def get_subscriptions(
     try:
         report = detect_subscriptions(transactions_df=transactions_df, user_id=user_id)
     except Exception as e:
-        logger.error(f"[Subscriptions] Erro na detecção: {e}", exc_info=True)
+        logger.error("[Subscriptions] Erro na detecção: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao processar assinaturas.")
 
     return report.to_dict()

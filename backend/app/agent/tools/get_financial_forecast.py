@@ -32,7 +32,7 @@ def get_financial_forecast(
         monthly_income: Renda mensal declarada (opcional — melhora a análise).
         horizon_days: Horizonte de projeção em dias (padrão: 30).
     """
-    logger.info(f"[Tool] get_financial_forecast para {user_id}")
+    logger.info("[Tool] get_financial_forecast para %s", user_id)
     try:
         from app.runner import get_runner
 
@@ -41,7 +41,7 @@ def get_financial_forecast(
 
         if result is None:
             # Sem dados = usuário não conectou banco ainda. NÃO usar mock.
-            logger.warning(f"[Tool] Sem dados no banco para user={user_id}")
+            logger.warning("[Tool] Sem dados no banco para user=%s", user_id)
             return (
                 "Ainda não há transações conectadas para este usuário. "
                 "Para ver o diagnóstico financeiro real, conecte uma conta bancária via Open Finance "
@@ -126,7 +126,7 @@ def get_financial_forecast(
         )
 
     except Exception as e:
-        logger.error(f"[Tool] get_financial_forecast erro: {e}", exc_info=True)
+        logger.error("[Tool] get_financial_forecast erro: %s", e, exc_info=True)
         return (
             "Não consegui acessar os dados financeiros agora. "
             "Tente novamente ou informe sua renda e gastos mensais para uma análise manual."

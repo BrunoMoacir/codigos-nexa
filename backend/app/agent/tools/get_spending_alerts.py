@@ -37,7 +37,7 @@ def get_spending_alerts(
         user_id: ID do usuário (obrigatório).
         monthly_income: Renda mensal (opcional — melhora detecção de anomalias).
     """
-    logger.info(f"[Tool] get_spending_alerts para {user_id}")
+    logger.info("[Tool] get_spending_alerts para %s", user_id)
     try:
         from app.notifications.notifier import ProactiveNotifier, NotificationContext
         import polars as pl
@@ -71,7 +71,7 @@ def get_spending_alerts(
 
                 total_alerts += len(alerts)
         except Exception as e:
-            logger.debug(f"[Tool] Runner alerts erro (ignorado): {e}")
+            logger.debug("[Tool] Runner alerts erro (ignorado): %s", e)
 
         # 2. Notificações proativas (MX.3)
         try:
@@ -88,7 +88,7 @@ def get_spending_alerts(
                 lines.append("")
                 total_alerts += len(notifications)
         except Exception as e:
-            logger.debug(f"[Tool] Notificações erro (ignorado): {e}")
+            logger.debug("[Tool] Notificações erro (ignorado): %s", e)
 
         if total_alerts == 0:
             lines.append("✅ Nenhum alerta crítico no momento. Suas finanças parecem estáveis.")
@@ -98,5 +98,5 @@ def get_spending_alerts(
         return "\n".join(lines)
 
     except Exception as e:
-        logger.error(f"[Tool] get_spending_alerts erro: {e}", exc_info=True)
+        logger.error("[Tool] get_spending_alerts erro: %s", e, exc_info=True)
         return "Não foi possível verificar os alertas no momento. Tente novamente em instantes."

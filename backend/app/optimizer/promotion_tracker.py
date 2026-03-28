@@ -232,13 +232,13 @@ class PromotionTracker:
                     source=item.get("source", "manual"),
                     last_verified=item.get("last_verified", ""),
                 ))
-            logger.info(f"[PromotionTracker] {len(promos)} promoções carregadas de {self._data_path}")
+            logger.info("[PromotionTracker] %s promoções carregadas de %s", len(promos), self._data_path)
             return promos
         except FileNotFoundError:
-            logger.warning(f"[PromotionTracker] Arquivo não encontrado: {self._data_path}")
+            logger.warning("[PromotionTracker] Arquivo não encontrado: %s", self._data_path)
             return []
         except Exception as e:
-            logger.error(f"[PromotionTracker] Erro ao carregar promoções: {e}", exc_info=True)
+            logger.error("[PromotionTracker] Erro ao carregar promoções: %s", e, exc_info=True)
             return []
 
     @staticmethod

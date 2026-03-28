@@ -152,7 +152,7 @@ def get_health_score_history_endpoint(
 
     if transactions_df.is_empty():
         data_quality = "NO_TRANSACTIONS"
-        logger.warning(f"[health-score] Sem transações para user={user_id}")
+        logger.warning("[health-score] Sem transações para user=%s", user_id)
     else:
         # ── 2. Calcular score atual via UserProfileAnalyzer ─────────
         try:
@@ -163,7 +163,7 @@ def get_health_score_history_endpoint(
                 profiler = IncomeProfiler()
                 income_profile = profiler.build(transactions_df)
             except Exception as ip_err:
-                logger.debug(f"[health-score] IncomeProfiler indisponível: {ip_err}")
+                logger.debug("[health-score] IncomeProfiler indisponível: %s", ip_err)
 
             analyzer = UserProfileAnalyzer()
             profile = analyzer.analyze(transactions_df, income_profile=income_profile)
@@ -176,7 +176,7 @@ def get_health_score_history_endpoint(
                 data_quality = "INSUFFICIENT_DATA"
 
         except Exception as e:
-            logger.error(f"[health-score] Erro ao calcular profile: {e}", exc_info=True)
+            logger.error("[health-score] Erro ao calcular profile: %s", e, exc_info=True)
             raise HTTPException(status_code=500, detail="Erro ao calcular score financeiro.")
 
         # ── 3. Persistir snapshot do mês corrente ──────────────────
@@ -188,7 +188,7 @@ def get_health_score_history_endpoint(
             profile_type=current_profile_type,
         )
         if not saved:
-            logger.warning(f"[health-score] Snapshot não persistido para user={user_id}")
+            logger.warning("[health-score] Snapshot não persistido para user=%s", user_id)
 
     # ── 4. Ler histórico ────────────────────────────────────────────
     raw_history = get_health_score_history(db=db, user_id=user_id, months=months)

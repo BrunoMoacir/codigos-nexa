@@ -191,7 +191,7 @@ def _build_llm():
             # Se LLM_MODEL ainda está no default OpenAI, usa claude-sonnet-4-6.
             # Para outro modelo Claude, defina LLM_MODEL=claude-opus-4-6 etc.
             model = settings.LLM_MODEL if not settings.LLM_MODEL.startswith("gpt-") else "claude-sonnet-4-6"
-            logger.info(f"[Agent] Usando Claude: {model}")
+            logger.info("[Agent] Usando Claude: %s", model)
             return ChatAnthropic(
                 model=model,
                 temperature=0.0,

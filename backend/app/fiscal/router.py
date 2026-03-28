@@ -71,7 +71,7 @@ async def get_fiscal_report(
     try:
         report = _service.generate(user_id=user_id, year=year, month=month)
     except Exception as e:
-        logger.error(f"Erro ao gerar relatorio fiscal user={user_id}: {e}")
+        logger.error("Erro ao gerar relatorio fiscal user=%s: %s", user_id, e)
         raise HTTPException(status_code=500, detail="Erro ao gerar relatorio fiscal.")
 
     return FiscalReportResponse(
@@ -136,7 +136,7 @@ async def get_mixed_use_report(
     try:
         report = _mixed_use_detector.detect(user_id=user_id, year=year, month=month)
     except Exception as e:
-        logger.error(f"Erro ao detectar uso misto user={user_id}: {e}")
+        logger.error("Erro ao detectar uso misto user=%s: %s", user_id, e)
         raise HTTPException(status_code=500, detail="Erro ao detectar uso misto.")
 
     return MixedUseReportResponse(

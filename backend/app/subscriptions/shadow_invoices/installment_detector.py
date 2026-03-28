@@ -90,7 +90,7 @@ class InstallmentDetector(ShadowInvoiceDetector):
         # Validar colunas
         required = {"description", "amount", "transaction_date"}
         if not required.issubset(df.columns):
-            self.logger.error(f"Colunas obrigatórias faltando: {required - set(df.columns)}")
+            self.logger.error("Colunas obrigatórias faltando: %s", required - set(df.columns))
             return self._empty_result()
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -182,7 +182,7 @@ class InstallmentDetector(ShadowInvoiceDetector):
             pl.lit(0.9).alias("confidence")  # Alta confiança (keyword presente)
         ])
         
-        self.logger.info(f"Parcelamentos detectados (keywords): {result.height}")
+        self.logger.info("Parcelamentos detectados (keywords): %s", result.height)
         
         return result
     
@@ -231,7 +231,7 @@ class InstallmentDetector(ShadowInvoiceDetector):
             pl.lit(0.7).alias("confidence")  # Confiança menor (sem keyword)
         ])
         
-        self.logger.info(f"Parcelamentos detectados (padrão): {result.height}")
+        self.logger.info("Parcelamentos detectados (padrão): %s", result.height)
         
         return result
     

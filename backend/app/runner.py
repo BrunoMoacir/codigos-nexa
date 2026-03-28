@@ -216,7 +216,7 @@ class NexaRunner:
             logger.info("📡 [1/8] Buscando transações da Pluggy...")
             item = self.pluggy.create_sandbox_item()
             item_id = item["id"]
-            logger.info(f"   ✅ Sandbox item criado: {item_id}")
+            logger.info("   ✅ Sandbox item criado: %s", item_id)
 
             accounts_resp = self.pluggy.get_accounts(item_id)
             accounts = accounts_resp.get("results", [])
@@ -229,7 +229,7 @@ class NexaRunner:
             logger.info("   ✅ Conta obtida: %s", account_id)
 
             raw_transactions = self.pluggy.get_transactions(account_id)
-            logger.info(f"   ✅ {len(raw_transactions['results'])} transações brutas obtidas")
+            logger.info("   ✅ %s transações brutas obtidas", len(raw_transactions['results']))
 
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 2️⃣ VALIDAÇÃO: Converter para TransactionWebhook (tolerante)
@@ -278,7 +278,7 @@ class NexaRunner:
 
             logger.info("🏷️  [4/9] Executando Classifier (categorização)...")
             transactions_categorized = self.classifier.predict(transactions_clean)
-            logger.info(f"   ✅ Classifier completo")
+            logger.info("   ✅ Classifier completo")
 
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 4.5️⃣ PF/PJ CLASSIFIER: Classifica PF vs PJ
@@ -286,7 +286,7 @@ class NexaRunner:
 
             logger.info("👥 [5/9] Executando PF/PJ Classifier...")
             transactions_pf_pj = self.pf_pj_classifier.classify_batch(transactions_categorized)
-            logger.info(f"   ✅ PF/PJ Classifier completo")
+            logger.info("   ✅ PF/PJ Classifier completo")
 
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # ETAPAS 5–9: Analíticas (extraídas para _run_analytics_stages)
@@ -331,7 +331,7 @@ class NexaRunner:
             }
 
         except Exception as e:
-            logger.error(f"❌ Erro no pipeline: {e}", exc_info=True)
+            logger.error("❌ Erro no pipeline: %s", e, exc_info=True)
             return {
                 "status": "error",
                 "error": str(e),

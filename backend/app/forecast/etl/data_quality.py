@@ -368,7 +368,7 @@ class DataQualityValidator:
         
         issues.extend(anomaly_issues)
         
-        self.logger.debug(f"Anomalias detectadas: {anomaly_count}")
+        self.logger.debug("Anomalias detectadas: %s", anomaly_count)
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # ANÁLISE 3: COMPLETUDE
@@ -381,7 +381,7 @@ class DataQualityValidator:
                 f"Completude baixa: {completeness_score:.1%} dos campos obrigatórios"
             )
         
-        self.logger.debug(f"Completude: {completeness_score:.1%}")
+        self.logger.debug("Completude: %s", completeness_score:.1%)
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # ANÁLISE 4: CONSISTÊNCIA DE SALDO
@@ -394,7 +394,7 @@ class DataQualityValidator:
                 f"Consistência de saldo baixa: {balance_consistency:.1%}"
             )
         
-        self.logger.debug(f"Consistência de saldo: {balance_consistency:.1%}")
+        self.logger.debug("Consistência de saldo: %s", balance_consistency:.1%)
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # CÁLCULO: CONFIDENCE GLOBAL

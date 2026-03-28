@@ -156,7 +156,7 @@ class UserProfileAnalyzer:
             self.logger.error("Coluna 'amount' não encontrada no DataFrame")
             return self._get_empty_profile()
 
-        self.logger.info(f"Analisando perfil com {df.height} transações")
+        self.logger.info("Analisando perfil com %s transações", df.height)
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # CALCULAR MÉTRICAS
@@ -166,8 +166,8 @@ class UserProfileAnalyzer:
         total_income = self._calculate_income(df)
         total_expenses = self._calculate_expenses(df)
 
-        self.logger.debug(f"Receita bruta: R$ {total_income:.2f}")
-        self.logger.debug(f"Despesa: R$ {total_expenses:.2f}")
+        self.logger.debug("Receita bruta: R$ %.2f", total_income)
+        self.logger.debug("Despesa: R$ %.2f", total_expenses)
 
         # 2. Renda de referência para ratios (filtrada vs bruta)
         income_for_ratios, income_net_monthly = self._resolve_income_reference(

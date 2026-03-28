@@ -229,7 +229,7 @@ class TransactionClassifier:
                 )
                 self.mode = "RULES"
         
-        self.logger.info(f"TransactionClassifier inicializado: mode={self.mode}")
+        self.logger.info("TransactionClassifier inicializado: mode=%s", self.mode)
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # PUBLIC API
@@ -316,12 +316,12 @@ class TransactionClassifier:
             from catboost import CatBoostClassifier
             self.model = CatBoostClassifier()
             self.model.load_model(model_path)
-            self.logger.info(f"Modelo carregado: {model_path}")
+            self.logger.info("Modelo carregado: %s", model_path)
         except ImportError:
             self.logger.error("catboost não instalado. pip install catboost")
             raise
         except Exception as e:
-            self.logger.error(f"Erro ao carregar modelo: {e}")
+            self.logger.error("Erro ao carregar modelo: %s", e)
             raise
     
     def _predict_ml(self, df: pl.DataFrame) -> pl.DataFrame:

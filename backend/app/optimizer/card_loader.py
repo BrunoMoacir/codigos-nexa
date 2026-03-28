@@ -43,13 +43,13 @@ class CardKnowledgeBase:
             with open(self._path, "r", encoding="utf-8") as f:
                 raw = json.load(f)
             self._cards = [CardRecord(**item) for item in raw]
-            logger.info(f"CardKnowledgeBase: {len(self._cards)} cartões carregados de {self._path}")
+            logger.info("CardKnowledgeBase: %s cartões carregados de %s", len(self._cards), self._path)
             return self._cards
         except FileNotFoundError:
-            logger.error(f"Arquivo de cartões não encontrado: {self._path}")
+            logger.error("Arquivo de cartões não encontrado: %s", self._path)
             return []
         except Exception as e:
-            logger.error(f"Erro ao carregar cartões: {e}")
+            logger.error("Erro ao carregar cartões: %s", e)
             return []
 
     def get_by_id(self, card_id: str) -> Optional[CardRecord]:
@@ -83,7 +83,7 @@ class CardKnowledgeBase:
         for card in self._cards:
             # Excluir cartões que o usuário já tem
             if card.card_id in current_ids:
-                logger.debug(f"Excluindo {card.card_id}: usuário já possui")
+                logger.debug("Excluindo %s: usuário já possui", card.card_id)
                 continue
 
             # Hard filter: renda anual mínima
@@ -95,12 +95,12 @@ class CardKnowledgeBase:
 
             # Excluir secured_card se 15x renda já cobre convencionais
             if card.secured_card and exclude_secured and annual_income > 0:
-                logger.debug(f"Excluindo {card.card_id}: cartão garantido desnecessário")
+                logger.debug("Excluindo %s: cartão garantido desnecessário", card.card_id)
                 continue
 
             # Excluir consignado por padrão (sem vínculo empregatício detectado)
             if card.consigned and exclude_consigned:
-                logger.debug(f"Excluindo {card.card_id}: consignado excluído")
+                logger.debug("Excluindo %s: consignado excluído", card.card_id)
                 continue
 
             eligible.append(card)

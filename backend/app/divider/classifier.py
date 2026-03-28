@@ -47,7 +47,7 @@ class PFPJClassifier:
             DataFrame com colunas 'pf_pj_label' e 'pj_subcategory' adicionadas.
             'pj_subcategory' é None para transações PF/UNCERTAIN.
         """
-        logger.info(f"Classificando {len(transactions_df)} transacoes PF/PJ...")
+        logger.info("Classificando %s transacoes PF/PJ...", len(transactions_df))
 
         fb = self.fallback_classifier
 
@@ -107,7 +107,7 @@ class PFPJClassifier:
         pj_count = classifications.count("PJ")
         uncertain_count = classifications.count("UNCERTAIN")
 
-        logger.info(f"Classificacao completa: PF={pf_count}, PJ={pj_count}, UNCERTAIN={uncertain_count}")
+        logger.info("Classificacao completa: PF=%s, PJ=%s, UNCERTAIN=%s", pf_count, pj_count, uncertain_count)
 
         return result_df
 

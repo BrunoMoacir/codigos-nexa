@@ -30,7 +30,7 @@ def get_budget_advice(
         user_id: ID do usuário (obrigatório).
         monthly_income: Renda mensal do usuário em reais (obrigatório).
     """
-    logger.info(f"[Tool] get_budget_advice para {user_id}, renda=R${monthly_income:.0f}")
+    logger.info("[Tool] get_budget_advice para %s, renda=R$%.0f", user_id, monthly_income)
     try:
         from app.budget.budget_advisor import BudgetAdvisor
         from app.runner import get_runner
@@ -42,15 +42,15 @@ def get_budget_advice(
         result = get_runner().run_from_db(user_id=user_id, horizon_days=30)
         if result and result.get("status") == "success":
             transactions_df = result.get("transactions", {}).get("clean_df", pl.DataFrame())
-            logger.info(f"[Tool] Usando {len(transactions_df)} transações reais do DuckDB")
+            logger.info("[Tool] Usando %s transações reais do DuckDB", len(transactions_df))
 
             # Tentar pegar renda real do perfil se não foi informada
             income_profile = result.get("analysis", {}).get("income_profile")
             if not monthly_income and income_profile and income_profile.confidence >= 0.5:
                 monthly_income = income_profile.monthly_net_income
-                logger.info(f"[Tool] Renda estimada pelo IncomeProfiler: R$ {monthly_income:.0f}")
+                logger.info("[Tool] Renda estimada pelo IncomeProfiler: R$ %.0f", monthly_income)
         else:
-            logger.warning(f"[Tool] Sem dados no DuckDB para user={user_id}")
+            logger.warning("[Tool] Sem dados no DuckDB para user=%s", user_id)
 
         advisor = BudgetAdvisor()
         suggestion = advisor.suggest(
@@ -101,7 +101,7 @@ def get_budget_advice(
         return "\n".join(lines)
 
     except Exception as e:
-        logger.error(f"[Tool] get_budget_advice erro: {e}", exc_info=True)
+        logger.error("[Tool] get_budget_advice erro: %s", e, exc_info=True)
         essenciais = monthly_income * 0.50
         desejos    = monthly_income * 0.30
         poupanca   = monthly_income * 0.20

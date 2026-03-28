@@ -42,7 +42,7 @@ def override_transaction_context(
     user_id: str = Depends(require_owner),
     db: Session = Depends(get_db),
 ):
-    logger.info(f"Recebido override user={user_id} txn={request.transaction_id} -> {request.corrected_context}")
+    logger.info("Recebido override user=%s txn=%s -> %s", user_id, request.transaction_id, request.corrected_context)
     
     try:
         success = save_context_override(
@@ -93,7 +93,7 @@ def list_user_overrides(
         return results
         
     except Exception as e:
-        logger.error(f"Erro ao listar overrides: {e}")
+        logger.error("Erro ao listar overrides: %s", e)
         raise HTTPException(status_code=500, detail="Erro ao buscar histórico.")
 
 @router.get("/overrides/stats")
@@ -107,5 +107,5 @@ def get_stats(
     try:
         return get_override_stats(db, user_id)
     except Exception as e:
-        logger.error(f"Erro ao obter stats: {e}")
+        logger.error("Erro ao obter stats: %s", e)
         raise HTTPException(status_code=500, detail="Erro ao calcular estatísticas.")

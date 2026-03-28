@@ -97,7 +97,7 @@ async def receive_transaction_webhook(
         )
         
     except Exception as e:
-        logger.error(f"Erro ao extrair contexto do webhook: {e}")
+        logger.error("Erro ao extrair contexto do webhook: %s", e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Payload inválido: faltam campos obrigatórios (connector, item, results)"
@@ -173,7 +173,7 @@ async def receive_transaction_webhook(
             )
             
         except Exception as e:
-            logger.error(f"Erro no ETL Pipeline: {e}", exc_info=True)
+            logger.error("Erro no ETL Pipeline: %s", e, exc_info=True)
     
     if batch_result.should_alert:
         logger.log(

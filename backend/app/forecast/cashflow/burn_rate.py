@@ -246,7 +246,7 @@ class BurnRateAnalyzer:
         required = {"transaction_date", "amount", "category"}
         missing = required - set(transactions_df.columns)
         if missing:
-            self.logger.warning(f"Colunas faltando: {missing}. Retornando relatório vazio.")
+            self.logger.warning("Colunas faltando: %s. Retornando relatório vazio.", missing)
             return self._empty_report(current_date)
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

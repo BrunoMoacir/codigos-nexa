@@ -333,7 +333,7 @@ def parse_status_safe(v: Any) -> TransactionStatus:
             return aliases[v_clean]
         
         # Status desconhecido (mas não None): usar POSTED com warning
-        logger.warning(f"Status desconhecido '{v_clean}', usando POSTED como fallback")
+        logger.warning("Status desconhecido '%s', usando POSTED como fallback", v_clean)
         return TransactionStatus.POSTED
     
     raise ValueError(f"Tipo inválido para status: {type(v)}")

@@ -272,7 +272,7 @@ class SubscriptionDetector(ShadowInvoiceDetector):
             pl.lit(0.9).alias("confidence")
         ])
         
-        self.logger.info(f"Assinaturas detectadas: {result.height}")
+        self.logger.info("Assinaturas detectadas: %s", result.height)
         
         return result
     

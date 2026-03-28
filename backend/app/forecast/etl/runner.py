@@ -110,10 +110,10 @@ def run_etl_pipeline(
     
     skip_steps = skip_steps or []
     
-    logger.info(f"🚀 Iniciando ETL Pipeline")
-    logger.info(f"   User: {user_id}")
-    logger.info(f"   Account: {account_id or 'N/A'}")
-    logger.info(f"   Transações: {len(transactions_df)}")
+    logger.info("🚀 Iniciando ETL Pipeline")
+    logger.info("   User: %s", user_id)
+    logger.info("   Account: %s", account_id or 'N/A')
+    logger.info("   Transações: %s", len(transactions_df))
     
     df = transactions_df
     
@@ -134,7 +134,7 @@ def run_etl_pipeline(
             df = TransactionClassifier().predict(df)
             logger.info("   ✅ Step 2 concluído")
         except Exception as e:
-            logger.error(f"   ❌ Erro no Step 2: {e}", exc_info=True)
+            logger.error("   ❌ Erro no Step 2: %s", e, exc_info=True)
             logger.warning("   Continuando sem classificação de categorias")
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -147,7 +147,7 @@ def run_etl_pipeline(
             df = RecurringDetector().detect(df)
             logger.info("   ✅ Step 3 concluído")
         except Exception as e:
-            logger.error(f"   ❌ Erro no Step 3: {e}", exc_info=True)
+            logger.error("   ❌ Erro no Step 3: %s", e, exc_info=True)
             logger.warning("   Continuando sem detecção de recorrências")
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -172,10 +172,10 @@ def run_etl_pipeline(
             pj_count = len(df.filter(pl.col("pf_pj_label") == "PJ")) if "pf_pj_label" in df.columns else 0
             uncertain_count = len(df.filter(pl.col("pf_pj_label") == "UNCERTAIN")) if "pf_pj_label" in df.columns else 0
             
-            logger.info(f"   ✅ Step 4 concluído: PF={pf_count}, PJ={pj_count}, UNCERTAIN={uncertain_count}")
+            logger.info("   ✅ Step 4 concluído: PF=%s, PJ=%s, UNCERTAIN=%s", pf_count, pj_count, uncertain_count)
             
         except Exception as e:
-            logger.error(f"   ❌ Erro no Step 4: {e}", exc_info=True)
+            logger.error("   ❌ Erro no Step 4: %s", e, exc_info=True)
             logger.warning("   Continuando sem classificação PF/PJ")
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -190,7 +190,7 @@ def run_etl_pipeline(
             shadow_df = run_shadow_invoice_detection(df)
             
             if not shadow_df.is_empty():
-                logger.info(f"   ✅ Detectadas {len(shadow_df)} shadow invoices")
+                logger.info("   ✅ Detectadas %s shadow invoices", len(shadow_df))
                 
                 # TODO: Salvar shadow invoices em tabela separada
                 # await save_shadow_invoices(shadow_df, user_id)
@@ -198,7 +198,7 @@ def run_etl_pipeline(
                 logger.info("   ℹ️  Nenhuma shadow invoice detectada")
         
         except Exception as e:
-            logger.error(f"   ❌ Erro no Step 5: {e}", exc_info=True)
+            logger.error("   ❌ Erro no Step 5: %s", e, exc_info=True)
             logger.warning("   Continuando sem shadow invoices")
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -209,10 +209,12 @@ def run_etl_pipeline(
         logger.info("✅ Step 6: Data Quality Validation")
         try:
             quality_report = DataQualityValidator().validate(df)
-            logger.info(f"   ✅ Step 6 concluído: confidence={quality_report.overall_confidence:.2f}, "
-                        f"level={quality_report.quality_level}, anomalias={quality_report.anomaly_count}")
+            logger.info(
+                "   ✅ Step 6 concluído: confidence=%.2f, level=%s, anomalias=%s",
+                quality_report.overall_confidence, quality_report.quality_level, quality_report.anomaly_count
+            )
         except Exception as e:
-            logger.error(f"   ❌ Erro no Step 6: {e}", exc_info=True)
+            logger.error("   ❌ Erro no Step 6: %s", e, exc_info=True)
             logger.warning("   Continuando sem validação de qualidade")
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -226,15 +228,13 @@ def run_etl_pipeline(
             from app.forecast.etl.income_profiler import IncomeProfiler
             income_profile = IncomeProfiler().build(df)
             logger.info(
-                f"   ℹ️  IncomeProfiler: renda=R$ {income_profile.monthly_net_income:,.0f}/mês, "
-                f"padrão={income_profile.income_pattern.value}, "
-                f"confiança={income_profile.confidence:.0%}"
+                "   ℹ️  IncomeProfiler: renda=R$ %,.0f/mês, padrão=%s, confiança=%.0f%%",
+                income_profile.monthly_net_income, income_profile.income_pattern.value, income_profile.confidence * 100
             )
             profile = UserProfileAnalyzer().analyze(df, income_profile=income_profile)
-            logger.info(f"   ✅ Step 7 concluído: perfil={profile.profile_type}, "
-                        f"score={profile.score}")
+            logger.info("   ✅ Step 7 concluído: perfil=%s, score=%s", profile.profile_type, profile.score)
         except Exception as e:
-            logger.error(f"   ❌ Erro no Step 7: {e}", exc_info=True)
+            logger.error("   ❌ Erro no Step 7: %s", e, exc_info=True)
             logger.warning("   Continuando sem análise de perfil")
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -245,16 +245,16 @@ def run_etl_pipeline(
         logger.info("💾 Step 8: Save to Database")
         try:
             rows_saved = save_transactions_clean(db, df, user_id=user_id, account_id=account_id)
-            logger.info(f"   ✅ Step 8 concluído: {rows_saved} linhas salvas em transactions_clean")
+            logger.info("   ✅ Step 8 concluído: %s linhas salvas em transactions_clean", rows_saved)
         except Exception as e:
-            logger.error(f"   ❌ Erro no Step 8: {e}", exc_info=True)
+            logger.error("   ❌ Erro no Step 8: %s", e, exc_info=True)
             logger.warning("   Continuando sem persistência")
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # CONCLUSÃO
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
-    logger.info(f"✅ ETL Pipeline concluído: {len(df)} transações processadas")
+    logger.info("✅ ETL Pipeline concluído: %s transações processadas", len(df))
     
     return df
 
@@ -321,7 +321,7 @@ def apply_user_overrides(db: Session, df: pl.DataFrame, user_id: str) -> pl.Data
     #        ])
     # 
     # 4. LOG:
-    #    logger.info(f"   ✅ {len(override_map)} overrides aplicados")
+    #    logger.info("   ✅ %s overrides aplicados", len(override_map))
     # 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     """
@@ -379,10 +379,10 @@ def apply_user_overrides(db: Session, df: pl.DataFrame, user_id: str) -> pl.Data
         
         applied_count = len([tid for tid in override_map.keys() if tid in df['transaction_id'].to_list()])
         if applied_count > 0:
-            logger.info(f"   ✅ {applied_count} overrides aplicados com sucesso")
+            logger.info("   ✅ %s overrides aplicados com sucesso", applied_count)
             
     except Exception as e:
-        logger.error(f"   ❌ Erro ao aplicar overrides: {e}")
+        logger.error("   ❌ Erro ao aplicar overrides: %s", e)
         # Retorna DF original em caso de erro para não quebrar pipeline
         return df
 
@@ -429,7 +429,7 @@ async def process_transaction_webhook(webhook_data: dict):
     
     # Log rejection rate
     if batch.rejection_rate > 0.5:
-        logger.warning(f"Alto rejection rate: {batch.rejection_rate:.1%}")
+        logger.warning("Alto rejection rate: %s", batch.rejection_rate:.1%)
     
     if batch.total_valid == 0:
         raise HTTPException(

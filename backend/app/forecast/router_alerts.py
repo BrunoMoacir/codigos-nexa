@@ -277,7 +277,7 @@ async def get_alerts(user_id: str = Depends(require_owner)) -> AlertsResponse:
     """
     
     try:
-        logger.info(f"🚨 Gerando alertas para user_id={user_id}")
+        logger.info("🚨 Gerando alertas para user_id=%s", user_id)
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # STEP 1: BUSCAR DADOS (via NexaRunner para teste)
