@@ -102,7 +102,8 @@ class NexaRunner:
         # Inicializar componentes do pipeline
         self.ingestor = TransactionIngestor()
         self.classifier = TransactionClassifier(mode="RULES")
-        self.pf_pj_classifier = PFPJClassifier()  # Novo classificador PF/PJ
+        self.pf_pj_classifier = PFPJClassifier()
+        self.income_profiler = IncomeProfiler()
         self.recurring_detector = RecurringDetector()
         self.cashflow_projector = CashflowProjector()
         self.safe_calc = SafeToSpendCalculator()
@@ -200,7 +201,7 @@ class NexaRunner:
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
             logger.info("💵 [5.5/9] Executando IncomeProfiler...")
-            income_profile = IncomeProfiler().build(transactions_pf_pj)
+            income_profile = self.income_profiler.build(transactions_pf_pj)
             monthly_income_net = (
                 income_profile.monthly_net_income
                 if income_profile.confidence >= 0.5
@@ -385,7 +386,7 @@ class NexaRunner:
                 df = df.with_columns(pl.col("date").cast(pl.Date))
 
             # ── Income Profiler ──────────────────────────────────
-            income_profile = IncomeProfiler().build(df)
+            income_profile = self.income_profiler.build(df)
             monthly_income_net = (
                 income_profile.monthly_net_income
                 if income_profile.confidence >= 0.5
