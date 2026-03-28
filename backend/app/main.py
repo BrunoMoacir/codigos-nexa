@@ -2,6 +2,7 @@
 import logging
 import time
 import os
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -41,7 +42,18 @@ logger.info("LLM_PROVIDER: %s", os.getenv("LLM_PROVIDER", "not set"))
 
 
 def _create_db_tables() -> None:
-    """Garante que o schema mínimo existe no Postgres. Backoff exponencial."""
+    """
+    Garante que o schema mínimo existe no Postgres. Backoff exponencial.
+
+    ATENÇÃO: `create_all` é adequado apenas para desenvolvimento e ambientes
+    de teste. Em produção, use migrações Alembic (`alembic upgrade head`) para
+    controlar mudanças de schema de forma incremental e rastreável.
+    """
+    if os.getenv("APP_ENV") == "production":
+        logger.warning(
+            "create_all() em produção pode ser destrutivo em deploys com Alembic. "
+            "Certifique-se de que as migrações foram aplicadas antes de iniciar."
+        )
     last_err: Exception | None = None
     for attempt in range(20):
         try:
@@ -110,6 +122,33 @@ app.add_middleware(
 # Registra as rotas da API v1
 app.include_router(api_router, prefix="/api/v1")
 app.include_router(dashboard_router)
+
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    """
+    Middleware de logging estruturado com correlation ID.
+
+    Adiciona X-Request-ID a cada request (gerado ou propagado do cliente)
+    e loga método, path, status e tempo de resposta para cada chamada.
+    """
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    start = time.monotonic()
+
+    response = await call_next(request)
+
+    elapsed_ms = (time.monotonic() - start) * 1000
+    logger.info(
+        "%s %s → %d  (%.0fms) [req=%s]",
+        request.method,
+        request.url.path,
+        response.status_code,
+        elapsed_ms,
+        request_id,
+    )
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 
 @app.get("/health")
