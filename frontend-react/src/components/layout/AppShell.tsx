@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-type AppShellTab = 'home' | 'dashboard' | 'strategies' | 'connections' | 'chat';
+type AppShellTab = 'home' | 'dashboard' | 'goals' | 'strategies' | 'connections' | 'chat';
 
 interface AppShellProps {
   current: AppShellTab;
@@ -13,6 +13,7 @@ interface AppShellProps {
 const navItems: Array<{ key: AppShellTab; icon: string; label: string; path: string }> = [
   { key: 'home', icon: '⌂', label: 'Início', path: '/home' },
   { key: 'dashboard', icon: '↗', label: 'Meu Dinheiro', path: '/dashboard' },
+  { key: 'goals', icon: '🎯', label: 'Metas', path: '/goals' },
   { key: 'strategies', icon: '◈', label: 'Estratégias', path: '/strategies' },
   { key: 'connections', icon: '⌁', label: 'Conexões', path: '/connections' },
   { key: 'chat', icon: '◍', label: 'Chat IA', path: '/chat' },
