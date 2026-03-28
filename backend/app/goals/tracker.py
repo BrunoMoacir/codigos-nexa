@@ -134,8 +134,12 @@ class GoalTracker:
     """
     Gerencia o ciclo de vida das metas financeiras.
 
-    Não mantém estado — todas as operações são transacionais via DuckDB.
+    Recebe uma Session SQLAlchemy via injeção de dependência — não abre
+    sessões internamente.
     """
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
 
     # ─────────────────────────────────────────────────────────────────────
     # CRUD
@@ -292,12 +296,10 @@ class GoalTracker:
         offset: int = 0,
     ) -> list[Goal]:
         """Lista metas do usuário filtradas por status, com paginação."""
-        from app.core.database import SessionLocal
         from app.goals.models import FinancialGoal
-        db = SessionLocal()
         try:
             rows = (
-                db.query(FinancialGoal)
+                self.db.query(FinancialGoal)
                 .filter(
                     FinancialGoal.user_id == user_id,
                     FinancialGoal.status == status,
@@ -311,8 +313,6 @@ class GoalTracker:
         except Exception as e:
             logger.error(f"[GoalTracker] Erro ao listar metas: {e}")
             return []
-        finally:
-            db.close()
 
     def abandon_goal(self, goal_id: str) -> Goal:
         """Marca a meta como ABANDONED."""
@@ -345,52 +345,37 @@ class GoalTracker:
 
     def _persist(self, goal: Goal) -> None:
         """Insere a meta no PostgreSQL via SQLAlchemy."""
-        from app.core.database import SessionLocal
         from app.goals.models import FinancialGoal
-        db = SessionLocal()
-        try:
-            row = FinancialGoal(
-                goal_id=goal.goal_id, user_id=goal.user_id, name=goal.name,
-                goal_type=goal.goal_type, target_amount=goal.target_amount,
-                current_amount=goal.current_amount, target_date=goal.target_date,
-                monthly_contribution_needed=goal.monthly_contribution_needed,
-                monthly_contribution_actual=goal.monthly_contribution_actual,
-                status=goal.status, created_at=goal.created_at, updated_at=goal.updated_at,
-            )
-            db.add(row)
-            db.commit()
-        finally:
-            db.close()
+        row = FinancialGoal(
+            goal_id=goal.goal_id, user_id=goal.user_id, name=goal.name,
+            goal_type=goal.goal_type, target_amount=goal.target_amount,
+            current_amount=goal.current_amount, target_date=goal.target_date,
+            monthly_contribution_needed=goal.monthly_contribution_needed,
+            monthly_contribution_actual=goal.monthly_contribution_actual,
+            status=goal.status, created_at=goal.created_at, updated_at=goal.updated_at,
+        )
+        self.db.add(row)
+        self.db.commit()
 
     def _update(self, goal: Goal) -> None:
         """Atualiza a meta no PostgreSQL via SQLAlchemy."""
-        from app.core.database import SessionLocal
         from app.goals.models import FinancialGoal
-        db = SessionLocal()
-        try:
-            db.query(FinancialGoal).filter(FinancialGoal.goal_id == goal.goal_id).update({
-                FinancialGoal.current_amount: goal.current_amount,
-                FinancialGoal.monthly_contribution_needed: goal.monthly_contribution_needed,
-                FinancialGoal.monthly_contribution_actual: goal.monthly_contribution_actual,
-                FinancialGoal.status: goal.status,
-                FinancialGoal.updated_at: goal.updated_at,
-            })
-            db.commit()
-        finally:
-            db.close()
+        self.db.query(FinancialGoal).filter(FinancialGoal.goal_id == goal.goal_id).update({
+            FinancialGoal.current_amount: goal.current_amount,
+            FinancialGoal.monthly_contribution_needed: goal.monthly_contribution_needed,
+            FinancialGoal.monthly_contribution_actual: goal.monthly_contribution_actual,
+            FinancialGoal.status: goal.status,
+            FinancialGoal.updated_at: goal.updated_at,
+        })
+        self.db.commit()
 
     def _load(self, goal_id: str) -> Goal:
         """Carrega uma meta do PostgreSQL. Lança LookupError se não encontrada."""
-        from app.core.database import SessionLocal
         from app.goals.models import FinancialGoal
-        db = SessionLocal()
-        try:
-            row = db.query(FinancialGoal).filter(FinancialGoal.goal_id == goal_id).first()
-            if not row:
-                raise LookupError(f"Meta não encontrada: {goal_id}")
-            return self._row_to_goal({c.name: getattr(row, c.name) for c in row.__table__.columns})
-        finally:
-            db.close()
+        row = self.db.query(FinancialGoal).filter(FinancialGoal.goal_id == goal_id).first()
+        if not row:
+            raise LookupError(f"Meta não encontrada: {goal_id}")
+        return self._row_to_goal({c.name: getattr(row, c.name) for c in row.__table__.columns})
 
     @staticmethod
     def _row_to_goal(row: dict) -> Goal:
