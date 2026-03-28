@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, status, Depends
-from app.core.security import get_current_user
+from app.core.security import require_owner
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # IMPORTS: Shadow Invoice Processing
@@ -66,9 +66,8 @@ logger = logging.getLogger(__name__)
 
 @router.get("/{user_id}", response_model=ShadowInvoiceListResponse)
 async def get_shadow_invoices(
-    user_id: str,
+    user_id: str = Depends(require_owner),
     days_ahead: int = 60,
-    current_user: str = Depends(get_current_user),
 ) -> ShadowInvoiceListResponse:
     """
     Retorna obrigações financeiras futuras detectadas automaticamente.
@@ -133,11 +132,8 @@ async def get_shadow_invoices(
     - 404: Usuário não encontrado
     - 500: Erro ao processar dados
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
-
     try:
-        logger.info(f"🔍 Processando shadow invoices para user_id={user_id} (days_ahead={days_ahead})...")
+        logger.info("Processando shadow invoices para user=%s days_ahead=%d", user_id, days_ahead)
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # STEP 1: BUSCAR TRANSAÇÕES HISTÓRICAS
@@ -203,10 +199,10 @@ async def get_shadow_invoices(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Erro ao processar shadow invoices: {e}", exc_info=True)
+        logger.error("Erro ao processar shadow invoices para user=%s: %s", user_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao detectar obrigações futuras: {str(e)}"
+            detail="Erro ao detectar obrigações futuras. Tente novamente.",
         )
 
 
@@ -215,7 +211,7 @@ async def get_shadow_invoices(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.get("/{user_id}/summary")
-async def get_shadow_invoice_summary(user_id: str, current_user: str = Depends(get_current_user)):
+async def get_shadow_invoice_summary(user_id: str = Depends(require_owner)):
     """
     Retorna resumo das obrigações detectadas (apenas números chave).
     
@@ -233,11 +229,8 @@ async def get_shadow_invoice_summary(user_id: str, current_user: str = Depends(g
     ```
     """
     
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
-
     try:
-        logger.info(f"📊 Gerando summary para user_id={user_id}")
+        logger.info("Gerando summary de shadow invoices para user=%s", user_id)
         
         from app.runner import NexaRunner
         from app.core.config import settings
@@ -264,10 +257,10 @@ async def get_shadow_invoice_summary(user_id: str, current_user: str = Depends(g
         }
         
     except Exception as e:
-        logger.error(f"❌ Erro ao gerar summary: {e}", exc_info=True)
+        logger.error("Erro ao gerar summary de shadow invoices para user=%s: %s", user_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao gerar resumo: {str(e)}"
+            detail="Erro ao gerar resumo de obrigações. Tente novamente.",
         )
 
 

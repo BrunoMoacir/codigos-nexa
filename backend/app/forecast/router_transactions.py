@@ -122,10 +122,10 @@ async def receive_transaction_webhook(
         )
         
     except Exception as e:
-        logger.error(f"Erro ao validar batch: {e}")
+        logger.error("Erro ao validar batch de transações: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro na validação do batch: {str(e)}"
+            detail="Erro ao validar transações. Verifique o formato dos dados.",
         )
     
     # 3. PROCESSAR COM ETL (se houver transações válidas)

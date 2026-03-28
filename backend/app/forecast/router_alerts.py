@@ -36,7 +36,7 @@ from datetime import datetime, timezone, timedelta
 from typing import TYPE_CHECKING, List, Optional
 
 from fastapi import APIRouter, HTTPException, status, Depends
-from app.core.security import get_current_user
+from app.core.security import require_owner
 from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
@@ -223,7 +223,7 @@ def generate_high_commitment_alert(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.get("/{user_id}", response_model=AlertsResponse)
-async def get_alerts(user_id: str, current_user: str = Depends(get_current_user)) -> AlertsResponse:
+async def get_alerts(user_id: str = Depends(require_owner)) -> AlertsResponse:
     """
     Retorna alertas ativos para o usuário.
     
@@ -276,9 +276,6 @@ async def get_alerts(user_id: str, current_user: str = Depends(get_current_user)
     5. Consolidar alertas
     """
     
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
-
     try:
         logger.info(f"🚨 Gerando alertas para user_id={user_id}")
         
@@ -390,10 +387,10 @@ async def get_alerts(user_id: str, current_user: str = Depends(get_current_user)
         )
         
     except Exception as e:
-        logger.error(f"❌ Erro ao gerar alertas: {e}", exc_info=True)
+        logger.error("Erro ao gerar alertas: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao gerar alertas: {str(e)}"
+            detail="Erro ao gerar alertas financeiros. Tente novamente.",
         )
 
 
@@ -402,16 +399,13 @@ async def get_alerts(user_id: str, current_user: str = Depends(get_current_user)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.delete("/{user_id}/{alert_id}")
-async def dismiss_alert(user_id: str, alert_id: str, current_user: str = Depends(get_current_user)):
+async def dismiss_alert(alert_id: str, user_id: str = Depends(require_owner)):
     """
     Marca um alerta como lido/ignorado.
 
     TODO: Implementar persistência no Postgres
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
-
-    logger.info(f"🔇 Ignorando alerta {alert_id} do user {user_id}")
+    logger.info("Ignorando alerta %s do user %s", alert_id, user_id)
     
     return {
         "status": "dismissed",

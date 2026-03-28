@@ -154,8 +154,8 @@ def get_context_overrides(db: Session, user_id: str) -> List[Dict[str, Any]]:
             for o in overrides
         ]
     except Exception as e:
-        logger.error(f"Erro ao buscar overrides: {e}")
-        return []
+        logger.error("Erro ao buscar overrides para user=%s: %s", user_id, e, exc_info=True)
+        raise
 
 def save_context_override(
     db: Session,

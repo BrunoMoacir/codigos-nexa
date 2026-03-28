@@ -50,10 +50,11 @@ def _create_db_tables() -> None:
     controlar mudanças de schema de forma incremental e rastreável.
     """
     if os.getenv("APP_ENV") == "production":
-        logger.warning(
-            "create_all() em produção pode ser destrutivo em deploys com Alembic. "
-            "Certifique-se de que as migrações foram aplicadas antes de iniciar."
+        logger.info(
+            "APP_ENV=production: pulando create_all(). "
+            "Certifique-se de que as migrações Alembic foram aplicadas antes de iniciar."
         )
+        return
     last_err: Exception | None = None
     for attempt in range(20):
         try:

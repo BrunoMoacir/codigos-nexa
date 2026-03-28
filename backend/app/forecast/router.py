@@ -273,7 +273,7 @@ async def get_forecast(
         if txns_df is not None and not txns_df.is_empty() and "amount" in txns_df.columns:
             # Get expense transactions (negative amounts) in last 90 days
             expense_df = txns_df.filter(pl.col("amount") < 0)
-            if not expense_df.is_empty():
+            if not expense_df.is_empty() and "transaction_date" in expense_df.columns:
                 # Compute monthly average expenses from distinct months in data
                 expense_with_month = expense_df.with_columns(
                     pl.col("transaction_date").dt.truncate("1mo").alias("_month")

@@ -65,8 +65,8 @@ def override_transaction_context(
         )
         
     except Exception as e:
-        logger.error(f"Erro no endpoint override: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Erro no endpoint override user=%s txn=%s: %s", user_id, request.transaction_id, e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro ao salvar classificação.")
 
 @router.get("/overrides", response_model=List[OverrideItem])
 def list_user_overrides(

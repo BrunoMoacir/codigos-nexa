@@ -31,6 +31,7 @@ EXEMPLO:
 
 from __future__ import annotations
 
+import calendar
 import logging
 import math
 import uuid
@@ -501,11 +502,10 @@ def _months_until(target: date) -> int:
 
 def _add_months(d: date, months: int) -> date:
     """Adiciona `months` meses a uma data, ajustando último dia do mês."""
-    m = d.month + months - 1
-    y = d.year + m // 12
-    m = m % 12 + 1
-    day = min(d.day, [31, 29 if (y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)) else 28,
-                      31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1])
+    total = d.month + months - 1
+    y = d.year + total // 12
+    m = total % 12 + 1
+    day = min(d.day, calendar.monthrange(y, m)[1])
     return date(y, m, day)
 
 

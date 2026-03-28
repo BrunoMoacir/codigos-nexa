@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.orm import Session
 from app.core.security import get_current_user, require_owner
 from app.core.database import get_db
+from app.core.cache import invalidate_user_cache
 from pydantic import BaseModel, Field, model_validator
 
 logger = logging.getLogger(__name__)
@@ -89,9 +90,10 @@ def create_goal(
             current_amount=body.current_amount,
             target_date=body.target_date,
         )
+        invalidate_user_cache(user_id)
         return goal.to_dict()
     except Exception as e:
-        logger.error(f"[Goals] Erro ao criar meta: {e}", exc_info=True)
+        logger.error("[Goals] Erro ao criar meta para user=%s: %s", user_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao criar meta financeira.")
 
 
@@ -101,29 +103,32 @@ def list_goals(
     status: str = Query(default="ACTIVE", description="Status: ACTIVE | COMPLETED | ABANDONED"),
     limit: int = Query(default=50, ge=1, le=200, description="Máximo de metas retornadas"),
     offset: int = Query(default=0, ge=0, description="Número de metas a pular (paginação)"),
+    include_projections: bool = Query(default=True, description="Incluir projeções de conclusão por meta (false para respostas mais rápidas em listas grandes)"),
     db: Session = Depends(get_db),
 ):
     """
     MX.2 — Lista as metas do usuário filtradas por status, com projeções.
 
     Suporta paginação via `limit` e `offset`.
+    Use `include_projections=false` para omitir as projeções e reduzir o tempo de resposta.
     """
     from app.goals.tracker import GoalTracker
     tracker = GoalTracker(db)
     goals = tracker.list_goals(user_id=user_id, status=status, limit=limit, offset=offset)
+    if include_projections:
+        goals_payload = [
+            {**g.to_dict(), "projection": tracker.get_projection(g).to_dict()}
+            for g in goals
+        ]
+    else:
+        goals_payload = [g.to_dict() for g in goals]
     return {
         "user_id": user_id,
         "status_filter": status,
         "limit": limit,
         "offset": offset,
         "total": len(goals),
-        "goals": [
-            {
-                **g.to_dict(),
-                "projection": tracker.get_projection(g).to_dict(),
-            }
-            for g in goals
-        ],
+        "goals": goals_payload,
     }
 
 
@@ -180,6 +185,7 @@ def update_progress(
         )
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    invalidate_user_cache(user_id)
     return {
         **updated.to_dict(),
         "projection": tracker.get_projection(updated).to_dict(),
@@ -205,4 +211,5 @@ def abandon_goal(goal_id: str, user_id: str = Depends(require_owner), db: Sessio
         updated = tracker.abandon_goal(goal_id=goal_id)
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    invalidate_user_cache(user_id)
     return {"message": f"Meta '{updated.name}' abandonada.", "goal": updated.to_dict()}

@@ -11,7 +11,7 @@ router = APIRouter(prefix="/subscriptions", tags=["Subscriptions (M1.5)"])
 
 
 @router.get("/{user_id}")
-async def get_subscriptions(
+def get_subscriptions(
     user_id: str = Depends(require_owner),
     months: int = Query(
         default=6,

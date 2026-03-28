@@ -50,7 +50,7 @@ _notifier = ProactiveNotifier()
         "Retorna lista ordenada por prioridade (CRITICAL → WARNING → INFO)."
     ),
 )
-async def get_notifications(
+def get_notifications(
     user_id: str = Depends(require_owner),
     monthly_income: float = Query(
         default=0.0,

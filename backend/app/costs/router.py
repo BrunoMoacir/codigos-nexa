@@ -17,7 +17,7 @@ router = APIRouter(prefix="/costs", tags=["Custos Bancários (F5)"])
 
 
 @router.get("/raio-x/{user_id}", response_model=BankCostReport)
-async def get_bank_cost_report(
+def get_bank_cost_report(
     user_id: str = Depends(require_owner),
 ) -> BankCostReport:
     """
