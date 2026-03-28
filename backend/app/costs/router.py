@@ -8,7 +8,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.security import get_current_user
+from app.core.security import require_owner
 from app.costs.bank_fee_analyzer import BankFeeAnalyzer
 from app.costs.models import BankCostReport
 
@@ -18,8 +18,7 @@ router = APIRouter(prefix="/costs", tags=["Custos Bancários (F5)"])
 
 @router.get("/raio-x/{user_id}", response_model=BankCostReport)
 async def get_bank_cost_report(
-    user_id: str,
-    current_user: str = Depends(get_current_user),
+    user_id: str = Depends(require_owner),
 ) -> BankCostReport:
     """
     **F5 — Raio-X de Custos Bancários**
@@ -35,8 +34,6 @@ async def get_bank_cost_report(
     `ANUIDADE_CARTAO`, `TARIFA_MANUTENCAO`, `TED_DOC`, `SAQUE`,
     `JUROS_ROTATIVO`, `SEGURO_PRESTAMISTA`, `PACOTE_SERVICOS`, `IOF`
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
 
     logger.info("[API] F5 costs/raio-x | user=%s", user_id)
 

@@ -38,7 +38,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request, status, Depends
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from app.core.security import get_current_user, validate_user_id
+from app.core.security import require_owner
 from app.core.cache import cache_response
 
 limiter = Limiter(key_func=get_remote_address)
@@ -121,9 +121,8 @@ async def fetch_user_transactions(user_id: str, horizon_days: int = 30):
 @limiter.limit("10/minute")
 async def get_forecast(
     request: Request,
-    user_id: str,
+    user_id: str = Depends(require_owner),
     horizon_days: int = 30,
-    current_user: str = Depends(get_current_user),
 ) -> ForecastResponse:
     """
     Retorna previsão financeira consolidada do usuário.
@@ -177,10 +176,6 @@ async def get_forecast(
     - 500: Erro ao processar dados
     """
     
-    validate_user_id(user_id)
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
-
     try:
         logger.info("📊 Iniciando forecast para user_id=%s (horizon=%d)", user_id, horizon_days)
         

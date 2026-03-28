@@ -1,7 +1,7 @@
 # app/api/v1/routes/fiscal_report.py
 
 from fastapi import APIRouter, HTTPException, Query, Depends, status
-from app.core.security import get_current_user
+from app.core.security import require_owner
 from app.core.cache import cache_response
 from pydantic import BaseModel
 from typing import Optional
@@ -49,10 +49,9 @@ class FiscalReportResponse(BaseModel):
 @router.get("/{user_id}", response_model=FiscalReportResponse)
 @cache_response(prefix="fiscal", ttl=1800)  # 30 min
 async def get_fiscal_report(
-    user_id: str,
+    user_id: str = Depends(require_owner),
     year: int = Query(default=None, description="Ano do relatorio (padrao: ano atual)"),
     month: Optional[int] = Query(default=None, ge=1, le=12, description="Mes 1-12. Omitir para relatorio anual."),
-    current_user: str = Depends(get_current_user),
 ):
     """
     Relatorio fiscal automatizado das transacoes PJ do usuario.
@@ -65,8 +64,6 @@ async def get_fiscal_report(
     - **year**: Ano (padrao: ano atual)
     - **month**: Mes 1-12. Omitir para relatorio anual completo.
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
 
     if year is None:
         year = date.today().year
@@ -121,10 +118,9 @@ class MixedUseReportResponse(BaseModel):
 
 @router.get("/{user_id}/mixed-use", response_model=MixedUseReportResponse)
 async def get_mixed_use_report(
-    user_id: str,
+    user_id: str = Depends(require_owner),
     year: int = Query(default=None, description="Ano (padrao: ano atual)"),
     month: Optional[int] = Query(default=None, ge=1, le=12, description="Mes 1-12. Omitir para relatorio anual."),
-    current_user: str = Depends(get_current_user),
 ):
     """
     Detecta transacoes PF com potencial de uso misto PF/PJ.
@@ -133,8 +129,6 @@ async def get_mixed_use_report(
     que podem ser parcialmente deduzidas como despesa operacional PJ.
     Retorna percentual de rateio sugerido e valor PJ dedutivel estimado.
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
 
     if year is None:
         year = date.today().year

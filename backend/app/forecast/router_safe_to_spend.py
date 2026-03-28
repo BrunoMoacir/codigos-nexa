@@ -20,7 +20,7 @@ from datetime import date
 
 import polars as pl
 from fastapi import APIRouter, HTTPException, status, Depends
-from app.core.security import get_current_user, validate_user_id
+from app.core.security import require_owner
 from app.core.cache import cache_response
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ router = APIRouter(prefix="/safe-to-spend", tags=["Safe-to-Spend"])
     ),
 )
 @cache_response(prefix="safe_to_spend", ttl=900)
-async def get_safe_to_spend(user_id: str, current_user: str = Depends(get_current_user)) -> dict:
+async def get_safe_to_spend(user_id: str = Depends(require_owner)) -> dict:
     """
     Retorna safe-to-spend consolidado com spent_to_date do mês corrente.
 
@@ -57,10 +57,6 @@ async def get_safe_to_spend(user_id: str, current_user: str = Depends(get_curren
     }
     ```
     """
-    validate_user_id(user_id)
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
-
     logger.info("GET /safe-to-spend/%s", user_id)
 
     try:

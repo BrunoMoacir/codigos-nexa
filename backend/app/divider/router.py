@@ -1,6 +1,6 @@
 # app/api/v1/routes/context_override.py
 
-from fastapi import APIRouter, HTTPException, Depends, Query, status
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Literal, Optional
 from sqlalchemy.orm import Session
@@ -8,7 +8,7 @@ import logging
 
 from app.core.db.queries import save_context_override, get_context_overrides, get_override_stats
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import require_owner
 
 router = APIRouter(prefix="/context", tags=["Context Override"])
 logger = logging.getLogger(__name__)
@@ -39,12 +39,9 @@ class OverrideItem(BaseModel):
 @router.post("/override", response_model=ContextOverrideResponse)
 def override_transaction_context(
     request: ContextOverrideRequest,
-    user_id: str = Query(..., description="ID do usuário"),
+    user_id: str = Depends(require_owner),
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user),
 ):
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     logger.info(f"Recebido override user={user_id} txn={request.transaction_id} -> {request.corrected_context}")
     
     try:
@@ -73,15 +70,12 @@ def override_transaction_context(
 
 @router.get("/overrides", response_model=List[OverrideItem])
 def list_user_overrides(
-    user_id: str = Query(..., description="ID do usuário"),
+    user_id: str = Depends(require_owner),
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user),
 ):
     """
     Lista histórico de correções manuais do usuário.
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     try:
         overrides_data = get_context_overrides(db, user_id)
         
@@ -104,15 +98,12 @@ def list_user_overrides(
 
 @router.get("/overrides/stats")
 def get_stats(
-    user_id: str = Query(..., description="ID do usuário"),
+    user_id: str = Depends(require_owner),
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user),
 ):
     """
     Retorna contagem de overrides (ex: {"PF": 5, "PJ": 2}).
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     try:
         return get_override_stats(db, user_id)
     except Exception as e:

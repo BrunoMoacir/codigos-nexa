@@ -6,10 +6,10 @@ from pydantic import BaseModel
 from typing import List
 from sqlalchemy.orm import Session
 
-from app.agent.graph import build_financial_agent
 from app.agent.models import ChatMessage
+from app.agent.singleton import get_agent as _get_agent
 from langchain_core.messages import HumanMessage, SystemMessage
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_owner
 from app.core.config import settings
 from app.core.database import get_db
 from slowapi import Limiter
@@ -19,23 +19,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Agent Chat"])
 limiter = Limiter(key_func=get_remote_address)
 
-_agent_app = None
-_agent_lock = threading.Lock()
-
-
-def _get_agent():
-    """
-    Retorna a instância singleton do agente LLM.
-
-    Double-checked locking garante inicialização única mesmo com múltiplas
-    requisições simultâneas no startup (race condition no primeiro request).
-    """
-    global _agent_app
-    if _agent_app is None:
-        with _agent_lock:
-            if _agent_app is None:
-                _agent_app = build_financial_agent()
-    return _agent_app
+# Singleton do agente LLM importado do módulo centralizado (app.agent.singleton)
+# para evitar instâncias duplicadas entre este router e api/v1/routes/analyze.py
 
 
 class ChatRequest(BaseModel):
@@ -145,16 +130,13 @@ async def chat_with_agent(
 
 @router.get("/history", response_model=List[ChatHistoryItem])
 def get_chat_history(
-    user_id: str = Query(..., description="ID do usuário"),
+    user_id: str = Depends(require_owner),
     limit: int = Query(50, ge=1, le=200, description="Número máximo de mensagens"),
-    current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Retorna o histórico de mensagens do usuário, ordenado do mais antigo ao mais recente.
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
 
     rows = (
         db.query(ChatMessage)

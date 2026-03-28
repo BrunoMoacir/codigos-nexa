@@ -3,7 +3,7 @@
 
 import logging
 from fastapi import APIRouter, HTTPException, Depends, Query, status
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_owner
 from typing import Optional
 
 from app.optimizer.models import OptimizationRequest, OptimizationReport
@@ -71,10 +71,8 @@ from app.optimizer.opportunity_cost import OpportunityCostCalculator
 from app.optimizer.profiler import ConsumptionProfiler
 
 @router.get("/reports/{user_id}")
-async def list_user_reports(user_id: str, current_user: str = Depends(get_current_user)):
+async def list_user_reports(user_id: str = Depends(require_owner)):
     """Retorna o histórico resumido de otimizações de um usuário."""
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     reports = get_optimization_reports(user_id)
     return {"reports": reports}
 
@@ -99,10 +97,9 @@ async def list_available_cards():
 
 @router.get("/opportunity-cost")
 async def get_opportunity_cost(
-    user_id: str,
     current_card_id: str,
     months: int = 3,
-    current_user: str = Depends(get_current_user),
+    user_id: str = Depends(require_owner),
 ):
     """
     Calcula quanto o usuário deixou de ganhar por usar o cartão atual
@@ -130,8 +127,6 @@ async def get_opportunity_cost(
     }
     ```
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     try:
         from app.core.db.queries import get_transactions_for_user
 
@@ -212,10 +207,9 @@ class _CardPortfolioResponse(_BaseModel):
 
 @router.get("/portfolio/{user_id}", response_model=_CardPortfolioResponse)
 async def get_card_portfolio(
-    user_id: str,
+    user_id: str = Depends(require_owner),
     max_cards: int = Query(default=3, ge=1, le=5, description="Máximo de cartões na carteira"),
     monthly_income: _Optional[float] = Query(default=None, description="Renda mensal (R$) para cálculo de elegibilidade"),
-    current_user: str = Depends(get_current_user),
 ):
     """
     Calcula a carteira ideal de cartões para o perfil de gastos do usuário.
@@ -249,10 +243,7 @@ async def get_card_portfolio(
     from app.optimizer.multi_card_strategy import MultiCardStrategist
     from app.core.db.queries import get_transactions_for_user
 
-    logger.info(f"[API] Portfolio multi-cartão para user={user_id} max_cards={max_cards}")
-
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+    logger.info("[API] Portfolio multi-cartão para user=%s max_cards=%d", user_id, max_cards)
     # ── 1. Buscar transações ────────────────────────────────────────
     try:
         transactions_df = get_transactions_for_user(user_id)

@@ -141,6 +141,29 @@ async def get_current_user(
     return token_data.user_id
 
 
+def require_owner(user_id: str, current_user: str = Depends(get_current_user)) -> str:
+    """
+    Dependency que combina validação de UUID e verificação de propriedade.
+
+    Substitui o padrão repetido em todos os routers:
+        validate_user_id(user_id)
+        if current_user != user_id:
+            raise HTTPException(403)
+
+    Uso:
+        @router.get("/{user_id}")
+        def endpoint(user_id: str = Depends(require_owner)):
+            ...
+    """
+    validate_user_id(user_id)
+    if current_user != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso negado",
+        )
+    return user_id
+
+
 def validate_user_id(user_id: str) -> str:
     """
     Valida que user_id é um UUID v4 bem formado.
