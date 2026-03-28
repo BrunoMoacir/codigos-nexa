@@ -341,7 +341,7 @@ class NexaRunner:
         self,
         user_id: str,
         horizon_days: int = 30,
-        current_balance: float = 5000.0,
+        current_balance: float | None = None,
     ) -> dict:
         """
         Executa o pipeline financeiro usando dados REAIS do DuckDB.
@@ -354,7 +354,7 @@ class NexaRunner:
         Args:
             user_id: ID do usuário cujas transações estão no DuckDB.
             horizon_days: Dias para projetar no futuro.
-            current_balance: Saldo atual da conta (fallback se não houver no DB).
+            current_balance: Saldo atual da conta (se None, calcula somando transações).
 
         Returns:
             dict com mesma estrutura de `run()`, ou None se não houver dados.
@@ -371,6 +371,15 @@ class NexaRunner:
                 return None  # sinaliza para o caller usar fallback
 
             logger.info("   ✅ %d transações carregadas do DuckDB", len(df))
+
+            # ── Calcular saldo atual se não fornecido ──────────────
+            if current_balance is None:
+                if "amount" in df.columns:
+                    current_balance = float(df.select("amount").sum().item())
+                    logger.info("💰 Saldo calculado a partir das transações: R$ %.2f", current_balance)
+                else:
+                    logger.warning("⚠️ Coluna 'amount' não encontrada, usando saldo padrão")
+                    current_balance = 5000.0
 
             # Normalizar tipos e nomes de colunas para o pipeline downstream.
             # DuckDB salva como `date`, mas RecurringDetector / CashflowProjector

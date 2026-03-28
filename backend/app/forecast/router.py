@@ -76,30 +76,55 @@ async def fetch_user_transactions(user_id: str, horizon_days: int = 30):
 
     Estratégia:
       1. Tenta carregar dados REAIS do DuckDB (transactions_clean)
-      2. Se não houver dados E APP_MODE=dev, usa MockPluggy (fallback)
-      3. Em produção sem dados, retorna erro claro
+      2. Calcula o saldo atual somando todas as transações
+      3. Executa o pipeline com o saldo real
     """
     import os
 
     logger.info(f"🔍 Buscando transações para user_id={user_id}")
 
     try:
-        from app.runner import get_runner
+        from app.runner import NexaRunner
+        from app.core.db.queries import get_transactions_for_user
 
-        # ── 1. Tentar dados reais do banco (Postgres/DuckDB) ──────
-        # get_runner() reutiliza a instância singleton — evita reinicializar os
-        # 9 componentes do pipeline a cada request. run_from_db() não usa Pluggy.
-        result = get_runner().run_from_db(user_id=user_id, horizon_days=horizon_days)
+        # ── 1. Buscar transações do banco ──────
+        transactions_df = get_transactions_for_user(user_id)
+
+        if transactions_df.is_empty():
+            logger.error("❌ Sem dados reais para user=%s", user_id)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Nenhum dado financeiro encontrado para o usuário {user_id}. "
+                       "Conecte suas contas via Open Finance.",
+            )
+
+        # ── 2. Calcular saldo atual (soma de todas as transações) ──────
+        if "amount" not in transactions_df.columns:
+            logger.error("❌ Coluna 'amount' não encontrada nas transações")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Erro ao processar transações: estrutura de dados inválida"
+            )
+
+        current_balance = float(transactions_df.select("amount").sum().item())
+        logger.info(f"💰 Saldo calculado para user={user_id}: R$ {current_balance:,.2f}")
+
+        # ── 3. Executar pipeline com saldo real ──────
+        runner = NexaRunner(mode="dev")
+        result = runner.run_from_db(
+            user_id=user_id,
+            horizon_days=horizon_days,
+            current_balance=current_balance
+        )
 
         if result is not None and result.get("status") == "success":
             logger.info("✅ Pipeline executado com dados REAIS do banco para user=%s", user_id)
             return result
 
-        logger.error("❌ Sem dados reais para user=%s", user_id)
+        logger.error("❌ Erro ao executar pipeline para user=%s", user_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Nenhum dado financeiro encontrado para o usuário {user_id}. "
-                   "Conecte suas contas via Open Finance.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao processar dados do usuário"
         )
 
     except HTTPException:
