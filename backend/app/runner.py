@@ -133,8 +133,14 @@ class NexaRunner:
             logger.info(f"   ✅ Sandbox item criado: {item_id}")
 
             accounts_resp = self.pluggy.get_accounts(item_id)
-            account_id = accounts_resp["results"][0]["id"]
-            logger.info(f"   ✅ Conta obtida: {account_id}")
+            accounts = accounts_resp.get("results", [])
+            if not accounts:
+                raise ValueError(
+                    f"Pluggy retornou lista de contas vazia para item_id={item_id}. "
+                    "Verifique se o item foi sincronizado corretamente."
+                )
+            account_id = accounts[0]["id"]
+            logger.info("   ✅ Conta obtida: %s", account_id)
 
             raw_transactions = self.pluggy.get_transactions(account_id)
             logger.info(f"   ✅ {len(raw_transactions['results'])} transações brutas obtidas")
@@ -242,7 +248,7 @@ class NexaRunner:
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
             logger.info("💰 [8/9] Executando Cashflow Projector...")
-            start_balance = accounts_resp["results"][0]["balance"]
+            start_balance = float(accounts[0].get("balance") or 0.0)
 
             # Ensure shadow_events is a DataFrame
             if isinstance(shadow_events, pl.DataFrame):

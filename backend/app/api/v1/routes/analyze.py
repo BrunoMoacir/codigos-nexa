@@ -15,11 +15,15 @@ router = APIRouter(
 )
 
 _agent = None
+_agent_lock = __import__("threading").Lock()
+
 
 def _get_agent():
     global _agent
     if _agent is None:
-        _agent = build_financial_agent()
+        with _agent_lock:
+            if _agent is None:
+                _agent = build_financial_agent()
     return _agent
 
 
