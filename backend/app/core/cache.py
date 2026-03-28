@@ -68,6 +68,14 @@ def get_redis() -> Optional[redis_lib.Redis]:
     return _redis_client
 
 
+def _on_redis_error(e: Exception) -> None:
+    """Chamado quando uma operação Redis falha após a conexão já ter sido estabelecida."""
+    global _redis_client, _redis_retry_after
+    logger.warning("[Cache] Erro em operação Redis (%s) — desconectando e agendando retry.", e)
+    _redis_client = None
+    _redis_retry_after = time.monotonic() + _REDIS_RETRY_COOLDOWN
+
+
 def invalidate_user_cache(user_id: str) -> int:
     """Remove todas as entradas de cache de um usuário. Retorna quantas foram removidas."""
     client = get_redis()
@@ -78,7 +86,7 @@ def invalidate_user_cache(user_id: str) -> int:
         if keys:
             return client.delete(*keys)
     except Exception as e:
-        logger.warning("[Cache] Erro ao invalidar cache do user %s: %s", user_id, e)
+        _on_redis_error(e)
     return 0
 
 
@@ -116,10 +124,11 @@ def cache_response(prefix: str, ttl: int = 900):
                             logger.debug("[Cache] HIT  %s", cache_key)
                             return json.loads(cached)
                     except Exception as e:
-                        logger.warning("[Cache] Erro ao ler: %s", e)
+                        _on_redis_error(e)
 
                 result = await func(*args, **kwargs)
 
+                client = get_redis()  # re-obtém após possível reconexão
                 if client:
                     try:
                         payload = result if isinstance(result, (str, int, float, bool)) else (
@@ -128,7 +137,7 @@ def cache_response(prefix: str, ttl: int = 900):
                         client.setex(cache_key, ttl, json.dumps(payload, default=str))
                         logger.debug("[Cache] SET  %s (ttl=%ds)", cache_key, ttl)
                     except Exception as e:
-                        logger.warning("[Cache] Erro ao salvar: %s", e)
+                        _on_redis_error(e)
 
                 return result
             return async_wrapper
@@ -144,10 +153,11 @@ def cache_response(prefix: str, ttl: int = 900):
                             logger.debug("[Cache] HIT  %s", cache_key)
                             return json.loads(cached)
                     except Exception as e:
-                        logger.warning("[Cache] Erro ao ler: %s", e)
+                        _on_redis_error(e)
 
                 result = func(*args, **kwargs)
 
+                client = get_redis()  # re-obtém após possível reconexão
                 if client:
                     try:
                         payload = result if isinstance(result, (str, int, float, bool)) else (
@@ -156,7 +166,7 @@ def cache_response(prefix: str, ttl: int = 900):
                         client.setex(cache_key, ttl, json.dumps(payload, default=str))
                         logger.debug("[Cache] SET  %s (ttl=%ds)", cache_key, ttl)
                     except Exception as e:
-                        logger.warning("[Cache] Erro ao salvar: %s", e)
+                        _on_redis_error(e)
 
                 return result
             return sync_wrapper

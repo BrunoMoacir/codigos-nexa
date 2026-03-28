@@ -88,20 +88,23 @@ def _get_transactions_for_user_duckdb(user_id: str):
         return pl.DataFrame()
 
 
-def get_transactions_for_user(user_id: str):
+def get_transactions_for_user(user_id: str, db: Optional[Session] = None):
     """Busca transações do usuário.
 
     Ordem:
-      1) Postgres (SQLAlchemy)
+      1) Postgres (SQLAlchemy) — usa `db` se fornecido, senão abre sessão própria
       2) DuckDB (backend/finance.duckdb)
 
     Retorna polars.DataFrame.
     """
     import polars as pl
-    from app.core.database import SessionLocal
     from app.core.models.transaction import Transaction
 
-    db = SessionLocal()
+    _own_session = db is None
+    if _own_session:
+        from app.core.database import SessionLocal
+        db = SessionLocal()
+
     try:
         transactions = (
             db.query(Transaction)
@@ -134,7 +137,8 @@ def get_transactions_for_user(user_id: str):
         logger.warning("Postgres indisponível, caindo para DuckDB | user=%s erro=%s", user_id, exc)
         return _get_transactions_for_user_duckdb(user_id)
     finally:
-        db.close()
+        if _own_session:
+            db.close()
 
 def get_context_overrides(db: Session, user_id: str) -> List[Dict[str, Any]]:
     try:

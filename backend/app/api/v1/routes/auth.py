@@ -9,6 +9,9 @@ from app.core.security import (
     verify_password,
     get_password_hash,
     create_access_token,
+    revoke_token,
+    get_current_token_data,
+    TokenData,
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
 from app.core.db.users import get_user_by_email, create_user
@@ -79,8 +82,23 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
     )
     
     return {
-        "access_token": access_token, 
+        "access_token": access_token,
         "token_type": "bearer",
         "user_id": user["user_id"],
-        "full_name": user.get("full_name")
+        "full_name": user.get("full_name"),
     }
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(token_data: TokenData = Depends(get_current_token_data)):
+    """
+    Revoga o token atual adicionando o jti à blacklist Redis.
+    O token deixa de ser aceito imediatamente, mesmo antes de expirar.
+    """
+    if token_data.jti:
+        exp = token_data.__dict__.get("exp")
+        remaining = 0
+        if exp:
+            from datetime import datetime, timezone
+            remaining = max(0, exp - int(datetime.now(timezone.utc).timestamp()))
+        revoke_token(token_data.jti, remaining or ACCESS_TOKEN_EXPIRE_MINUTES * 60)
