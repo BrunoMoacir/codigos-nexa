@@ -196,7 +196,7 @@ class GoalTracker:
         )
 
         self._persist(goal)
-        logger.info(f"[GoalTracker] Meta criada: {goal_id} | {name} | R${target_amount}")
+        logger.info("[GoalTracker] Meta criada: %s | %s | R$%s", goal_id, name, target_amount)
         return goal
 
     def update_progress(
@@ -237,7 +237,7 @@ class GoalTracker:
         # Conclusão automática
         if goal.current_amount >= goal.target_amount:
             goal.status = "COMPLETED"
-            logger.info(f"[GoalTracker] Meta concluída: {goal_id}")
+            logger.info("[GoalTracker] Meta concluída: %s", goal_id)
 
         self._update(goal)
         return goal
@@ -315,7 +315,7 @@ class GoalTracker:
             )
             return [self._row_to_goal({c.name: getattr(r, c.name) for c in r.__table__.columns}) for r in rows]
         except Exception as e:
-            logger.error(f"[GoalTracker] Erro ao listar metas: {e}")
+            logger.error("[GoalTracker] Erro ao listar metas: %s", e)
             return []
 
     def abandon_goal(self, goal_id: str) -> Goal:

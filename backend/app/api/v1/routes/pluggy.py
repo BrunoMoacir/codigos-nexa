@@ -132,7 +132,7 @@ def create_connect_token(current_user_str: str = Depends(get_current_user)):
 
     try:
         user_identifier = str(current_user_str)
-        logger.info(f"Gerando connect-token para banco do usuário {user_identifier}")
+        logger.info("Gerando connect-token para banco do usuário %s", user_identifier)
         
         pluggy = PluggyClient()
         connect_token = pluggy.create_connect_token(clientUserId=user_identifier)

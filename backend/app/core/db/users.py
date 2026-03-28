@@ -28,7 +28,7 @@ def _get_user_by_email_duckdb(email: str) -> Optional[Dict[str, Any]]:
             "full_name": row[3],
         }
     except Exception as e:
-        logger.error(f"DuckDB fallback get_user_by_email falhou: {e}")
+        logger.error("DuckDB fallback get_user_by_email falhou: %s", e)
         return None
 
 
@@ -45,7 +45,7 @@ def get_user_by_email(db: Session, email: str) -> Optional[Dict[str, Any]]:
         # Se não achou no Postgres, tenta DuckDB (para dev/demo)
         return _get_user_by_email_duckdb(email)
     except Exception as e:
-        logger.error(f"Postgres indisponível, caindo para DuckDB (get_user_by_email): {e}")
+        logger.error("Postgres indisponível, caindo para DuckDB (get_user_by_email): %s", e)
         return _get_user_by_email_duckdb(email)
 
 def _create_user_duckdb(email: str, hashed_password: str, full_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -67,7 +67,7 @@ def _create_user_duckdb(email: str, hashed_password: str, full_name: Optional[st
 
         return {"user_id": user_id, "email": email, "full_name": full_name}
     except Exception as e:
-        logger.error(f"DuckDB fallback create_user falhou: {e}")
+        logger.error("DuckDB fallback create_user falhou: %s", e)
         return None
 
 
@@ -89,7 +89,7 @@ def create_user(db: Session, email: str, hashed_password: str, full_name: Option
             "full_name": db_user.full_name,
         }
     except Exception as e:
-        logger.error(f"Postgres indisponível, caindo para DuckDB (create_user): {e}")
+        logger.error("Postgres indisponível, caindo para DuckDB (create_user): %s", e)
         try:
             db.rollback()
         except Exception:

@@ -35,7 +35,7 @@ def get_goals_summary(
         user_id: ID do usuário (obrigatório).
         monthly_savings: Quanto o usuário consegue poupar por mês (opcional — melhora projeção).
     """
-    logger.info(f"[Tool] get_goals_summary para {user_id}")
+    logger.info("[Tool] get_goals_summary para %s", user_id)
     try:
         from app.goals.tracker import GoalTracker
 
@@ -88,7 +88,7 @@ def get_goals_summary(
         return "\n".join(lines)
 
     except Exception as e:
-        logger.error(f"[Tool] get_goals_summary erro: {e}", exc_info=True)
+        logger.error("[Tool] get_goals_summary erro: %s", e, exc_info=True)
         return (
             "Não consegui acessar suas metas no momento. "
             "Se quiser criar uma nova meta, me diga o valor objetivo e o prazo."

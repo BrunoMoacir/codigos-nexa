@@ -81,7 +81,7 @@ async def fetch_user_transactions(user_id: str, horizon_days: int = 30):
     """
     import os
 
-    logger.info(f"🔍 Buscando transações para user_id={user_id}")
+    logger.info("🔍 Buscando transações para user_id=%s", user_id)
 
     try:
         from app.runner import NexaRunner
@@ -211,7 +211,7 @@ async def get_forecast(
         runner_result = await fetch_user_transactions(user_id, horizon_days=horizon_days)
         
         if not runner_result:
-            logger.warning(f"⚠️ Nenhum dado encontrado para user_id={user_id}")
+            logger.warning("⚠️ Nenhum dado encontrado para user_id=%s", user_id)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Nenhum histórico financeiro encontrado para usuário {user_id}"
@@ -392,7 +392,7 @@ async def get_forecast(
         # STEP 3: CONSTRUIR RESPOSTA
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-        logger.info(f"✅ Forecast gerado com sucesso para user_id={user_id}")
+        logger.info("✅ Forecast gerado com sucesso para user_id=%s", user_id)
 
         profile_type = profile_data.get("profile_type", "EQUILIBRADO")
         if profile_type not in ["CONSERVADOR", "EQUILIBRADO", "GASTADOR", "POUPADOR"]:

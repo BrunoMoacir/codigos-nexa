@@ -27,7 +27,7 @@ def get_card_optimization(
         monthly_income: Renda mensal do usuário (opcional, use se o usuário informar).
         safe_to_spend: Valor seguro para gastos mensais no cartão (opcional, use se o usuário informar).
     """
-    logger.info(f"[Tool] Chamando get_card_optimization para {user_id}")
+    logger.info("[Tool] Chamando get_card_optimization para %s", user_id)
     try:
         # Buscar transações REAIS do DuckDB para recomendar cartão pelo perfil real
         transactions_df = pl.DataFrame(schema={
@@ -53,7 +53,7 @@ def get_card_optimization(
                     available = set(raw_df.columns) & needed
                     if available:
                         transactions_df = raw_df.select(list(available))
-                        logger.info(f"[Tool] {len(transactions_df)} transações reais carregadas para otimização de cartão")
+                        logger.info("[Tool] %s transações reais carregadas para otimização de cartão", len(transactions_df))
                 # Pegar renda real se não informada
                 if not monthly_income:
                     income_profile = result.get("analysis", {}).get("income_profile")
@@ -66,7 +66,7 @@ def get_card_optimization(
                     if safe:
                         safe_to_spend = safe.safe_to_spend_total
         except Exception as e:
-            logger.debug(f"[Tool] Erro ao carregar dados reais para cartão (usando fallback): {e}")
+            logger.debug("[Tool] Erro ao carregar dados reais para cartão (usando fallback): %s", e)
 
         if not monthly_income and not safe_to_spend:
             return "Preciso saber sua renda mensal ou quanto você gasta por mês no cartão para fazer uma recomendação precisa."
@@ -144,5 +144,5 @@ def get_card_optimization(
     except ValueError as ve:
         return f"Não foi possível analisar: {str(ve)}"
     except Exception as e:
-        logger.error(f"Erro na tool get_card_optimization: {e}", exc_info=True)
+        logger.error("Erro na tool get_card_optimization: %s", e, exc_info=True)
         return "Desculpe, ocorreu um erro interno ao tentar calcular as opções de cartões."

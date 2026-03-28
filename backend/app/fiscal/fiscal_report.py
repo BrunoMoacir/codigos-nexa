@@ -164,12 +164,12 @@ class FiscalReportService:
         period_label = (
             f"{year:04d}-{month:02d}" if month else str(year)
         )
-        logger.info(f"Gerando relatorio fiscal user={user_id} periodo={period_label}")
+        logger.info("Gerando relatorio fiscal user=%s periodo=%s", user_id, period_label)
 
         rows = self._fetch_pj_transactions(user_id, year, month)
 
         if not rows:
-            logger.warning(f"Nenhuma transacao PJ encontrada para {user_id} em {period_label}")
+            logger.warning("Nenhuma transacao PJ encontrada para %s em %s", user_id, period_label)
 
         report = FiscalReport(
             user_id=user_id,
@@ -214,7 +214,7 @@ class FiscalReportService:
             rows = df.select(["amount", "pj_subcategory"]).to_dicts()
             return [{"amount": r["amount"], "pj_subcategory": r.get("pj_subcategory") or "despesa_outros_pj"} for r in rows]
         except Exception as e:
-            logger.error(f"Erro ao buscar transacoes PJ: {e}")
+            logger.error("Erro ao buscar transacoes PJ: %s", e)
             return []
 
     def _aggregate(self, report: FiscalReport, rows: list[dict]) -> None:
@@ -273,7 +273,7 @@ class FiscalReportService:
             total = df.select(pl.col("amount").sum()).item()
             return float(total) if total else 0.0
         except Exception as e:
-            logger.warning(f"Nao foi possivel calcular RBT12 real, usando fallback x12: {e}")
+            logger.warning("Nao foi possivel calcular RBT12 real, usando fallback x12: %s", e)
             return 0.0
 
     def _compute_das(self, report: FiscalReport, year: int, month: Optional[int]) -> None:

@@ -76,7 +76,7 @@ class OptimizerService:
         Returns:
             OptimizationReport contendo a recomendação final, simulações e status.
         """
-        logger.info(f"Iniciando análise de otimização para user_id={request.user_id}")
+        logger.info("Iniciando análise de otimização para user_id=%s", request.user_id)
 
         # 1. Validar request
         self.validator.validate(request)
@@ -224,6 +224,6 @@ class OptimizerService:
             # Salvar usando as queries do DuckDB
             save_optimization_report(json.loads(report.model_dump_json()))
         except Exception as e:
-            logger.error(f"Erro ao salvar relatório de otimização: {e}", exc_info=True)
+            logger.error("Erro ao salvar relatório de otimização: %s", e, exc_info=True)
 
         return report

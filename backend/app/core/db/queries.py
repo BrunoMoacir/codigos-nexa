@@ -190,10 +190,10 @@ def save_context_override(
         })
         
         db.commit()
-        logger.info(f"Override salvo para txn {transaction_id}: {corrected_context}")
+        logger.info("Override salvo para txn %s: %s", transaction_id, corrected_context)
         return True
     except Exception as e:
-        logger.error(f"Erro ao salvar override: {e}")
+        logger.error("Erro ao salvar override: %s", e)
         db.rollback()
         return False
 
@@ -253,10 +253,10 @@ def save_transactions_clean(
         db.commit()
         
         rows = len(records)
-        logger.info(f"transactions_clean: {rows} linhas salvas para user {user_id}")
+        logger.info("transactions_clean: %s linhas salvas para user %s", rows, user_id)
         return rows
     except Exception as e:
-        logger.error(f"Erro ao salvar transactions_clean: {e}")
+        logger.error("Erro ao salvar transactions_clean: %s", e)
         db.rollback()
         return 0
 
@@ -300,10 +300,10 @@ def save_health_score_snapshot(
         
         db.execute(upsert_stmt)
         db.commit()
-        logger.info(f"health_score_history: snapshot salvo para user={user_id} date={date} score={health_score}")
+        logger.info("health_score_history: snapshot salvo para user=%s date=%s score=%s", user_id, date, health_score)
         return True
     except Exception as e:
-        logger.error(f"Erro ao salvar health_score_history: {e}")
+        logger.error("Erro ao salvar health_score_history: %s", e)
         db.rollback()
         return False
         
@@ -326,7 +326,7 @@ def get_health_score_history(
         ]
         return history
     except Exception as e:
-        logger.error(f"Erro ao buscar health_score_history: {e}")
+        logger.error("Erro ao buscar health_score_history: %s", e)
         return []
 
 def get_override_stats(db: Session, user_id: str) -> Dict[str, int]:
@@ -335,5 +335,5 @@ def get_override_stats(db: Session, user_id: str) -> Dict[str, int]:
         stats = {row[0]: row[1] for row in rows}
         return stats
     except Exception as e:
-        logger.error(f"Erro ao buscar stats: {e}")
+        logger.error("Erro ao buscar stats: %s", e)
         return {}

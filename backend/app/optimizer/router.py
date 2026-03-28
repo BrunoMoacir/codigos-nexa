@@ -39,7 +39,7 @@ async def analyze_cards(
     """
     if current_user != request.user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
-    logger.info(f"[API] Solicitando otimização de cartões para user_id={request.user_id}")
+    logger.info("[API] Solicitando otimização de cartões para user_id=%s", request.user_id)
     
     try:
         transactions_df = get_transactions_for_user(request.user_id)
@@ -69,7 +69,7 @@ async def analyze_cards(
         raise HTTPException(status_code=422, detail="Dados inválidos para análise de cartões.")
     
     except Exception as e:
-        logger.error(f"[API] Erro interno durante otimização: {e}", exc_info=True)
+        logger.error("[API] Erro interno durante otimização: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno ao processar a otimização de cartões.")
 
 @router.get("/reports/{user_id}")
@@ -99,7 +99,7 @@ async def list_available_cards():
         cards = loader.load()
         return {"total": len(cards), "cards": [c.model_dump() for c in cards]}
     except Exception as e:
-        logger.error(f"[API] Erro ao carregar cartões: {e}", exc_info=True)
+        logger.error("[API] Erro ao carregar cartões: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao carregar base de cartões.")
 
 @router.get("/opportunity-cost")
@@ -169,7 +169,7 @@ async def get_opportunity_cost(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[API] Erro ao calcular custo de oportunidade: {e}", exc_info=True)
+        logger.error("[API] Erro ao calcular custo de oportunidade: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno ao calcular custo de oportunidade.")
 
 
@@ -247,7 +247,7 @@ async def get_card_portfolio(
     try:
         transactions_df = get_transactions_for_user(user_id)
     except Exception as e:
-        logger.error(f"[API] Erro ao buscar transações para portfolio: {e}", exc_info=True)
+        logger.error("[API] Erro ao buscar transações para portfolio: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao acessar dados do usuário.")
 
     data_quality = "OK"
@@ -265,7 +265,7 @@ async def get_card_portfolio(
     try:
         profile = ConsumptionProfiler().build(transactions_df=transactions_df)
     except Exception as e:
-        logger.error(f"[API] Erro ao construir perfil de consumo: {e}", exc_info=True)
+        logger.error("[API] Erro ao construir perfil de consumo: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao calcular perfil de consumo.")
 
     # ── 3. Determinar renda anual para elegibilidade ────────────────
@@ -281,7 +281,7 @@ async def get_card_portfolio(
         kb = CardKnowledgeBase()
         eligible_cards = kb.filter_eligible(annual_income=annual_income)
     except Exception as e:
-        logger.error(f"[API] Erro ao filtrar cartões: {e}", exc_info=True)
+        logger.error("[API] Erro ao filtrar cartões: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao carregar base de cartões.")
 
     if not eligible_cards:
@@ -298,7 +298,7 @@ async def get_card_portfolio(
             max_cards=max_cards,
         )
     except Exception as e:
-        logger.error(f"[API] Erro ao calcular portfólio: {e}", exc_info=True)
+        logger.error("[API] Erro ao calcular portfólio: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao calcular carteira ideal.")
 
     # ── 6. Serializar resposta ──────────────────────────────────────
@@ -377,7 +377,7 @@ async def get_card_roi(
         try:
             transactions_df = get_transactions_for_user(user_id)
         except Exception as e:
-            logger.error(f"[API] Erro ao buscar transações para ROI: {e}", exc_info=True)
+            logger.error("[API] Erro ao buscar transações para ROI: %s", e, exc_info=True)
             raise HTTPException(status_code=500, detail="Erro ao acessar dados do usuário.")
 
         if transactions_df.is_empty():
@@ -391,7 +391,7 @@ async def get_card_roi(
     try:
         roi = CardSimulator().calculate_current_card_roi(card=card, profile=profile)
     except Exception as e:
-        logger.error(f"[API] Erro ao calcular ROI: {e}", exc_info=True)
+        logger.error("[API] Erro ao calcular ROI: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao calcular ROI do cartão.")
 
     return roi

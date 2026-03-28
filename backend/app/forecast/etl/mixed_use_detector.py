@@ -109,7 +109,7 @@ class MixedUseDetector:
         month: Optional[int] = None,
     ) -> MixedUseReport:
         period_label = f"{year:04d}-{month:02d}" if month else str(year)
-        logger.info(f"Detectando uso misto user={user_id} periodo={period_label}")
+        logger.info("Detectando uso misto user=%s periodo=%s", user_id, period_label)
 
         rows = self._fetch_pf_transactions(user_id, year, month)
         report = MixedUseReport(user_id=user_id, period_label=period_label)
@@ -164,7 +164,7 @@ class MixedUseDetector:
                 for r in rows
             ]
         except Exception as e:
-            logger.error(f"Erro ao buscar transacoes PF para uso misto: {e}")
+            logger.error("Erro ao buscar transacoes PF para uso misto: %s", e)
             return []
 
     def _check_mixed_use(self, row: dict) -> Optional[MixedUseCandidate]:

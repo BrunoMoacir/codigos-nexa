@@ -14,11 +14,11 @@ logger = logging.getLogger(__name__)
 logger.info("=" * 60)
 logger.info("🚀 NEXA API - Minimal Version (Debug)")
 logger.info("=" * 60)
-logger.info(f"📦 Python: {sys.version}")
-logger.info(f"🌍 APP_ENV: {os.getenv('APP_ENV', 'not set')}")
-logger.info(f"🔗 DATABASE_URL: {'✅' if os.getenv('DATABASE_URL') else '❌'}")
-logger.info(f"🔑 SECRET_KEY: {'✅' if os.getenv('SECRET_KEY') else '❌'}")
-logger.info(f"🚪 PORT: {os.getenv('PORT', '8000')}")
+logger.info("📦 Python: %s", sys.version)
+logger.info("🌍 APP_ENV: %s", os.getenv('APP_ENV', 'not set'))
+logger.info("🔗 DATABASE_URL: %s", "✅" if os.getenv("DATABASE_URL") else "❌")
+logger.info("🔑 SECRET_KEY: %s", "✅" if os.getenv("SECRET_KEY") else "❌")
+logger.info("🚪 PORT: %s", os.getenv('PORT', '8000'))
 logger.info("=" * 60)
 
 from fastapi import FastAPI
@@ -63,7 +63,7 @@ def root():
 @app.on_event("startup")
 async def startup():
     logger.info("🎯 API startup complete - ready to receive requests")
-    logger.info(f"🌐 Listening on 0.0.0.0:{os.getenv('PORT', '8000')}")
+    logger.info("🌐 Listening on 0.0.0.0:%s", os.getenv('PORT', '8000'))
 
 
 if __name__ == "__main__":

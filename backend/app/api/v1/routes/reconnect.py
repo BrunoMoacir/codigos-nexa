@@ -127,7 +127,7 @@ async def create_reconnect_url(
     """
     
     try:
-        logger.info(f"🔌 Gerando URL de reconexão para user_id={user_id}")
+        logger.info("🔌 Gerando URL de reconexão para user_id=%s", user_id)
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # STEP 1: Preparar parâmetros
@@ -153,7 +153,7 @@ async def create_reconnect_url(
         
         connect_url = f"https://pluggy.io/open-finance/connections/{connection_id}"
         
-        logger.info(f"✅ URL gerada: {connect_url}")
+        logger.info("✅ URL gerada: %s", connect_url)
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # STEP 3: TODO - Salvar no banco que reconexão foi iniciada
@@ -212,7 +212,7 @@ async def reconnect_callback(
     TODO: Implementar isto com webhooks reais do Pluggy
     """
     
-    logger.info(f"✅ Reconexão completa para user_id={user_id} (connection_id={connection_id})")
+    logger.info("✅ Reconexão completa para user_id=%s (connection_id=%s)", user_id, connection_id)
     
     # TODO: Atualizar no banco que reconexão foi completada
     # UPDATE items SET status = 'ACTIVE', consent_expires_at = ... WHERE connection_id = ?

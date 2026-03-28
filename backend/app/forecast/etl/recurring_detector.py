@@ -166,7 +166,7 @@ class RecurringDetector:
         
         self._validate_required_columns(df)
         
-        self.logger.info(f"Detectando padrões recorrentes em {df.height} transações")
+        self.logger.info("Detectando padrões recorrentes em %s transações", df.height)
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # STEP 1: DETECTAR ASSINATURAS (com validação temporal)
