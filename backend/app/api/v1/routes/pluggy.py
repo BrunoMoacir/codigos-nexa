@@ -151,10 +151,10 @@ def create_connect_token(current_user_str: str = Depends(get_current_user)):
         return ConnectTokenResponse(connect_token=token_str)
         
     except Exception as e:
-        logger.error(f"Erro ao gerar connect token Pluggy: {e}", exc_info=True)
+        logger.error("Erro ao gerar connect token Pluggy: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Falha ao comunicar com a Pluggy: {str(e)}"
+            detail="Erro ao gerar token de conexão. Tente novamente em alguns instantes.",
         )
 
 
@@ -215,16 +215,16 @@ def list_user_items(
         logger.warning("Pluggy /items returned %s: %s", resp.status_code, resp.text)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Pluggy /items falhou ({resp.status_code}). {resp.text}",
+            detail="Erro ao consultar contas bancárias. Tente novamente em alguns instantes.",
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Erro ao listar items Pluggy: {e}", exc_info=True)
+        logger.error("Erro ao listar items Pluggy: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Falha ao comunicar com a Pluggy: {str(e)}",
+            detail="Erro ao listar contas bancárias. Tente novamente em alguns instantes.",
         )
 
 @router.post("/items", summary="Salva um Item conectado pelo Widget")
@@ -253,10 +253,10 @@ def save_user_item(
         return {"success": True, "message": "Item salvo com sucesso"}
     except Exception as e:
         db.rollback()
-        logger.error(f"Erro ao salvar item do widget: {e}")
+        logger.error("Erro ao salvar item do widget: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Falha ao salvar item da Pluggy",
+            detail="Erro ao salvar conta bancária. Tente novamente.",
         )
 
 
@@ -313,10 +313,10 @@ def create_sandbox_item(
 
         return {"success": True, "item": result, "sync": sync_report}
     except Exception as e:
-        logger.error(f"Erro ao criar sandbox item Pluggy: {e}", exc_info=True)
+        logger.error("Erro ao criar sandbox item Pluggy: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Falha ao criar sandbox: {str(e)}",
+            detail="Erro ao criar item de sandbox. Verifique as credenciais Pluggy.",
         )
 
 

@@ -77,11 +77,16 @@ async def list_user_reports(user_id: str = Depends(require_owner)):
     return {"reports": reports}
 
 @router.get("/reports/{report_id}/detail")
-async def get_report_detail(report_id: str):
+async def get_report_detail(
+    report_id: str,
+    current_user: str = Depends(get_current_user),
+):
     """Retorna os detalhes completos de um relatório gerado."""
     report = get_optimization_report_by_id(report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Relatório não encontrado")
+    if report.get("user_id") != current_user:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     return report
 
 @router.get("/cards")
@@ -346,7 +351,7 @@ from app.optimizer.simulator import CardSimulator
 @router.get("/roi/{card_id}", response_model=CurrentCardROI)
 async def get_card_roi(
     card_id: str,
-    user_id: str = Query(..., description="ID do usuário"),
+    user_id: str = Depends(require_owner),
     monthly_spend: Optional[float] = Query(
         default=None,
         description="Gasto mensal médio (R$). Se omitido, calculado a partir do histórico de transações."
