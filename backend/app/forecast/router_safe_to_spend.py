@@ -22,6 +22,7 @@ from datetime import date
 import polars as pl
 from fastapi import APIRouter, HTTPException, status, Depends
 from app.core.security import get_current_user
+from app.core.cache import cache_response
 
 logger = logging.getLogger(__name__)
 

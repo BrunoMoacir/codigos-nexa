@@ -40,6 +40,7 @@ from sqlalchemy import func
 from app.core.schemas.transaction import TransactionBatchResult
 from app.forecast.etl import TransactionIngestor, TransactionClassifier
 from app.core.database import get_db
+from app.core.cache import cache_response
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CONFIGURAÇÃO
@@ -201,6 +202,7 @@ async def receive_transaction_webhook(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.get("/{user_id}", status_code=status.HTTP_200_OK)
+@cache_response(prefix="transactions", ttl=300)
 async def get_user_transactions(
     user_id: str,
     start_date: Optional[str] = Query(default=None),
