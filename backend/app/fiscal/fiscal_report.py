@@ -21,17 +21,76 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Tabela simplificada do Simples Nacional — Anexo III (Servicos)
 # Aliquota efetiva = (RBT12 * Aliq - PD) / RBT12
-# Fonte: Lei Complementar 123/2006, tabela vigente 2024.
+# Fonte: Lei Complementar 123/2006, tabelas por ano de vigência.
+#
+# MANUTENÇÃO: ao início de cada ano fiscal, verificar se a Receita Federal
+# atualizou os limites de faixa e adicionar uma nova entrada em _SIMPLES_TABLES.
+# Consultar: https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp123.htm
 # ---------------------------------------------------------------------------
-_SIMPLES_NACIONAL_ANEXO_III = [
-    # (limite_RBT12_anual, aliquota_nominal, parcela_deduzir)
-    (180_000,    0.060,       0),
-    (360_000,    0.112,   9_360),
-    (720_000,    0.135,  17_640),
-    (1_800_000,  0.160,  35_640),
-    (3_600_000,  0.210,  125_640),
-    (4_800_000,  0.330,  648_000),
-]
+
+# Cada entrada: (limite_RBT12_anual, aliquota_nominal, parcela_deduzir)
+_TableRow = tuple  # (int, float, int)
+
+_SIMPLES_TABLES: dict[int, list[_TableRow]] = {
+    2018: [
+        (180_000,    0.060,       0),
+        (360_000,    0.112,   9_360),
+        (720_000,    0.135,  17_640),
+        (1_800_000,  0.160,  35_640),
+        (3_600_000,  0.210, 125_640),
+        (4_800_000,  0.330, 648_000),
+    ],
+    # 2019–2023: mesmos limites e alíquotas da tabela 2018 (LC 123/2006 não alterada)
+    2024: [
+        (180_000,    0.060,       0),
+        (360_000,    0.112,   9_360),
+        (720_000,    0.135,  17_640),
+        (1_800_000,  0.160,  35_640),
+        (3_600_000,  0.210, 125_640),
+        (4_800_000,  0.330, 648_000),
+    ],
+    # 2025 e 2026: verificar atualização — usar tabela 2024 até confirmação
+    2025: [
+        (180_000,    0.060,       0),
+        (360_000,    0.112,   9_360),
+        (720_000,    0.135,  17_640),
+        (1_800_000,  0.160,  35_640),
+        (3_600_000,  0.210, 125_640),
+        (4_800_000,  0.330, 648_000),
+    ],
+    2026: [
+        (180_000,    0.060,       0),
+        (360_000,    0.112,   9_360),
+        (720_000,    0.135,  17_640),
+        (1_800_000,  0.160,  35_640),
+        (3_600_000,  0.210, 125_640),
+        (4_800_000,  0.330, 648_000),
+    ],
+}
+
+
+def _get_simples_table(year: int) -> list[_TableRow]:
+    """
+    Retorna a tabela Simples Nacional Anexo III vigente para o ano informado.
+
+    Se o ano não tiver entrada exata, usa a tabela do ano mais recente disponível
+    que seja ≤ year (fallback conservador para anos futuros não mapeados).
+    """
+    if year in _SIMPLES_TABLES:
+        return _SIMPLES_TABLES[year]
+    available = sorted(y for y in _SIMPLES_TABLES if y <= year)
+    if available:
+        fallback_year = available[-1]
+        logger.warning(
+            "Tabela Simples Nacional para %d não cadastrada — usando %d como fallback. "
+            "Atualize _SIMPLES_TABLES em fiscal_report.py.",
+            year, fallback_year,
+        )
+        return _SIMPLES_TABLES[fallback_year]
+    # Ano anterior a todos os cadastrados — usa o mais antigo disponível
+    oldest = min(_SIMPLES_TABLES)
+    logger.warning("Usando tabela Simples Nacional de %d para o ano %d.", oldest, year)
+    return _SIMPLES_TABLES[oldest]
 
 _SUBCATEGORIES_RECEITA = {"receita_servicos", "receita_produtos"}
 _SUBCATEGORIES_DESPESA = {
@@ -252,11 +311,12 @@ class FiscalReportService:
 
         report.rbt12_anualizado = round(rbt12, 2)
 
+        tabela = _get_simples_table(year)
         aliquota_nominal = 0.0
         parcela_deducao = 0
         faixa_num = 0
 
-        for i, (limite, aliq, pd) in enumerate(_SIMPLES_NACIONAL_ANEXO_III, start=1):
+        for i, (limite, aliq, pd) in enumerate(tabela, start=1):
             if rbt12 <= limite:
                 aliquota_nominal = aliq
                 parcela_deducao = pd
