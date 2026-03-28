@@ -84,25 +84,52 @@ export interface TransactionsResponse {
 }
 
 // ==================== GOALS ====================
+export type GoalType = 'imovel' | 'viagem' | 'carro' | 'educacao' | 'emergencia' | 'outros';
+export type GoalStatus = 'ACTIVE' | 'COMPLETED' | 'ABANDONED';
+
+export interface GoalProjection {
+  months_to_complete: number | null;
+  monthly_contribution_needed: number;
+  completion_date: string | null;
+  feasibility: 'EASY' | 'MODERATE' | 'HARD' | 'UNREALISTIC';
+  alerts: string[];
+}
+
 export interface Goal {
   id: string;
   user_id: string;
-  title: string;
+  name: string;
+  goal_type: GoalType;
   target_amount: number;
   current_amount: number;
-  deadline: string;
-  status: 'active' | 'completed' | 'abandoned';
+  target_date: string | null;
+  status: GoalStatus;
+  monthly_contribution: number;
   created_at: string;
+  updated_at: string;
+  projection?: GoalProjection;
 }
 
 export interface CreateGoalRequest {
-  title: string;
+  name: string;
+  goal_type?: GoalType;
   target_amount: number;
-  deadline: string;
+  current_amount?: number;
+  target_date?: string;
 }
 
 export interface GoalProgressUpdate {
-  amount: number;
+  amount_to_add: number;
+  monthly_actual?: number;
+}
+
+export interface GoalsListResponse {
+  user_id: string;
+  status_filter: string;
+  limit: number;
+  offset: number;
+  total: number;
+  goals: Goal[];
 }
 
 // ==================== BUDGET ====================
@@ -122,9 +149,11 @@ export interface BudgetResponse {
 
 // ==================== CHAT ====================
 export interface ChatMessage {
-  role: 'user' | 'assistant';
+  id?: number;
+  role: 'user' | 'assistant' | 'human';
   content: string;
-  timestamp: string;
+  timestamp?: string;
+  created_at?: string;
 }
 
 export interface ChatRequest {
@@ -134,10 +163,17 @@ export interface ChatRequest {
 
 export interface ChatResponse {
   response: string;
-  session_id: string;
+  session_id?: string;
   tools_used?: string[];
   latency_ms?: number;
   cost_usd?: number;
+}
+
+export interface ChatHistoryItem {
+  id: number;
+  role: string;
+  content: string;
+  created_at: string;
 }
 
 // ==================== PLUGGY ====================

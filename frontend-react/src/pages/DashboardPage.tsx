@@ -102,7 +102,7 @@ export const DashboardPage: React.FC = () => {
 
   const goalsQuery = useQuery({
     queryKey: ['goals', userId],
-    queryFn: () => nexaApi.getGoals(userId),
+    queryFn: () => nexaApi.getGoals(userId, 'ACTIVE'),
     enabled: !!userId,
   });
 
@@ -480,14 +480,40 @@ export const DashboardPage: React.FC = () => {
           <div style={titleStyle}>Metas Financeiras</div>
           {goals.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Nenhuma meta cadastrada.</div>}
           {goals.slice(0, 3).map((goal: any) => {
-            const pct = Number(goal.progress_pct || 0);
+            const pct = goal.target_amount > 0 ? (goal.current_amount / goal.target_amount) * 100 : 0;
+            const goalTypeLabels: Record<string, string> = {
+              imovel: '🏠',
+              viagem: '✈️',
+              carro: '🚗',
+              educacao: '🎓',
+              emergencia: '🆘',
+              outros: '🎯',
+            };
+            const goalIcon = goalTypeLabels[goal.goal_type] || '🎯';
+            const feasibilityColor: Record<string, string> = {
+              EASY: '#10b981',
+              MODERATE: '#0978F6',
+              HARD: '#F39C12',
+              UNREALISTIC: '#E74C3C',
+            };
+            const feasibilityLabel: Record<string, string> = {
+              EASY: 'Fácil',
+              MODERATE: 'Moderada',
+              HARD: 'Difícil',
+              UNREALISTIC: 'Irrealista',
+            };
+            const projectionFeasibility = goal.projection?.feasibility || 'MODERATE';
+
             return (
-              <div key={goal.id || goal.name} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #f0f0f0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <strong style={{ fontSize: 14 }}>{goal.name || 'Meta'}</strong>
-                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{pct.toFixed(0)}%</span>
+              <div key={goal.goal_id || goal.name} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 16 }}>{goalIcon}</span>
+                    <strong style={{ fontSize: 14 }}>{goal.name || 'Meta'}</strong>
+                  </div>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>{pct.toFixed(0)}%</span>
                 </div>
-                <div style={{ height: 7, background: 'var(--border-color)', borderRadius: 99, overflow: 'hidden' }}>
+                <div style={{ height: 7, background: 'var(--border-color)', borderRadius: 99, overflow: 'hidden', marginBottom: 6 }}>
                   <div
                     style={{
                       width: `${Math.min(100, pct)}%`,
@@ -496,6 +522,19 @@ export const DashboardPage: React.FC = () => {
                     }}
                   />
                 </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)' }}>
+                  <span>{currency(goal.current_amount)} de {currency(goal.target_amount)}</span>
+                  {goal.projection?.months_to_complete && (
+                    <span style={{ color: feasibilityColor[projectionFeasibility] }}>
+                      {goal.projection.months_to_complete} meses ({feasibilityLabel[projectionFeasibility]})
+                    </span>
+                  )}
+                </div>
+                {goal.monthly_contribution_needed && (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                    💰 Necessário: {currency(goal.monthly_contribution_needed)}/mês
+                  </div>
+                )}
               </div>
             );
           })}

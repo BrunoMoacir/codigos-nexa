@@ -14,14 +14,46 @@ export const nexaApi = {
     return data;
   },
 
-  getGoals: async (userId: string) => {
-    const { data } = await apiClient.get(`/goals/${userId}`);
+  // Goals (com suporte a paginação e filtros)
+  getGoals: async (userId: string, status = 'ACTIVE', limit = 50, offset = 0) => {
+    const { data } = await apiClient.get(`/goals/${userId}`, {
+      params: { status, limit, offset },
+    });
     return data;
   },
 
-  getTransactions: async (userId: string, limit = 300) => {
+  getGoal: async (userId: string, goalId: string) => {
+    const { data } = await apiClient.get(`/goals/${userId}/${goalId}`);
+    return data;
+  },
+
+  createGoal: async (userId: string, goalData: {
+    name: string;
+    goal_type?: string;
+    target_amount: number;
+    current_amount?: number;
+    target_date?: string;
+  }) => {
+    const { data } = await apiClient.post(`/goals/${userId}`, goalData);
+    return data;
+  },
+
+  updateGoalProgress: async (userId: string, goalId: string, payload: {
+    amount_to_add: number;
+    monthly_actual?: number;
+  }) => {
+    const { data } = await apiClient.patch(`/goals/${userId}/${goalId}/progress`, payload);
+    return data;
+  },
+
+  abandonGoal: async (userId: string, goalId: string) => {
+    const { data } = await apiClient.delete(`/goals/${userId}/${goalId}`);
+    return data;
+  },
+
+  getTransactions: async (userId: string, limit = 300, offset = 0) => {
     const { data } = await apiClient.get(`/transactions/${userId}`, {
-      params: { limit },
+      params: { limit, offset },
     });
     return data;
   },
@@ -69,6 +101,13 @@ export const nexaApi = {
   // Chat
   sendChatMessage: async (userId: string, message: string) => {
     const { data } = await apiClient.post('/chat/', { user_id: userId, message });
+    return data;
+  },
+
+  getChatHistory: async (userId: string, limit = 50) => {
+    const { data } = await apiClient.get('/chat/history', {
+      params: { user_id: userId, limit },
+    });
     return data;
   },
 
