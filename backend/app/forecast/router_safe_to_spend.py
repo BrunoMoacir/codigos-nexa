@@ -16,7 +16,6 @@ Campos retornados:
 """
 
 import logging
-import os
 from datetime import date
 
 import polars as pl
@@ -64,10 +63,8 @@ async def get_safe_to_spend(user_id: str, current_user: str = Depends(get_curren
     logger.info("GET /safe-to-spend/%s", user_id)
 
     try:
-        from app.runner import NexaRunner
-        runner_mode = os.getenv("RUNNER_MODE", "dev")
-        runner = NexaRunner(mode=runner_mode)
-        result = runner.run(horizon_days=30)
+        from app.runner import get_runner
+        result = get_runner().run_from_db(user_id=user_id, horizon_days=30)
     except Exception as exc:
         logger.error("Erro ao executar pipeline para safe-to-spend/%s: %s", user_id, exc)
         raise HTTPException(
