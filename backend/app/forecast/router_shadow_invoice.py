@@ -143,7 +143,7 @@ async def get_shadow_invoices(
         # SELECT * FROM transactions_clean 
         # WHERE user_id = ? AND date >= now() - interval 90 days
         
-        from app.runner import NexaRunner
+        from app.runner import get_runner
         from app.core.config import settings
         import os
 
@@ -154,8 +154,7 @@ async def get_shadow_invoices(
                 detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
             )
 
-        runner = NexaRunner(mode=mode)
-        runner_result = runner.run(horizon_days=days_ahead)
+        runner_result = get_runner(mode).run(horizon_days=days_ahead)
         
         if not runner_result:
             logger.warning(f"⚠️ Nenhuma transação encontrada para user_id={user_id}")
@@ -232,7 +231,7 @@ async def get_shadow_invoice_summary(user_id: str = Depends(require_owner)):
     try:
         logger.info("Gerando summary de shadow invoices para user=%s", user_id)
         
-        from app.runner import NexaRunner
+        from app.runner import get_runner
         from app.core.config import settings
         import os
 
@@ -243,8 +242,7 @@ async def get_shadow_invoice_summary(user_id: str = Depends(require_owner)):
                 detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
             )
 
-        runner = NexaRunner(mode=mode)
-        runner_result = runner.run(horizon_days=30)
+        runner_result = get_runner(mode).run(horizon_days=30)
         
         shadow_data = runner_result.get("shadow_invoices", {})
         

@@ -117,7 +117,7 @@ async def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
         safe_to_spend_total (R$/mês) ou None se F1 indisponível.
     """
     try:
-        from app.runner import NexaRunner  # import tardio para evitar custo no startup
+        from app.runner import get_runner  # import tardio para evitar custo no startup
 
         import os
         from app.core.config import settings
@@ -131,8 +131,7 @@ async def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
                 detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
             )
 
-        runner = NexaRunner(mode=mode)
-        result = runner.run(horizon_days=30)
+        result = get_runner(mode).run(horizon_days=30)
 
         sts = result.get("safe_to_spend", {})
         value = sts.get("safe_to_spend_total")

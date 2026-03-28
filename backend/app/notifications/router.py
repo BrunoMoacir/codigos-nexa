@@ -98,7 +98,7 @@ def get_notifications(
 
     # ── 1. NexaRunner: busca transações e cashflow ─────────────────
     try:
-        from app.runner import NexaRunner
+        from app.runner import get_runner
         from app.forecast.etl.income_profiler import IncomeProfiler
         from app.forecast.etl.spending_anomaly_detector import SpendingAnomalyDetector
         from app.forecast.cashflow.burn_rate import BurnRateAnalyzer
@@ -114,8 +114,7 @@ def get_notifications(
                 detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
             )
 
-        runner = NexaRunner(mode=mode)
-        runner_result = runner.run(horizon_days=30)
+        runner_result = get_runner(mode).run(horizon_days=30)
 
         transactions_data = runner_result.get("transactions", {})
         transactions_df: pl.DataFrame | None = transactions_data.get("pf_pj_classified_df")
