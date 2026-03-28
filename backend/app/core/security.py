@@ -68,11 +68,26 @@ def revoke_token(jti: str, expires_in_seconds: int) -> None:
 
 
 def _is_token_revoked(jti: str) -> bool:
-    """Retorna True se o jti estiver na blacklist Redis."""
+    """
+    Retorna True se o jti estiver na blacklist Redis.
+
+    Comportamento quando Redis está indisponível:
+      - Fail-open: tokens revogados por logout são temporariamente aceitos.
+      - Trade-off consciente: bloquear todos os usuários quando Redis cai é
+        pior para disponibilidade do que aceitar tokens recentemente revogados
+        por um curto período.
+      - Mitigação: TTL máximo de 24h garante expiração natural dos tokens.
+      - Monitore alertas de Redis para detectar janelas de fail-open.
+    """
     from app.core.cache import get_redis
+    import logging as _log
     client = get_redis()
     if not client:
-        return False  # Redis indisponível — deixa passar (fail-open em disponibilidade)
+        _log.getLogger(__name__).warning(
+            "[Security] Redis indisponível — verificação de token revogado ignorada (fail-open). "
+            "Tokens revogados por logout podem ser aceitos até o Redis se recuperar."
+        )
+        return False
     try:
         return client.exists(f"{_BLACKLIST_PREFIX}{jti}") == 1
     except Exception:
@@ -124,6 +139,31 @@ async def get_current_user(
         raise credentials_exception
 
     return token_data.user_id
+
+
+def validate_user_id(user_id: str) -> str:
+    """
+    Valida que user_id é um UUID v4 bem formado.
+
+    Uso nos endpoints:
+        user_id: str = Depends(lambda uid: validate_user_id(uid))
+    Ou inline:
+        validate_user_id(user_id)
+
+    Raises:
+        HTTPException 422 se o formato for inválido.
+    """
+    import re
+    _UUID_RE = re.compile(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+        re.IGNORECASE,
+    )
+    if not _UUID_RE.match(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="user_id deve ser um UUID v4 válido.",
+        )
+    return user_id
 
 
 async def get_current_token_data(token: str = Depends(oauth2_scheme)) -> TokenData:

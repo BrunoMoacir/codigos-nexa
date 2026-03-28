@@ -16,7 +16,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.orm import Session
-from app.core.security import get_current_user
+from app.core.security import get_current_user, validate_user_id
 from app.core.database import get_db
 from pydantic import BaseModel, Field, model_validator
 
@@ -80,6 +80,7 @@ def create_goal(
     Calcula automaticamente a contribuição mensal necessária baseada
     no valor restante e na data alvo.
     """
+    validate_user_id(user_id)
     if current_user != user_id:
         raise HTTPException(status_code=403, detail="Acesso negado.")
     from app.goals.tracker import GoalTracker
@@ -112,6 +113,7 @@ def list_goals(
 
     Suporta paginação via `limit` e `offset`.
     """
+    validate_user_id(user_id)
     if current_user != user_id:
         raise HTTPException(status_code=403, detail="Acesso negado.")
     from app.goals.tracker import GoalTracker

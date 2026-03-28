@@ -21,6 +21,10 @@ from sqlalchemy.orm import Session
 router = APIRouter(prefix="/auth", tags=["Auth"])
 limiter = Limiter(key_func=get_remote_address)
 
+# Hash fictício usado para equalizar o tempo de resposta quando o usuário
+# não é encontrado — evita timing attack / enumeração de contas.
+_DUMMY_HASH = get_password_hash("__nexa_dummy_password_never_used__")
+
 class UserCreate(BaseModel):
     email: str
     password: str
@@ -33,7 +37,8 @@ class Token(BaseModel):
     full_name: str | None = None
 
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
-async def register(user: UserCreate, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+async def register(request: Request, user: UserCreate, db: Session = Depends(get_db)):
     db_user = get_user_by_email(db, user.email)
     if db_user:
         raise HTTPException(
@@ -63,12 +68,16 @@ async def register(user: UserCreate, db: Session = Depends(get_db)):
 async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = get_user_by_email(db, form_data.username)
     if not user:
+        # Executa verify_password com hash fictício para equalizar tempo de resposta.
+        # Sem isso, o tempo de retorno quando o email não existe é visivelmente menor,
+        # permitindo enumeração de usuários cadastrados (timing attack).
+        verify_password(form_data.password, _DUMMY_HASH)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email ou senha incorretos",
             headers={"WWW-Authenticate": "Bearer"},
         )
-        
+
     if not verify_password(form_data.password, user["hashed_password"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

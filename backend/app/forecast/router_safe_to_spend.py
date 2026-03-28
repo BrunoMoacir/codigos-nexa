@@ -20,7 +20,7 @@ from datetime import date
 
 import polars as pl
 from fastapi import APIRouter, HTTPException, status, Depends
-from app.core.security import get_current_user
+from app.core.security import get_current_user, validate_user_id
 from app.core.cache import cache_response
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,7 @@ async def get_safe_to_spend(user_id: str, current_user: str = Depends(get_curren
     }
     ```
     """
+    validate_user_id(user_id)
     if current_user != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
 
