@@ -40,7 +40,7 @@ from sqlalchemy import func
 from app.core.schemas.transaction import TransactionBatchResult
 from app.forecast.etl import TransactionIngestor, TransactionClassifier
 from app.core.database import get_db
-from app.core.cache import cache_response
+from app.core.cache import cache_response, invalidate_user_cache
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CONFIGURAÇÃO
@@ -171,6 +171,10 @@ async def receive_transaction_webhook(
                     "saved_rows": saved_rows
                 }
             )
+
+            # Invalidar cache após salvar transações
+            invalidate_user_cache(user_id)
+            logger.debug(f"Cache invalidado para user_id={user_id} após novas transações")
             
         except Exception as e:
             logger.error(f"Erro no ETL Pipeline: {e}", exc_info=True)
