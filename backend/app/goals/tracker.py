@@ -38,6 +38,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Optional
 
+from sqlalchemy.orm import Session
+
 logger = logging.getLogger(__name__)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
