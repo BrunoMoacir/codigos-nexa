@@ -35,9 +35,13 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, status, Depends
-from app.core.security import get_current_user
+from fastapi import APIRouter, HTTPException, Request, status, Depends
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from app.core.security import get_current_user, validate_user_id
 from app.core.cache import cache_response
+
+limiter = Limiter(key_func=get_remote_address)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # IMPORTS: Engine & Processamento
@@ -80,11 +84,12 @@ async def fetch_user_transactions(user_id: str, horizon_days: int = 30):
     logger.info(f"🔍 Buscando transações para user_id={user_id}")
 
     try:
-        from app.runner import NexaRunner
+        from app.runner import get_runner
 
         # ── 1. Tentar dados reais do banco (Postgres/DuckDB) ──────
-        runner = NexaRunner(mode="dev")  # mode não importa para run_from_db
-        result = runner.run_from_db(user_id=user_id, horizon_days=horizon_days)
+        # get_runner() reutiliza a instância singleton — evita reinicializar os
+        # 9 componentes do pipeline a cada request. run_from_db() não usa Pluggy.
+        result = get_runner().run_from_db(user_id=user_id, horizon_days=horizon_days)
 
         if result is not None and result.get("status") == "success":
             logger.info("✅ Pipeline executado com dados REAIS do banco para user=%s", user_id)
@@ -100,10 +105,10 @@ async def fetch_user_transactions(user_id: str, horizon_days: int = 30):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Erro ao buscar transações: {e}", exc_info=True)
+        logger.error("❌ Erro ao buscar transações para user=%s: %s", user_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao processar dados do usuário: {str(e)}"
+            detail="Erro ao processar dados do usuário.",
         )
 
 
@@ -113,7 +118,9 @@ async def fetch_user_transactions(user_id: str, horizon_days: int = 30):
 
 @router.get("/{user_id}", response_model=ForecastResponse)
 @cache_response(prefix="forecast", ttl=900)  # 15 min
+@limiter.limit("10/minute")
 async def get_forecast(
+    request: Request,
     user_id: str,
     horizon_days: int = 30,
     current_user: str = Depends(get_current_user),
@@ -170,11 +177,12 @@ async def get_forecast(
     - 500: Erro ao processar dados
     """
     
+    validate_user_id(user_id)
     if current_user != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
 
     try:
-        logger.info(f"📊 Iniciando forecast para user_id={user_id} (horizon={horizon_days})...")
+        logger.info("📊 Iniciando forecast para user_id=%s (horizon=%d)", user_id, horizon_days)
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # STEP 1: BUSCAR DADOS DO USUÁRIO
@@ -433,10 +441,10 @@ async def get_forecast(
         # Erros HTTP já formatados
         raise
     except Exception as e:
-        logger.error(f"❌ Erro inesperado ao gerar forecast: {e}", exc_info=True)
+        logger.error("❌ Erro inesperado ao gerar forecast para user=%s: %s", user_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao gerar previsão financeira: {str(e)}"
+            detail="Erro ao gerar previsão financeira.",
         )
 
 

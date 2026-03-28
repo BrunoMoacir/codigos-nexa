@@ -19,11 +19,21 @@ router = APIRouter(prefix="/chat", tags=["Agent Chat"])
 limiter = Limiter(key_func=get_remote_address)
 
 _agent_app = None
+_agent_lock = __import__("threading").Lock()
+
 
 def _get_agent():
+    """
+    Retorna a instância singleton do agente LLM.
+
+    Double-checked locking garante inicialização única mesmo com múltiplas
+    requisições simultâneas no startup (race condition no primeiro request).
+    """
     global _agent_app
     if _agent_app is None:
-        _agent_app = build_financial_agent()
+        with _agent_lock:
+            if _agent_app is None:
+                _agent_app = build_financial_agent()
     return _agent_app
 
 
