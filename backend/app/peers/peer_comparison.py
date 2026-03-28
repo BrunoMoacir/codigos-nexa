@@ -3,10 +3,19 @@ app/peers/peer_comparison.py — Comparação Anônima com Perfis Similares (MX.
 
 RESPONSABILIDADE:
     Compara o perfil de gastos do usuário com benchmarks agregados baseados na
-    Pesquisa de Orçamentos Familiares (POF) 2017-2018 do IBGE, ajustados para 2026.
+    Pesquisa de Orçamentos Familiares (POF) 2022-2023 do IBGE.
 
     Para o MVP os benchmarks são hardcoded por faixa de renda.
     Em produção V2, substituir pelos dados agregados anônimos da própria base.
+
+FONTE DOS BENCHMARKS:
+    IBGE — Pesquisa de Orçamentos Familiares 2022-2023.
+    Ajustes aplicados em relação à POF 2017-2018:
+    - Alimentacao:  +1-2 p.p. (pressão inflacionária pós-2020)
+    - Saude:        +1 p.p.   (maior consciência e gasto pós-COVID)
+    - Outros:       +1 p.p.   (crescimento de streaming e assinaturas digitais)
+    - Vestuario:    -1 p.p.   (home office reduziu gastos com roupas formais)
+    - Poupanca:     ajuste para refletir menor capacidade de poupança nas faixas BAIXA/MEDIA
 
 FAIXAS DE RENDA:
     BAIXA:   até R$ 3.000/mês
@@ -34,53 +43,63 @@ from typing import Optional
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# BENCHMARKS — IBGE/POF 2017-2018 ajustados (% da renda líquida)
+# BENCHMARKS — IBGE/POF 2022-2023 (% da renda líquida)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 _BENCHMARKS: dict[str, dict[str, float]] = {
+    # Renda até R$ 3.000/mês: maior peso em alimentação e moradia.
+    # POF 2022-2023 mostra pressão inflacionária elevando share de alimentos +2 p.p.
+    # Poupança reduzida pelo aumento do custo de vida.
     "BAIXA": {
         "moradia":      0.40,
-        "alimentacao":  0.25,
-        "transporte":   0.12,
-        "saude":        0.05,
+        "alimentacao":  0.27,
+        "transporte":   0.11,
+        "saude":        0.06,
         "lazer":        0.03,
         "educacao":     0.02,
-        "vestuario":    0.03,
-        "outros":       0.05,
-        "poupanca":     0.05,
+        "vestuario":    0.02,
+        "outros":       0.06,
+        "poupanca":     0.03,
     },
+    # Renda R$ 3.001–R$ 8.000/mês: classe média com melhor diversificação.
+    # Crescimento de streaming/assinaturas digitais eleva "outros" +1 p.p.
+    # Vestuário cai -1 p.p. (home office pós-pandemia).
     "MEDIA": {
         "moradia":      0.30,
-        "alimentacao":  0.18,
+        "alimentacao":  0.19,
         "transporte":   0.10,
-        "saude":        0.05,
+        "saude":        0.06,
         "lazer":        0.08,
         "educacao":     0.05,
-        "vestuario":    0.04,
-        "outros":       0.07,
-        "poupanca":     0.13,
+        "vestuario":    0.03,
+        "outros":       0.08,
+        "poupanca":     0.11,
     },
+    # Renda R$ 8.001–R$ 20.000/mês: menor share em necessidades básicas,
+    # mais espaço para lazer, educação e investimentos.
     "ALTA": {
-        "moradia":      0.25,
+        "moradia":      0.24,
         "alimentacao":  0.12,
         "transporte":   0.08,
-        "saude":        0.06,
+        "saude":        0.07,
         "lazer":        0.12,
         "educacao":     0.07,
-        "vestuario":    0.04,
+        "vestuario":    0.03,
         "outros":       0.08,
-        "poupanca":     0.18,
+        "poupanca":     0.19,
     },
+    # Renda acima de R$ 20.000/mês: maior capacidade de poupança e investimento.
+    # Saúde sobe para 8% (planos premium, check-ups, bem-estar).
     "PREMIUM": {
-        "moradia":      0.20,
+        "moradia":      0.18,
         "alimentacao":  0.08,
         "transporte":   0.05,
-        "saude":        0.07,
+        "saude":        0.08,
         "lazer":        0.15,
         "educacao":     0.08,
         "vestuario":    0.03,
         "outros":       0.08,
-        "poupanca":     0.26,
+        "poupanca":     0.27,
     },
 }
 

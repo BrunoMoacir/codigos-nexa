@@ -177,10 +177,10 @@ async def create_reconnect_url(
         )
         
     except Exception as e:
-        logger.error(f"❌ Erro ao gerar URL de reconexão: {e}", exc_info=True)
+        logger.error("Erro ao gerar URL de reconexão para user=%s: %s", user_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao gerar URL: {str(e)}"
+            detail="Erro ao gerar URL de conexão. Tente novamente em alguns instantes.",
         )
 
 

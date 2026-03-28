@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     # Cache / Sessões do agente
     REDIS_URL: str = "redis://redis:6379/0"
 
+    # Pool de conexões do banco — ajuste conforme número de workers uvicorn
+    # Regra geral: pool_size >= número de workers; max_overflow é burst extra
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 10
+
     # Ambiente
     APP_ENV: str = "development"   # "development" | "production"
     LOG_LEVEL: str = "INFO"

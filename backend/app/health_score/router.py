@@ -18,7 +18,6 @@ Fluxo:
   5. Retorna resposta
 """
 
-import asyncio
 import logging
 from typing import List, Literal, Optional
 
@@ -30,9 +29,10 @@ from pydantic import BaseModel
 from app.core.db.queries import (
     get_health_score_history,
     save_health_score_snapshot,
+    get_transactions_for_user,
 )
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import require_owner
 from app.core.cache import cache_response
 from app.forecast.etl.profiles import UserProfileAnalyzer
 
@@ -101,42 +101,6 @@ def _get_change(history: list[dict], months_back: int) -> Optional[int]:
     return current - reference
 
 
-def _fetch_transactions_sync(db: Session, user_id: str) -> pl.DataFrame:
-    from app.core.models.transaction import Transaction
-    import polars as pl
-
-    try:
-        transactions = db.query(Transaction).filter(Transaction.user_id == user_id).all()
-        if not transactions:
-            from app.core.db.queries import get_transactions_for_user
-            return get_transactions_for_user(user_id)
-
-        return pl.DataFrame(
-            [
-                {
-                    "transaction_id": tx.transaction_id,
-                    "user_id": tx.user_id,
-                    "account_id": tx.account_id,
-                    "description": tx.description,
-                    "amount": tx.amount,
-                    "date": tx.date,
-                    "transaction_type": tx.transaction_type,
-                    "category": tx.category,
-                    "is_recurring": tx.is_recurring,
-                    "is_installment": tx.is_installment,
-                    "context_type": tx.context_type,
-                    "context_confidence": tx.context_confidence,
-                    "context_override_by_user": tx.context_override_by_user,
-                    "pj_subcategory": tx.pj_subcategory,
-                }
-                for tx in transactions
-            ]
-        )
-    except Exception as e:
-        logger.error(f"[health-score] Postgres indisponível, caindo para fallback: {e}")
-        from app.core.db.queries import get_transactions_for_user
-
-        return get_transactions_for_user(user_id)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -146,10 +110,9 @@ def _fetch_transactions_sync(db: Session, user_id: str) -> pl.DataFrame:
 @router.get("/history/{user_id}", response_model=HealthScoreHistoryResponse)
 @cache_response(prefix="health_score", ttl=1800)  # 30 min
 def get_health_score_history_endpoint(
-    user_id: str,
+    user_id: str = Depends(require_owner),
     months: int = Query(default=6, ge=1, le=24, description="Meses de histórico"),
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user),
 ) -> HealthScoreHistoryResponse:
     """
     Retorna o histórico do score de saúde financeira do usuário.
@@ -176,13 +139,11 @@ def get_health_score_history_endpoint(
     }
     ```
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+    logger.info("[health-score] Solicitado histórico para user=%s months=%d", user_id, months)
 
-    logger.info(f"[health-score] Solicitado histórico para user={user_id} months={months}")
-
-    # ── 1. Buscar transações (Direto pela Sessão/Thread do FastAPI) ─
-    transactions_df = _fetch_transactions_sync(db, user_id)
+    # ── 1. Buscar transações — usa get_transactions_for_user centralizado ─
+    # Passa a session atual para evitar abrir uma nova conexão redundante.
+    transactions_df = get_transactions_for_user(user_id, db=db)
 
     data_quality = "OK"
     current_score: Optional[int] = None

@@ -2,13 +2,23 @@
 # Rotas REST da Funcionalidade 2: Nexa Optimizer
 
 import logging
-from fastapi import APIRouter, HTTPException, Depends, Query, status
-from app.core.security import get_current_user
+from datetime import datetime as _datetime
 from typing import Optional
 
-from app.optimizer.models import OptimizationRequest, OptimizationReport
-from app.optimizer.services.optimizer_service import OptimizerService
 import polars as pl
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel as _BaseModel
+
+from app.core.db.queries import get_transactions_for_user
+from app.core.security import get_current_user, require_owner
+from app.optimizer.card_loader import CardKnowledgeBase
+from app.optimizer.models import CurrentCardROI, OptimizationReport, OptimizationRequest
+from app.optimizer.opportunity_cost import OpportunityCostCalculator
+from app.optimizer.profiler import ConsumptionProfiler
+from app.optimizer.promotion_tracker import PromotionTracker
+from app.optimizer.queries import get_optimization_report_by_id, get_optimization_reports
+from app.optimizer.services.optimizer_service import OptimizerService
+from app.optimizer.simulator import CardSimulator
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/optimizer", tags=["Optimizer (F2)"])
@@ -32,8 +42,6 @@ async def analyze_cards(
     logger.info(f"[API] Solicitando otimização de cartões para user_id={request.user_id}")
     
     try:
-        from app.core.db.queries import get_transactions_for_user
-
         transactions_df = get_transactions_for_user(request.user_id)
         if transactions_df.is_empty():
             logger.warning("[API] Sem transações para user=%s. Usando DataFrame vazio.", request.user_id)
@@ -57,33 +65,30 @@ async def analyze_cards(
         return report
 
     except ValueError as ve:
-        # Erros de validação (regras de negócio)
-        logger.error(f"[API] Erro de validação: {ve}")
-        raise HTTPException(status_code=400, detail=str(ve))
+        logger.error("[API] Erro de validação na otimização: %s", ve)
+        raise HTTPException(status_code=422, detail="Dados inválidos para análise de cartões.")
     
     except Exception as e:
         logger.error(f"[API] Erro interno durante otimização: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno ao processar a otimização de cartões.")
 
-from app.optimizer.queries import get_optimization_reports, get_optimization_report_by_id
-from app.optimizer.card_loader import CardKnowledgeBase
-from app.optimizer.opportunity_cost import OpportunityCostCalculator
-from app.optimizer.profiler import ConsumptionProfiler
-
 @router.get("/reports/{user_id}")
-async def list_user_reports(user_id: str, current_user: str = Depends(get_current_user)):
+async def list_user_reports(user_id: str = Depends(require_owner)):
     """Retorna o histórico resumido de otimizações de um usuário."""
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     reports = get_optimization_reports(user_id)
     return {"reports": reports}
 
 @router.get("/reports/{report_id}/detail")
-async def get_report_detail(report_id: str):
+async def get_report_detail(
+    report_id: str,
+    current_user: str = Depends(get_current_user),
+):
     """Retorna os detalhes completos de um relatório gerado."""
     report = get_optimization_report_by_id(report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Relatório não encontrado")
+    if report.get("user_id") != current_user:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     return report
 
 @router.get("/cards")
@@ -99,10 +104,9 @@ async def list_available_cards():
 
 @router.get("/opportunity-cost")
 async def get_opportunity_cost(
-    user_id: str,
     current_card_id: str,
     months: int = 3,
-    current_user: str = Depends(get_current_user),
+    user_id: str = Depends(require_owner),
 ):
     """
     Calcula quanto o usuário deixou de ganhar por usar o cartão atual
@@ -130,11 +134,7 @@ async def get_opportunity_cost(
     }
     ```
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     try:
-        from app.core.db.queries import get_transactions_for_user
-
         transactions_df = get_transactions_for_user(user_id)
 
         if transactions_df.is_empty():
@@ -177,11 +177,6 @@ async def get_opportunity_cost(
 # M2.2 — Estratégia Multi-Cartão ("Carteira ideal")
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-from pydantic import BaseModel as _BaseModel
-from typing import Optional as _Optional
-from datetime import datetime as _datetime
-
-
 class _CardAssignmentResponse(_BaseModel):
     card_id: str
     card_name: str
@@ -212,10 +207,9 @@ class _CardPortfolioResponse(_BaseModel):
 
 @router.get("/portfolio/{user_id}", response_model=_CardPortfolioResponse)
 async def get_card_portfolio(
-    user_id: str,
+    user_id: str = Depends(require_owner),
     max_cards: int = Query(default=3, ge=1, le=5, description="Máximo de cartões na carteira"),
-    monthly_income: _Optional[float] = Query(default=None, description="Renda mensal (R$) para cálculo de elegibilidade"),
-    current_user: str = Depends(get_current_user),
+    monthly_income: Optional[float] = Query(default=None, description="Renda mensal (R$) para cálculo de elegibilidade"),
 ):
     """
     Calcula a carteira ideal de cartões para o perfil de gastos do usuário.
@@ -246,13 +240,9 @@ async def get_card_portfolio(
     }
     ```
     """
-    from app.optimizer.multi_card_strategy import MultiCardStrategist
-    from app.core.db.queries import get_transactions_for_user
+    from app.optimizer.multi_card_strategy import MultiCardStrategist  # lazy — evita circular import no startup
 
-    logger.info(f"[API] Portfolio multi-cartão para user={user_id} max_cards={max_cards}")
-
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+    logger.info("[API] Portfolio multi-cartão para user=%s max_cards=%d", user_id, max_cards)
     # ── 1. Buscar transações ────────────────────────────────────────
     try:
         transactions_df = get_transactions_for_user(user_id)
@@ -348,14 +338,10 @@ async def get_card_portfolio(
 # M2.4 — ROI do Cartão Atual ("Sua anuidade está se pagando?")
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-from app.optimizer.models import CurrentCardROI
-from app.optimizer.simulator import CardSimulator
-
-
 @router.get("/roi/{card_id}", response_model=CurrentCardROI)
 async def get_card_roi(
     card_id: str,
-    user_id: str = Query(..., description="ID do usuário"),
+    user_id: str = Depends(require_owner),
     monthly_spend: Optional[float] = Query(
         default=None,
         description="Gasto mensal médio (R$). Se omitido, calculado a partir do histórico de transações."
@@ -372,7 +358,6 @@ async def get_card_roi(
     - `user_id`: ID do usuário
     - `monthly_spend`: Opcional — gasto mensal. Se omitido, usa histórico real.
     """
-    from app.core.db.queries import get_transactions_for_user
     from dataclasses import replace as _replace
 
     # 1. Carregar o cartão
@@ -442,7 +427,6 @@ async def list_active_promotions(
     GET /optimizer/promotions?include_expired=true
     ```
     """
-    from app.optimizer.promotion_tracker import PromotionTracker
     tracker = PromotionTracker()
     promotions = tracker.get_all_promotions(include_expired=include_expired)
     return {
@@ -493,8 +477,6 @@ async def check_promotion_opportunities(
     }
     ```
     """
-    from app.optimizer.promotion_tracker import PromotionTracker
-
     # Parse dos query params
     user_cards: list[str] = [c.strip() for c in cards.split(",") if c.strip()]
     user_points: dict[str, int] = {}

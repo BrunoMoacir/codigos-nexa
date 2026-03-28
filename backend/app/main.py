@@ -2,6 +2,8 @@
 import logging
 import time
 import os
+import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -32,21 +34,76 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Log de informações importantes para debug no Railway
-logger.info(f"🚀 Starting Nexa API")
-logger.info(f"📦 Python version: {os.sys.version}")
-logger.info(f"🌍 APP_ENV: {os.getenv('APP_ENV', 'not set')}")
-logger.info(f"🔗 DATABASE_URL configured: {bool(os.getenv('DATABASE_URL'))}")
-logger.info(f"🔑 SECRET_KEY configured: {bool(os.getenv('SECRET_KEY'))}")
-logger.info(f"🤖 LLM_PROVIDER: {os.getenv('LLM_PROVIDER', 'not set')}")
-logger.info(f"🚪 PORT: {os.getenv('PORT', '8000')}")
+logger.info("Starting Nexa API")
+logger.info("APP_ENV: %s", os.getenv("APP_ENV", "not set"))
+logger.info("DATABASE_URL configured: %s", bool(os.getenv("DATABASE_URL")))
+logger.info("SECRET_KEY configured: %s", bool(os.getenv("SECRET_KEY")))
+logger.info("LLM_PROVIDER: %s", os.getenv("LLM_PROVIDER", "not set"))
 
-# Rate limiter global (por IP)
-limiter = Limiter(key_func=get_remote_address)
+
+def _create_db_tables() -> None:
+    """
+    Garante que o schema mínimo existe no Postgres. Backoff exponencial.
+
+    ATENÇÃO: `create_all` é adequado apenas para desenvolvimento e ambientes
+    de teste. Em produção, use migrações Alembic (`alembic upgrade head`) para
+    controlar mudanças de schema de forma incremental e rastreável.
+    """
+    if os.getenv("APP_ENV") == "production":
+        logger.info(
+            "APP_ENV=production: pulando create_all(). "
+            "Certifique-se de que as migrações Alembic foram aplicadas antes de iniciar."
+        )
+        return
+    last_err: Exception | None = None
+    for attempt in range(20):
+        try:
+            Base.metadata.create_all(bind=engine)
+            logger.info("DB schema ready (attempt %d)", attempt + 1)
+            return
+        except Exception as e:
+            last_err = e
+            wait = min(2 ** attempt, 30)
+            logger.warning("DB connection attempt %d/20 failed: %s — retry in %ds", attempt + 1, e, wait)
+            time.sleep(wait)
+    logger.error("Failed to connect to database after 20 attempts: %s", last_err)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ── Startup ──────────────────────────────────────────────────────
+    _create_db_tables()
+    yield
+    # ── Shutdown ─────────────────────────────────────────────────────
+    logger.info("Shutting down Nexa API — closing DB and cache connections")
+    try:
+        engine.dispose()
+        logger.info("DB connection pool closed")
+    except Exception as e:
+        logger.warning("Error closing DB pool: %s", e)
+    try:
+        from app.core.cache import get_redis
+        redis_client = get_redis()
+        if redis_client:
+            redis_client.close()
+            logger.info("Redis connection closed")
+    except Exception as e:
+        logger.warning("Error closing Redis: %s", e)
+
+
+# Rate limiter global (por IP) com storage Redis para ser eficaz em múltiplas instâncias.
+# Fallback para storage em memória se Redis não estiver configurado.
+try:
+    limiter = Limiter(key_func=get_remote_address, storage_uri=settings.REDIS_URL)
+    logger.info("Rate limiter: Redis storage (%s)", settings.REDIS_URL)
+except Exception:
+    limiter = Limiter(key_func=get_remote_address)
+    logger.warning("Rate limiter: in-memory storage (Redis indisponível)")
 
 app = FastAPI(
     title="Nexa API",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=lifespan,
 )
 
 # Registra o limiter e o handler de erro 429
@@ -65,49 +122,55 @@ app.add_middleware(
 
 # Registra as rotas da API v1
 app.include_router(api_router, prefix="/api/v1")
-
 app.include_router(dashboard_router)
 
 
-@app.on_event("startup")
-def _startup_create_tables() -> None:
-    """Garante que o schema mínimo existe no Postgres (dev/local, idempotente)."""
-    last_err: Exception | None = None
-    # Railway pode levar até 60 segundos para conectar o banco
-    for attempt in range(60):
-        try:
-            Base.metadata.create_all(bind=engine)
-            logger.info("DB schema ready")
-            return
-        except Exception as e:
-            last_err = e
-            logger.warning(f"DB connection attempt {attempt + 1}/60 failed: {e}")
-            time.sleep(1)
-    logger.error(f"Failed to connect to database after 60 attempts: {last_err}")
-    # Não falhar completamente - deixar a API subir mesmo sem DB
-    # Isso permite que o health check do Railway passe
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    """
+    Middleware de logging estruturado com correlation ID.
+
+    Adiciona X-Request-ID a cada request (gerado ou propagado do cliente)
+    e loga método, path, status e tempo de resposta para cada chamada.
+    """
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    start = time.monotonic()
+
+    response = await call_next(request)
+
+    elapsed_ms = (time.monotonic() - start) * 1000
+    logger.info(
+        "%s %s → %d  (%.0fms) [req=%s]",
+        request.method,
+        request.url.path,
+        response.status_code,
+        elapsed_ms,
+        request_id,
+    )
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 
 @app.get("/health")
 def health():
-    """Health check endpoint - não depende do banco de dados"""
+    """Liveness probe — verifica se o processo está de pé (não depende do banco)."""
     return {"status": "ok", "service": "nexa-api"}
 
 
 @app.get("/readiness")
 def readiness():
-    """Verifica se a API está pronta (incluindo banco de dados)"""
+    """Readiness probe — retorna 503 se o banco não estiver acessível."""
     try:
-        # Tenta fazer uma query simples no banco
         from sqlalchemy import text
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return {"status": "ready", "database": "connected"}
     except Exception as e:
-        logger.error(f"Readiness check failed: {e}")
+        logger.error("Readiness check failed: %s", e)
         return JSONResponse(
             status_code=503,
-            content={"status": "not_ready", "database": "disconnected", "error": str(e)}
+            content={"status": "not_ready", "database": "disconnected"},
         )
 
 

@@ -13,7 +13,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, status, Depends
-from app.core.security import get_current_user
+from app.core.security import require_owner
 from app.core.cache import cache_response
 
 from app.core.db.queries import get_transactions_for_user
@@ -43,7 +43,7 @@ _comparator = PeerComparator()
 )
 @cache_response(prefix="peers", ttl=1800)  # 30 min
 async def compare_peers(
-    user_id: str,
+    user_id: str = Depends(require_owner),
     monthly_income: float = Query(
         ...,
         gt=0,
@@ -55,11 +55,8 @@ async def compare_peers(
         le=12,
         description="Meses de histórico de transações a considerar (padrão: 3).",
     ),
-    current_user: str = Depends(get_current_user),
 ) -> dict:
     """Compara o perfil de gastos do usuário com benchmarks da faixa de renda."""
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
 
     import polars as pl
     import datetime

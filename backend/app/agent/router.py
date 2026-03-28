@@ -1,13 +1,15 @@
+import asyncio
 import logging
+import threading
 from fastapi import APIRouter, HTTPException, Depends, Request, Query, status
 from pydantic import BaseModel
 from typing import List
 from sqlalchemy.orm import Session
 
-from app.agent.graph import build_financial_agent
 from app.agent.models import ChatMessage
+from app.agent.singleton import get_agent as _get_agent
 from langchain_core.messages import HumanMessage, SystemMessage
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_owner
 from app.core.config import settings
 from app.core.database import get_db
 from slowapi import Limiter
@@ -17,13 +19,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Agent Chat"])
 limiter = Limiter(key_func=get_remote_address)
 
-_agent_app = None
-
-def _get_agent():
-    global _agent_app
-    if _agent_app is None:
-        _agent_app = build_financial_agent()
-    return _agent_app
+# Singleton do agente LLM importado do módulo centralizado (app.agent.singleton)
+# para evitar instâncias duplicadas entre este router e api/v1/routes/analyze.py
 
 
 class ChatRequest(BaseModel):
@@ -44,7 +41,7 @@ class ChatHistoryItem(BaseModel):
 
 @router.post("/", response_model=ChatResponse)
 @limiter.limit("20/minute")
-def chat_with_agent(
+async def chat_with_agent(
     request: Request,
     chat_request: ChatRequest,
     current_user: str = Depends(get_current_user),
@@ -70,7 +67,7 @@ def chat_with_agent(
             detail="LLM (Anthropic) não configurado. Defina ANTHROPIC_API_KEY no backend/.env para usar o chat.",
         )
 
-    logger.info(f"Recebida mensagem do usuário {chat_request.user_id}: {chat_request.message[:50]}...")
+    logger.info("Mensagem recebida de user_id=%s (len=%d)", chat_request.user_id, len(chat_request.message))
 
     try:
         # Injeta o user_id autenticado como contexto imutável do sistema.
@@ -92,7 +89,21 @@ def chat_with_agent(
         # O thread_id agrupa o histórico na memória do agente
         config = {"configurable": {"thread_id": chat_request.user_id}}
 
-        result = _get_agent().invoke(inputs, config=config)
+        # Executa o agente em thread pool com timeout de 60s para não bloquear workers
+        loop = asyncio.get_event_loop()
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None, lambda: _get_agent().invoke(inputs, config=config)
+                ),
+                timeout=60.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Timeout no agente LLM para user_id=%s", chat_request.user_id)
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="Tempo limite excedido. Tente novamente.",
+            )
 
         # A resposta final do LLM estará na última mensagem do state
         messages = result.get("messages", [])
@@ -107,25 +118,25 @@ def chat_with_agent(
 
         return ChatResponse(response=target_message)
 
+    except HTTPException:
+        raise
     except Exception as e:
-        import traceback
-        tb = traceback.format_exc()
-        logger.error(f"Erro no Agent Chat: {e}\n{tb}")
-        raise HTTPException(status_code=503, detail=f"Erro IA: {str(e)}")
+        logger.error("Erro no Agent Chat para user_id=%s: %s", chat_request.user_id, e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Erro interno ao processar sua mensagem.",
+        )
 
 
 @router.get("/history", response_model=List[ChatHistoryItem])
 def get_chat_history(
-    user_id: str = Query(..., description="ID do usuário"),
+    user_id: str = Depends(require_owner),
     limit: int = Query(50, ge=1, le=200, description="Número máximo de mensagens"),
-    current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Retorna o histórico de mensagens do usuário, ordenado do mais antigo ao mais recente.
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
 
     rows = (
         db.query(ChatMessage)

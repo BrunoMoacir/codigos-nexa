@@ -41,7 +41,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status, Depends
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_owner
 from pydantic import BaseModel, Field
 
 from app.architect.models import SimulationRequest, SimulationResponse, TimingScenario
@@ -117,7 +117,7 @@ async def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
         safe_to_spend_total (R$/mês) ou None se F1 indisponível.
     """
     try:
-        from app.runner import NexaRunner  # import tardio para evitar custo no startup
+        from app.runner import get_runner  # import tardio para evitar custo no startup
 
         import os
         from app.core.config import settings
@@ -131,8 +131,7 @@ async def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
                 detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
             )
 
-        runner = NexaRunner(mode=mode)
-        result = runner.run(horizon_days=30)
+        result = get_runner(mode).run(horizon_days=30)
 
         sts = result.get("safe_to_spend", {})
         value = sts.get("safe_to_spend_total")
@@ -321,7 +320,7 @@ async def health():
     ),
 )
 async def list_simulations(
-    user_id: str = Query(..., description="ID do usuário"),
+    user_id: str = Depends(require_owner),
     limit: int   = Query(
         default=10,
         ge=1,
@@ -332,7 +331,6 @@ async def list_simulations(
         default=None,
         description="Filtrar por tipo de bem: IMOVEL, VEICULO, REFORMA, VIAGEM, OUTRO",
     ),
-    current_user: str = Depends(get_current_user),
 ) -> List[Dict[str, Any]]:
     """
     Lista o histórico de simulações de um usuário.
@@ -349,8 +347,6 @@ async def list_simulations(
     GET /api/v1/architect/simulations?user_id=user_123&limit=5&asset_type=VEICULO
     ```
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     logger.info(
         "GET /architect/simulations | user=%s limit=%d asset_type=%s",
         user_id,
@@ -608,8 +604,7 @@ async def get_sensitivity(
     ),
 )
 async def get_metrics(
-    user_id: str = Query(..., description="ID do usuário"),
-    current_user: str = Depends(get_current_user),
+    user_id: str = Depends(require_owner),
 ) -> Dict[str, Any]:
     """
     Retorna métricas agregadas de simulações do usuário.
@@ -635,8 +630,6 @@ async def get_metrics(
     }
     ```
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     logger.info("GET /architect/metrics | user=%s", user_id)
 
     try:

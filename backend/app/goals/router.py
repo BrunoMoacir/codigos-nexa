@@ -15,7 +15,10 @@ import logging
 from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Depends
-from app.core.security import get_current_user
+from sqlalchemy.orm import Session
+from app.core.security import get_current_user, require_owner
+from app.core.database import get_db
+from app.core.cache import invalidate_user_cache
 from pydantic import BaseModel, Field, model_validator
 
 logger = logging.getLogger(__name__)
@@ -66,18 +69,20 @@ class UpdateProgressRequest(BaseModel):
 # automaticamente, evitando bloqueio do event loop do uvicorn.
 
 @router.post("/{user_id}", status_code=201)
-def create_goal(user_id: str, body: CreateGoalRequest, current_user: str = Depends(get_current_user)):
+def create_goal(
+    body: CreateGoalRequest,
+    user_id: str = Depends(require_owner),
+    db: Session = Depends(get_db),
+):
     """
     MX.2 — Cria uma nova meta financeira para o usuário.
 
     Calcula automaticamente a contribuição mensal necessária baseada
     no valor restante e na data alvo.
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=403, detail="Acesso negado.")
     from app.goals.tracker import GoalTracker
     try:
-        goal = GoalTracker().create_goal(
+        goal = GoalTracker(db).create_goal(
             user_id=user_id,
             name=body.name,
             goal_type=body.goal_type,
@@ -85,53 +90,55 @@ def create_goal(user_id: str, body: CreateGoalRequest, current_user: str = Depen
             current_amount=body.current_amount,
             target_date=body.target_date,
         )
+        invalidate_user_cache(user_id)
         return goal.to_dict()
     except Exception as e:
-        logger.error(f"[Goals] Erro ao criar meta: {e}", exc_info=True)
+        logger.error("[Goals] Erro ao criar meta para user=%s: %s", user_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao criar meta financeira.")
 
 
 @router.get("/{user_id}")
 def list_goals(
-    user_id: str,
+    user_id: str = Depends(require_owner),
     status: str = Query(default="ACTIVE", description="Status: ACTIVE | COMPLETED | ABANDONED"),
     limit: int = Query(default=50, ge=1, le=200, description="Máximo de metas retornadas"),
     offset: int = Query(default=0, ge=0, description="Número de metas a pular (paginação)"),
-    current_user: str = Depends(get_current_user),
+    include_projections: bool = Query(default=True, description="Incluir projeções de conclusão por meta (false para respostas mais rápidas em listas grandes)"),
+    db: Session = Depends(get_db),
 ):
     """
     MX.2 — Lista as metas do usuário filtradas por status, com projeções.
 
     Suporta paginação via `limit` e `offset`.
+    Use `include_projections=false` para omitir as projeções e reduzir o tempo de resposta.
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=403, detail="Acesso negado.")
     from app.goals.tracker import GoalTracker
-    tracker = GoalTracker()
+    tracker = GoalTracker(db)
     goals = tracker.list_goals(user_id=user_id, status=status, limit=limit, offset=offset)
+    if include_projections:
+        goals_payload = [
+            {**g.to_dict(), "projection": tracker.get_projection(g).to_dict()}
+            for g in goals
+        ]
+    else:
+        goals_payload = [g.to_dict() for g in goals]
     return {
         "user_id": user_id,
         "status_filter": status,
         "limit": limit,
         "offset": offset,
         "total": len(goals),
-        "goals": [
-            {
-                **g.to_dict(),
-                "projection": tracker.get_projection(g).to_dict(),
-            }
-            for g in goals
-        ],
+        "goals": goals_payload,
     }
 
 
 @router.get("/{user_id}/{goal_id}")
-def get_goal(user_id: str, goal_id: str, _: str = Depends(get_current_user)):
+def get_goal(goal_id: str, user_id: str = Depends(require_owner), db: Session = Depends(get_db)):
     """
     MX.2 — Detalhe de uma meta com projeção completa.
     """
     from app.goals.tracker import GoalTracker
-    tracker = GoalTracker()
+    tracker = GoalTracker(db)
     try:
         goal = tracker._load(goal_id)
     except LookupError:
@@ -147,14 +154,19 @@ def get_goal(user_id: str, goal_id: str, _: str = Depends(get_current_user)):
 
 
 @router.patch("/{user_id}/{goal_id}/progress")
-def update_progress(user_id: str, goal_id: str, body: UpdateProgressRequest, _: str = Depends(get_current_user)):
+def update_progress(
+    goal_id: str,
+    body: UpdateProgressRequest,
+    user_id: str = Depends(require_owner),
+    db: Session = Depends(get_db),
+):
     """
     MX.2 — Atualiza o progresso de uma meta (adiciona ao current_amount).
 
     Se current_amount atingir target_amount, a meta é marcada como COMPLETED.
     """
     from app.goals.tracker import GoalTracker
-    tracker = GoalTracker()
+    tracker = GoalTracker(db)
     try:
         goal = tracker._load(goal_id)
     except LookupError:
@@ -165,11 +177,15 @@ def update_progress(user_id: str, goal_id: str, body: UpdateProgressRequest, _: 
     if goal.status != "ACTIVE":
         raise HTTPException(status_code=422, detail=f"Meta com status '{goal.status}' não pode ser atualizada.")
 
-    updated = tracker.update_progress(
-        goal_id=goal_id,
-        amount_to_add=body.amount_to_add,
-        monthly_actual=body.monthly_actual,
-    )
+    try:
+        updated = tracker.update_progress(
+            goal_id=goal_id,
+            amount_to_add=body.amount_to_add,
+            monthly_actual=body.monthly_actual,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    invalidate_user_cache(user_id)
     return {
         **updated.to_dict(),
         "projection": tracker.get_projection(updated).to_dict(),
@@ -177,12 +193,12 @@ def update_progress(user_id: str, goal_id: str, body: UpdateProgressRequest, _: 
 
 
 @router.delete("/{user_id}/{goal_id}", status_code=200)
-def abandon_goal(user_id: str, goal_id: str, _: str = Depends(get_current_user)):
+def abandon_goal(goal_id: str, user_id: str = Depends(require_owner), db: Session = Depends(get_db)):
     """
     MX.2 — Abandona uma meta (marca como ABANDONED).
     """
     from app.goals.tracker import GoalTracker
-    tracker = GoalTracker()
+    tracker = GoalTracker(db)
     try:
         goal = tracker._load(goal_id)
     except LookupError:
@@ -191,5 +207,9 @@ def abandon_goal(user_id: str, goal_id: str, _: str = Depends(get_current_user))
     if goal.user_id != user_id:
         raise HTTPException(status_code=403, detail="Acesso negado.")
 
-    updated = tracker.abandon_goal(goal_id=goal_id)
+    try:
+        updated = tracker.abandon_goal(goal_id=goal_id)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    invalidate_user_cache(user_id)
     return {"message": f"Meta '{updated.name}' abandonada.", "goal": updated.to_dict()}

@@ -16,12 +16,12 @@ Campos retornados:
 """
 
 import logging
-import os
 from datetime import date
 
 import polars as pl
 from fastapi import APIRouter, HTTPException, status, Depends
-from app.core.security import get_current_user
+from app.core.security import require_owner
+from app.core.cache import cache_response
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,8 @@ router = APIRouter(prefix="/safe-to-spend", tags=["Safe-to-Spend"])
         "Fonte: NexaRunner (dados Pluggy mock em dev, Pluggy real em prod)."
     ),
 )
-async def get_safe_to_spend(user_id: str, current_user: str = Depends(get_current_user)) -> dict:
+@cache_response(prefix="safe_to_spend", ttl=900)
+async def get_safe_to_spend(user_id: str = Depends(require_owner)) -> dict:
     """
     Retorna safe-to-spend consolidado com spent_to_date do mês corrente.
 
@@ -56,16 +57,11 @@ async def get_safe_to_spend(user_id: str, current_user: str = Depends(get_curren
     }
     ```
     """
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
-
     logger.info("GET /safe-to-spend/%s", user_id)
 
     try:
-        from app.runner import NexaRunner
-        runner_mode = os.getenv("RUNNER_MODE", "dev")
-        runner = NexaRunner(mode=runner_mode)
-        result = runner.run(horizon_days=30)
+        from app.runner import get_runner
+        result = get_runner().run_from_db(user_id=user_id, horizon_days=30)
     except Exception as exc:
         logger.error("Erro ao executar pipeline para safe-to-spend/%s: %s", user_id, exc)
         raise HTTPException(

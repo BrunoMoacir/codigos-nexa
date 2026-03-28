@@ -31,12 +31,16 @@ EXEMPLO:
 
 from __future__ import annotations
 
+import calendar
 import logging
 import math
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
+
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +63,7 @@ class Goal:
     status: str                             # ACTIVE | COMPLETED | ABANDONED
     created_at: str
     updated_at: str
+    version: int = field(default=1)         # controle de concorrência otimista
 
     @property
     def progress_pct(self) -> float:
@@ -132,8 +137,12 @@ class GoalTracker:
     """
     Gerencia o ciclo de vida das metas financeiras.
 
-    Não mantém estado — todas as operações são transacionais via DuckDB.
+    Recebe uma Session SQLAlchemy via injeção de dependência — não abre
+    sessões internamente.
     """
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
 
     # ─────────────────────────────────────────────────────────────────────
     # CRUD
@@ -213,7 +222,8 @@ class GoalTracker:
         goal = self._load(goal_id)
         now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        goal.current_amount = round(goal.current_amount + amount_to_add, 2)
+        new_amount = Decimal(str(goal.current_amount)) + Decimal(str(amount_to_add))
+        goal.current_amount = float(new_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
         goal.updated_at = now_str
 
         if monthly_actual is not None:
@@ -290,12 +300,10 @@ class GoalTracker:
         offset: int = 0,
     ) -> list[Goal]:
         """Lista metas do usuário filtradas por status, com paginação."""
-        from app.core.database import SessionLocal
         from app.goals.models import FinancialGoal
-        db = SessionLocal()
         try:
             rows = (
-                db.query(FinancialGoal)
+                self.db.query(FinancialGoal)
                 .filter(
                     FinancialGoal.user_id == user_id,
                     FinancialGoal.status == status,
@@ -309,8 +317,6 @@ class GoalTracker:
         except Exception as e:
             logger.error(f"[GoalTracker] Erro ao listar metas: {e}")
             return []
-        finally:
-            db.close()
 
     def abandon_goal(self, goal_id: str) -> Goal:
         """Marca a meta como ABANDONED."""
@@ -333,62 +339,73 @@ class GoalTracker:
         """Calcula contribuição mensal necessária. None se sem prazo."""
         if not target_date:
             return None
-        remaining = max(0.0, target - current)
+        remaining = Decimal(str(target)) - Decimal(str(current))
         if remaining <= 0:
             return 0.0
         months = _months_until(date.fromisoformat(target_date))
         if months <= 0:
-            return remaining  # meta vencida — precisaria de 100% de uma vez
-        return round(remaining / months, 2)
+            return float(remaining.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        result = remaining / Decimal(str(months))
+        return float(result.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
     def _persist(self, goal: Goal) -> None:
         """Insere a meta no PostgreSQL via SQLAlchemy."""
-        from app.core.database import SessionLocal
         from app.goals.models import FinancialGoal
-        db = SessionLocal()
-        try:
-            row = FinancialGoal(
-                goal_id=goal.goal_id, user_id=goal.user_id, name=goal.name,
-                goal_type=goal.goal_type, target_amount=goal.target_amount,
-                current_amount=goal.current_amount, target_date=goal.target_date,
-                monthly_contribution_needed=goal.monthly_contribution_needed,
-                monthly_contribution_actual=goal.monthly_contribution_actual,
-                status=goal.status, created_at=goal.created_at, updated_at=goal.updated_at,
-            )
-            db.add(row)
-            db.commit()
-        finally:
-            db.close()
+        row = FinancialGoal(
+            goal_id=goal.goal_id, user_id=goal.user_id, name=goal.name,
+            goal_type=goal.goal_type, target_amount=goal.target_amount,
+            current_amount=goal.current_amount, target_date=goal.target_date,
+            monthly_contribution_needed=goal.monthly_contribution_needed,
+            monthly_contribution_actual=goal.monthly_contribution_actual,
+            status=goal.status, version=goal.version,
+            created_at=goal.created_at, updated_at=goal.updated_at,
+        )
+        self.db.add(row)
+        self.db.commit()
 
     def _update(self, goal: Goal) -> None:
-        """Atualiza a meta no PostgreSQL via SQLAlchemy."""
-        from app.core.database import SessionLocal
+        """
+        Atualiza a meta no PostgreSQL via SQLAlchemy com lock otimista.
+
+        O UPDATE só acontece se a versão no banco ainda corresponde à versão
+        carregada — garante que atualizações concorrentes não se sobrescrevam
+        silenciosamente.
+
+        Raises:
+            RuntimeError: se nenhuma linha for afetada (conflito de versão).
+        """
         from app.goals.models import FinancialGoal
-        db = SessionLocal()
-        try:
-            db.query(FinancialGoal).filter(FinancialGoal.goal_id == goal.goal_id).update({
+        rows_affected = (
+            self.db.query(FinancialGoal)
+            .filter(
+                FinancialGoal.goal_id == goal.goal_id,
+                FinancialGoal.version == goal.version,
+            )
+            .update({
                 FinancialGoal.current_amount: goal.current_amount,
                 FinancialGoal.monthly_contribution_needed: goal.monthly_contribution_needed,
                 FinancialGoal.monthly_contribution_actual: goal.monthly_contribution_actual,
                 FinancialGoal.status: goal.status,
                 FinancialGoal.updated_at: goal.updated_at,
+                FinancialGoal.version: goal.version + 1,
             })
-            db.commit()
-        finally:
-            db.close()
+        )
+        if rows_affected == 0:
+            self.db.rollback()
+            raise RuntimeError(
+                f"Conflito de concorrência ao atualizar meta {goal.goal_id} "
+                f"(versão esperada={goal.version}). Recarregue e tente novamente."
+            )
+        goal.version += 1
+        self.db.commit()
 
     def _load(self, goal_id: str) -> Goal:
         """Carrega uma meta do PostgreSQL. Lança LookupError se não encontrada."""
-        from app.core.database import SessionLocal
         from app.goals.models import FinancialGoal
-        db = SessionLocal()
-        try:
-            row = db.query(FinancialGoal).filter(FinancialGoal.goal_id == goal_id).first()
-            if not row:
-                raise LookupError(f"Meta não encontrada: {goal_id}")
-            return self._row_to_goal({c.name: getattr(row, c.name) for c in row.__table__.columns})
-        finally:
-            db.close()
+        row = self.db.query(FinancialGoal).filter(FinancialGoal.goal_id == goal_id).first()
+        if not row:
+            raise LookupError(f"Meta não encontrada: {goal_id}")
+        return self._row_to_goal({c.name: getattr(row, c.name) for c in row.__table__.columns})
 
     @staticmethod
     def _row_to_goal(row: dict) -> Goal:
@@ -405,6 +422,7 @@ class GoalTracker:
             status=row.get("status", "ACTIVE"),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            version=int(row.get("version") or 1),
         )
 
     @staticmethod
@@ -484,11 +502,10 @@ def _months_until(target: date) -> int:
 
 def _add_months(d: date, months: int) -> date:
     """Adiciona `months` meses a uma data, ajustando último dia do mês."""
-    m = d.month + months - 1
-    y = d.year + m // 12
-    m = m % 12 + 1
-    day = min(d.day, [31, 29 if (y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)) else 28,
-                      31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1])
+    total = d.month + months - 1
+    y = d.year + total // 12
+    m = total % 12 + 1
+    day = min(d.day, calendar.monthrange(y, m)[1])
     return date(y, m, day)
 
 

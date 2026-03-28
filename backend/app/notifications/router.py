@@ -14,7 +14,7 @@ from datetime import date, timedelta
 
 import polars as pl
 from fastapi import APIRouter, HTTPException, Query, status, Depends
-from app.core.security import get_current_user
+from app.core.security import require_owner
 
 from app.notifications.notifier import (
     ProactiveNotifier,
@@ -50,8 +50,8 @@ _notifier = ProactiveNotifier()
         "Retorna lista ordenada por prioridade (CRITICAL → WARNING → INFO)."
     ),
 )
-async def get_notifications(
-    user_id: str,
+def get_notifications(
+    user_id: str = Depends(require_owner),
     monthly_income: float = Query(
         default=0.0,
         ge=0,
@@ -61,7 +61,6 @@ async def get_notifications(
         default=True,
         description="Se False, retorna apenas CRITICAL e WARNING.",
     ),
-    current_user: str = Depends(get_current_user),
 ) -> dict:
     """
     Retorna notificações proativas baseadas no histórico real do usuário.
@@ -97,12 +96,9 @@ async def get_notifications(
 
     ctx = NotificationContext()
 
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
-
     # ── 1. NexaRunner: busca transações e cashflow ─────────────────
     try:
-        from app.runner import NexaRunner
+        from app.runner import get_runner
         from app.forecast.etl.income_profiler import IncomeProfiler
         from app.forecast.etl.spending_anomaly_detector import SpendingAnomalyDetector
         from app.forecast.cashflow.burn_rate import BurnRateAnalyzer
@@ -118,8 +114,7 @@ async def get_notifications(
                 detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
             )
 
-        runner = NexaRunner(mode=mode)
-        runner_result = runner.run(horizon_days=30)
+        runner_result = get_runner(mode).run(horizon_days=30)
 
         transactions_data = runner_result.get("transactions", {})
         transactions_df: pl.DataFrame | None = transactions_data.get("pf_pj_classified_df")

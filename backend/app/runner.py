@@ -25,6 +25,7 @@ Este arquivo é o ponto central para:
 
 from datetime import date, datetime, timezone
 import logging
+import threading
 import polars as pl
 
 # Configure logging
@@ -102,13 +103,99 @@ class NexaRunner:
         # Inicializar componentes do pipeline
         self.ingestor = TransactionIngestor()
         self.classifier = TransactionClassifier(mode="RULES")
-        self.pf_pj_classifier = PFPJClassifier()  # Novo classificador PF/PJ
+        self.pf_pj_classifier = PFPJClassifier()
+        self.income_profiler = IncomeProfiler()
         self.recurring_detector = RecurringDetector()
         self.cashflow_projector = CashflowProjector()
         self.safe_calc = SafeToSpendCalculator()
         self.burn_rate_analyzer = BurnRateAnalyzer()
 
         logger.info("✅ NexaRunner inicializado com sucesso")
+
+    # ─────────────────────────────────────────────────────────────────
+    # ESTÁGIOS ANALÍTICOS COMPARTILHADOS (run() e run_from_db())
+    # ─────────────────────────────────────────────────────────────────
+
+    def _run_analytics_stages(
+        self,
+        transactions_df,
+        current_balance: float,
+        horizon_days: int,
+    ) -> dict:
+        """
+        Executa os estágios analíticos do pipeline (etapas 5–9):
+            IncomeProfiler → RecurringDetector → ShadowInvoice →
+            CashflowProjector → SafeToSpend → BurnRate
+
+        Extraído para evitar duplicação entre run() e run_from_db().
+
+        Returns:
+            dict com todas as saídas dos estágios analíticos.
+        """
+        income_profile = self.income_profiler.build(transactions_df)
+        monthly_income_net = (
+            income_profile.monthly_net_income
+            if income_profile.confidence >= 0.5
+            else None
+        )
+        logger.info(
+            "   ✅ IncomeProfiler: renda=R$ %.0f/mês, confiança=%.0f%%",
+            income_profile.monthly_net_income,
+            income_profile.confidence * 100,
+        )
+
+        recurring_patterns = self.recurring_detector.detect(transactions_df)
+        logger.info("   ✅ Recurring Detector: %d padrões", len(recurring_patterns))
+
+        shadow_events = run_shadow_invoice_detection(transactions_df)
+        shadow_events_df = (
+            shadow_events
+            if isinstance(shadow_events, pl.DataFrame)
+            else pl.DataFrame(shadow_events)
+        )
+        logger.info("   ✅ Shadow Invoice: %d eventos futuros", len(shadow_events_df))
+
+        cashflow_forecast = self.cashflow_projector.project(
+            transactions_df=transactions_df,
+            shadow_invoices_df=shadow_events_df,
+            current_balance=current_balance,
+        )
+        logger.info(
+            "   ✅ Cashflow: %d dias, saldo min R$ %.2f",
+            len(cashflow_forecast),
+            cashflow_forecast.select("projected_balance").min().item(),
+        )
+
+        safe_to_spend = self.safe_calc.calculate(
+            projection_df=cashflow_forecast,
+            horizon_days=horizon_days,
+        )
+        logger.info(
+            "   ✅ Safe-to-Spend: R$ %.2f (risk=%s)",
+            safe_to_spend.safe_to_spend_total,
+            safe_to_spend.risk_level,
+        )
+
+        burn_rate_result = self.burn_rate_analyzer.analyze(
+            transactions_df=transactions_df,
+            monthly_income=monthly_income_net,
+        )
+        logger.info(
+            "   ✅ Burn Rate: alert=%s, ratio=%.1f%%",
+            burn_rate_result.alert_level,
+            burn_rate_result.burn_rate_ratio * 100,
+        )
+
+        return {
+            "income_profile": income_profile,
+            "monthly_income_net": monthly_income_net,
+            "recurring_patterns": recurring_patterns,
+            "shadow_events": shadow_events,
+            "shadow_events_df": shadow_events_df,
+            "cashflow_forecast": cashflow_forecast,
+            "safe_to_spend": safe_to_spend,
+            "burn_rate_result": burn_rate_result,
+        }
 
     def run(self, horizon_days: int = 30) -> dict:
         """
@@ -132,8 +219,14 @@ class NexaRunner:
             logger.info(f"   ✅ Sandbox item criado: {item_id}")
 
             accounts_resp = self.pluggy.get_accounts(item_id)
-            account_id = accounts_resp["results"][0]["id"]
-            logger.info(f"   ✅ Conta obtida: {account_id}")
+            accounts = accounts_resp.get("results", [])
+            if not accounts:
+                raise ValueError(
+                    f"Pluggy retornou lista de contas vazia para item_id={item_id}. "
+                    "Verifique se o item foi sincronizado corretamente."
+                )
+            account_id = accounts[0]["id"]
+            logger.info("   ✅ Conta obtida: %s", account_id)
 
             raw_transactions = self.pluggy.get_transactions(account_id)
             logger.info(f"   ✅ {len(raw_transactions['results'])} transações brutas obtidas")
@@ -196,107 +289,12 @@ class NexaRunner:
             logger.info(f"   ✅ PF/PJ Classifier completo")
 
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # 5.5️⃣ INCOME PROFILER: Estima renda real líquida (MI.5)
+            # ETAPAS 5–9: Analíticas (extraídas para _run_analytics_stages)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-            logger.info("💵 [5.5/9] Executando IncomeProfiler...")
-            income_profile = IncomeProfiler().build(transactions_pf_pj)
-            monthly_income_net = (
-                income_profile.monthly_net_income
-                if income_profile.confidence >= 0.5
-                else None
-            )
-            logger.info(
-                f"   ✅ IncomeProfiler: renda=R$ {income_profile.monthly_net_income:,.0f}/mês, "
-                f"padrão={income_profile.income_pattern.value}, "
-                f"confiança={income_profile.confidence:.0%}"
-            )
-
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # 5️⃣ RECURRING DETECTOR: Detecta padrões (assinaturas/parcelamentos)
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-            logger.info("📊 [6/9] Executando Recurring Detector...")
-            recurring_patterns = self.recurring_detector.detect(
-                transactions_pf_pj  # Agora usa transações com PF/PJ
-            )
-            logger.info(
-                f"   ✅ Recurring Detector: "
-                f"{len(recurring_patterns)} padrões detectados"
-            )
-
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # 6️⃣ SHADOW INVOICE: Gera obrigações futuras
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-            logger.info("👻 [7/9] Executando Shadow Invoice ETL...")
-            shadow_events = run_shadow_invoice_detection(transactions_pf_pj)
-            logger.info(
-                f"   ✅ Shadow Invoice: "
-                f"{len(shadow_events)} eventos futuros gerados"
-            )
-
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # 7️⃣ CASHFLOW: Projeta saldo diário
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-            logger.info("💰 [8/9] Executando Cashflow Projector...")
-            start_balance = accounts_resp["results"][0]["balance"]
-
-            # Ensure shadow_events is a DataFrame
-            if isinstance(shadow_events, pl.DataFrame):
-                shadow_events_df = shadow_events
-            else:
-                shadow_events_df = pl.DataFrame(shadow_events)
-            
-            cashflow_forecast = self.cashflow_projector.project(
-                transactions_df=transactions_pf_pj,  # Agora usa transações com PF/PJ
-                shadow_invoices_df=shadow_events_df,
-                current_balance=start_balance
-            )
-            logger.info(
-                f"   ✅ Cashflow projetado: "
-                f"{len(cashflow_forecast)} dias, saldo min: "
-                f"R$ {cashflow_forecast.select('projected_balance').min().item():.2f}"
-            )
-
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # 8️⃣ SAFE-TO-SPEND: Calcula quanto pode gastar
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-            logger.info("🛡️  [9/9] Calculando Safe-to-Spend...")
-            safe_to_spend = self.safe_calc.calculate(
-                projection_df=cashflow_forecast,
-                horizon_days=horizon_days
-            )
-            logger.info(
-                f"   ✅ Safe-to-Spend: "
-                f"R$ {safe_to_spend.safe_to_spend_total:.2f} "
-                f"(risk_level: {safe_to_spend.risk_level})"
-            )
-
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # 9.5️⃣ BURN RATE: Velocidade de gasto + escalada por renda (MI.5)
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-            logger.info("🔥 [9.5/9] Calculando Burn Rate...")
-            burn_rate_result = self.burn_rate_analyzer.analyze(
-                transactions_df=transactions_pf_pj,
-                monthly_income=monthly_income_net,  # MI.5: escalada por renda
-            )
-            logger.info(
-                f"   ✅ Burn Rate: alert={burn_rate_result.alert_level}, "
-                f"ratio={burn_rate_result.burn_rate_ratio:.1%}"
-                + (
-                    f", income_ratio={burn_rate_result.income_ratio:.1%}"
-                    if burn_rate_result.income_ratio is not None
-                    else ""
-                )
-            )
-
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # RESULTADO FINAL
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            start_balance = float(accounts[0].get("balance") or 0.0)
+            logger.info("📊 [5-9/9] Executando estágios analíticos...")
+            stages = self._run_analytics_stages(transactions_pf_pj, start_balance, horizon_days)
 
             logger.info("✨ Pipeline financeiro concluído com sucesso!")
 
@@ -314,21 +312,21 @@ class NexaRunner:
                     "rejected_count": batch_result.total_rejected,
                     "clean_df": transactions_clean,
                     "categorized_df": transactions_categorized,
-                    "pf_pj_classified_df": transactions_pf_pj,  # Novo: transações com PF/PJ
+                    "pf_pj_classified_df": transactions_pf_pj,
                 },
                 "analysis": {
-                    "recurring_patterns": recurring_patterns,
+                    "recurring_patterns": stages["recurring_patterns"],
                     "quality_metrics": metrics,
-                    "income_profile": income_profile,         # MI.5: renda líquida estimada
-                    "burn_rate": burn_rate_result,            # MI.5: velocidade de gasto
+                    "income_profile": stages["income_profile"],
+                    "burn_rate": stages["burn_rate_result"],
                 },
                 "projections": {
-                    "shadow_events": shadow_events,
-                    "cashflow_forecast": cashflow_forecast,
-                    "safe_to_spend": safe_to_spend,
+                    "shadow_events": stages["shadow_events"],
+                    "cashflow_forecast": stages["cashflow_forecast"],
+                    "safe_to_spend": stages["safe_to_spend"],
                     "current_balance": start_balance,
-                    "min_projected_balance": cashflow_forecast.select("projected_balance").min().item(),
-                    "max_projected_balance": cashflow_forecast.select("projected_balance").max().item(),
+                    "min_projected_balance": stages["cashflow_forecast"].select("projected_balance").min().item(),
+                    "max_projected_balance": stages["cashflow_forecast"].select("projected_balance").max().item(),
                 },
             }
 
@@ -384,60 +382,9 @@ class NexaRunner:
             if "date" in df.columns:
                 df = df.with_columns(pl.col("date").cast(pl.Date))
 
-            # ── Income Profiler ──────────────────────────────────
-            income_profile = IncomeProfiler().build(df)
-            monthly_income_net = (
-                income_profile.monthly_net_income
-                if income_profile.confidence >= 0.5
-                else None
-            )
-            logger.info(
-                "   ✅ IncomeProfiler: renda=R$ %.0f/mês, confiança=%.0f%%",
-                income_profile.monthly_net_income,
-                income_profile.confidence * 100,
-            )
-
-            # ── Recurring Detector ───────────────────────────────
-            recurring_patterns = self.recurring_detector.detect(df)
-            logger.info("   ✅ Recurring Detector: %d padrões", len(recurring_patterns))
-
-            # ── Shadow Invoice ───────────────────────────────────
-            shadow_events = run_shadow_invoice_detection(df)
-            shadow_events_df = (
-                shadow_events
-                if isinstance(shadow_events, pl.DataFrame)
-                else pl.DataFrame(shadow_events)
-            )
-            logger.info("   ✅ Shadow Invoice: %d eventos futuros", len(shadow_events_df))
-
-            # ── Cashflow Projector ───────────────────────────────
-            cashflow_forecast = self.cashflow_projector.project(
-                transactions_df=df,
-                shadow_invoices_df=shadow_events_df,
-                current_balance=current_balance,
-            )
-            logger.info(
-                "   ✅ Cashflow: %d dias, saldo min R$ %.2f",
-                len(cashflow_forecast),
-                cashflow_forecast.select("projected_balance").min().item(),
-            )
-
-            # ── Safe-to-Spend ────────────────────────────────────
-            safe_to_spend = self.safe_calc.calculate(
-                projection_df=cashflow_forecast,
-                horizon_days=horizon_days,
-            )
-            logger.info(
-                "   ✅ Safe-to-Spend: R$ %.2f (risk=%s)",
-                safe_to_spend.safe_to_spend_total,
-                safe_to_spend.risk_level,
-            )
-
-            # ── Burn Rate ────────────────────────────────────────
-            burn_rate_result = self.burn_rate_analyzer.analyze(
-                transactions_df=df,
-                monthly_income=monthly_income_net,
-            )
+            # ── Estágios analíticos 5–9 ──────────────────────────
+            logger.info("📊 [5-9/9] Executando estágios analíticos...")
+            stages = self._run_analytics_stages(df, current_balance, horizon_days)
 
             logger.info("✨ Pipeline (DB) concluído para user=%s", user_id)
 
@@ -458,18 +405,18 @@ class NexaRunner:
                     "pf_pj_classified_df": df,
                 },
                 "analysis": {
-                    "recurring_patterns": recurring_patterns,
+                    "recurring_patterns": stages["recurring_patterns"],
                     "quality_metrics": None,
-                    "income_profile": income_profile,
-                    "burn_rate": burn_rate_result,
+                    "income_profile": stages["income_profile"],
+                    "burn_rate": stages["burn_rate_result"],
                 },
                 "projections": {
-                    "shadow_events": shadow_events,
-                    "cashflow_forecast": cashflow_forecast,
-                    "safe_to_spend": safe_to_spend,
+                    "shadow_events": stages["shadow_events"],
+                    "cashflow_forecast": stages["cashflow_forecast"],
+                    "safe_to_spend": stages["safe_to_spend"],
                     "current_balance": current_balance,
-                    "min_projected_balance": cashflow_forecast.select("projected_balance").min().item(),
-                    "max_projected_balance": cashflow_forecast.select("projected_balance").max().item(),
+                    "min_projected_balance": stages["cashflow_forecast"].select("projected_balance").min().item(),
+                    "max_projected_balance": stages["cashflow_forecast"].select("projected_balance").max().item(),
                 },
             }
 
@@ -486,6 +433,7 @@ class NexaRunner:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 _runners: dict[str, NexaRunner] = {}
+_runners_lock = threading.Lock()
 
 
 def get_runner(mode: str = "dev") -> NexaRunner:
@@ -494,8 +442,12 @@ def get_runner(mode: str = "dev") -> NexaRunner:
 
     Substitui `NexaRunner(mode=...)` em chamadas recorrentes (ex: tools do agente)
     para evitar reinicializar os 9 componentes do pipeline a cada request.
-    Thread-safe para o caso de uso single-process do uvicorn.
+
+    Thread-safe: double-checked locking garante que dois requests simultâneos no
+    startup não criem instâncias duplicadas.
     """
     if mode not in _runners:
-        _runners[mode] = NexaRunner(mode=mode)
+        with _runners_lock:
+            if mode not in _runners:  # double-check inside lock
+                _runners[mode] = NexaRunner(mode=mode)
     return _runners[mode]

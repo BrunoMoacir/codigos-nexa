@@ -6,21 +6,13 @@ Endpoint principal de análise financeira (Safe-to-Spend)
 from fastapi import APIRouter, Depends
 import polars as pl
 
-from app.agent.graph import build_financial_agent
+from app.agent.singleton import get_agent as _get_agent
 from app.core.security import get_current_user
 
 router = APIRouter(
     prefix="/analyze",
     tags=["Financial Analysis"]
 )
-
-_agent = None
-
-def _get_agent():
-    global _agent
-    if _agent is None:
-        _agent = build_financial_agent()
-    return _agent
 
 
 @router.post("")
