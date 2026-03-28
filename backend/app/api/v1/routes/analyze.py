@@ -3,6 +3,7 @@ app/api/v1/routes/analyze.py
 Endpoint principal de análise financeira (Safe-to-Spend)
 """
 
+import threading
 from fastapi import APIRouter, Depends
 import polars as pl
 
@@ -15,7 +16,7 @@ router = APIRouter(
 )
 
 _agent = None
-_agent_lock = __import__("threading").Lock()
+_agent_lock = threading.Lock()
 
 
 def _get_agent():

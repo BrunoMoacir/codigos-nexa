@@ -25,6 +25,7 @@ Este arquivo é o ponto central para:
 
 from datetime import date, datetime, timezone
 import logging
+import threading
 import polars as pl
 
 # Configure logging
@@ -493,6 +494,7 @@ class NexaRunner:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 _runners: dict[str, NexaRunner] = {}
+_runners_lock = threading.Lock()
 
 
 def get_runner(mode: str = "dev") -> NexaRunner:
@@ -501,8 +503,12 @@ def get_runner(mode: str = "dev") -> NexaRunner:
 
     Substitui `NexaRunner(mode=...)` em chamadas recorrentes (ex: tools do agente)
     para evitar reinicializar os 9 componentes do pipeline a cada request.
-    Thread-safe para o caso de uso single-process do uvicorn.
+
+    Thread-safe: double-checked locking garante que dois requests simultâneos no
+    startup não criem instâncias duplicadas.
     """
     if mode not in _runners:
-        _runners[mode] = NexaRunner(mode=mode)
+        with _runners_lock:
+            if mode not in _runners:  # double-check inside lock
+                _runners[mode] = NexaRunner(mode=mode)
     return _runners[mode]

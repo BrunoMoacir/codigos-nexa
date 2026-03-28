@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 from fastapi import APIRouter, HTTPException, Depends, Request, Query, status
 from pydantic import BaseModel
 from typing import List
@@ -19,7 +20,7 @@ router = APIRouter(prefix="/chat", tags=["Agent Chat"])
 limiter = Limiter(key_func=get_remote_address)
 
 _agent_app = None
-_agent_lock = __import__("threading").Lock()
+_agent_lock = threading.Lock()
 
 
 def _get_agent():
