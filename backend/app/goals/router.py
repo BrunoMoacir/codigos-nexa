@@ -179,11 +179,14 @@ def update_progress(
     if goal.status != "ACTIVE":
         raise HTTPException(status_code=422, detail=f"Meta com status '{goal.status}' não pode ser atualizada.")
 
-    updated = tracker.update_progress(
-        goal_id=goal_id,
-        amount_to_add=body.amount_to_add,
-        monthly_actual=body.monthly_actual,
-    )
+    try:
+        updated = tracker.update_progress(
+            goal_id=goal_id,
+            amount_to_add=body.amount_to_add,
+            monthly_actual=body.monthly_actual,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     return {
         **updated.to_dict(),
         "projection": tracker.get_projection(updated).to_dict(),
@@ -205,5 +208,8 @@ def abandon_goal(user_id: str, goal_id: str, _: str = Depends(get_current_user),
     if goal.user_id != user_id:
         raise HTTPException(status_code=403, detail="Acesso negado.")
 
-    updated = tracker.abandon_goal(goal_id=goal_id)
+    try:
+        updated = tracker.abandon_goal(goal_id=goal_id)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     return {"message": f"Meta '{updated.name}' abandonada.", "goal": updated.to_dict()}

@@ -1,5 +1,5 @@
 # app/models/financial_goal.py
-from sqlalchemy import Column, String, Float, Index
+from sqlalchemy import Column, String, Float, Integer, Index
 from app.core.database import Base
 
 
@@ -16,6 +16,8 @@ class FinancialGoal(Base):
     monthly_contribution_needed = Column(Float, nullable=True)
     monthly_contribution_actual = Column(Float, nullable=True)
     status = Column(String, default="ACTIVE")
+    # Versão para controle de concorrência otimista: incrementada a cada UPDATE
+    version = Column(Integer, default=1, nullable=False, server_default="1")
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
 
