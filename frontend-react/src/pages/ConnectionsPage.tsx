@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { AppShell } from '../components/layout/AppShell';
 import { nexaApi } from '../api/nexa';
@@ -22,6 +22,7 @@ const button: React.CSSProperties = {
 };
 
 export const ConnectionsPage: React.FC = () => {
+  const queryClient = useQueryClient();
   const [perfMultiplier, setPerfMultiplier] = useState(100);
   const [connectToken, setConnectToken] = useState<string>('');
   const [widgetError, setWidgetError] = useState<string>('');
@@ -74,6 +75,11 @@ export const ConnectionsPage: React.FC = () => {
         `Sync concluído: ${totals.saved || 0} transações em ${totals.accounts || 0} contas.`
       );
       itemsQuery.refetch();
+      // Invalidar queries que dependem de transações
+      queryClient.invalidateQueries({ queryKey: ['forecast'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['goals'] });
     },
     onError: () => toast.error('Falha ao sincronizar transações.'),
   });
@@ -96,6 +102,10 @@ export const ConnectionsPage: React.FC = () => {
     onSuccess: () => {
       toast.success('Item sandbox criado com sucesso.');
       itemsQuery.refetch();
+      // Invalidar queries pois sandbox cria transações mock
+      queryClient.invalidateQueries({ queryKey: ['forecast'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
     },
     onError: () => toast.error('Erro ao criar item sandbox.'),
   });
