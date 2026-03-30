@@ -381,7 +381,7 @@ class DataQualityValidator:
                 f"Completude baixa: {completeness_score:.1%} dos campos obrigatórios"
             )
         
-        self.logger.debug("Completude: %s", completeness_score:.1%)
+        self.logger.debug("Completude: %.1f%%", completeness_score * 100)
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # ANÁLISE 4: CONSISTÊNCIA DE SALDO
@@ -394,7 +394,7 @@ class DataQualityValidator:
                 f"Consistência de saldo baixa: {balance_consistency:.1%}"
             )
         
-        self.logger.debug("Consistência de saldo: %s", balance_consistency:.1%)
+        self.logger.debug("Consistência de saldo: %.1f%%", balance_consistency * 100)
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # CÁLCULO: CONFIDENCE GLOBAL

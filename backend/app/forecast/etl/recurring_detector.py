@@ -45,7 +45,7 @@ Diferença:
     - Evita falsos positivos (IFOOD, UBER)
 
 ✅ INSTALLMENT DETECTOR:
-    - Regex melhorado (\d+\s*/\s*\d+)
+    - Regex melhorado (\\d+\\s*/\\s*\\d+)
     - Detecta "3/12" e "3 / 12"
 
 ✅ NORMALIZAÇÃO DE DESCRIÇÃO:
@@ -352,7 +352,7 @@ class RecurringDetector:
             """
             Extrai formato N/M da description.
             
-            ✅ v2.0: Regex \d+\s*/\s*\d+ aceita espaços
+            ✅ v2.0: Regex \\d+\\s*/\\s*\\d+ aceita espaços
             """
             if not is_installment or not desc:
                 return None
@@ -556,7 +556,7 @@ FLAGS ADICIONADAS AO DATAFRAME:
 
 CORREÇÕES APLICADAS (v2.0):
     ✅ SubscriptionDetector: Validação temporal (intervalo 20-40 dias)
-    ✅ InstallmentDetector: Regex melhorado (\d+\s*/\s*\d+)
+    ✅ InstallmentDetector: Regex melhorado (\\d+\\s*/\\s*\\d+)
     ✅ RecurringDetector: Normalização lowercase antes de comparar
 
 INTEGRAÇÃO:
