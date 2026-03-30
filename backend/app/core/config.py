@@ -70,14 +70,21 @@ class Settings(BaseSettings):
                     "Defina SECRET_KEY como uma string aleatória segura via variável de ambiente."
                 )
             if self.ALLOWED_ORIGINS == ["*"]:
-                _logger.warning(
-                    "[Config] ALLOWED_ORIGINS='*' em produção é inseguro. "
-                    "Defina ALLOWED_ORIGINS com as origens permitidas."
+                raise ValueError(
+                    "ALLOWED_ORIGINS='*' não é permitido em produção. "
+                    "Defina ALLOWED_ORIGINS com as origens explícitas do frontend, "
+                    "ex: ALLOWED_ORIGINS=[\"https://app.nexa.com\"]"
                 )
-        elif self.SECRET_KEY == _MOCK_SECRET:
-            _logger.warning(
-                "[Config] Usando SECRET_KEY mock. Nunca use este valor em produção."
-            )
+        else:
+            if self.SECRET_KEY == _MOCK_SECRET:
+                _logger.warning(
+                    "[Config] Usando SECRET_KEY mock. Nunca use este valor em produção."
+                )
+            if self.ALLOWED_ORIGINS == ["*"]:
+                _logger.warning(
+                    "[Config] ALLOWED_ORIGINS='*' — aceitável em desenvolvimento, "
+                    "mas defina origens explícitas antes de ir para produção."
+                )
         return self
 
 
