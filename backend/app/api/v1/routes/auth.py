@@ -16,6 +16,7 @@ from app.core.security import (
 )
 from app.core.db.users import get_user_by_email, create_user
 from app.core.database import get_db
+from app.core import audit
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
