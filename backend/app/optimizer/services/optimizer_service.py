@@ -173,6 +173,8 @@ class OptimizerService:
         )
 
         # 4. Simular cada cartão e calcular a pontuação de elegibilidade
+        issuers = extract_issuers_from_transactions(transactions_df)
+
         simulated_results = []
         for card in eligible_cards:
             # Simular retorno financeiro
@@ -188,7 +190,7 @@ class OptimizerService:
                     card=card,
                     annual_income=annual_income,
                     spending_stability=profile.spending_stability,
-                    issuers_in_transactions=set(),  # TODO: Extrair da lista de transações se possível
+                    issuers_in_transactions=issuers,
                     income_profile=profile.income_profile,  # MI.3: penalizar PJ instável
                 )
             )
