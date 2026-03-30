@@ -93,12 +93,21 @@ async def lifespan(app: FastAPI):
 
 # Rate limiter global (por IP) com storage Redis para ser eficaz em múltiplas instâncias.
 # Fallback para storage em memória se Redis não estiver configurado.
+# default_limits aplica-se a TODAS as rotas que não têm @limiter.limit() próprio.
+# Rotas pesadas (forecast, agent) definem seus próprios limites mais restritivos.
 try:
-    limiter = Limiter(key_func=get_remote_address, storage_uri=settings.REDIS_URL)
-    logger.info("Rate limiter: Redis storage (%s)", settings.REDIS_URL)
+    limiter = Limiter(
+        key_func=get_remote_address,
+        storage_uri=settings.REDIS_URL,
+        default_limits=["60/minute"],
+    )
+    logger.info("Rate limiter: Redis storage (%s), default=60/min", settings.REDIS_URL)
 except Exception:
-    limiter = Limiter(key_func=get_remote_address)
-    logger.warning("Rate limiter: in-memory storage (Redis indisponível)")
+    limiter = Limiter(
+        key_func=get_remote_address,
+        default_limits=["60/minute"],
+    )
+    logger.warning("Rate limiter: in-memory storage (Redis indisponível), default=60/min")
 
 app = FastAPI(
     title="Nexa API",
