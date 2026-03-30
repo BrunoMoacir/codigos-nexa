@@ -28,6 +28,7 @@ Tipos de bem suportados (AssetType):
 
 import json
 import logging
+import requests
 from pathlib import Path
 from typing import Dict
 
@@ -35,44 +36,72 @@ from app.architect.connectors.base import BaseConnector, ConnectorError
 
 logger = logging.getLogger(__name__)
 
-# Caminho absoluto para o arquivo de dados
+# Caminho para o JSON local usado como fallback secundário
 _DATA_FILE = Path(__file__).resolve().parents[3] / "data" / "architect" / "market_rates.json"
+
+# API pública do Banco Central do Brasil (SGS — Sistema Gerenciador de Séries)
+# Endpoint: GET /dados/serie/bcdata.sgs.{serie}/dados/ultimos/1?formato=json
+# Retorna: [{"data": "dd/mm/aaaa", "valor": "12.34"}]  (taxa em % a.a.)
+_BCB_BASE = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{serie}/dados/ultimos/1"
+
+# Mapeamento: série BCB → tipo de bem
+# Fontes:
+#   25497 — SFH (financiamento habitacional taxas de mercado, % a.a.)
+#   25501 — Veículos com recursos livres, % a.a.
+#   20722 — Crédito pessoal não consignado, % a.a. (base para REFORMA/VIAGEM/OUTRO)
+_BCB_SERIES: Dict[str, int] = {
+    "IMOVEL":  25497,
+    "VEICULO": 25501,
+    "REFORMA": 20722,
+    "VIAGEM":  20722,
+    "OUTRO":   20722,
+}
+
+# Spreads aplicados sobre a média BCB para derivar cenários min/max.
+# min = média * (1 - SPREAD_MIN)  → perfil prime, melhor banco
+# max = média * (1 + SPREAD_MAX)  → perfil padrão, banco de varejo
+_SPREAD_MIN: Dict[str, float] = {
+    "IMOVEL":  0.03,
+    "VEICULO": 0.10,
+    "REFORMA": 0.15,
+    "VIAGEM":  0.15,
+    "OUTRO":   0.12,
+}
+_SPREAD_MAX: Dict[str, float] = {
+    "IMOVEL":  0.07,
+    "VEICULO": 0.25,
+    "REFORMA": 0.45,
+    "VIAGEM":  0.45,
+    "OUTRO":   0.40,
+}
 
 
 class MarketRatesConnector(BaseConnector):
     """
     Conector de CETs (Custo Efetivo Total) por tipo de bem.
 
-    Fase 1: lê dados de um arquivo JSON local com mock de mercado.
-    Fase 2 (TODO): busca CETs reais via APIs de simulação dos bancos.
+    Busca taxas médias de mercado na API pública do BCB (SGS) e deriva
+    cenários min/avg/max com spreads calibrados por tipo de ativo.
+    Fallback automático para valores hardcoded quando a API falha.
 
-    Taxas retornadas (uma entrada por asset_type × cenário):
-        cet_{ASSET_TYPE}_min (float): Melhor CET disponível no mercado
-        cet_{ASSET_TYPE}_avg (float): CET médio de mercado
-        cet_{ASSET_TYPE}_max (float): Pior CET do mercado
-
-    O method `get_best_cet(asset_type)` é o principal ponto de entrada
-    para os calculators — retorna o `cet_min` do tipo solicitado.
+    Taxas retornadas:
+        cet_{ASSET_TYPE}_min  — melhor CET esperado (perfil prime)
+        cet_{ASSET_TYPE}_avg  — CET médio de mercado (dado BCB)
+        cet_{ASSET_TYPE}_max  — pior CET esperado (varejo padrão)
 
     Args:
-        cache_ttl_seconds:          TTL do cache. Padrão: 86400 (24h).
-                                    CETs de mercado variam pouco no dia a dia.
-        timeout_seconds:            Não usado em Fase 1 (sem HTTP). Reservado
-                                    para Fase 2.
+        cache_ttl_seconds:          TTL do cache após fetch bem-sucedido.
+                                    Padrão: 86400 (24h) — CETs variam pouco.
+        timeout_seconds:            Timeout HTTP por série BCB. Padrão: 5s.
         fallback_cache_ttl_seconds: TTL do cache quando fetch falha.
                                     Padrão: 300 (5 min).
-        data_file:                  Caminho para o JSON. Padrão: detectado
-                                    automaticamente via __file__.
 
     Example:
         >>> connector = MarketRatesConnector()
         >>> cet = connector.get_best_cet("VEICULO")
         >>> print(f"Melhor CET veículo: {cet:.2%}")
-        Melhor CET veículo: 16.20%
     """
 
-    # Assets suportados — espelha AssetType de models.py (sem importar o enum
-    # para evitar dependência circular entre connector e models).
     _VALID_ASSET_TYPES = {"IMOVEL", "VEICULO", "REFORMA", "VIAGEM", "OUTRO"}
 
     def __init__(
@@ -80,63 +109,64 @@ class MarketRatesConnector(BaseConnector):
         cache_ttl_seconds: int = 86400,
         timeout_seconds: int = 5,
         fallback_cache_ttl_seconds: int = 300,
-        data_file: Path = _DATA_FILE,
     ) -> None:
         super().__init__(
             cache_ttl_seconds=cache_ttl_seconds,
             timeout_seconds=timeout_seconds,
             fallback_cache_ttl_seconds=fallback_cache_ttl_seconds,
         )
-        self._data_file = data_file
 
     # ── Interface obrigatória ─────────────────────────────────────────────
 
     def fetch_rates(self) -> Dict[str, float]:
         """
-        Lê CETs do arquivo JSON local e retorna como dict plano.
+        Busca taxas médias na API pública do BCB (SGS) e deriva min/avg/max.
+
+        Faz uma request por série única necessária (deduplicadas por asset_type).
+        Se qualquer série falhar, levanta ConnectorError e o BaseConnector
+        usa get_fallback_rates() automaticamente.
 
         Returns:
-            Dict com entradas no formato "cet_{ASSET_TYPE}_{cenario}":
-            {
-                "cet_IMOVEL_min": 0.1475,
-                "cet_IMOVEL_avg": 0.1525,
-                "cet_IMOVEL_max": 0.1625,
-                "cet_VEICULO_min": 0.1620,
-                ...
-            }
+            Dict no formato {"cet_IMOVEL_min": 0.143, "cet_IMOVEL_avg": 0.148, ...}
 
         Raises:
-            ConnectorError: Se o arquivo não existir, for JSON inválido
-                            ou não tiver a chave "rates".
+            ConnectorError: Se qualquer série não responder ou retornar dado inválido.
         """
-        if not self._data_file.exists():
-            raise ConnectorError(
-                f"Arquivo de taxas de mercado não encontrado: {self._data_file}"
-            )
+        # Busca apenas séries únicas (REFORMA/VIAGEM/OUTRO compartilham 20722)
+        unique_series = {serie: asset for asset, serie in _BCB_SERIES.items()}
+        avg_by_serie: Dict[int, float] = {}
 
-        try:
-            raw = json.loads(self._data_file.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            raise ConnectorError(
-                f"JSON inválido em {self._data_file}: {exc}"
-            ) from exc
-
-        if "rates" not in raw or not isinstance(raw["rates"], dict):
-            raise ConnectorError(
-                f"Estrutura inesperada no arquivo {self._data_file}: chave 'rates' ausente."
-            )
+        for serie_id in unique_series:
+            url = _BCB_BASE.format(serie=serie_id)
+            try:
+                resp = requests.get(url, params={"formato": "json"}, timeout=self.timeout)
+                resp.raise_for_status()
+                data = resp.json()
+                if not data or "valor" not in data[0]:
+                    raise ConnectorError(f"BCB série {serie_id}: resposta inesperada {data}")
+                # BCB retorna percentual anual (ex: "14.83") — converte para decimal
+                avg_by_serie[serie_id] = float(data[0]["valor"]) / 100.0
+                logger.debug("BCB série %d: %.4f a.a.", serie_id, avg_by_serie[serie_id])
+            except (requests.RequestException, ValueError, KeyError, IndexError) as exc:
+                raise ConnectorError(
+                    f"Falha ao buscar BCB série {serie_id}: {exc}"
+                ) from exc
 
         rates: Dict[str, float] = {}
-        for asset_type, data in raw["rates"].items():
-            for scenario in ("min", "avg", "max"):
-                key = f"cet_{asset_type}_{scenario}"
-                value = data.get(f"cet_{scenario}")
-                if value is None:
-                    raise ConnectorError(
-                        f"Campo ausente no JSON: rates.{asset_type}.cet_{scenario}"
-                    )
-                rates[key] = float(value)
+        for asset_type in self._VALID_ASSET_TYPES:
+            serie_id = _BCB_SERIES[asset_type]
+            avg = avg_by_serie[serie_id]
+            spread_min = _SPREAD_MIN[asset_type]
+            spread_max = _SPREAD_MAX[asset_type]
+            rates[f"cet_{asset_type}_avg"] = round(avg, 4)
+            rates[f"cet_{asset_type}_min"] = round(avg * (1 - spread_min), 4)
+            rates[f"cet_{asset_type}_max"] = round(avg * (1 + spread_max), 4)
 
+        logger.info(
+            "MarketRatesConnector: taxas atualizadas via BCB — IMOVEL avg=%.2f%% VEICULO avg=%.2f%%",
+            rates["cet_IMOVEL_avg"] * 100,
+            rates["cet_VEICULO_avg"] * 100,
+        )
         return rates
 
     def get_fallback_rates(self) -> Dict[str, float]:
