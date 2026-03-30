@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # URL base da Pluggy (sandbox ou produção)
     PLUGGY_BASE_URL: str = "https://api.pluggy.ai"
 
+    # URL do Widget Pluggy Connect (onde o usuário conecta sua conta)
+    PLUGGY_CONNECT_URL: str = "https://connect.pluggy.ai"
+
     # URL base do frontend (usada como fallback no redirect de reconexão)
     FRONTEND_BASE_URL: str = "http://localhost:8501"
 

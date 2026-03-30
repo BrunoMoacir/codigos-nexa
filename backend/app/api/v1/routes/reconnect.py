@@ -6,9 +6,10 @@ app/api/v1/routes/reconnect.py - Endpoint para Reconectar Consentimento
 ╚══════════════════════════════════════════════════════════════════════╝
 
 Expõe POST /reconnect/{user_id} que:
-    1. Gera URL de conexão (Pluggy/Belvo)
-    2. Retorna para o frontend fazer redirect
-    3. Webhook atualiza o consentimento quando usuário conecta
+    1. Chama Pluggy.create_connect_token() para obter token do Widget
+    2. Retorna a URL de conexão para o frontend fazer redirect
+    3. Callback POST /reconnect/{user_id}/callback salva o item_id no DB
+       quando o usuário completa a conexão
 
 ╔══════════════════════════════════════════════════════════════════════╗
 ║ FLUXO DE RECONEXÃO                                                   ║
@@ -16,39 +17,34 @@ Expõe POST /reconnect/{user_id} que:
 
 POST /api/v1/reconnect/user_123
         ↓
-Criar nova conexão na Pluggy/Belvo
+PluggyClient.create_connect_token(user_id) → accessToken
         ↓
-Retornar {
-    "connect_url": "https://pluggy.io/open-finance/connections/..."
-}
+Retornar { "connect_url": "https://connect.pluggy.ai?accessToken=..." }
         ↓
 Frontend faz redirect para connect_url
         ↓
-Usuário conecta conta no Pluggy
+Usuário conecta conta no Widget Pluggy
         ↓
-Webhook /transactions/webhook atualiza consentimento
+POST /api/v1/reconnect/user_123/callback?connection_id=<item_id>
         ↓
-Dados começam a fluir novamente
+Salva/atualiza PluggyItem no banco
+        ↓
+Webhook /transactions/webhook atualiza dados
 """
 
 import logging
+import uuid
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# IMPORTS: Pluggy
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 from app.core.integrations.pluggy import PluggyClient
 from app.core.config import settings
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# CONFIGURAÇÃO
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+from app.core.database import get_db
+from app.core.models.pluggy_item import PluggyItem
 
 router = APIRouter(prefix="/reconnect", tags=["Reconnect"])
 logger = logging.getLogger(__name__)
@@ -59,16 +55,15 @@ logger = logging.getLogger(__name__)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 class ConnectUrlResponse(BaseModel):
-    """Resposta com URL de conexão"""
     user_id: str = Field(..., description="ID do usuário")
-    connect_url: str = Field(..., description="URL para redirecionar o usuário")
-    expires_at: datetime = Field(..., description="Quando a URL expira")
-    redirect_back_uri: str = Field(..., description="URL for Pluggy redirect back")
+    connect_url: str = Field(..., description="URL para redirecionar o usuário ao Widget Pluggy")
+    expires_at: datetime = Field(..., description="Quando a sessão de conexão expira")
+    redirect_back_uri: str = Field(..., description="URL de retorno após conexão")
 
     model_config = ConfigDict(json_schema_extra={
         "example": {
             "user_id": "user_123",
-            "connect_url": "https://pluggy.io/open-finance/connections/...",
+            "connect_url": "https://connect.pluggy.ai?accessToken=tok_abc123&redirectUrl=...",
             "expires_at": "2025-02-12T15:30:00Z",
             "redirect_back_uri": "https://nexa.app/dashboard"
         }
@@ -76,11 +71,18 @@ class ConnectUrlResponse(BaseModel):
 
 
 class ReconnectRequest(BaseModel):
-    """Request body (opcional - parametros)"""
     redirect_uri: str | None = Field(
         None,
         description="URL para redirecionar após conexão (padrão: dashboard)"
     )
+
+
+class CallbackResponse(BaseModel):
+    status: str
+    user_id: str
+    connection_id: str
+    timestamp: str
+    message: str
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -91,91 +93,67 @@ class ReconnectRequest(BaseModel):
 async def create_reconnect_url(
     user_id: str,
     request: ReconnectRequest | None = None,
-    current_user: str = Depends(get_current_user)
+    current_user: str = Depends(get_current_user),
 ) -> ConnectUrlResponse:
-    if current_user != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     """
-    Gera URL de reconexão para o usuário.
-    
+    Gera URL de reconexão para o usuário via Pluggy Connect Widget.
+
     **Quando usar:**
     - Consentimento está vencendo (T-7/T-0)
     - Usuário quer adicionar um novo banco
     - Conexão falhou e precisa reconectar
-    
-    **O que retorna:**
-    ```json
-    {
-        "user_id": "user_123",
-        "connect_url": "https://pluggy.io/open-finance/connections/abc123",
-        "expires_at": "2025-02-12T15:30:00Z",
-        "redirect_back_uri": "https://nexa.app/dashboard"
-    }
-    ```
-    
+
     **Fluxo no Frontend:**
     1. Receber `connect_url`
     2. Redirecionar usuário: `window.location.href = connect_url`
-    3. Usuário conecta conta no Pluggy
+    3. Usuário conecta conta no Widget Pluggy
     4. Pluggy redireciona para `redirect_back_uri`
-    5. Dashboard atualiza com dados novos
-    
-    **Notas:**
-    - URL válida por 24 horas
-    - Usuário pode fechar a janela e voltar depois
-    - Consentimento será atualizado ao conectar
+    5. Frontend chama `POST /reconnect/{user_id}/callback?connection_id=<item_id>`
     """
-    
+    if current_user != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+
+    redirect_uri = (request.redirect_uri if request else None) or f"{settings.FRONTEND_BASE_URL}/dashboard"
+
+    if not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Integração Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET.",
+        )
+
     try:
-        logger.info("🔌 Gerando URL de reconexão para user_id=%s", user_id)
-        
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # STEP 1: Preparar parâmetros
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-        # URL para redirecionar após conexão
-        redirect_uri = request.redirect_uri if request else None
-        if not redirect_uri:
-            redirect_uri = f"{settings.FRONTEND_BASE_URL}/dashboard"
-        
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # STEP 2: Chamar Pluggy para criar conexão
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
+        logger.info("Gerando URL de reconexão para user_id=%s", user_id)
+
         pluggy = PluggyClient()
-        
-        # TODO: Checar se PluggyClient tem método para gerar connect_url
-        # Por enquanto, simulamos
-        
-        # Placeholder: Gerar URL fake (seria real em produção)
-        from uuid import uuid4
-        connection_id = str(uuid4())[:8]
-        
-        connect_url = f"https://pluggy.io/open-finance/connections/{connection_id}"
-        
-        logger.info("✅ URL gerada: %s", connect_url)
-        
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # STEP 3: TODO - Salvar no banco que reconexão foi iniciada
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-        # INSERT INTO reconnect_sessions (user_id, connection_id, created_at, expires_at)
-        # VALUES (user_id, connection_id, NOW(), NOW() + interval 24 hours)
-        
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # STEP 4: Retornar URL (valida por 24 horas)
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-        # Calcular expiração: agora + 24 horas
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
-        
+        token_response = pluggy.create_connect_token(clientUserId=user_id)
+
+        access_token = token_response.get("accessToken")
+        if not access_token:
+            logger.error("Pluggy retornou resposta sem accessToken: %s", token_response)
+            raise ValueError("accessToken ausente na resposta da Pluggy")
+
+        # Monta a URL do Widget Pluggy Connect
+        import urllib.parse
+        connect_url = (
+            f"{settings.PLUGGY_CONNECT_URL}"
+            f"?accessToken={urllib.parse.quote(access_token)}"
+            f"&redirectUrl={urllib.parse.quote(redirect_uri)}"
+        )
+
+        # Connect tokens expiram em 30 minutos (documentação Pluggy)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+
+        logger.info("URL de conexão gerada para user_id=%s (expira em 30min)", user_id)
+
         return ConnectUrlResponse(
             user_id=user_id,
             connect_url=connect_url,
             expires_at=expires_at,
-            redirect_back_uri=redirect_uri
+            redirect_back_uri=redirect_uri,
         )
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Erro ao gerar URL de reconexão para user=%s: %s", user_id, e, exc_info=True)
         raise HTTPException(
@@ -185,45 +163,80 @@ async def create_reconnect_url(
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ENDPOINT: POST /reconnect/{user_id}/callback (Webhook de retorno)
+# ENDPOINT: POST /reconnect/{user_id}/callback
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-@router.post("/{user_id}/callback")
+@router.post("/{user_id}/callback", response_model=CallbackResponse)
 async def reconnect_callback(
     user_id: str,
     connection_id: str,
-    current_user: str = Depends(get_current_user)
-):
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CallbackResponse:
+    """
+    Chamado pelo frontend após o usuário concluir a conexão no Widget Pluggy.
+
+    Salva (ou atualiza) o PluggyItem no banco para que o webhook de transações
+    passe a sincronizar os dados desta conexão.
+
+    **Parâmetros:**
+    - `connection_id`: item_id retornado pelo Pluggy ao final da conexão
+    """
     if current_user != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
-    """
-    Webhook chamado pela Pluggy após usuário conectar.
-    
-    Este endpoint é chamado automaticamente pelo Pluggy quando:
-    1. Usuário completa conexão na Pluggy
-    2. Pluggy redireciona para `redirect_back_uri`
-    3. Frontend chama este endpoint informando sucesso
-    
-    **Fluxo:**
-    1. POST /reconnect/user_123/callback?connection_id=abc123
-    2. Atualizar banco: SET reconnect_completed = true
-    3. Próximo webhook /transactions/webhook atualizará dados
-    
-    TODO: Implementar isto com webhooks reais do Pluggy
-    """
-    
-    logger.info("✅ Reconexão completa para user_id=%s (connection_id=%s)", user_id, connection_id)
-    
-    # TODO: Atualizar no banco que reconexão foi completada
-    # UPDATE items SET status = 'ACTIVE', consent_expires_at = ... WHERE connection_id = ?
-    
-    return {
-        "status": "success",
-        "user_id": user_id,
-        "connection_id": connection_id,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "message": "Conexão atualizada! Os dados começarão a fluir em breve."
-    }
+
+    if not connection_id or not connection_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="connection_id é obrigatório",
+        )
+
+    logger.info("Callback de reconexão: user_id=%s connection_id=%s", user_id, connection_id)
+
+    try:
+        # Verifica se já existe um item com esse item_id para este usuário
+        existing = (
+            db.query(PluggyItem)
+            .filter(PluggyItem.user_id == user_id, PluggyItem.item_id == connection_id)
+            .first()
+        )
+
+        if existing:
+            # Já existe — apenas registra que reconexão foi confirmada
+            logger.info(
+                "PluggyItem já existe para user=%s item=%s — reconexão confirmada",
+                user_id, connection_id,
+            )
+        else:
+            # Novo item — persiste no banco
+            new_item = PluggyItem(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                item_id=connection_id,
+                connector_name=None,  # Atualizado pelo webhook quando disponível
+            )
+            db.add(new_item)
+            db.commit()
+            logger.info("Novo PluggyItem salvo: user=%s item=%s", user_id, connection_id)
+
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            "Erro ao salvar PluggyItem para user=%s item=%s: %s",
+            user_id, connection_id, e, exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao registrar a conexão. Os dados serão sincronizados em breve.",
+        )
+
+    return CallbackResponse(
+        status="success",
+        user_id=user_id,
+        connection_id=connection_id,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        message="Conexão registrada! Os dados financeiros serão sincronizados em breve.",
+    )
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -236,5 +249,5 @@ async def reconnect_health():
     return {
         "status": "ok",
         "service": "reconnect",
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }

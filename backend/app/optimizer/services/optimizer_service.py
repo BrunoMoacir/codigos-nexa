@@ -23,6 +23,57 @@ from app.optimizer.ranking import CardRanking
 from app.optimizer.validators.input_validator import InputValidator
 from app.optimizer.queries import save_optimization_report
 
+# ── Mapeamento issuer → padrões regex nas descrições de transações ────────
+# Chave: nome canônico do issuer (deve coincidir com CardRecord.issuer)
+# Valor: padrões case-insensitive que identificam o banco nas descrições
+_ISSUER_PATTERNS: dict[str, list[str]] = {
+    "Nubank":           [r"\bnubank\b", r"\bnu\s+pagamentos\b"],
+    "Banco Inter":      [r"\binter\b", r"\bbanco\s+inter\b"],
+    "Itaú":             [r"\bitau\b", r"\bita[uú]\b"],
+    "C6 Bank":          [r"\bc6\s*bank\b", r"\bc6\b"],
+    "Next (Bradesco)":  [r"\bnext\b", r"\bbradesco\b"],
+    "XP":               [r"\bxp\s+invest\b", r"\bxp\s+cartao\b"],
+    "PicPay":           [r"\bpicpay\b"],
+}
+
+
+def extract_issuers_from_transactions(transactions_df: "pl.DataFrame") -> set[str]:
+    """
+    Extrai nomes de emissores (issuers) presentes nas descrições das transações.
+
+    Varre a coluna 'description' com padrões regex por issuer.
+    Retorna o conjunto de issuers identificados — usado para calcular
+    o bônus de relacionamento bancário no eligibility_score.
+
+    Args:
+        transactions_df: DataFrame de transações com coluna 'description'.
+
+    Returns:
+        Conjunto de nomes de issuers encontrados (ex: {"Nubank", "Itaú"}).
+    """
+    import re
+    import polars as pl
+
+    if transactions_df is None or transactions_df.is_empty():
+        return set()
+    if "description" not in transactions_df.columns:
+        return set()
+
+    # Coleta todas as descrições em uma única string para scan eficiente
+    descriptions = " ".join(
+        transactions_df.get_column("description").drop_nulls().to_list()
+    ).lower()
+
+    found: set[str] = set()
+    for issuer, patterns in _ISSUER_PATTERNS.items():
+        if any(re.search(p, descriptions, re.IGNORECASE) for p in patterns):
+            found.add(issuer)
+
+    if found:
+        logger.debug("Issuers identificados nas transações: %s", found)
+
+    return found
+
 logger = logging.getLogger(__name__)
 
 
@@ -122,6 +173,8 @@ class OptimizerService:
         )
 
         # 4. Simular cada cartão e calcular a pontuação de elegibilidade
+        issuers = extract_issuers_from_transactions(transactions_df)
+
         simulated_results = []
         for card in eligible_cards:
             # Simular retorno financeiro
@@ -137,7 +190,7 @@ class OptimizerService:
                     card=card,
                     annual_income=annual_income,
                     spending_stability=profile.spending_stability,
-                    issuers_in_transactions=set(),  # TODO: Extrair da lista de transações se possível
+                    issuers_in_transactions=issuers,
                     income_profile=profile.income_profile,  # MI.3: penalizar PJ instável
                 )
             )
