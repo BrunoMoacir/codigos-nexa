@@ -40,13 +40,16 @@ class Token(BaseModel):
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
 async def register(request: Request, user: UserCreate, db: Session = Depends(get_db)):
+    ip = request.client.host if request.client else "unknown"
+    req_id = getattr(request.state, "request_id", None)
+
     db_user = get_user_by_email(db, user.email)
     if db_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email já registrado",
         )
-    
+
     hashed_password = get_password_hash(user.password)
     new_user = create_user(
         db=db,
@@ -54,25 +57,40 @@ async def register(request: Request, user: UserCreate, db: Session = Depends(get
         hashed_password=hashed_password,
         full_name=user.full_name
     )
-    
+
     if not new_user:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Erro ao criar usuário",
         )
-        
+
+    audit.log_register(
+        user_id=new_user["user_id"],
+        email=user.email,
+        ip=ip,
+        request_id=req_id,
+    )
     return {"message": "Usuário criado com sucesso", "user_id": new_user["user_id"]}
 
 
 @router.post("/token", response_model=Token)
 @limiter.limit("10/minute")
 async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    ip = request.client.host if request.client else "unknown"
+    req_id = getattr(request.state, "request_id", None)
+
     user = get_user_by_email(db, form_data.username)
     if not user:
         # Executa verify_password com hash fictício para equalizar tempo de resposta.
         # Sem isso, o tempo de retorno quando o email não existe é visivelmente menor,
         # permitindo enumeração de usuários cadastrados (timing attack).
         verify_password(form_data.password, _DUMMY_HASH)
+        audit.log_login_failure(
+            email=form_data.username,
+            ip=ip,
+            reason="email_not_found",
+            request_id=req_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email ou senha incorretos",
@@ -80,17 +98,25 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
         )
 
     if not verify_password(form_data.password, user["hashed_password"]):
+        audit.log_login_failure(
+            email=form_data.username,
+            ip=ip,
+            reason="wrong_password",
+            request_id=req_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email ou senha incorretos",
             headers={"WWW-Authenticate": "Bearer"},
         )
-        
+
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user["user_id"]}, expires_delta=access_token_expires
     )
-    
+
+    audit.log_login_success(user_id=user["user_id"], ip=ip, request_id=req_id)
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -100,7 +126,7 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(token_data: TokenData = Depends(get_current_token_data)):
+async def logout(request: Request, token_data: TokenData = Depends(get_current_token_data)):
     """
     Revoga o token atual adicionando o jti à blacklist Redis.
     O token deixa de ser aceito imediatamente, mesmo antes de expirar.
@@ -112,3 +138,7 @@ async def logout(token_data: TokenData = Depends(get_current_token_data)):
             from datetime import datetime, timezone
             remaining = max(0, exp - int(datetime.now(timezone.utc).timestamp()))
         revoke_token(token_data.jti, remaining or ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+
+    ip = request.client.host if request.client else "unknown"
+    req_id = getattr(request.state, "request_id", None)
+    audit.log_logout(user_id=token_data.user_id, ip=ip, request_id=req_id)

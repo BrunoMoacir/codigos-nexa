@@ -15,6 +15,7 @@ from app.api.v1.router import router as api_router
 from app.api.v1.routes.dashboard import router as dashboard_router
 from app.core.config import settings
 from app.core.database import Base, engine
+from app.core import audit
 from fastapi.middleware.cors import CORSMiddleware
 
 # Importa modelos para registrar no metadata (necessário para create_all)
@@ -141,6 +142,7 @@ async def request_logging_middleware(request: Request, call_next):
 
     Adiciona X-Request-ID a cada request (gerado ou propagado do cliente)
     e loga método, path, status e tempo de resposta para cada chamada.
+    Requests autenticados (Bearer token presente) também geram entrada de auditoria.
     """
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
     request.state.request_id = request_id
@@ -158,6 +160,26 @@ async def request_logging_middleware(request: Request, call_next):
         request_id,
     )
     response.headers["X-Request-ID"] = request_id
+
+    # Gera entrada de auditoria para qualquer request autenticado com Bearer token.
+    # O user_id aqui é opaco (não decodificamos o JWT no middleware para evitar
+    # duplicação de lógica) — os eventos de auth detalhados ficam em audit.py.
+    # Caminhos públicos (/health, /readiness, /version, /auth/*) são excluídos.
+    path = request.url.path
+    _PUBLIC_PREFIXES = ("/health", "/readiness", "/version", "/api/v1/auth/")
+    is_public = any(path.startswith(p) for p in _PUBLIC_PREFIXES)
+    has_token = request.headers.get("Authorization", "").startswith("Bearer ")
+    if has_token and not is_public:
+        ip = request.client.host if request.client else "unknown"
+        audit.log_data_access(
+            user_id="<token>",
+            endpoint=path,
+            method=request.method,
+            ip=ip,
+            status_code=response.status_code,
+            request_id=request_id,
+        )
+
     return response
 
 
