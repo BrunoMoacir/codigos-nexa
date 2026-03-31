@@ -1,7 +1,12 @@
 import axios from 'axios';
 import type { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://codigos-nexa-production.up.railway.app/api/v1';
+const ENV_API_BASE_URL = String(import.meta.env.VITE_API_URL || '').trim();
+
+export const API_BASE_URL = ENV_API_BASE_URL
+  || (import.meta.env.DEV
+    ? 'http://localhost:8000/api/v1'
+    : 'https://codigos-nexa-production.up.railway.app/api/v1');
 
 // Criar instância do Axios
 const apiClient: AxiosInstance = axios.create({

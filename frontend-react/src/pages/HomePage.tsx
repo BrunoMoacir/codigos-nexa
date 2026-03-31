@@ -63,12 +63,15 @@ export const HomePage: React.FC = () => {
   const userName = localStorage.getItem('user_name') || '';
   const userEmail = localStorage.getItem('user_email') || '';
   const displayName = userName || (userEmail ? userEmail.split('@')[0] : 'Usuário');
+  const dataOrigin = localStorage.getItem('nexa_data_origin') === 'sandbox' ? 'sandbox' : 'real';
 
   const handleLogout = () => {
     localStorage.removeItem('jwt_token');
     localStorage.removeItem('user_id');
     localStorage.removeItem('user_name');
     localStorage.removeItem('user_email');
+    localStorage.removeItem('nexa_data_origin');
+    localStorage.removeItem('nexa_data_origin_updated_at');
     window.location.href = '/login';
   };
 
@@ -534,8 +537,8 @@ export const HomePage: React.FC = () => {
           <div className="hp-stats">
             <div className="hp-stat">
               <div className="hp-stat-label">Modo</div>
-              <div className="hp-stat-value">Produção</div>
-              <div className="hp-stat-sub">Sem dados mock</div>
+              <div className="hp-stat-value">{dataOrigin === 'sandbox' ? 'Sandbox' : 'Produção'}</div>
+              <div className="hp-stat-sub">{dataOrigin === 'sandbox' ? 'Com dados de teste' : 'Dados reais'}</div>
             </div>
             <div className="hp-stat">
               <div className="hp-stat-label">Fonte</div>

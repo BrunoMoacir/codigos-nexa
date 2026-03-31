@@ -185,4 +185,26 @@ export const nexaApi = {
     });
     return data;
   },
+
+  // F5/F7/F13
+  getBankCosts: async (userId: string) => {
+    const { data } = await apiClient.get(`/costs/raio-x/${userId}`);
+    return data;
+  },
+
+  analyzePurchase: async (payload: {
+    user_id: string;
+    amount: number;
+    category: string;
+    installments?: number;
+    monthly_income?: number;
+  }) => {
+    const { data } = await apiClient.post('/purchase/analyze', payload);
+    return data;
+  },
+
+  generateNegotiationScript: async (payload: { user_id: string; bank_name?: string }) => {
+    const { data } = await apiClient.post('/negotiator/generate-script', payload);
+    return data;
+  },
 };

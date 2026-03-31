@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { AppShell } from '../components/layout/AppShell';
 import { nexaApi } from '../api/nexa';
+import { API_BASE_URL } from '../api/client';
 
 const card: React.CSSProperties = {
   background: 'var(--bg-surface)',
@@ -28,7 +29,12 @@ export const ConnectionsPage: React.FC = () => {
   const [widgetError, setWidgetError] = useState<string>('');
   const [widgetInfo, setWidgetInfo] = useState<string>('');
   const token = localStorage.getItem('jwt_token') || '';
-  const apiBase = import.meta.env.VITE_API_URL || 'https://codigos-nexa-production.up.railway.app/api/v1';
+  const apiBase = API_BASE_URL;
+
+  const setDataOrigin = (mode: 'real' | 'sandbox') => {
+    localStorage.setItem('nexa_data_origin', mode);
+    localStorage.setItem('nexa_data_origin_updated_at', new Date().toISOString());
+  };
 
   const itemsQuery = useQuery({
     queryKey: ['pluggy-items'],
@@ -45,6 +51,7 @@ export const ConnectionsPage: React.FC = () => {
       if (payload.type === 'pluggy-success') {
         setWidgetError('');
         setWidgetInfo('Conta conectada com sucesso. Atualize a lista para ver o item.');
+        setDataOrigin('real');
         toast.success('Conta conectada com sucesso.');
         itemsQuery.refetch();
       }
@@ -71,6 +78,7 @@ export const ConnectionsPage: React.FC = () => {
     mutationFn: () => nexaApi.syncPluggyTransactions(),
     onSuccess: (data) => {
       const totals = data?.totals || {};
+      setDataOrigin('real');
       toast.success(
         `Sync concluído: ${totals.saved || 0} transações em ${totals.accounts || 0} contas.`
       );
@@ -100,7 +108,9 @@ export const ConnectionsPage: React.FC = () => {
   const sandboxMutation = useMutation({
     mutationFn: () => nexaApi.createSandboxItem(perfMultiplier),
     onSuccess: () => {
+      setDataOrigin('sandbox');
       toast.success('Item sandbox criado com sucesso.');
+      toast('Modo sandbox ativo: os dados de transações são fictícios para teste.', { icon: '⚠️' });
       itemsQuery.refetch();
       // Invalidar queries pois sandbox cria transações mock
       queryClient.invalidateQueries({ queryKey: ['forecast'] });

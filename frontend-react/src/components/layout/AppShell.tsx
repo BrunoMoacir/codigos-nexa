@@ -22,6 +22,10 @@ const navItems: Array<{ key: AppShellTab; icon: string; label: string; path: str
 export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, children }) => {
   const navigate = useNavigate();
   const [isMobile, setIsMobile] = useState<boolean>(() => window.innerWidth < 980);
+  const [dataOrigin, setDataOrigin] = useState<'real' | 'sandbox'>(() => {
+    const raw = localStorage.getItem('nexa_data_origin');
+    return raw === 'sandbox' ? 'sandbox' : 'real';
+  });
 
   const userName = localStorage.getItem('user_name') || '';
   const userEmail = localStorage.getItem('user_email') || '';
@@ -32,6 +36,8 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
     localStorage.removeItem('user_id');
     localStorage.removeItem('user_name');
     localStorage.removeItem('user_email');
+    localStorage.removeItem('nexa_data_origin');
+    localStorage.removeItem('nexa_data_origin_updated_at');
     window.location.href = '/login';
   };
 
@@ -39,6 +45,19 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
     const onResize = () => setIsMobile(window.innerWidth < 980);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    const onStorage = () => {
+      const raw = localStorage.getItem('nexa_data_origin');
+      setDataOrigin(raw === 'sandbox' ? 'sandbox' : 'real');
+    };
+    window.addEventListener('storage', onStorage);
+    const interval = window.setInterval(onStorage, 1500);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.clearInterval(interval);
+    };
   }, []);
 
   const [theme, setTheme] = useState<'light'|'dark'>(() => {
@@ -265,6 +284,23 @@ export const AppShell: React.FC<AppShellProps> = ({ current, title, subtitle, ch
           </div>
           <h1 style={{ margin: 0, fontSize: isMobile ? 24 : 28, fontWeight: 600, letterSpacing: -0.6, color: 'var(--text-primary)' }}>{title}</h1>
           <p style={{ marginTop: 6, color: 'var(--text-muted)', fontSize: 14 }}>{subtitle}</p>
+          <div style={{ marginTop: 8 }}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 10px',
+                fontSize: 11,
+                borderRadius: 999,
+                border: dataOrigin === 'sandbox' ? '1px solid #fde68a' : '1px solid #bbf7d0',
+                background: dataOrigin === 'sandbox' ? '#fffbeb' : '#f0fdf4',
+                color: dataOrigin === 'sandbox' ? '#92400e' : '#166534',
+              }}
+            >
+              {dataOrigin === 'sandbox' ? 'Modo Sandbox: dados fictícios' : 'Dados reais conectados'}
+            </span>
+          </div>
         </div>
         {children}
       </main>

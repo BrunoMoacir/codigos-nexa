@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { API_BASE_URL } from '../api/client';
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -25,9 +26,7 @@ export const LoginPage: React.FC = () => {
       formData.append('username', loginEmail);
       formData.append('password', loginPassword);
       
-      const apiURL = import.meta.env.VITE_API_URL || 'https://codigos-nexa-production.up.railway.app/api/v1';
-      
-      const response = await fetch(`${apiURL}/auth/token`, {
+      const response = await fetch(`${API_BASE_URL}/auth/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: formData,
@@ -37,6 +36,8 @@ export const LoginPage: React.FC = () => {
         localStorage.setItem('jwt_token', data.access_token);
         localStorage.setItem('user_id', data.user_id);
         localStorage.setItem('user_email', loginEmail);
+        localStorage.setItem('nexa_data_origin', 'real');
+        localStorage.setItem('nexa_data_origin_updated_at', new Date().toISOString());
         if (data.full_name) {
           localStorage.setItem('user_name', data.full_name);
         }
@@ -68,9 +69,7 @@ export const LoginPage: React.FC = () => {
     setIsLoading(true);
     const toastId = toast.loading('Criando conta…');
     try {
-      const apiURL = import.meta.env.VITE_API_URL || 'https://codigos-nexa-production.up.railway.app/api/v1';
-
-      const response = await fetch(`${apiURL}/auth/register`, {
+      const response = await fetch(`${API_BASE_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: registerEmail, password: registerPassword, full_name: registerName }),

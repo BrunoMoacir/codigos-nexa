@@ -40,7 +40,7 @@ function toNumber(value: unknown) {
 
 export const StrategiesPage: React.FC = () => {
   const userId = localStorage.getItem('user_id') || '';
-  const [tab, setTab] = useState<'optimizer' | 'architect' | 'fiscal' | 'peers'>('optimizer');
+  const [tab, setTab] = useState<'optimizer' | 'architect' | 'fiscal' | 'peers' | 'advanced'>('optimizer');
 
   const [income, setIncome] = useState(10000);
   const [maxCards, setMaxCards] = useState(3);
@@ -51,6 +51,10 @@ export const StrategiesPage: React.FC = () => {
 
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState<number | ''>('');
+  const [purchaseAmount, setPurchaseAmount] = useState(3000);
+  const [purchaseCategory, setPurchaseCategory] = useState('Eletronicos');
+  const [purchaseInstallments, setPurchaseInstallments] = useState(1);
+  const [negotiationBank, setNegotiationBank] = useState('');
 
   const portfolioQuery = useQuery({
     queryKey: ['optimizer-portfolio', userId, income, maxCards],
@@ -127,6 +131,31 @@ export const StrategiesPage: React.FC = () => {
     enabled: !!userId && tab === 'peers',
   });
 
+  const costsQuery = useQuery({
+    queryKey: ['costs-raio-x', userId],
+    queryFn: () => nexaApi.getBankCosts(userId),
+    enabled: !!userId && tab === 'advanced',
+  });
+
+  const purchaseMutation = useMutation({
+    mutationFn: () =>
+      nexaApi.analyzePurchase({
+        user_id: userId,
+        amount: purchaseAmount,
+        category: purchaseCategory,
+        installments: purchaseInstallments,
+        monthly_income: income,
+      }),
+  });
+
+  const negotiatorMutation = useMutation({
+    mutationFn: () =>
+      nexaApi.generateNegotiationScript({
+        user_id: userId,
+        bank_name: negotiationBank.trim() || undefined,
+      }),
+  });
+
   const optimizerCards = cardsQuery.data?.cards || cardsQuery.data?.results || [];
   const portfolioCards = portfolioQuery.data?.cards || [];
   const promotions = promotionsQuery.data?.promotions || [];
@@ -137,11 +166,15 @@ export const StrategiesPage: React.FC = () => {
   const mixedUseData = fiscalMixed.data || {};
   const peerData = peerQuery.data || {};
   const notifications = notificationsQuery.data?.notifications || notificationsQuery.data?.results || [];
+  const costsData = costsQuery.data || {};
+  const purchaseData = purchaseMutation.data || {};
+  const negotiationData = negotiatorMutation.data || {};
 
   const isOptimizerLoading = portfolioQuery.isLoading || cardsQuery.isLoading || promotionsQuery.isLoading;
   const isArchitectLoading = architectHistory.isLoading || architectMetrics.isLoading;
   const isFiscalLoading = fiscalReport.isLoading || fiscalMixed.isLoading;
   const isPeersLoading = peerQuery.isLoading || notificationsQuery.isLoading;
+  const isAdvancedLoading = costsQuery.isLoading;
 
   const topPeerInsights = useMemo(() => {
     const rawInsights = peerData?.insights || peerData?.highlights || [];
@@ -173,6 +206,7 @@ export const StrategiesPage: React.FC = () => {
           ['architect', 'Architect'],
           ['fiscal', 'Fiscal'],
           ['peers', 'Peers & Alertas'],
+          ['advanced', 'F5/F7/F13'],
         ].map(([key, label]) => (
           <button
             key={key}
@@ -523,6 +557,140 @@ export const StrategiesPage: React.FC = () => {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {tab === 'advanced' && (
+        <div style={{ display: 'grid', gap: 12 }}>
+          {isAdvancedLoading && (
+            <div style={{ ...card, color: 'var(--text-muted)', fontSize: 14 }}>Carregando análise de custos bancários...</div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+            <div style={card}>
+              <div style={sectionTitle}>F5 • Raio-X de Custos Bancários</div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                  <div style={metricLabel}>Total pago no período</div>
+                  <div style={metricValue}>{currency(toNumber(costsData.total_paid))}</div>
+                </div>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                  <div style={metricLabel}>Média mensal</div>
+                  <div style={metricValue}>{currency(toNumber(costsData.monthly_avg))}</div>
+                </div>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                  <div style={metricLabel}>Economia potencial/mês</div>
+                  <div style={metricValue}>{currency(toNumber(costsData.savings_opportunity))}</div>
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                  {Array.isArray(costsData.by_bank) && costsData.by_bank.length > 0
+                    ? `${costsData.by_bank.length} bancos analisados.`
+                    : 'Sem dados suficientes para análise de tarifas.'}
+                </div>
+              </div>
+            </div>
+
+            <div style={card}>
+              <div style={sectionTitle}>F7 • Modo Compra Inteligente</div>
+              <div style={{ display: 'grid', gap: 8, marginBottom: 10 }}>
+                <input
+                  type="number"
+                  value={purchaseAmount}
+                  onChange={(e) => setPurchaseAmount(Number(e.target.value || 0))}
+                  style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }}
+                />
+                <input
+                  value={purchaseCategory}
+                  onChange={(e) => setPurchaseCategory(e.target.value)}
+                  placeholder="Categoria"
+                  style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }}
+                />
+                <input
+                  type="number"
+                  value={purchaseInstallments}
+                  min={1}
+                  max={48}
+                  onChange={(e) => setPurchaseInstallments(Number(e.target.value || 1))}
+                  style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }}
+                />
+                <button
+                  onClick={() => purchaseMutation.mutate()}
+                  style={{ border: '1px solid #111', background: 'var(--text-primary)', color: 'var(--bg-surface)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}
+                >
+                  Analisar compra
+                </button>
+              </div>
+
+              {purchaseMutation.isPending && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Calculando melhores opções...</div>}
+              {!purchaseMutation.isPending && Object.keys(purchaseData).length > 0 && (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                    <div style={metricLabel}>Método recomendado</div>
+                    <div style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 700 }}>{purchaseData.recommended_label || purchaseData.recommended_method || 'N/A'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                      Custo líquido: {currency(toNumber(purchaseData.recommended_net_cost))}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    {purchaseData.reasoning || 'Sem justificativa detalhada para este cenário.'}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={card}>
+            <div style={sectionTitle}>F13 • Negotiator Bot</div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+              <input
+                value={negotiationBank}
+                onChange={(e) => setNegotiationBank(e.target.value)}
+                placeholder="Banco (opcional, ex: Itaú)"
+                style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8, minWidth: 240 }}
+              />
+              <button
+                onClick={() => negotiatorMutation.mutate()}
+                style={{ border: '1px solid #111', background: 'var(--text-primary)', color: 'var(--bg-surface)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}
+              >
+                Gerar roteiro
+              </button>
+            </div>
+
+            {negotiatorMutation.isPending && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Gerando scripts de negociação...</div>}
+
+            {!negotiatorMutation.isPending && Object.keys(negotiationData).length > 0 && (
+              <div style={{ display: 'grid', gap: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                    <div style={metricLabel}>Oportunidades</div>
+                    <div style={metricValue}>{toNumber(negotiationData.opportunities_found)}</div>
+                  </div>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                    <div style={metricLabel}>Confiança</div>
+                    <div style={metricValue}>{(toNumber(negotiationData.confidence_score) * 100).toFixed(0)}%</div>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                  {negotiationData.summary || 'Sem resumo disponível para negociação neste momento.'}
+                </div>
+
+                {(negotiationData.scripts || []).slice(0, 3).map((script: any, idx: number) => (
+                  <div key={`${idx}-${script?.opportunity?.bank_name || 'bank'}`} style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                      {script?.opportunity?.bank_name || 'Banco'} • {script?.opportunity?.product || 'Produto'}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+                      Meta: {script?.target_ask || 'Negociar condições melhores'}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                      {script?.opening_line || 'Sem script gerado para esta oportunidade.'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
