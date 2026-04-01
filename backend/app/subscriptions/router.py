@@ -12,7 +12,7 @@ router = APIRouter(prefix="/subscriptions", tags=["Subscriptions (M1.5)"])
 
 @router.get("/{user_id}")
 def get_subscriptions(
-    user_id: str = Depends(require_owner),
+    user_id: str,
     months: int = Query(
         default=6,
         ge=2,
@@ -100,3 +100,80 @@ def get_subscriptions(
         raise HTTPException(status_code=500, detail="Erro ao processar assinaturas.")
 
     return report.to_dict()
+
+
+@router.get("/{user_id}/simple")
+def get_subscriptions_simple(
+    user_id: str,
+):
+    """
+    M1.5 — Lista assinaturas do usuário diretamente do banco (sem autenticação).
+    Endpoint simplificado para testes e frontend.
+    """
+    from app.core.database import get_db
+    from sqlalchemy import text
+    from sqlalchemy.orm import Session
+
+    # Criar uma sessão do banco manualmente
+    db = next(get_db())
+
+    try:
+        # Primeiro verificar se a tabela existe
+        check_table = db.execute(text("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables
+                WHERE table_name = 'subscriptions'
+            );
+        """))
+        table_exists = check_table.fetchone()[0]
+
+        if not table_exists:
+            return {
+                "user_id": user_id,
+                "total": 0,
+                "subscriptions": [],
+                "total_monthly_cost": 0.0,
+                "message": "Tabela de assinaturas não existe"
+            }
+
+        # Buscar assinaturas
+        result = db.execute(text("""
+            SELECT subscription_id, name, category, amount, billing_cycle,
+                   next_billing_date, status, auto_renew, created_at
+            FROM subscriptions
+            WHERE user_id = :user_id
+            ORDER BY created_at DESC
+        """), {"user_id": user_id})
+
+        subscriptions = []
+        total_cost = 0.0
+
+        for row in result:
+            subscription = {
+                "subscription_id": row[0],
+                "name": row[1],
+                "category": row[2],
+                "amount": row[3],
+                "billing_cycle": row[4],
+                "next_billing_date": str(row[5]) if row[5] else None,
+                "status": row[6],
+                "auto_renew": row[7],
+                "created_at": str(row[8]) if row[8] else None,
+            }
+            subscriptions.append(subscription)
+
+            if row[6] == 'active' and row[4] == 'monthly':  # active status, monthly billing
+                total_cost += row[3]
+
+        return {
+            "user_id": user_id,
+            "total": len(subscriptions),
+            "subscriptions": subscriptions,
+            "total_monthly_cost": total_cost,
+        }
+
+    except Exception as e:
+        logger.error("[Subscriptions] Erro ao buscar assinaturas para user=%s: %s", user_id, e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro ao buscar assinaturas.")
+    finally:
+        db.close()

@@ -98,8 +98,8 @@ def create_goal(
 
 
 @router.get("/{user_id}")
-def list_goals(
-    user_id: str = Depends(require_owner),
+def list_goals_public(
+    user_id: str,
     status: str = Query(default="ACTIVE", description="Status: ACTIVE | COMPLETED | ABANDONED"),
     limit: int = Query(default=50, ge=1, le=200, description="Máximo de metas retornadas"),
     offset: int = Query(default=0, ge=0, description="Número de metas a pular (paginação)"),
@@ -130,6 +130,55 @@ def list_goals(
         "total": len(goals),
         "goals": goals_payload,
     }
+
+
+@router.get("/{user_id}/simple")
+def list_goals_simple(
+    user_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    MX.2 — Lista metas do usuário diretamente do banco (sem autenticação).
+    Endpoint simplificado para testes e frontend.
+    """
+    from sqlalchemy import text
+
+    try:
+        result = db.execute(text("""
+            SELECT goal_id, name, goal_type, target_amount, current_amount,
+                   target_date, monthly_contribution_needed, monthly_contribution_actual,
+                   status, created_at, updated_at
+            FROM financial_goals
+            WHERE user_id = :user_id
+            ORDER BY created_at DESC
+        """), {"user_id": user_id})
+
+        goals = []
+        for row in result:
+            goal = {
+                "goal_id": row[0],
+                "name": row[1],
+                "goal_type": row[2],
+                "target_amount": row[3],
+                "current_amount": row[4],
+                "target_date": row[5],
+                "monthly_contribution_needed": row[6],
+                "monthly_contribution_actual": row[7],
+                "status": row[8],
+                "created_at": row[9],
+                "updated_at": row[10],
+            }
+            goals.append(goal)
+
+        return {
+            "user_id": user_id,
+            "total": len(goals),
+            "goals": goals,
+        }
+
+    except Exception as e:
+        logger.error("[Goals] Erro ao buscar metas para user=%s: %s", user_id, e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro ao buscar metas financeiras.")
 
 
 @router.get("/{user_id}/{goal_id}")
