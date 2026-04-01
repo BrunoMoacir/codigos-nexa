@@ -188,7 +188,7 @@ class _CardAssignmentResponse(_BaseModel):
     effective_annuity: float
     net_annual: float                    # annual_return - effective_annuity
     reason: str
-    request_link: _Optional[str] = None
+    request_link: Optional[str] = None
 
 
 class _CardPortfolioResponse(_BaseModel):
