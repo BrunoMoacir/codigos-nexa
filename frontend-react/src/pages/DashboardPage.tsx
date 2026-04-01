@@ -127,6 +127,16 @@ export const DashboardPage: React.FC = () => {
   const isLoading =
     forecastQuery.isLoading || budgetQuery.isLoading || goalsQuery.isLoading || txQuery.isLoading;
 
+  const isNotFoundError = (err: unknown) => {
+    const status = (err as any)?.response?.status;
+    return status === 404;
+  };
+
+  const forecastNoData = forecastQuery.isError && isNotFoundError(forecastQuery.error);
+  const budgetNoData = budgetQuery.isError && isNotFoundError(budgetQuery.error);
+  const hasCriticalLoadError =
+    (forecastQuery.isError && !forecastNoData) || (budgetQuery.isError && !budgetNoData);
+
   const financialHealth = forecastQuery.data?.financial_health || {};
   const safeToSpend = forecastQuery.data?.safe_to_spend || {};
   const shadow = forecastQuery.data?.shadow_invoices || {};
@@ -291,9 +301,16 @@ export const DashboardPage: React.FC = () => {
         </div>
       )}
 
-      {(forecastQuery.isError || budgetQuery.isError) && (
+      {hasCriticalLoadError && (
         <div style={{ ...cardStyle, borderColor: '#fecaca', color: '#b91c1c', marginBottom: 16 }}>
           Não foi possível carregar parte dos dados. Verifique se o backend está ativo.
+        </div>
+      )}
+
+      {forecastNoData && (
+        <div style={{ ...cardStyle, borderColor: '#bfdbfe', color: '#1e40af', marginBottom: 16 }}>
+          Sua conta está ativa, mas ainda não há histórico financeiro suficiente para o painel Meu Dinheiro.
+          Conecte uma conta no Open Finance (ou sincronize transações) para liberar todos os cálculos.
         </div>
       )}
 
