@@ -52,6 +52,37 @@ if [ -z "$SECRET_KEY" ]; then
     echo "⚠️  WARNING: SECRET_KEY not set - using default (INSECURE)"
 fi
 
+# Corrigir DATABASE_URL se necessário (Railway fornece postgresql:// mas precisamos postgresql+psycopg2://)
+if [[ "$DATABASE_URL" == postgresql://* ]] && [[ "$DATABASE_URL" != *"+psycopg2://"* ]]; then
+    export DATABASE_URL="${DATABASE_URL/postgresql:\/\//postgresql+psycopg2:\/\/}"
+    echo "🔧 Fixed DATABASE_URL prefix to postgresql+psycopg2://"
+fi
+
+echo "=========================================="
+echo "📊 Running database migrations..."
+echo "=========================================="
+echo ""
+
+# Rodar migrações Alembic (com retry para aguardar o banco estar pronto)
+max_attempts=10
+attempt=1
+while [ $attempt -le $max_attempts ]; do
+    echo "Migration attempt $attempt/$max_attempts..."
+    if alembic upgrade head; then
+        echo "✅ Migrations completed successfully"
+        break
+    else
+        if [ $attempt -eq $max_attempts ]; then
+            echo "❌ Failed to run migrations after $max_attempts attempts"
+            exit 1
+        fi
+        echo "⚠️  Migration failed, waiting 3s before retry..."
+        sleep 3
+        attempt=$((attempt + 1))
+    fi
+done
+
+echo ""
 echo "=========================================="
 echo "🌟 Starting Uvicorn server..."
 echo "=========================================="
