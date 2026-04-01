@@ -63,24 +63,69 @@ echo "📊 Running database migrations..."
 echo "=========================================="
 echo ""
 
-# Rodar migrações Alembic (com retry para aguardar o banco estar pronto)
-max_attempts=10
-attempt=1
-while [ $attempt -le $max_attempts ]; do
-    echo "Migration attempt $attempt/$max_attempts..."
-    if alembic upgrade head; then
-        echo "✅ Migrations completed successfully"
-        break
-    else
-        if [ $attempt -eq $max_attempts ]; then
-            echo "❌ Failed to run migrations after $max_attempts attempts"
-            exit 1
-        fi
-        echo "⚠️  Migration failed, waiting 3s before retry..."
-        sleep 3
-        attempt=$((attempt + 1))
-    fi
-done
+# Script Python para verificar estado das migrações
+python3 << 'PYTHON_SCRIPT'
+import sys
+import os
+from sqlalchemy import create_engine, text, inspect
+from alembic.config import Config
+from alembic import command
+
+try:
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        print("❌ DATABASE_URL não configurada")
+        sys.exit(1)
+
+    print(f"🔍 Conectando ao banco de dados...")
+    engine = create_engine(database_url, echo=False)
+
+    with engine.connect() as conn:
+        inspector = inspect(engine)
+
+        # Verificar se alembic_version existe
+        has_alembic_version = inspector.has_table("alembic_version")
+
+        # Verificar se as tabelas principais existem
+        has_tables = (
+            inspector.has_table("context_overrides") or
+            inspector.has_table("transactions_clean") or
+            inspector.has_table("health_score_history")
+        )
+
+        print(f"📋 Estado do banco:")
+        print(f"   - Tabela alembic_version: {'✅ existe' if has_alembic_version else '❌ não existe'}")
+        print(f"   - Tabelas do schema: {'✅ existem' if has_tables else '❌ não existem'}")
+
+        alembic_cfg = Config("alembic.ini")
+
+        if has_tables and not has_alembic_version:
+            print("🔧 Tabelas existem mas alembic_version não. Marcando migrações como aplicadas...")
+            command.stamp(alembic_cfg, "head")
+            print("✅ Migrações marcadas como aplicadas (stamp)")
+        elif not has_tables:
+            print("🚀 Banco vazio. Aplicando todas as migrações...")
+            command.upgrade(alembic_cfg, "head")
+            print("✅ Migrações aplicadas com sucesso")
+        else:
+            print("🔄 Aplicando migrações pendentes (se houver)...")
+            command.upgrade(alembic_cfg, "head")
+            print("✅ Banco atualizado")
+
+    print("✅ Migração concluída com sucesso")
+    sys.exit(0)
+
+except Exception as e:
+    print(f"❌ Erro nas migrações: {e}")
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+PYTHON_SCRIPT
+
+if [ $? -ne 0 ]; then
+    echo "❌ Falha nas migrações do banco de dados"
+    exit 1
+fi
 
 echo ""
 echo "=========================================="
