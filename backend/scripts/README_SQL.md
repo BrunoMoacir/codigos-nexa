@@ -1,204 +1,121 @@
-# 🗄️ Scripts SQL para Popular Banco Railway
+# Scripts SQL para Popular a Base Online
 
-## 📋 Ordem de Execução
+## Ordem de execucao
 
-Execute os scripts **nesta ordem exata**:
+Execute na ordem:
 
-### 1️⃣ Criar Usuário
-```bash
-01_criar_usuario.sql
-```
-- Cria usuário: `teste@nexa.com` / `teste123`
-- Cria conta bancária vinculada
-- Remove dados antigos se existirem
+1. `01_criar_usuario.sql`
+2. `02_criar_transacoes.sql`
+3. `03_criar_metas.sql`
 
-### 2️⃣ Criar Transações
-```bash
-02_criar_transacoes.sql
-```
-- **~800-1000 transações** nos últimos 6 meses
-- Salários mensais
-- Assinaturas recorrentes (Netflix, Spotify, etc)
-- Despesas variadas (alimentação, transporte, lazer, etc)
-- Contas fixas (aluguel, luz, água, internet)
-- Investimentos ocasionais
+Os scripts foram ajustados para o schema atual:
+- `users`
+- `transactions_clean`
+- `financial_goals`
+- `architect_simulations`
+- `architect_simulation_metrics`
+- `chat_messages`
 
-### 3️⃣ Criar Metas
-```bash
-03_criar_metas.sql
-```
-- 5 metas financeiras
-- Status variados (ativa, concluída)
-- Diferentes níveis de progresso
+## Como executar no Supabase
 
----
+1. Abra o projeto no Supabase.
+2. Entre em SQL Editor.
+3. Rode o conteudo de cada arquivo, um por vez, na ordem acima.
+4. Valide com as queries abaixo.
 
-## 🚀 Como Executar no Railway
+## Massa de dados criada
 
-### Opção 1: Via Railway CLI (Recomendado)
+- Usuario: `teste@nexa.com` / `teste123`
+- ~760+ transacoes em `transactions_clean` cobrindo:
+    - receitas recorrentes e extras
+    - despesas de varias categorias
+    - assinaturas recorrentes
+    - parcelamentos (`is_installment = true`)
+    - mistura PF/PJ em `context_type`
+- 5 metas em `financial_goals`
+- 2 simulacoes em `architect_simulations`
+- trilha de conversa em `chat_messages`
 
-```bash
-# 1. Instalar Railway CLI
-npm i -g @railway/cli
-
-# 2. Login
-railway login
-
-# 3. Conectar ao projeto
-railway link
-
-# 4. Conectar ao banco PostgreSQL
-railway connect postgres
-
-# 5. Executar scripts em ordem
-\i /caminho/para/01_criar_usuario.sql
-\i /caminho/para/02_criar_transacoes.sql
-\i /caminho/para/03_criar_metas.sql
-```
-
-### Opção 2: Via Editor SQL do Railway Dashboard
-
-1. Acesse https://railway.app
-2. Entre no seu projeto `codigos-nexa`
-3. Clique no serviço **PostgreSQL**
-4. Vá em **Data** → **Query**
-5. Copie e cole cada script (em ordem)
-6. Execute com `Ctrl+Enter` ou botão Run
-
-### Opção 3: Via Cliente PostgreSQL Local
-
-```bash
-# 1. Obter DATABASE_URL do Railway
-railway variables
-
-# 2. Conectar usando psql
-psql "postgresql://postgres:senha@host:port/railway"
-
-# 3. Executar scripts
-\i 01_criar_usuario.sql
-\i 02_criar_transacoes.sql
-\i 03_criar_metas.sql
-```
-
----
-
-## ✅ Verificação
-
-Após executar, verifique os resultados:
+## Queries de verificacao
 
 ```sql
--- Verificar usuário
-SELECT * FROM users WHERE email = 'teste@nexa.com';
+-- Usuario criado
+SELECT user_id, email, full_name, created_at
+FROM users
+WHERE email = 'teste@nexa.com';
 
--- Contar transações
-SELECT COUNT(*) FROM transactions t
+-- Cobertura de transacoes
+SELECT
+    COUNT(*) AS total_transacoes,
+    MIN(date) AS dt_inicio,
+    MAX(date) AS dt_fim,
+    ROUND(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END)::numeric, 2) AS entradas,
+    ROUND(ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END))::numeric, 2) AS saidas
+FROM transactions_clean t
 JOIN users u ON u.user_id = t.user_id
 WHERE u.email = 'teste@nexa.com';
 
--- Ver distribuição por categoria
-SELECT category, COUNT(*) as total
-FROM transactions t
+-- Diversidade de categorias
+SELECT category, COUNT(*) AS qtd
+FROM transactions_clean t
 JOIN users u ON u.user_id = t.user_id
 WHERE u.email = 'teste@nexa.com'
 GROUP BY category
-ORDER BY total DESC;
+ORDER BY qtd DESC
+LIMIT 20;
 
--- Ver metas
-SELECT title, current_amount, target_amount, status
-FROM goals g
+-- Mix PF/PJ
+SELECT context_type, COUNT(*) AS qtd
+FROM transactions_clean t
+JOIN users u ON u.user_id = t.user_id
+WHERE u.email = 'teste@nexa.com'
+GROUP BY context_type
+ORDER BY qtd DESC;
+
+-- Metas
+SELECT name, target_amount, current_amount, status, target_date
+FROM financial_goals g
 JOIN users u ON u.user_id = g.user_id
+WHERE u.email = 'teste@nexa.com'
+ORDER BY target_date::date;
+
+-- Architect
+SELECT COUNT(*) AS qtd_simulacoes
+FROM architect_simulations s
+JOIN users u ON u.user_id = s.user_id
+WHERE u.email = 'teste@nexa.com';
+
+-- Chat
+SELECT COUNT(*) AS qtd_msgs
+FROM chat_messages c
+JOIN users u ON u.user_id = c.user_id
 WHERE u.email = 'teste@nexa.com';
 ```
 
----
-
-## 📊 Dados Criados
-
-### Usuário Mock
-- **Email:** teste@nexa.com
-- **Senha:** teste123
-- **Nome:** Bruno Teste
-
-### Transações (~900-1000)
-- ✅ 6 salários (R$ 8.500/mês)
-- ✅ ~4 freelances (R$ 500-3000 cada)
-- ✅ 24 assinaturas (Netflix, Spotify, Amazon, iCloud)
-- ✅ ~800 despesas variadas em 20+ categorias
-- ✅ 36 contas fixas (aluguel, condomínio, luz, água, internet, telefone)
-- ✅ ~5 investimentos (dividendos, tesouro, CDB)
-
-### Categorias de Despesas
-- Alimentação
-- Transporte
-- Restaurante
-- Mercado
-- Farmácia
-- Lazer
-- Vestuário
-- Shopping
-- Moradia
-- Contas
-- Assinaturas
-- E mais...
-
-### Metas (5)
-1. 🌍 Viagem Europa - R$ 15.000 (57% completo)
-2. 💰 Fundo Emergência - R$ 30.000 (73% completo)
-3. 🚗 Carro Novo - R$ 60.000 (25% completo)
-4. ✅ Curso Inglês - R$ 5.000 (CONCLUÍDA)
-5. 💻 Setup Home Office - R$ 8.000 (29% completo)
-
----
-
-## 🎯 Testando no Frontend
-
-Após popular o banco:
-
-1. **Acesse:** https://codigos-nexa-production.up.railway.app
-2. **Faça login:** teste@nexa.com / teste123
-3. **Navegue pelas páginas:**
-   - **Dashboard:** Ver transações, gráficos, metas
-   - **Estratégias:** Testar Optimizer, Architect, Fiscal
-   - **Chat IA:** Fazer perguntas sobre finanças
-   - **Conexões:** Ver conta conectada
-
----
-
-## 🔧 Troubleshooting
-
-### Erro: "Usuário não encontrado"
-Execute o script `01_criar_usuario.sql` primeiro
-
-### Erro: "Permission denied"
-Verifique se está conectado ao banco correto no Railway
-
-### Transações duplicadas
-Os scripts limpam dados antigos automaticamente ao executar
-
-### Queries lentas
-Normal! São ~1000 operações. Aguarde 10-30 segundos.
-
----
-
-## 🗑️ Limpar Dados
-
-Para remover tudo e recomeçar:
+## Queries para mapear processamento backend
 
 ```sql
-DO $$
-DECLARE
-    v_user_id UUID;
-BEGIN
-    SELECT user_id INTO v_user_id
-    FROM users WHERE email = 'teste@nexa.com';
+-- Assinaturas detectaveis
+SELECT description, COUNT(*) AS ocorrencias
+FROM transactions_clean t
+JOIN users u ON u.user_id = t.user_id
+WHERE u.email = 'teste@nexa.com'
+    AND category = 'Assinaturas'
+GROUP BY description
+ORDER BY ocorrencias DESC;
 
-    DELETE FROM transactions WHERE user_id = v_user_id;
-    DELETE FROM goals WHERE user_id = v_user_id;
-    DELETE FROM accounts WHERE user_id = v_user_id;
-    DELETE FROM users WHERE user_id = v_user_id;
-END $$;
+-- Parcelamentos
+SELECT COUNT(*) AS qtd_parceladas
+FROM transactions_clean t
+JOIN users u ON u.user_id = t.user_id
+WHERE u.email = 'teste@nexa.com'
+    AND is_installment = true;
+
+-- Base para fiscal/contexto
+SELECT context_type, pj_subcategory, COUNT(*) AS qtd
+FROM transactions_clean t
+JOIN users u ON u.user_id = t.user_id
+WHERE u.email = 'teste@nexa.com'
+GROUP BY context_type, pj_subcategory
+ORDER BY qtd DESC;
 ```
-
----
-
-**Pronto!** 🚀 Agora você tem um banco completo para testar todas as funcionalidades do Nexa!

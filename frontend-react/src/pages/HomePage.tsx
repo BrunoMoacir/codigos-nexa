@@ -38,6 +38,13 @@ const modules: Module[] = [
     path: '/chat',
     tag: 'LangGraph IA',
   },
+  {
+    icon: '◉',
+    label: 'Perfil',
+    desc: 'Veja os dados da conta e da sessão atualmente logada.',
+    path: '/profile',
+    tag: 'Conta',
+  },
 ];
 
 export const HomePage: React.FC = () => {
@@ -491,6 +498,7 @@ export const HomePage: React.FC = () => {
               { icon: '◈', label: 'Estratégias', path: '/strategies', active: false },
               { icon: '⌁', label: 'Conexões', path: '/connections', active: false },
               { icon: '◍', label: 'Chat IA', path: '/chat', active: false },
+              { icon: '◉', label: 'Perfil', path: '/profile', active: false },
             ].map((item) => (
               <button
                 key={item.path}
