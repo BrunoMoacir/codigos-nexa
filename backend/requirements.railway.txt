@@ -31,20 +31,12 @@ pyarrow>=15.0.0
 # ============================================
 # AI/LLM
 # ============================================
-langgraph==1.1.4
-langgraph-checkpoint==2.1.0
-langgraph-prebuilt==1.0.8
-langgraph-sdk==0.3.12
-langgraph-checkpoint-redis==0.4.0
+langgraph>=0.2.50,<0.3.0
+langgraph-checkpoint-redis>=0.0.1,<0.1.0
 langchain==0.3.27
-langchain-core==0.3.83
 langchain-text-splitters==0.3.9
 langchain-openai==0.2.14
 langchain-anthropic==0.3.22
-langsmith==0.3.45
-openai==1.109.1
-anthropic==0.87.0
-tiktoken==0.12.0
 
 # ============================================
 # Machine Learning
