@@ -42,7 +42,7 @@ export const StrategiesPage: React.FC = () => {
   const userId = localStorage.getItem('user_id') || '';
   const [tab, setTab] = useState<'optimizer' | 'architect' | 'fiscal' | 'peers' | 'advanced'>('optimizer');
 
-  const [income, setIncome] = useState(10000);
+  const [income, setIncome] = useState(0);
   const [maxCards, setMaxCards] = useState(3);
 
   const [targetAmount, setTargetAmount] = useState(120000);
@@ -59,7 +59,7 @@ export const StrategiesPage: React.FC = () => {
   const portfolioQuery = useQuery({
     queryKey: ['optimizer-portfolio', userId, income, maxCards],
     queryFn: () => nexaApi.getOptimizerPortfolio(userId, maxCards, income),
-    enabled: !!userId && tab === 'optimizer',
+    enabled: !!userId && tab === 'optimizer' && income > 0,
   });
 
   const cardsQuery = useQuery({
@@ -122,13 +122,13 @@ export const StrategiesPage: React.FC = () => {
   const peerQuery = useQuery({
     queryKey: ['peers', userId, income],
     queryFn: () => nexaApi.getPeerComparison(userId, income, 3),
-    enabled: !!userId && tab === 'peers',
+    enabled: !!userId && tab === 'peers' && income > 0,
   });
 
   const notificationsQuery = useQuery({
     queryKey: ['notifications', userId, income],
     queryFn: () => nexaApi.getNotifications(userId, income, true),
-    enabled: !!userId && tab === 'peers',
+    enabled: !!userId && tab === 'peers' && income > 0,
   });
 
   const costsQuery = useQuery({
@@ -144,7 +144,7 @@ export const StrategiesPage: React.FC = () => {
         amount: purchaseAmount,
         category: purchaseCategory,
         installments: purchaseInstallments,
-        monthly_income: income,
+        monthly_income: income > 0 ? income : undefined,
       }),
   });
 
@@ -247,6 +247,11 @@ export const StrategiesPage: React.FC = () => {
                 <option value={4}>4 cartões</option>
               </select>
             </div>
+            {income <= 0 && (
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 10 }}>
+                Informe sua renda mensal para calcular o portfólio ideal.
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 10 }}>
               <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 10 }}>
                 <div style={metricLabel}>Retorno anual</div>
@@ -524,6 +529,11 @@ export const StrategiesPage: React.FC = () => {
               onChange={(e) => setIncome(Number(e.target.value || 0))}
               style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8, width: 180, marginBottom: 10 }}
             />
+            {income <= 0 && (
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 10 }}>
+                Informe a renda mensal para habilitar benchmark e notificações.
+              </div>
+            )}
             <div style={{ display: 'grid', gap: 8 }}>
               <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                 <div style={metricLabel}>Score de comparação</div>

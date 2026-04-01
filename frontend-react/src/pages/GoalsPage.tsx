@@ -477,7 +477,7 @@ export const GoalsPage: React.FC = () => {
                   min="0.01"
                   value={formData.target_amount}
                   onChange={(e) => setFormData({ ...formData, target_amount: e.target.value })}
-                  placeholder="100000.00"
+                  placeholder="Valor alvo da meta"
                   required
                   style={{
                     width: '100%',

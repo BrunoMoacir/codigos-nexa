@@ -91,13 +91,13 @@ export const DashboardPage: React.FC = () => {
 
   const incomeForBudget = useMemo(() => {
     const rawIncome = Number(forecastQuery.data?.financial_health?.total_income || 0);
-    return rawIncome > 0 ? rawIncome : 10000;
+    return rawIncome > 0 ? rawIncome : null;
   }, [forecastQuery.data]);
 
   const budgetQuery = useQuery({
     queryKey: ['budget', userId, incomeForBudget],
-    queryFn: () => nexaApi.getBudget(userId, incomeForBudget),
-    enabled: !!userId,
+    queryFn: () => nexaApi.getBudget(userId, Number(incomeForBudget)),
+    enabled: !!userId && incomeForBudget != null,
   });
 
   const goalsQuery = useQuery({
@@ -338,9 +338,9 @@ export const DashboardPage: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 12 }}>
         <div style={cardStyle}>
           <div style={titleStyle}>Orçamento 50/30/20</div>
-          {Number(forecastQuery.data?.financial_health?.total_income || 0) <= 0 && (
+          {incomeForBudget == null && (
             <div style={{ color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 13 }}>
-              Renda não detectada nas transações. Usando referência de {currency(10000)} para cálculo do orçamento.
+              Renda mensal não detectada nas transações. Conecte mais movimentações para liberar esta análise.
             </div>
           )}
           <div style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 8 }}>{budgetQuery.data?.summary_text || 'Sem resumo disponível.'}</div>
