@@ -1,9 +1,30 @@
 #backend/app/core/config.py
 import logging
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import model_validator
+from pydantic import BeforeValidator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def parse_cors_origins(value):
+    """Parse ALLOWED_ORIGINS - aceita tanto string quanto lista."""
+    if isinstance(value, str):
+        # Se for string única, converte pra lista
+        if value.strip() in ("*", '["*"]'):
+            return ["*"]
+        # Se começar com [, tenta parsear como JSON
+        if value.startswith("["):
+            import json
+            try:
+                parsed = json.loads(value)
+                return parsed if isinstance(parsed, list) else [value]
+            except Exception:
+                # Se falhar, trata como string única
+                return [v.strip() for v in value.split(",") if v.strip()]
+        # String separada por vírgula
+        return [v.strip() for v in value.split(",") if v.strip()]
+    return value
 
 _logger = logging.getLogger(__name__)
 
@@ -36,9 +57,9 @@ class Settings(BaseSettings):
     FRONTEND_BASE_URL: str = "http://localhost:8501"
 
     # Origens permitidas no CORS.
-    # Em produção defina via env: ALLOWED_ORIGINS=["https://app.nexa.com","https://nexa.com"]
+    # Aceita formatos: "*", "https://a.com,https://b.com", ou ["https://a.com","https://b.com"]
     # Padrão "*" só é aceito silenciosamente em development.
-    ALLOWED_ORIGINS: list[str] = ["*"]
+    ALLOWED_ORIGINS: Annotated[list[str], BeforeValidator(parse_cors_origins)] = ["*"]
 
     # Segurança JWT — OBRIGATÓRIO trocar em produção
     SECRET_KEY: str = _MOCK_SECRET
