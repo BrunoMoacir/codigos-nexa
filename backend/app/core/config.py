@@ -73,11 +73,20 @@ class Settings(BaseSettings):
                     "Defina SECRET_KEY como uma string aleatória segura via variável de ambiente."
                 )
             if self.ALLOWED_ORIGINS == ["*"]:
-                raise ValueError(
-                    "ALLOWED_ORIGINS='*' não é permitido em produção. "
-                    "Defina ALLOWED_ORIGINS com as origens explícitas do frontend, "
-                    "ex: ALLOWED_ORIGINS=[\"https://app.nexa.com\"]"
-                )
+                fallback_origin = (self.FRONTEND_BASE_URL or "").strip().rstrip("/")
+                if fallback_origin and not fallback_origin.startswith("http://localhost"):
+                    self.ALLOWED_ORIGINS = [fallback_origin]
+                    _logger.warning(
+                        "[Config] APP_ENV=production e ALLOWED_ORIGINS='*'. "
+                        "Aplicando fallback seguro com FRONTEND_BASE_URL=%s",
+                        fallback_origin,
+                    )
+                else:
+                    raise ValueError(
+                        "ALLOWED_ORIGINS='*' não é permitido em produção. "
+                        "Defina ALLOWED_ORIGINS com as origens explícitas do frontend, "
+                        "ex: ALLOWED_ORIGINS=[\"https://app.nexa.com\"]"
+                    )
         else:
             if self.SECRET_KEY == _MOCK_SECRET:
                 _logger.warning(
