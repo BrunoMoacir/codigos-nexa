@@ -69,7 +69,11 @@ export const HomePage: React.FC = () => {
 
   const userName = localStorage.getItem('user_name') || '';
   const userEmail = localStorage.getItem('user_email') || '';
-  const displayName = userName || (userEmail ? userEmail.split('@')[0] : 'Usuário');
+  
+  // Pegar apenas o primeiro nome
+  const firstName = userName ? userName.split(' ')[0] : '';
+  const displayName = firstName || (userEmail ? userEmail.split('@')[0] : 'Usuário');
+  
   const dataOrigin = localStorage.getItem('nexa_data_origin') === 'sandbox' ? 'sandbox' : 'real';
 
   const handleLogout = () => {

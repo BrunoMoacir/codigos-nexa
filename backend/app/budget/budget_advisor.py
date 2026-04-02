@@ -352,9 +352,6 @@ class BudgetAdvisor:
             .with_columns((pl.col("total") / n_months).alias("monthly_avg"))
             .sort("monthly_avg", descending=True)
         )
-
-        total_expenses_avg = float(avg_by_cat["monthly_avg"].sum())
-
         # ── 4. Classificar categorias nos grupos ─────────────────────
         rows = avg_by_cat.to_dicts()
         group_totals: dict[str, float] = {
@@ -368,7 +365,18 @@ class BudgetAdvisor:
             cat = (row["category"] or "outros").lower().strip()
             group = _classify_category(cat)
             cat_groups[row["category"]] = group
-            group_totals[group] += row["monthly_avg"]
+            
+            # Somes apenas despesas reais (ignora saídas que já são declaradamente reservas/investimentos)
+            if group != "poupanca":
+                group_totals[group] += row["monthly_avg"]
+
+        # Recalcula o total de despesas sem a poupança explícita
+        total_expenses_avg = group_totals["essenciais"] + group_totals["desejos"]
+
+        # ── Poupança Real (Residual) ──────────────────────────────────
+        # A regra 50/30/20 e o Health Score concordam que a poupança é a receita menos as despesas:
+        # Se a pessoa gasta 70% em essenciais e 20% em desejos, sobram 10% de poupança passiva (mesmo se não os investiu).
+        group_totals["poupanca"] = max(0.0, monthly_income - total_expenses_avg)
 
         # ── 5. Calcular GroupSummary ──────────────────────────────────
         group_summaries: list[GroupSummary] = []
@@ -399,6 +407,9 @@ class BudgetAdvisor:
         for row in rows:
             cat = row["category"]
             group = cat_groups[cat]
+            if group == "poupanca":
+                continue
+            
             amt = row["monthly_avg"]
             current_pct = amt / monthly_income if monthly_income > 0 else 0.0
             target_pct_group = _TARGET_PCT.get(group, 0.0)

@@ -144,20 +144,13 @@ async def get_shadow_invoices(
         # WHERE user_id = ? AND date >= now() - interval 90 days
         
         from app.runner import get_runner
-        from app.core.config import settings
         import os
 
         mode = "prod" if os.getenv("APP_MODE", "dev") == "prod" else "dev"
-        if mode == "prod" and (not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET):
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
-            )
-
-        runner_result = get_runner(mode).run(horizon_days=days_ahead)
+        runner_result = get_runner(mode).run_from_db(user_id=user_id, horizon_days=days_ahead)
         
-        if not runner_result:
-            logger.warning("⚠️ Nenhuma transação encontrada para user_id=%s", user_id)
+        if not runner_result or runner_result.get("status") != "success":
+            logger.warning("⚠️ Nenhuma transação ou erro no runner para user_id=%s", user_id)
             # Retornar lista vazia (não é erro, apenas nenhum padrão detectado)
             return ShadowInvoiceListResponse(
                 invoices=[],
@@ -171,15 +164,48 @@ async def get_shadow_invoices(
         # STEP 2: EXTRAIR SHADOW INVOICES DO RESULTADO
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
-        shadow_data = runner_result.get("shadow_invoices", {})
+        shadow_data = runner_result.get("projections", {}).get("shadow_events", {})
+        
+        invoices_list = []
+        total_monthly_impact = 0.0
+        total_count = 0
+        subscriptions_count = 0
+        installments_count = 0
+
+        if hasattr(shadow_data, "filter") and not shadow_data.is_empty():
+            import polars as pl
+            
+            for row in shadow_data.to_dicts():
+                invoices_list.append({
+                    "id": f"shadow_{row.get('type', 'unknown').lower()}_{len(invoices_list)}",
+                    "date": str(row.get("next_due_date", "")),
+                    "merchant": (row.get("metadata") or {}).get("description", "Desconhecido").upper(),
+                    "amount": round(float(row.get("amount", 0)), 2),
+                    "type": row.get("type", "unknown").lower(),
+                    "origin": "recurring_pattern",
+                    "confidence": round(float(row.get("confidence", 0)), 2)
+                })
+
+            total_count = shadow_data.height
+            if "amount" in shadow_data.columns:
+                total_monthly_impact = -round(abs(float(shadow_data.select("amount").sum().item())), 2)
+            if "type" in shadow_data.columns:
+                subscriptions_count = shadow_data.filter(pl.col("type") == "SUBSCRIPTION").height
+                installments_count = shadow_data.filter(pl.col("type") == "INSTALLMENT").height
+        elif isinstance(shadow_data, dict):
+            invoices_list = shadow_data.get("invoices", [])
+            total_count = shadow_data.get("total_count", 0)
+            subscriptions_count = shadow_data.get("subscriptions_count", 0)
+            installments_count = shadow_data.get("installments_count", 0)
+            total_monthly_impact = shadow_data.get("total_monthly_impact", 0.0)
         
         logger.info(
             f"✅ Shadow invoices detectadas",
             extra={
-                "total": shadow_data.get("total_count", 0),
-                "subscriptions": shadow_data.get("subscriptions_count", 0),
-                "installments": shadow_data.get("installments_count", 0),
-                "monthly_impact": shadow_data.get("total_monthly_impact", 0)
+                "total": total_count,
+                "subscriptions": subscriptions_count,
+                "installments": installments_count,
+                "monthly_impact": total_monthly_impact
             }
         )
         
@@ -188,11 +214,11 @@ async def get_shadow_invoices(
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
         return ShadowInvoiceListResponse(
-            invoices=shadow_data.get("invoices", []),
-            total_count=shadow_data.get("total_count", 0),
-            total_monthly_impact=shadow_data.get("total_monthly_impact", 0.0),
-            subscriptions_count=shadow_data.get("subscriptions_count", 0),
-            installments_count=shadow_data.get("installments_count", 0)
+            invoices=invoices_list,
+            total_count=total_count,
+            total_monthly_impact=total_monthly_impact,
+            subscriptions_count=subscriptions_count,
+            installments_count=installments_count
         )
         
     except HTTPException:
@@ -232,19 +258,26 @@ async def get_shadow_invoice_summary(user_id: str = Depends(require_owner)):
         logger.info("Gerando summary de shadow invoices para user=%s", user_id)
         
         from app.runner import get_runner
-        from app.core.config import settings
         import os
 
         mode = "prod" if os.getenv("APP_MODE", "dev") == "prod" else "dev"
-        if mode == "prod" and (not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET):
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
-            )
-
-        runner_result = get_runner(mode).run(horizon_days=30)
+        runner_result = get_runner(mode).run_from_db(user_id=user_id, horizon_days=30)
         
-        shadow_data = runner_result.get("shadow_invoices", {})
+        if not runner_result or runner_result.get("status") != "success":
+            shadow_data = {}
+        else:
+            shadow_data = runner_result.get("projections", {}).get("shadow_events", {})
+            if hasattr(shadow_data, "filter"):  # It's a dataframe!
+                shadow_data = {
+                    "total_monthly_impact": -round(abs(float(shadow_data.select("amount").sum().item())), 2) if "amount" in shadow_data.columns else 0.0,
+                    "total_count": shadow_data.height,
+                    "subscriptions_count": shadow_data.filter(pl.col("type") == "SUBSCRIPTION").height if "type" in shadow_data.columns else 0,
+                    "installments_count": shadow_data.filter(pl.col("type") == "INSTALLMENT").height if "type" in shadow_data.columns else 0,
+                }
+            elif isinstance(shadow_data, dict):
+                pass
+            else:
+                shadow_data = {}
         
         return {
             "total_monthly_committed": shadow_data.get("total_monthly_impact", 0.0),

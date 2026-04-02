@@ -356,7 +356,7 @@ export const DashboardPage: React.FC = () => {
         <div style={cardStyle}>
           <div style={titleStyle}>Orçamento 50/30/20</div>
           {incomeForBudget == null && (
-            <div style={{ color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 13 }}>
+            <div style={{ color: 'var(--text-primary)', background: 'var(--bg-hover)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 13 }}>
               Renda mensal não detectada nas transações. Conecte mais movimentações para liberar esta análise.
             </div>
           )}
@@ -649,8 +649,8 @@ export const DashboardPage: React.FC = () => {
                   width: 26,
                   height: 26,
                   borderRadius: 8,
-                  background: '#eef4ff',
-                  color: '#0978F6',
+                  background: 'var(--bg-hover)',
+                  color: 'var(--text-primary)',
                   fontSize: 11,
                   display: 'flex',
                   alignItems: 'center',

@@ -77,6 +77,13 @@ async def get_safe_to_spend(user_id: str = Depends(require_owner)) -> dict:
 
     # ── Safe-to-Spend (SafeToSpendResult dataclass) ──────────────────
     sts = result["projections"]["safe_to_spend"]
+    income_profile = result["analysis"].get("income_profile")
+    total_income = getattr(income_profile, "total_income", 0.0) if income_profile else 0.0
+
+    # ── Transformar Safe-to-Spend em limite "Mensal" em vez de "Acumulado"
+    # O backend projetor olha pro saldo bancário absoluto. Mas o frontend usa o STS como "Orçamento Mensal".
+    # Portanto, reescrevemos o "Total Seguro para Gastar" baseando-nos na Renda - Obrigações Fixas Previstas.
+    monthly_budget_limit = max(0.0, total_income - abs(sts.total_shadow_invoices) - sts.safety_buffer)
 
     # ── spent_to_date: soma de despesas no mês corrente ───────────────
     today = date.today()
@@ -109,16 +116,16 @@ async def get_safe_to_spend(user_id: str = Depends(require_owner)) -> dict:
 
     # ── pct_consumed ──────────────────────────────────────────────────
     pct_consumed = 0.0
-    if sts.safe_to_spend_total > 0:
-        pct_consumed = round(spent_to_date / sts.safe_to_spend_total * 100, 2)
+    if monthly_budget_limit > 0:
+        pct_consumed = round(spent_to_date / monthly_budget_limit * 100, 2)
 
     return {
         "user_id": user_id,
         "month": today.strftime("%Y-%m"),
-        "safe_to_spend_total": round(sts.safe_to_spend_total, 2),
+        "safe_to_spend_total": round(monthly_budget_limit, 2),
         "spent_to_date": round(spent_to_date, 2),
         "pct_consumed": pct_consumed,
-        "safe_to_spend_daily": round(sts.safe_to_spend_daily, 2),
+        "safe_to_spend_daily": round(monthly_budget_limit / 30, 2),
         "current_balance": round(sts.current_balance, 2),
         "risk_level": sts.risk_level,
     }
