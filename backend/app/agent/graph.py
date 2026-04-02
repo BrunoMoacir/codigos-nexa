@@ -219,12 +219,22 @@ def _build_llm():
 def _build_checkpointer():
     """
     Tenta usar RedisSaver para persistência entre sessões.
-    Cai para MemorySaver se Redis não estiver disponível.
+    Cai para MemorySaver se Redis não estiver disponível rapidamente.
     """
+    # Se estamos no ambiente de produção e o REDIS_URL é o padrão de docker-compose, não tente conectar, caia direto
+    if settings.APP_ENV == "production" and "redis://redis:" in settings.REDIS_URL:
+        logger.warning("[Agent] REDIS_URL padrão detectado em produção. Usando MemorySaver.")
+        from langgraph.checkpoint.memory import MemorySaver
+        return MemorySaver()
+
     try:
         from langgraph.checkpoint.redis import RedisSaver
-        checkpointer = RedisSaver(redis_url=settings.REDIS_URL)
-        logger.info("[Agent] Checkpointer: Redis (%s)", settings.REDIS_URL)
+        from redis import Redis
+        # Usamos timeout rápido para não travar a thread
+        conn = Redis.from_url(settings.REDIS_URL, socket_connect_timeout=2.0, socket_timeout=2.0)
+        conn.ping()  # Garante que a conexão existe antes de passar pro checkpointer
+        checkpointer = RedisSaver(conn)
+        logger.info("[Agent] Checkpointer: Redis conectado (%s)", settings.REDIS_URL)
         return checkpointer
     except Exception as e:
         logger.warning(
