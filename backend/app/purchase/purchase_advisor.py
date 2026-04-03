@@ -515,47 +515,29 @@ class PurchaseAdvisor:
         safe_to_spend: float,
         warnings: list[str],
     ) -> PaymentOption:
-<<<<<<< HEAD
-        # Só filtra por acessibilidade quando safe_to_spend é conhecido (> 0)
-        # Quando é zero por ausência de dados, não é margem real — não avisar como excedido
-        if safe_to_spend > 0:
-            affordable = [o for o in options if o.net_cost <= safe_to_spend]
-            if affordable:
-                not_avoid = [o for o in affordable if o.profile_fit != "EVITAR"]
-                return not_avoid[0] if not_avoid else affordable[0]
+        # Critério: se não temos safe_to_spend (> 0), evite avisar e devolva a opção de menor custo real
+        def _best_by_cost(opts: list[PaymentOption]) -> PaymentOption:
+            not_avoid = [o for o in opts if o.profile_fit != "EVITAR"]
+            return not_avoid[0] if not_avoid else opts[0]
 
-            warnings.append(
-                f"Esta compra (R$ {options[0].net_cost:.2f}) excede sua margem atual "
-                f"(R$ {safe_to_spend:.2f}). Considere adiar ou reduzir o valor."
-            )
+        if safe_to_spend is None or safe_to_spend <= 0:
+            return _best_by_cost(options)
 
-        # safe_to_spend ausente ou compra fora da margem: retorna a de menor custo real
-        # excluindo EVITAR quando houver alternativa
-        not_avoid = [o for o in options if o.profile_fit != "EVITAR"]
-        return not_avoid[0] if not_avoid else options[0]
-=======
-        """
-        Escolhe a melhor opção:
-          1. Preferência por menor net_cost entre as acessíveis (net_cost <= safe_to_spend)
-          2. Se nenhuma for acessível, escolhe a de menor net_cost e avisa o usuário
-        """
         # Definir critério de impacto mensal: se parcelado use monthly_cost, senão total_cost
         def monthly_outflow(o: PaymentOption) -> float:
             return o.monthly_cost if (o.monthly_cost is not None and o.installments and o.installments > 1) else o.total_cost
 
+        # Filtra opções que cabem na margem mensal
         affordable = [o for o in options if monthly_outflow(o) <= safe_to_spend]
-
         if affordable:
-            # já ordenado por net_cost_real/net_cost — retornamos a melhor acessível
-            return affordable[0]
+            return _best_by_cost(affordable)
 
-        # Nenhuma opção acessível mensalmente: avisar e retornar a de menor net_cost_real
+        # Nenhuma opção acessível mensalmente: avisar e retornar a de menor custo real
         warnings.append(
             f"Esta compra (R$ {options[0].net_cost_real or options[0].net_cost:.2f}) excede sua margem atual "
             f"(R$ {safe_to_spend:.2f}). Considere adiar ou reduzir o valor."
         )
-        return options[0]
->>>>>>> 219081f (correcao F7)
+        return _best_by_cost(options)
 
     def _build_liquidity_impact(
         self, option: PaymentOption, safe_to_spend: float
@@ -617,10 +599,11 @@ class PurchaseAdvisor:
             lines.append(
                 f"Você gera R$ {recommended.reward_value:.2f} em cashback/pontos, reduzindo o custo real."
             )
-
-        worst = max(all_options, key=lambda o: o.net_cost_real if o.net_cost_real is not None else o.net_cost)
-        if worst.net_cost_real and cost_real < worst.net_cost_real:
-            saved = round(worst.net_cost_real - cost_real, 2)
+        # Comparação com a pior opção (considerando net_cost_real quando disponível)
+        worst = max(all_options, key=lambda o: (o.net_cost_real if getattr(o, 'net_cost_real', None) is not None else o.net_cost))
+        worst_cost = worst.net_cost_real if getattr(worst, 'net_cost_real', None) is not None else worst.net_cost
+        if worst_cost > cost_real:
+            saved = round(worst_cost - cost_real, 2)
             lines.append(
                 f"Comparado à pior opção ({worst.label}), você economiza R$ {saved:.2f}."
             )
@@ -644,7 +627,6 @@ class PurchaseAdvisor:
                 f"Após a compra, sua margem restante será de R$ {liquidity.safe_to_spend_after:,.2f}."
             )
 
-<<<<<<< HEAD
         if invoice_horizon:
             pressure = invoice_horizon.invoice_pressure
             if pressure == "CRITICAL":
@@ -675,20 +657,6 @@ class PurchaseAdvisor:
             lines.append("Atenção: esta opção merece cuidado dado seu perfil financeiro atual.")
         elif recommended.profile_fit == "EVITAR":
             lines.append("⚠️ Esta opção não é recomendada para seu perfil — considere as alternativas.")
-=======
-        worst = max(all_options, key=lambda o: (o.net_cost_real if getattr(o, 'net_cost_real', None) is not None else o.net_cost))
-        rec_cost = recommended.net_cost_real if getattr(recommended, 'net_cost_real', None) is not None else recommended.net_cost
-        if getattr(worst, 'net_cost_real', None) is not None:
-            worst_cost = worst.net_cost_real
-        else:
-            worst_cost = worst.net_cost
-        if worst_cost > rec_cost:
-            saved = round(worst_cost - rec_cost, 2)
-            lines.append(
-                f"Comparado à pior opção ({worst.label}), "
-                f"você economiza R$ {saved:.2f}."
-            )
->>>>>>> 219081f (correcao F7)
 
         return " ".join(lines)
 
