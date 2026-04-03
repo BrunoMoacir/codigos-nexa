@@ -103,13 +103,13 @@ class BacenConnector(BaseConnector):
         """
         Retorna SELIC hardcoded como fallback quando a API do BACEN falha.
 
-        Referência: SELIC meta em fev/2026 = 13.25% a.a.
+        Referência: SELIC meta em abr/2026 = 14.75% a.a. (COPOM mar/2026).
         Atualizar após cada reunião do COPOM ou, no mínimo, trimestralmente.
 
         Returns:
-            {"selic_annual": 0.1325}
+            {"selic_annual": 0.1475}
         """
-        return {"selic_annual": 0.1325}
+        return {"selic_annual": 0.1475}
 
     # ── Convenience methods ───────────────────────────────────────────────
 

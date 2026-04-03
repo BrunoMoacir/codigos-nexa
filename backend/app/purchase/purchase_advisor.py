@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 # Limiar a partir do qual oferecemos a opção de financiamento (CDC/empréstimo pessoal)
 _FINANCING_MIN_AMOUNT = 1_000.0
 # Taxa mensal de crédito pessoal usada como fallback se BACEN estiver indisponível
-_FINANCING_FALLBACK_MONTHLY_RATE = 0.0399   # ~3.99% a.m. (média CDC março/2026)
+# Referência: SELIC 14.75% a.a. → mensal ~1.15% + spread CDC ~3% = ~4.15% a.m. (abr/2026)
+_FINANCING_FALLBACK_MONTHLY_RATE = 0.0415   # ~4.15% a.m. (referência abr/2026)
 
 
 class PurchaseAdvisor:
