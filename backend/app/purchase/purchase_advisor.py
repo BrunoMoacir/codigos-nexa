@@ -300,10 +300,21 @@ class PurchaseAdvisor:
         try:
             from app.forecast.cashflow.projector import CashflowProjector
             from app.forecast.cashflow.safe_to_spend import SafeToSpendCalculator
+            from app.subscriptions.shadow_invoices.runner import run_shadow_invoice_detection
+
+            # Garantir coluna esperada pelo CashflowProjector
+            if "transaction_date" not in transactions_df.columns and "date" in transactions_df.columns:
+                transactions_df = transactions_df.with_column(pl.col("date").alias("transaction_date"))
+
+            # Detectar shadow invoices a partir das transações (fallback quando não persistido no DB)
+            try:
+                shadow_invoices_df = run_shadow_invoice_detection(transactions_df)
+            except Exception:
+                shadow_invoices_df = pl.DataFrame()
 
             projection_df = CashflowProjector().project(
                 transactions_df=transactions_df,
-                shadow_invoices_df=pl.DataFrame(),
+                shadow_invoices_df=shadow_invoices_df,
                 horizon_days=30,
             )
             return SafeToSpendCalculator().calculate(
@@ -323,13 +334,27 @@ class PurchaseAdvisor:
             return None
         try:
             from app.forecast.cashflow.invoice_horizon import build_invoice_horizon
-            from app.core.db.queries import get_shadow_invoices_for_user
-
-            shadow_invoices = []
+            # Tenta ler sombras persistidas no DB, mas se não existir usa detecção em runtime
             try:
-                shadow_invoices = get_shadow_invoices_for_user(user_id)
+                from app.core.db.queries import get_shadow_invoices_for_user
+                shadow_invoices = []
+                try:
+                    shadow_invoices = get_shadow_invoices_for_user(user_id)
+                except Exception:
+                    shadow_invoices = []
             except Exception:
-                pass  # sem shadow invoices — ainda útil calcular ciclo atual
+                shadow_invoices = []
+
+            # Se não há sombras persistidas, detecta a partir das transações
+            if not shadow_invoices:
+                try:
+                    from app.subscriptions.shadow_invoices.runner import run_shadow_invoice_detection
+                    # garantir coluna correta
+                    if "transaction_date" not in transactions_df.columns and "date" in transactions_df.columns:
+                        transactions_df = transactions_df.with_column(pl.col("date").alias("transaction_date"))
+                    shadow_invoices = run_shadow_invoice_detection(transactions_df).to_dicts()
+                except Exception:
+                    shadow_invoices = []
 
             return build_invoice_horizon(
                 transactions_df=transactions_df,

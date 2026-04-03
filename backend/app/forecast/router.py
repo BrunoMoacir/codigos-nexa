@@ -265,6 +265,18 @@ async def get_forecast(
 
         # ── Shadow Invoices ───────────────────────────────────────
         shadow_events = projections.get("shadow_events")
+        # Shadow events podem vir do runner ou estar vazios; se vazios, tentar detectar a partir
+        # do DataFrame de transações retornado para garantir que a API sempre entregue agenda.
+        if shadow_events is None or (isinstance(shadow_events, pl.DataFrame) and shadow_events.is_empty()):
+            # Tentar detectar a partir das transações retornadas pelo runner
+            try:
+                tx_df = transactions.get("pf_pj_classified_df")
+                if tx_df is not None and not tx_df.is_empty():
+                    detected = run_shadow_invoice_detection(tx_df)
+                    shadow_events = detected
+            except Exception:
+                shadow_events = shadow_events
+
         if shadow_events is not None and isinstance(shadow_events, pl.DataFrame) and not shadow_events.is_empty():
             # Serialize each shadow event into a dict for the API response
             invoices_list = []
