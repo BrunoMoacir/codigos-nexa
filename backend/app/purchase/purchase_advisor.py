@@ -1,7 +1,7 @@
 """
-app/purchase/purchase_advisor.py — F7: Modo Compra Inteligente (v2)
+app/purchase/purchase_advisor.py — F7: Modo Compra Inteligente (v3)
 
-Orquestra 7 fontes de dados para recomendar a melhor forma de pagamento:
+Orquestra 10 fontes de dados para recomendar a melhor forma de pagamento:
   1. OptimizerService          → melhor cartão e reward por categoria
   2. BacenConnector            → taxa CDI/CDC atual
   3. SafeToSpendCalculator     → margem disponível (com limiares relativos)
@@ -9,12 +9,16 @@ Orquestra 7 fontes de dados para recomendar a melhor forma de pagamento:
   5. UserProfileAnalyzer       → perfil financeiro (CONSERVADOR/EQUILIBRADO/GASTADOR)
   6. IncomeProfiler            → renda mensal líquida real
   7. SpendingAnomalyDetector   → anomalias recentes na categoria da compra
+  8. BurnRateAnalyzer          → velocidade de gasto no mês (penaliza categoria acelerada)
+  9. BudgetAdvisor             → alocação 50/30/20 (contextualiza grupo da categoria)
+ 10. GoalTracker               → metas ativas (alerta impacto em metas do usuário)
 
-Lógica de ranqueamento (v2):
+Lógica de ranqueamento (v3):
   - Ordena por net_cost_real (inclui custo/ganho de oportunidade CDI)
   - Aplica profile_fit por opção (IDEAL/OK/CAUTELA/EVITAR)
   - Penaliza cartão se invoice_pressure for CRITICAL/HEAVY
-  - Reasoning contextualizado em 3 blocos: recomendação, situação, histórico
+  - Penaliza parcelamento se burn_rate da categoria for WARNING/CRITICAL
+  - Reasoning contextualizado em 4 blocos: recomendação, situação, orçamento/metas, histórico
 """
 
 from __future__ import annotations
@@ -130,6 +134,21 @@ class PurchaseAdvisor:
             category=request.category,
         )
 
+        # ── 9b. Burn rate da categoria ───────────────────────────────
+        burn_rate = self._fetch_burn_rate(transactions_df, monthly_income or None)
+        if burn_rate:
+            data_sources.append("burn_rate_analyzer")
+
+        # ── 9c. Contexto de orçamento 50/30/20 ──────────────────────
+        budget_ctx = self._fetch_budget_context(transactions_df, monthly_income)
+        if budget_ctx:
+            data_sources.append("budget_advisor")
+
+        # ── 9d. Metas financeiras ativas ─────────────────────────────
+        active_goals = self._fetch_active_goals(request.user_id)
+        if active_goals:
+            data_sources.append("goal_tracker")
+
         # ── 10. Contexto de perfil e pressure_score ─────────────────
         profile_ctx = None
         pressure_score: float = 0.0
@@ -193,6 +212,10 @@ class PurchaseAdvisor:
         if invoice_horizon and invoice_horizon.invoice_pressure in ("CRITICAL", "HEAVY"):
             options = self._apply_invoice_penalty(options, invoice_horizon.invoice_pressure)
 
+        # ── 14b. Penalidade de burn rate na categoria ────────────────
+        if burn_rate:
+            options = self._apply_burn_rate_penalty(options, burn_rate, request.category)
+
         # ── 15. Ranquear por net_cost_real ───────────────────────────
         options.sort(key=lambda o: o.net_cost_real if o.net_cost_real is not None else o.net_cost)
 
@@ -226,6 +249,9 @@ class PurchaseAdvisor:
             monthly_income=monthly_income,
             anomaly_notes=anomaly_notes,
             cdi_annual=cdi_annual,
+            burn_rate=burn_rate,
+            budget_ctx=budget_ctx,
+            active_goals=active_goals,
         )
 
         return PurchaseRecommendation(
@@ -447,6 +473,38 @@ class PurchaseAdvisor:
             logger.warning("PurchaseAdvisor | SpendingAnomalyDetector falhou: %s", exc)
             return 0.0, []
 
+    def _fetch_burn_rate(self, transactions_df: pl.DataFrame, monthly_income: Optional[float]):
+        if transactions_df.is_empty():
+            return None
+        try:
+            from app.forecast.cashflow.burn_rate import BurnRateAnalyzer
+            return BurnRateAnalyzer().analyze(
+                transactions_df, monthly_income=monthly_income
+            )
+        except Exception as exc:
+            logger.warning("PurchaseAdvisor | BurnRateAnalyzer falhou: %s", exc)
+            return None
+
+    def _fetch_budget_context(self, transactions_df: pl.DataFrame, monthly_income: float):
+        if transactions_df.is_empty() or monthly_income <= 0:
+            return None
+        try:
+            from app.budget.budget_advisor import BudgetAdvisor
+            return BudgetAdvisor().suggest(transactions_df, monthly_income)
+        except Exception as exc:
+            logger.warning("PurchaseAdvisor | BudgetAdvisor falhou: %s", exc)
+            return None
+
+    def _fetch_active_goals(self, user_id: str) -> list:
+        try:
+            from app.goals.tracker import GoalTracker
+            from app.core.db.session import get_db_session
+            with get_db_session() as db:
+                return GoalTracker(db).list_goals(user_id, status="ACTIVE")
+        except Exception as exc:
+            logger.warning("PurchaseAdvisor | GoalTracker falhou: %s", exc)
+            return []
+
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # BUILDERS DE OPÇÃO
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -534,6 +592,41 @@ class PurchaseAdvisor:
                 penalized.append(opt)
         return penalized
 
+    def _apply_burn_rate_penalty(
+        self,
+        options: list[PaymentOption],
+        burn_rate,
+        category: str,
+    ) -> list[PaymentOption]:
+        """
+        Penaliza parcelamento quando o burn_rate da categoria está acelerado.
+        WARNING → +5% no net_cost_real do CARTAO_PARCELADO
+        CRITICAL → +10% no net_cost_real do CARTAO_PARCELADO
+        Não penaliza PIX nem à vista — estas são as saídas seguras.
+        """
+        cat_lower = category.lower()
+        over_pace = {c.category.lower() for c in burn_rate.categories_over_pace}
+        alert = burn_rate.alert_level
+
+        # Só penaliza se a categoria especificada está no ritmo acelerado
+        # OU se o burn geral é CRITICAL (todo o orçamento sob pressão)
+        category_over = cat_lower in over_pace
+        general_critical = alert == "CRITICAL"
+
+        if not category_over and not general_critical:
+            return options
+
+        penalty_pct = 1.10 if (alert == "CRITICAL" or general_critical) else 1.05
+        penalized = []
+        for opt in options:
+            if opt.method == PaymentMethod.CARTAO_PARCELADO and opt.net_cost_real is not None:
+                penalized.append(opt.model_copy(update={
+                    "net_cost_real": round(opt.net_cost_real * penalty_pct, 2)
+                }))
+            else:
+                penalized.append(opt)
+        return penalized
+
     def _pick_recommendation(
         self,
         options: list[PaymentOption],
@@ -603,6 +696,9 @@ class PurchaseAdvisor:
         monthly_income: float,
         anomaly_notes: list[str],
         cdi_annual: float,
+        burn_rate=None,
+        budget_ctx=None,
+        active_goals: Optional[list] = None,
     ) -> str:
         lines: list[str] = []
 
@@ -668,7 +764,56 @@ class PurchaseAdvisor:
                     "atenção ao impacto no ciclo atual."
                 )
 
-        # ── Bloco 3: Histórico e alertas de perfil ──────────────────
+        # ── Bloco 3: Orçamento 50/30/20, burn rate e metas ──────────
+        if budget_ctx:
+            cat_lower = request.category.lower()
+            for alloc in budget_ctx.allocations:
+                if alloc.category.lower() in cat_lower or cat_lower in alloc.category.lower():
+                    if alloc.status == "OVER":
+                        lines.append(
+                            f"Orçamento: sua categoria {request.category} ({alloc.group}) "
+                            f"está em {alloc.current_pct * 100:.0f}% da renda — "
+                            f"acima do ideal de {alloc.suggested_pct * 100:.0f}%."
+                        )
+                    break
+
+        if burn_rate and burn_rate.alert_level in ("WARNING", "CRITICAL"):
+            cat_lower = request.category.lower()
+            for cat_br in burn_rate.categories_over_pace:
+                if cat_lower in cat_br.category.lower() or cat_br.category.lower() in cat_lower:
+                    lines.append(
+                        f"Ritmo de gasto: {request.category} está "
+                        f"{cat_br.burn_rate_ratio:.1f}× acima do esperado este mês — "
+                        "parcelamento adicional aumenta esse desequilíbrio."
+                    )
+                    break
+            else:
+                if burn_rate.alert_level == "CRITICAL":
+                    lines.append(
+                        f"⚠️ Seu orçamento geral está {burn_rate.burn_rate_ratio:.1f}× acima do ritmo — "
+                        "considere adiar compras não essenciais."
+                    )
+
+        if active_goals:
+            # Mostra apenas a meta mais urgente (menor gap relativo)
+            goals_with_gap = [
+                g for g in active_goals
+                if g.monthly_contribution_needed and g.monthly_contribution_needed > 0
+            ]
+            if goals_with_gap:
+                most_urgent = min(goals_with_gap, key=lambda g: (
+                    g.current_amount / g.target_amount if g.target_amount > 0 else 1.0
+                ))
+                gap = (most_urgent.monthly_contribution_needed or 0) - (most_urgent.monthly_contribution_actual or 0)
+                if gap > 0:
+                    lines.append(
+                        f"Meta '{most_urgent.name}': você precisa de "
+                        f"R$ {most_urgent.monthly_contribution_needed:,.0f}/mês e está guardando "
+                        f"R$ {most_urgent.monthly_contribution_actual or 0:,.0f}/mês "
+                        f"(falta R$ {gap:,.0f}/mês) — considere o impacto desta compra nos aportes."
+                    )
+
+        # ── Bloco 4: Histórico e alertas de perfil ──────────────────
         if profile_ctx:
             lines.append(profile_ctx.summary)
 
