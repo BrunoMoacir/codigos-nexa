@@ -28,6 +28,14 @@ class PurchaseRequest(BaseModel):
     category: str = Field(..., description="Categoria da compra (ex: Eletrônicos, Viagem)")
     installments: int = Field(default=1, ge=1, le=48, description="Parcelas desejadas (1 = à vista)")
     monthly_income: Optional[float] = Field(default=None, gt=0, description="Renda mensal (R$) para elegibilidade de cartões")
+    risk_profile: Optional[Literal["conservador", "moderado", "agressivo"]] = Field(
+        default=None,
+        description="Perfil de risco do usuário (consistente com Architect F3)",
+    )
+    apply_opportunity_cost: bool = Field(
+        default=True,
+        description="Aplicar custo de oportunidade de capital (CDI) no ranking de opções",
+    )
 
     @field_validator("category")
     @classmethod
@@ -56,11 +64,16 @@ class PaymentOption(BaseModel):
         description="Custo líquido = total_cost - reward_value. Calculado automaticamente se não informado.",
     )
     notes: str = ""                        # taxa de juros, cartão recomendado, etc.
+    opportunity_cost_gain: float = 0.0     # ganho CDI ao não desembolsar à vista (R$)
+    net_cost_real: Optional[float] = None  # net_cost - opportunity_cost_gain
+    profile_fit: Literal["IDEAL", "OK", "CAUTELA", "EVITAR"] = "OK"
 
     @model_validator(mode="after")
     def fill_net_cost(self) -> "PaymentOption":
         if self.net_cost is None:
             self.net_cost = round(self.total_cost - self.reward_value, 2)
+        if self.net_cost_real is None:
+            self.net_cost_real = round(self.net_cost - self.opportunity_cost_gain, 2)
         return self
 
 
@@ -94,3 +107,7 @@ class PurchaseRecommendation(BaseModel):
     )
     data_sources: list[str] = []
     warnings: list[str] = []
+    invoice_horizon: Optional[dict] = None     # pressão da fatura atual (InvoiceHorizon serializado)
+    pressure_score: Optional[float] = None     # 0.0–1.0: pressão financeira do perfil
+    profile_summary: Optional[str] = None      # texto curto do perfil detectado
+    cdi_rate_used: Optional[float] = None      # taxa CDI anual utilizada no cálculo
