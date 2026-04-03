@@ -172,7 +172,6 @@ class PurchaseAdvisor:
                 )
             )
 
-<<<<<<< HEAD
         # ── 12. Custo de oportunidade CDI ────────────────────────────
         if request.apply_opportunity_cost:
             options = [apply_opportunity_cost(opt, cdi_annual) for opt in options]
@@ -198,29 +197,6 @@ class PurchaseAdvisor:
         options.sort(key=lambda o: o.net_cost_real if o.net_cost_real is not None else o.net_cost)
 
         # ── 16. Escolher recomendação ────────────────────────────────
-=======
-        # ── 6. Aplicar custo de oportunidade (CDI) opcional e re-ordenar ──
-        try:
-            if request.apply_opportunity_cost:
-                try:
-                    from app.architect.connectors.anbima import AnbimaConnector
-                    cdi_annual = AnbimaConnector().get_cdi()
-                except Exception:
-                    cdi_annual = None
-
-                # apply_opportunity_cost will use fallback CDI if cdi_annual is None
-                from app.purchase.opportunity_cost import apply_opportunity_cost
-
-                options = [apply_opportunity_cost(o, cdi_annual) for o in options]
-
-        except Exception as exc:
-            logger.debug("PurchaseAdvisor | falha ao aplicar custo de oportunidade: %s", exc)
-
-        # Ordenar usando net_cost_real quando disponível, senão net_cost
-        options.sort(key=lambda o: (o.net_cost_real if getattr(o, 'net_cost_real', None) is not None else o.net_cost))
-
-        # ── 7. Escolher recomendação ─────────────────────────────────────
->>>>>>> 219081f (correcao F7)
         recommended = self._pick_recommendation(options, safe_to_spend, warnings)
 
         # ── 17. Impacto de liquidez ──────────────────────────────────
