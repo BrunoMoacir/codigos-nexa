@@ -1,5 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AppShell } from '../components/layout/AppShell';
 
 interface Module {
   icon: string;
@@ -49,42 +50,16 @@ const modules: Module[] = [
 
 export const HomePage: React.FC = () => {
   const navigate = useNavigate();
-  const [isDark, setIsDark] = React.useState(false);
-
-  React.useEffect(() => {
-    const theme = localStorage.getItem('theme') || 'light';
-    setIsDark(theme === 'dark');
-    document.documentElement.setAttribute('data-theme', theme);
-  }, []);
-
-  const toggleTheme = () => {
-    const newTheme = isDark ? 'light' : 'dark';
-    setIsDark(!isDark);
-    localStorage.setItem('theme', newTheme);
-    document.documentElement.setAttribute('data-theme', newTheme);
-  };
 
   const hora = new Date().getHours();
   const saudacao = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
 
   const userName = localStorage.getItem('user_name') || '';
   const userEmail = localStorage.getItem('user_email') || '';
-  
-  // Pegar apenas o primeiro nome
   const firstName = userName ? userName.split(' ')[0] : '';
   const displayName = firstName || (userEmail ? userEmail.split('@')[0] : 'Usuário');
-  
-  const dataOrigin = localStorage.getItem('nexa_data_origin') === 'sandbox' ? 'sandbox' : 'real';
 
-  const handleLogout = () => {
-    localStorage.removeItem('jwt_token');
-    localStorage.removeItem('user_id');
-    localStorage.removeItem('user_name');
-    localStorage.removeItem('user_email');
-    localStorage.removeItem('nexa_data_origin');
-    localStorage.removeItem('nexa_data_origin_updated_at');
-    window.location.href = '/login';
-  };
+  const dataOrigin = localStorage.getItem('nexa_data_origin') === 'sandbox' ? 'sandbox' : 'real';
 
   return (
     <>
@@ -488,105 +463,63 @@ export const HomePage: React.FC = () => {
       `}</style>
 
       <div className="hp-root">
-        {/* ── Sidebar ── */}
-        <aside className="hp-sidebar">
-          <div className="hp-sidebar-logo">
-            <div className="hp-sidebar-logo-dot" />
-            Nexa
-          </div>
+        <AppShell current="home" title="Início" subtitle="Aqui está seu cockpit financeiro. Escolha um módulo para começar.">
+          <main className="hp-main">
+            {/* Greeting */}
+            <div className="hp-greeting-wrap">
+              <div className="hp-greeting-label">Nexa Central</div>
+              <h1 className="hp-greeting-title">
+                {saudacao}{displayName ? `, ${displayName}` : ''}.
+              </h1>
+              <p className="hp-greeting-sub">
+                Aqui está seu cockpit financeiro. Escolha um módulo para começar.
+              </p>
+            </div>
 
-          <nav className="hp-sidebar-nav">
-            {[
-              { icon: '⌂', label: 'Início', path: '/home', active: true },
-              { icon: '↗', label: 'Meu Dinheiro', path: '/dashboard', active: false },
-              { icon: '◈', label: 'Estratégias', path: '/strategies', active: false },
-              { icon: '⌁', label: 'Conexões', path: '/connections', active: false },
-              { icon: '◍', label: 'Chat IA', path: '/chat', active: false },
-              { icon: '◉', label: 'Perfil', path: '/profile', active: false },
-            ].map((item) => (
-              <button
-                key={item.path}
-                onClick={() => navigate(item.path)}
-                className={`hp-nav-item ${item.active ? 'active' : ''}`}
-              >
-                <span className="hp-nav-icon">{item.icon}</span>
-                {item.label}
-              </button>
-            ))}
-          </nav>
-
-          <div className="hp-sidebar-footer">
-            <button className="hp-theme-toggle" onClick={toggleTheme}>
-              {isDark ? '☀' : '☾'} {isDark ? 'Modo claro' : 'Modo escuro'}
-            </button>
-            <div className="hp-user-chip">
-              <div className="hp-user-avatar">
-                {displayName ? displayName[0].toUpperCase() : 'U'}
+            {/* Stats */}
+            <p className="hp-section-label">Visão Rápida</p>
+            <div className="hp-stats">
+              <div className="hp-stat">
+                <div className="hp-stat-label">Modo</div>
+                <div className="hp-stat-value">{dataOrigin === 'sandbox' ? 'Sandbox' : 'Produção'}</div>
+                <div className="hp-stat-sub">{dataOrigin === 'sandbox' ? 'Com dados de teste' : 'Dados reais'}</div>
               </div>
-              <div className="hp-user-name">{displayName}</div>
+              <div className="hp-stat">
+                <div className="hp-stat-label">Fonte</div>
+                <div className="hp-stat-value">Open Finance</div>
+                <div className="hp-stat-sub">Pluggy integrado</div>
+              </div>
+              <div className="hp-stat">
+                <div className="hp-stat-label">Módulos</div>
+                <div className="hp-stat-value">4 ativos</div>
+                <div className="hp-stat-sub">Dashboard + IA</div>
+              </div>
             </div>
-            <button className="hp-logout-btn" onClick={handleLogout}>
-              ← Sair
-            </button>
-          </div>
-        </aside>
 
-        {/* ── Main ── */}
-        <main className="hp-main">
-          {/* Greeting */}
-          <div className="hp-greeting-wrap">
-            <div className="hp-greeting-label">Nexa Central</div>
-            <h1 className="hp-greeting-title">
-              {saudacao}{displayName ? `, ${displayName}` : ''}.
-            </h1>
-            <p className="hp-greeting-sub">
-              Aqui está seu cockpit financeiro. Escolha um módulo para começar.
-            </p>
-          </div>
-
-          {/* Stats */}
-          <p className="hp-section-label">Visão Rápida</p>
-          <div className="hp-stats">
-            <div className="hp-stat">
-              <div className="hp-stat-label">Modo</div>
-              <div className="hp-stat-value">{dataOrigin === 'sandbox' ? 'Sandbox' : 'Produção'}</div>
-              <div className="hp-stat-sub">{dataOrigin === 'sandbox' ? 'Com dados de teste' : 'Dados reais'}</div>
-            </div>
-            <div className="hp-stat">
-              <div className="hp-stat-label">Fonte</div>
-              <div className="hp-stat-value">Open Finance</div>
-              <div className="hp-stat-sub">Pluggy integrado</div>
-            </div>
-            <div className="hp-stat">
-              <div className="hp-stat-label">Módulos</div>
-              <div className="hp-stat-value">4 ativos</div>
-              <div className="hp-stat-sub">Dashboard + IA</div>
-            </div>
-          </div>
-
-          {/* Modules */}
-          <p className="hp-section-label">Módulos</p>
-          <div className="hp-grid">
-            {modules.map((m) => (
-              <div className="hp-card" key={m.path} onClick={() => navigate(m.path)}>
-                <div className="hp-card-top">
-                  <div className="hp-card-icon">{m.icon}</div>
-                  {m.tag && <span className="hp-card-tag">{m.tag}</span>}
+            {/* Modules */}
+            <p className="hp-section-label">Módulos</p>
+            <div className="hp-grid">
+              {modules.map((m) => (
+                <div className="hp-card" key={m.path} onClick={() => navigate(m.path)}>
+                  <div className="hp-card-top">
+                    <div className="hp-card-icon">{m.icon}</div>
+                    {m.tag && <span className="hp-card-tag">{m.tag}</span>}
+                  </div>
+                  <div className="hp-card-label">{m.label}</div>
+                  <div className="hp-card-desc">{m.desc}</div>
+                  <div className="hp-card-cta">Acessar →</div>
                 </div>
-                <div className="hp-card-label">{m.label}</div>
-                <div className="hp-card-desc">{m.desc}</div>
-                <div className="hp-card-cta">Acessar →</div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
 
-          {/* Tip */}
-          <div className="hp-tip">
-            💡 Dica: Abra <strong>Meu Dinheiro</strong> para validar os dados das suas
-            contas conectadas e use <strong>Estratégias</strong> para recomendações
-            acionáveis personalizadas.
-          </div>
-        </main>
+            {/* Tip */}
+            <div className="hp-tip">
+              💡 Dica: Abra <strong>Meu Dinheiro</strong> para validar os dados das suas
+              contas conectadas e use <strong>Estratégias</strong> para recomendações
+              acionáveis personalizadas.
+            </div>
+          </main>
+        </AppShell>
       </div>
     </>
   );
