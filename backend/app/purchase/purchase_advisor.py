@@ -172,6 +172,7 @@ class PurchaseAdvisor:
                 )
             )
 
+<<<<<<< HEAD
         # ── 12. Custo de oportunidade CDI ────────────────────────────
         if request.apply_opportunity_cost:
             options = [apply_opportunity_cost(opt, cdi_annual) for opt in options]
@@ -197,11 +198,34 @@ class PurchaseAdvisor:
         options.sort(key=lambda o: o.net_cost_real if o.net_cost_real is not None else o.net_cost)
 
         # ── 16. Escolher recomendação ────────────────────────────────
+=======
+        # ── 6. Aplicar custo de oportunidade (CDI) opcional e re-ordenar ──
+        try:
+            if request.apply_opportunity_cost:
+                try:
+                    from app.architect.connectors.anbima import AnbimaConnector
+                    cdi_annual = AnbimaConnector().get_cdi()
+                except Exception:
+                    cdi_annual = None
+
+                # apply_opportunity_cost will use fallback CDI if cdi_annual is None
+                from app.purchase.opportunity_cost import apply_opportunity_cost
+
+                options = [apply_opportunity_cost(o, cdi_annual) for o in options]
+
+        except Exception as exc:
+            logger.debug("PurchaseAdvisor | falha ao aplicar custo de oportunidade: %s", exc)
+
+        # Ordenar usando net_cost_real quando disponível, senão net_cost
+        options.sort(key=lambda o: (o.net_cost_real if getattr(o, 'net_cost_real', None) is not None else o.net_cost))
+
+        # ── 7. Escolher recomendação ─────────────────────────────────────
+>>>>>>> 219081f (correcao F7)
         recommended = self._pick_recommendation(options, safe_to_spend, warnings)
 
         # ── 17. Impacto de liquidez ──────────────────────────────────
         liquidity = self._build_liquidity_impact(
-            net_cost=recommended.net_cost,
+            option=recommended,
             safe_to_spend=safe_to_spend,
         )
 
@@ -515,6 +539,7 @@ class PurchaseAdvisor:
         safe_to_spend: float,
         warnings: list[str],
     ) -> PaymentOption:
+<<<<<<< HEAD
         # Só filtra por acessibilidade quando safe_to_spend é conhecido (> 0)
         # Quando é zero por ausência de dados, não é margem real — não avisar como excedido
         if safe_to_spend > 0:
@@ -532,12 +557,40 @@ class PurchaseAdvisor:
         # excluindo EVITAR quando houver alternativa
         not_avoid = [o for o in options if o.profile_fit != "EVITAR"]
         return not_avoid[0] if not_avoid else options[0]
+=======
+        """
+        Escolhe a melhor opção:
+          1. Preferência por menor net_cost entre as acessíveis (net_cost <= safe_to_spend)
+          2. Se nenhuma for acessível, escolhe a de menor net_cost e avisa o usuário
+        """
+        # Definir critério de impacto mensal: se parcelado use monthly_cost, senão total_cost
+        def monthly_outflow(o: PaymentOption) -> float:
+            return o.monthly_cost if (o.monthly_cost is not None and o.installments and o.installments > 1) else o.total_cost
+
+        affordable = [o for o in options if monthly_outflow(o) <= safe_to_spend]
+
+        if affordable:
+            # já ordenado por net_cost_real/net_cost — retornamos a melhor acessível
+            return affordable[0]
+
+        # Nenhuma opção acessível mensalmente: avisar e retornar a de menor net_cost_real
+        warnings.append(
+            f"Esta compra (R$ {options[0].net_cost_real or options[0].net_cost:.2f}) excede sua margem atual "
+            f"(R$ {safe_to_spend:.2f}). Considere adiar ou reduzir o valor."
+        )
+        return options[0]
+>>>>>>> 219081f (correcao F7)
 
     def _build_liquidity_impact(
-        self, net_cost: float, safe_to_spend: float
+        self, option: PaymentOption, safe_to_spend: float
     ) -> LiquidityImpact:
-        after = max(0.0, safe_to_spend - net_cost)
-        affordable = net_cost <= safe_to_spend
+        """
+        Calcula impacto de liquidez comparando a saída mensal esperada com o safe_to_spend.
+        Para parcelado sem juros usa `monthly_cost`; para à vista/PIX considera o total no mês corrente.
+        """
+        monthly = option.monthly_cost if (option.monthly_cost is not None and option.installments and option.installments > 1) else option.total_cost
+        after = max(0.0, safe_to_spend - monthly)
+        affordable = monthly <= safe_to_spend
 
         if not affordable:
             risk = "CRITICAL"
@@ -615,6 +668,7 @@ class PurchaseAdvisor:
                 f"Após a compra, sua margem restante será de R$ {liquidity.safe_to_spend_after:,.2f}."
             )
 
+<<<<<<< HEAD
         if invoice_horizon:
             pressure = invoice_horizon.invoice_pressure
             if pressure == "CRITICAL":
@@ -645,6 +699,20 @@ class PurchaseAdvisor:
             lines.append("Atenção: esta opção merece cuidado dado seu perfil financeiro atual.")
         elif recommended.profile_fit == "EVITAR":
             lines.append("⚠️ Esta opção não é recomendada para seu perfil — considere as alternativas.")
+=======
+        worst = max(all_options, key=lambda o: (o.net_cost_real if getattr(o, 'net_cost_real', None) is not None else o.net_cost))
+        rec_cost = recommended.net_cost_real if getattr(recommended, 'net_cost_real', None) is not None else recommended.net_cost
+        if getattr(worst, 'net_cost_real', None) is not None:
+            worst_cost = worst.net_cost_real
+        else:
+            worst_cost = worst.net_cost
+        if worst_cost > rec_cost:
+            saved = round(worst_cost - rec_cost, 2)
+            lines.append(
+                f"Comparado à pior opção ({worst.label}), "
+                f"você economiza R$ {saved:.2f}."
+            )
+>>>>>>> 219081f (correcao F7)
 
         return " ".join(lines)
 
