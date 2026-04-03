@@ -1,16 +1,20 @@
 """
-app/purchase/purchase_advisor.py — F7: Modo Compra Inteligente
+app/purchase/purchase_advisor.py — F7: Modo Compra Inteligente (v2)
 
-Orquestra 4 fontes de dados para recomendar a melhor forma de pagamento:
-  1. OptimizerService  → melhor cartão e reward estimado por categoria
-  2. BacenConnector    → taxa de crédito pessoal (CDC) para opção financiamento
-  3. SafeToSpendCalc   → margem disponível antes/após a compra
-  4. DuckDB            → transações do usuário (histórico de gastos por categoria)
+Orquestra 7 fontes de dados para recomendar a melhor forma de pagamento:
+  1. OptimizerService          → melhor cartão e reward por categoria
+  2. BacenConnector            → taxa CDI/CDC atual
+  3. SafeToSpendCalculator     → margem disponível (com limiares relativos)
+  4. InvoiceHorizon            → pressão da fatura atual
+  5. UserProfileAnalyzer       → perfil financeiro (CONSERVADOR/EQUILIBRADO/GASTADOR)
+  6. IncomeProfiler            → renda mensal líquida real
+  7. SpendingAnomalyDetector   → anomalias recentes na categoria da compra
 
-Lógica de ranqueamento:
-  - Ordena opções por net_cost (menor custo líquido = melhor)
-  - Recomenda a opção de menor net_cost que seja acessível (affordable)
-  - Se nenhuma for acessível, recomenda a de menor impacto e avisa o usuário
+Lógica de ranqueamento (v2):
+  - Ordena por net_cost_real (inclui custo/ganho de oportunidade CDI)
+  - Aplica profile_fit por opção (IDEAL/OK/CAUTELA/EVITAR)
+  - Penaliza cartão se invoice_pressure for CRITICAL/HEAVY
+  - Reasoning contextualizado em 3 blocos: recomendação, situação, histórico
 """
 
 from __future__ import annotations
@@ -27,14 +31,14 @@ from app.purchase.models import (
     PurchaseRecommendation,
     PurchaseRequest,
 )
+from app.purchase.opportunity_cost import apply_opportunity_cost
+from app.purchase.profile_context import build_profile_context, apply_profile_fit
 
 logger = logging.getLogger(__name__)
 
-# Limiar a partir do qual oferecemos a opção de financiamento (CDC/empréstimo pessoal)
 _FINANCING_MIN_AMOUNT = 1_000.0
-# Taxa mensal de crédito pessoal usada como fallback se BACEN estiver indisponível
-# Referência: SELIC 14.75% a.a. → mensal ~1.15% + spread CDC ~3% = ~4.15% a.m. (abr/2026)
-_FINANCING_FALLBACK_MONTHLY_RATE = 0.0415   # ~4.15% a.m. (referência abr/2026)
+_FINANCING_FALLBACK_MONTHLY_RATE = 0.0415
+_CDI_FALLBACK = 0.1475
 
 
 class PurchaseAdvisor:
@@ -48,48 +52,104 @@ class PurchaseAdvisor:
 
     def analyze(self, request: PurchaseRequest) -> PurchaseRecommendation:
         logger.info(
-            "PurchaseAdvisor | user=%s amount=%.2f category=%s installments=%d",
+            "PurchaseAdvisor v2 | user=%s amount=%.2f category=%s installments=%d",
             request.user_id, request.amount, request.category, request.installments,
         )
 
         warnings: list[str] = []
         data_sources: list[str] = []
 
-        # ── 1. Buscar transações do usuário ──────────────────────────────
+        # ── 1. Transações ────────────────────────────────────────────
         transactions_df = self._fetch_transactions(request.user_id)
         if not transactions_df.is_empty():
             data_sources.append("transactions_db")
         else:
             warnings.append("Sem histórico de transações: recomendação baseada apenas no valor informado.")
 
-        # ── 2. Buscar safe_to_spend atual ────────────────────────────────
-        safe_to_spend = self._fetch_safe_to_spend(request.user_id, transactions_df)
-        if safe_to_spend is not None:
+        # ── 2. Renda mensal ──────────────────────────────────────────
+        income_profile = self._fetch_income_profile(transactions_df)
+        monthly_income: float = (
+            request.monthly_income
+            or (income_profile.monthly_net_income if income_profile else None)
+            or 0.0
+        )
+        if income_profile and income_profile.confidence >= 0.5:
+            data_sources.append("income_profiler")
+
+        # ── 3. Perfil financeiro ─────────────────────────────────────
+        fin_profile = self._fetch_financial_profile(transactions_df, income_profile)
+        if fin_profile:
+            data_sources.append("user_profile_analyzer")
+
+        # ── 4. Perfil de consumo (committed_percentage) ──────────────
+        consumption_profile = self._fetch_consumption_profile(transactions_df)
+        committed_pct: float = (
+            consumption_profile.committed_percentage if consumption_profile else 0.0
+        )
+
+        # ── 5. Safe-to-spend (com renda para limiares relativos) ─────
+        safe_to_spend_result = self._fetch_safe_to_spend_result(
+            request.user_id, transactions_df, monthly_income or None
+        )
+        safe_to_spend: float = (
+            safe_to_spend_result.safe_to_spend_total if safe_to_spend_result else 0.0
+        )
+        if safe_to_spend_result is not None:
             data_sources.append("f1_safe_to_spend")
         else:
             warnings.append("Safe-to-spend indisponível: impacto no orçamento não calculado.")
-            safe_to_spend = 0.0
 
-        # ── 3. Buscar melhor cartão para a categoria ─────────────────────
-        best_card_name, reward_rate, card_warning = self._fetch_best_card(
-            request=request,
+        # ── 6. Pressão de fatura ─────────────────────────────────────
+        invoice_horizon = self._fetch_invoice_horizon(
             transactions_df=transactions_df,
+            user_id=request.user_id,
+            monthly_income=monthly_income,
+        )
+        if invoice_horizon:
+            data_sources.append("invoice_horizon")
+
+        # ── 7. Melhor cartão ─────────────────────────────────────────
+        best_card_name, reward_rate, card_warning = self._fetch_best_card(
+            request=request, transactions_df=transactions_df
         )
         if card_warning:
             warnings.append(card_warning)
         else:
             data_sources.append("optimizer_f2")
 
-        # ── 4. Buscar taxa de financiamento (CDC / BACEN) ─────────────────
-        monthly_rate, rate_warning = self._fetch_financing_rate()
+        # ── 8. Taxa CDI / CDC ────────────────────────────────────────
+        cdi_annual, monthly_rate, rate_warning = self._fetch_rates()
         if rate_warning:
             warnings.append(rate_warning)
         else:
             data_sources.append("bacen_cdc")
 
-        # ── 5. Montar opções de pagamento ────────────────────────────────
-        options: list[PaymentOption] = []
+        # ── 9. Anomalias na categoria ────────────────────────────────
+        anomaly_pressure, anomaly_notes = self._fetch_anomaly_context(
+            transactions_df=transactions_df,
+            category=request.category,
+        )
 
+        # ── 10. Contexto de perfil e pressure_score ─────────────────
+        profile_ctx = None
+        pressure_score: float = 0.0
+        profile_summary: Optional[str] = None
+
+        if fin_profile and monthly_income > 0:
+            profile_ctx = build_profile_context(
+                profile_type=fin_profile.profile_type,
+                savings_rate=fin_profile.savings_rate,
+                trend=fin_profile.trend,
+                health_score=fin_profile.financial_health_score,
+                committed_pct=committed_pct,
+                monthly_income=monthly_income,
+                safe_to_spend=safe_to_spend,
+            )
+            pressure_score = min(1.0, profile_ctx.pressure_score + anomaly_pressure)
+            profile_summary = profile_ctx.summary
+
+        # ── 11. Montar opções de pagamento ───────────────────────────
+        options: list[PaymentOption] = []
         options.append(self._build_pix_option(request.amount))
         options.append(self._build_card_avista_option(request.amount, best_card_name, reward_rate))
 
@@ -112,24 +172,60 @@ class PurchaseAdvisor:
                 )
             )
 
-        # ── 6. Ranquear por net_cost (menor = melhor) ────────────────────
-        options.sort(key=lambda o: o.net_cost)
+        # ── 12. Custo de oportunidade CDI ────────────────────────────
+        if request.apply_opportunity_cost:
+            options = [apply_opportunity_cost(opt, cdi_annual) for opt in options]
 
-        # ── 7. Escolher recomendação ──────────────────────────────────────
+        # ── 13. Profile fit por opção ────────────────────────────────
+        if fin_profile:
+            safe_ratio = safe_to_spend / monthly_income if monthly_income > 0 else 0.0
+            options = apply_profile_fit(
+                options=options,
+                pressure_score=pressure_score,
+                profile_type=fin_profile.profile_type,
+                category=request.category,
+                installments=request.installments,
+                safe_to_spend_ratio=safe_ratio,
+                committed_pct=committed_pct,
+            )
+
+        # ── 14. Penalidade de fatura no cartão ───────────────────────
+        if invoice_horizon and invoice_horizon.invoice_pressure in ("CRITICAL", "HEAVY"):
+            options = self._apply_invoice_penalty(options, invoice_horizon.invoice_pressure)
+
+        # ── 15. Ranquear por net_cost_real ───────────────────────────
+        options.sort(key=lambda o: o.net_cost_real if o.net_cost_real is not None else o.net_cost)
+
+        # ── 16. Escolher recomendação ────────────────────────────────
         recommended = self._pick_recommendation(options, safe_to_spend, warnings)
 
-        # ── 8. Impacto de liquidez ───────────────────────────────────────
+        # ── 17. Impacto de liquidez ──────────────────────────────────
         liquidity = self._build_liquidity_impact(
             net_cost=recommended.net_cost,
             safe_to_spend=safe_to_spend,
         )
 
-        # ── 9. Confidence score ──────────────────────────────────────────
+        # ── 18. Confidence score ─────────────────────────────────────
         confidence = self._compute_confidence(
             has_transactions=not transactions_df.is_empty(),
-            has_safe_to_spend="f1_safe_to_spend" in data_sources,
-            has_income=request.monthly_income is not None,
+            has_safe_to_spend=safe_to_spend_result is not None,
+            has_income=monthly_income > 0,
+            has_profile=fin_profile is not None,
             warning_count=len(warnings),
+        )
+
+        # ── 19. Reasoning contextualizado ───────────────────────────
+        reasoning = self._build_reasoning(
+            recommended=recommended,
+            all_options=options,
+            liquidity=liquidity,
+            request=request,
+            invoice_horizon=invoice_horizon,
+            profile_ctx=profile_ctx,
+            fin_profile=fin_profile,
+            monthly_income=monthly_income,
+            anomaly_notes=anomaly_notes,
+            cdi_annual=cdi_annual,
         )
 
         return PurchaseRecommendation(
@@ -139,12 +235,16 @@ class PurchaseAdvisor:
             recommended_method=recommended.method,
             recommended_label=recommended.label,
             recommended_net_cost=recommended.net_cost,
-            reasoning=self._build_reasoning(recommended, options, liquidity, request),
+            reasoning=reasoning,
             options=options,
             liquidity_impact=liquidity,
             confidence_score=round(confidence, 2),
             data_sources=data_sources,
             warnings=warnings,
+            invoice_horizon=invoice_horizon.to_dict() if invoice_horizon else None,
+            pressure_score=round(pressure_score, 2) if pressure_score else None,
+            profile_summary=profile_summary,
+            cdi_rate_used=round(cdi_annual, 4),
         )
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -152,7 +252,6 @@ class PurchaseAdvisor:
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def _fetch_transactions(self, user_id: str) -> pl.DataFrame:
-        """Busca transações limpas do PostgreSQL. Retorna DataFrame vazio em caso de falha."""
         try:
             from app.core.db.queries import get_transactions_for_user
             return get_transactions_for_user(user_id)
@@ -160,16 +259,44 @@ class PurchaseAdvisor:
             logger.warning("PurchaseAdvisor | erro ao buscar transações: %s", exc)
             return pl.DataFrame()
 
-    def _fetch_safe_to_spend(
-        self, user_id: str, transactions_df: pl.DataFrame
-    ) -> Optional[float]:
-        """
-        Busca safe_to_spend via SafeToSpendCalculator.
-        Retorna None se não houver dados suficientes.
-        """
+    def _fetch_income_profile(self, transactions_df: pl.DataFrame):
         if transactions_df.is_empty():
             return None
+        try:
+            from app.forecast.etl.income_profiler import IncomeProfiler
+            return IncomeProfiler().analyze(transactions_df)
+        except Exception as exc:
+            logger.warning("PurchaseAdvisor | IncomeProfiler falhou: %s", exc)
+            return None
 
+    def _fetch_financial_profile(self, transactions_df: pl.DataFrame, income_profile):
+        if transactions_df.is_empty():
+            return None
+        try:
+            from app.forecast.etl.profiles import UserProfileAnalyzer
+            return UserProfileAnalyzer().analyze(transactions_df, income_profile)
+        except Exception as exc:
+            logger.warning("PurchaseAdvisor | UserProfileAnalyzer falhou: %s", exc)
+            return None
+
+    def _fetch_consumption_profile(self, transactions_df: pl.DataFrame):
+        if transactions_df.is_empty():
+            return None
+        try:
+            from app.optimizer.profiler import ConsumptionProfiler
+            return ConsumptionProfiler().build(transactions_df)
+        except Exception as exc:
+            logger.warning("PurchaseAdvisor | ConsumptionProfiler falhou: %s", exc)
+            return None
+
+    def _fetch_safe_to_spend_result(
+        self,
+        user_id: str,
+        transactions_df: pl.DataFrame,
+        income_monthly: Optional[float],
+    ):
+        if transactions_df.is_empty():
+            return None
         try:
             from app.forecast.cashflow.projector import CashflowProjector
             from app.forecast.cashflow.safe_to_spend import SafeToSpendCalculator
@@ -179,21 +306,43 @@ class PurchaseAdvisor:
                 shadow_invoices_df=pl.DataFrame(),
                 horizon_days=30,
             )
-            result = SafeToSpendCalculator().calculate(projection_df, horizon_days=30)
-            return result.safe_to_spend_total
+            return SafeToSpendCalculator().calculate(
+                projection_df, horizon_days=30, income_monthly=income_monthly
+            )
         except Exception as exc:
-            logger.warning("PurchaseAdvisor | erro ao calcular safe_to_spend: %s", exc)
+            logger.warning("PurchaseAdvisor | safe_to_spend falhou: %s", exc)
+            return None
+
+    def _fetch_invoice_horizon(
+        self,
+        transactions_df: pl.DataFrame,
+        user_id: str,
+        monthly_income: float,
+    ):
+        if monthly_income <= 0:
+            return None
+        try:
+            from app.forecast.cashflow.invoice_horizon import build_invoice_horizon
+            from app.core.db.queries import get_shadow_invoices_for_user
+
+            shadow_invoices = []
+            try:
+                shadow_invoices = get_shadow_invoices_for_user(user_id)
+            except Exception:
+                pass  # sem shadow invoices — ainda útil calcular ciclo atual
+
+            return build_invoice_horizon(
+                transactions_df=transactions_df,
+                shadow_invoices=shadow_invoices,
+                monthly_income=monthly_income,
+            )
+        except Exception as exc:
+            logger.warning("PurchaseAdvisor | InvoiceHorizon falhou: %s", exc)
             return None
 
     def _fetch_best_card(
-        self,
-        request: PurchaseRequest,
-        transactions_df: pl.DataFrame,
+        self, request: PurchaseRequest, transactions_df: pl.DataFrame
     ) -> tuple[str, float, Optional[str]]:
-        """
-        Retorna (nome_do_melhor_cartão, reward_rate, warning_ou_None).
-        reward_rate = fração do valor que retorna em cashback/pontos (ex: 0.015 = 1.5%).
-        """
         try:
             from app.optimizer.models import OptimizationRequest
             from app.optimizer.services.optimizer_service import OptimizerService
@@ -203,45 +352,75 @@ class PurchaseAdvisor:
                 monthly_income=request.monthly_income,
             )
             report = OptimizerService().analyze(
-                request=opt_req,
-                transactions_df=transactions_df,
+                request=opt_req, transactions_df=transactions_df
             )
-
             if report.best_card:
-                # net_gain_expected é anual; estimamos reward_rate sobre gasto médio mensal
                 card = report.best_card
-                monthly_spend = max(
-                    request.amount,  # garante que ao menos o valor da compra é base
-                    1.0,
-                )
-                # reward_rate = pontos/cashback gerados / valor da compra
+                monthly_spend = max(request.amount, 1.0)
                 reward_rate = (
                     card.points_value_expected / (monthly_spend * 12)
                     if card.points_value_expected and monthly_spend > 0
                     else 0.0
                 )
-                reward_rate = min(reward_rate, 0.05)  # cap em 5% para evitar distorções
+                reward_rate = min(reward_rate, 0.05)
                 return card.card_name, reward_rate, None
-
         except Exception as exc:
             logger.warning("PurchaseAdvisor | OptimizerService falhou: %s", exc)
 
         return "seu cartão atual", 0.0, "Não foi possível identificar o melhor cartão — usando sem reward."
 
-    def _fetch_financing_rate(self) -> tuple[float, Optional[str]]:
-        """
-        Busca taxa mensal de crédito pessoal (CDC) no BACEN.
-        Retorna (taxa_mensal, warning_ou_None).
-        """
+    def _fetch_rates(self) -> tuple[float, float, Optional[str]]:
+        """Retorna (cdi_annual, monthly_cdc_rate, warning_ou_None)."""
         try:
             from app.architect.connectors.bacen import BacenConnector
             selic_annual = BacenConnector().get_selic()
-            # CDC ≈ SELIC + spread de ~2.5% a.m. (referência mercado 2026)
             monthly_rate = (selic_annual / 12) + 0.025
-            return monthly_rate, None
+            return selic_annual, monthly_rate, None
         except Exception as exc:
-            logger.warning("PurchaseAdvisor | BACEN indisponível: %s — usando fallback CDC", exc)
-            return _FINANCING_FALLBACK_MONTHLY_RATE, "Taxa CDC baseada em referência de mercado (BACEN indisponível)."
+            logger.warning("PurchaseAdvisor | BACEN indisponível: %s", exc)
+            return (
+                _CDI_FALLBACK,
+                _FINANCING_FALLBACK_MONTHLY_RATE,
+                "Taxa CDI/CDC baseada em referência de mercado (BACEN indisponível).",
+            )
+
+    def _fetch_anomaly_context(
+        self, transactions_df: pl.DataFrame, category: str
+    ) -> tuple[float, list[str]]:
+        """
+        Retorna (pressure_bonus, notas de anomalia).
+        pressure_bonus: +0.10 por anomalia ativa na categoria (máx 0.20).
+        """
+        if transactions_df.is_empty():
+            return 0.0, []
+        try:
+            from app.forecast.etl.spending_anomaly_detector import SpendingAnomalyDetector
+
+            anomalies = SpendingAnomalyDetector().detect(
+                transactions_df=transactions_df,
+                history_df=transactions_df,
+            )
+            category_lower = category.lower()
+            notes: list[str] = []
+            bonus = 0.0
+
+            for a in anomalies:
+                desc_lower = a.description.lower()
+                if category_lower not in desc_lower:
+                    continue
+                if a.anomaly_type.value == "UNUSUAL_AMOUNT":
+                    notes.append(f"Você teve um gasto incomum em {category} recentemente.")
+                    bonus = min(0.20, bonus + 0.10)
+                elif a.anomaly_type.value == "FREQUENCY_SPIKE":
+                    notes.append(
+                        f"Você está comprando em {category} com frequência acima do seu padrão."
+                    )
+                    bonus = min(0.20, bonus + 0.10)
+
+            return bonus, notes
+        except Exception as exc:
+            logger.warning("PurchaseAdvisor | SpendingAnomalyDetector falhou: %s", exc)
+            return 0.0, []
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # BUILDERS DE OPÇÃO
@@ -255,7 +434,7 @@ class PurchaseAdvisor:
             monthly_cost=None,
             installments=1,
             reward_value=0.0,
-            notes="Sem juros, sem cashback. Melhor para negociar desconto à vista com o vendedor.",
+            notes="Sem juros, sem cashback. Melhor para negociar desconto à vista.",
         )
 
     def _build_card_avista_option(
@@ -275,12 +454,11 @@ class PurchaseAdvisor:
     def _build_card_parcelado_option(
         self, amount: float, installments: int, card_name: str, reward_rate: float
     ) -> PaymentOption:
-        """Parcelamento sem juros no cartão (padrão do mercado brasileiro)."""
         monthly = round(amount / installments, 2)
         reward = round(amount * reward_rate, 2)
         return PaymentOption(
             method=PaymentMethod.CARTAO_PARCELADO,
-            label=f"Cartão parcelado {installments}x sem juros ({card_name})",
+            label=f"Cartão {installments}x sem juros ({card_name})",
             total_cost=round(amount, 2),
             monthly_cost=monthly,
             installments=installments,
@@ -294,17 +472,10 @@ class PurchaseAdvisor:
     def _build_financing_option(
         self, amount: float, installments: int, monthly_rate: float
     ) -> PaymentOption:
-        """Crédito pessoal CDC com juros (price)."""
-        # Fórmula PRICE: PMT = PV × r / (1 − (1+r)^−n)
-        r = monthly_rate
-        n = installments
-        if r > 0:
-            pmt = amount * r / (1 - (1 + r) ** -n)
-        else:
-            pmt = amount / n
+        r, n = monthly_rate, installments
+        pmt = amount * r / (1 - (1 + r) ** -n) if r > 0 else amount / n
         total = round(pmt * n, 2)
         pmt = round(pmt, 2)
-        taxa_pct = monthly_rate * 100
         return PaymentOption(
             method=PaymentMethod.FINANCIAMENTO,
             label=f"Crédito pessoal {installments}x (CDC)",
@@ -313,9 +484,8 @@ class PurchaseAdvisor:
             installments=installments,
             reward_value=0.0,
             notes=(
-                f"Taxa {taxa_pct:.2f}% a.m. | {installments}x de R$ {pmt:.2f} | "
-                f"Custo total: R$ {total:.2f} "
-                f"(+R$ {total - amount:.2f} de juros)."
+                f"Taxa {monthly_rate * 100:.2f}% a.m. | {installments}x de R$ {pmt:.2f} | "
+                f"Custo total: R$ {total:.2f} (+R$ {total - amount:.2f} de juros)."
             ),
         )
 
@@ -323,28 +493,45 @@ class PurchaseAdvisor:
     # LÓGICA DE RECOMENDAÇÃO
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+    def _apply_invoice_penalty(
+        self, options: list[PaymentOption], pressure: str
+    ) -> list[PaymentOption]:
+        """
+        Quando a fatura está CRITICAL ou HEAVY, move opções de cartão para o fim
+        da lista trocando o net_cost_real por um valor penalizado (não bloqueia).
+        """
+        penalized = []
+        for opt in options:
+            if opt.method in (PaymentMethod.CARTAO_AVISTA, PaymentMethod.CARTAO_PARCELADO):
+                penalty = opt.net_cost_real * 1.20 if pressure == "CRITICAL" else opt.net_cost_real * 1.10
+                penalized.append(opt.model_copy(update={"net_cost_real": round(penalty, 2)}))
+            else:
+                penalized.append(opt)
+        return penalized
+
     def _pick_recommendation(
         self,
         options: list[PaymentOption],
         safe_to_spend: float,
         warnings: list[str],
     ) -> PaymentOption:
-        """
-        Escolhe a melhor opção:
-          1. Preferência por menor net_cost entre as acessíveis (net_cost <= safe_to_spend)
-          2. Se nenhuma for acessível, escolhe a de menor net_cost e avisa o usuário
-        """
-        affordable = [o for o in options if o.net_cost <= safe_to_spend]
+        # Só filtra por acessibilidade quando safe_to_spend é conhecido (> 0)
+        # Quando é zero por ausência de dados, não é margem real — não avisar como excedido
+        if safe_to_spend > 0:
+            affordable = [o for o in options if o.net_cost <= safe_to_spend]
+            if affordable:
+                not_avoid = [o for o in affordable if o.profile_fit != "EVITAR"]
+                return not_avoid[0] if not_avoid else affordable[0]
 
-        if affordable:
-            return affordable[0]  # já ordenado por net_cost
+            warnings.append(
+                f"Esta compra (R$ {options[0].net_cost:.2f}) excede sua margem atual "
+                f"(R$ {safe_to_spend:.2f}). Considere adiar ou reduzir o valor."
+            )
 
-        # Nenhuma opção dentro do safe_to_spend
-        warnings.append(
-            f"Esta compra (R$ {options[0].net_cost:.2f}) excede sua margem atual "
-            f"(R$ {safe_to_spend:.2f}). Considere adiar ou reduzir o valor."
-        )
-        return options[0]
+        # safe_to_spend ausente ou compra fora da margem: retorna a de menor custo real
+        # excluindo EVITAR quando houver alternativa
+        not_avoid = [o for o in options if o.profile_fit != "EVITAR"]
+        return not_avoid[0] if not_avoid else options[0]
 
     def _build_liquidity_impact(
         self, net_cost: float, safe_to_spend: float
@@ -374,38 +561,90 @@ class PurchaseAdvisor:
         all_options: list[PaymentOption],
         liquidity: LiquidityImpact,
         request: PurchaseRequest,
+        invoice_horizon,
+        profile_ctx,
+        fin_profile,
+        monthly_income: float,
+        anomaly_notes: list[str],
+        cdi_annual: float,
     ) -> str:
-        lines = [
-            f"Para uma compra de R$ {request.amount:,.2f} em {request.category}, "
-            f"a opção com menor custo líquido é **{recommended.label}** "
-            f"(custo efetivo: R$ {recommended.net_cost:,.2f})."
-        ]
+        lines: list[str] = []
 
-        if recommended.reward_value > 0:
+        # ── Bloco 1: O que recomendo e por quê ──────────────────────
+        cost_real = recommended.net_cost_real if recommended.net_cost_real is not None else recommended.net_cost
+        lines.append(
+            f"Para R$ {request.amount:,.2f} em {request.category}, "
+            f"a recomendação é **{recommended.label}** "
+            f"(custo efetivo: R$ {cost_real:,.2f})."
+        )
+
+        if recommended.opportunity_cost_gain > 0 and recommended.method == PaymentMethod.CARTAO_PARCELADO:
             lines.append(
-                f"Você gera R$ {recommended.reward_value:.2f} em cashback/pontos, "
-                f"reduzindo o custo real da compra."
+                f"O capital parcelado rende ~R$ {recommended.opportunity_cost_gain:.2f} no CDI "
+                f"({cdi_annual:.1%} a.a.) durante as {recommended.installments} parcelas — "
+                f"tornando o parcelamento R$ {recommended.opportunity_cost_gain:.2f} mais barato que à vista."
+            )
+        elif recommended.reward_value > 0:
+            lines.append(
+                f"Você gera R$ {recommended.reward_value:.2f} em cashback/pontos, reduzindo o custo real."
             )
 
+        worst = max(all_options, key=lambda o: o.net_cost_real if o.net_cost_real is not None else o.net_cost)
+        if worst.net_cost_real and cost_real < worst.net_cost_real:
+            saved = round(worst.net_cost_real - cost_real, 2)
+            lines.append(
+                f"Comparado à pior opção ({worst.label}), você economiza R$ {saved:.2f}."
+            )
+
+        # ── Bloco 2: Como isso afeta sua situação atual ─────────────
         if not liquidity.affordable:
             lines.append(
-                f"⚠️ Atenção: esta compra excede sua margem disponível "
+                f"⚠️ Esta compra excede sua margem disponível "
                 f"(R$ {liquidity.safe_to_spend_before:,.2f}). "
                 "Considere parcelas menores ou adiar a compra."
             )
+        elif monthly_income > 0:
+            ratio_pct = liquidity.safe_to_spend_before / monthly_income * 100
+            lines.append(
+                f"Seu safe-to-spend é R$ {liquidity.safe_to_spend_before:,.2f} "
+                f"({ratio_pct:.0f}% da renda). "
+                f"Após a compra: R$ {liquidity.safe_to_spend_after:,.2f}."
+            )
         else:
             lines.append(
-                f"Após a compra, sua margem restante será de "
-                f"R$ {liquidity.safe_to_spend_after:,.2f}."
+                f"Após a compra, sua margem restante será de R$ {liquidity.safe_to_spend_after:,.2f}."
             )
 
-        worst = max(all_options, key=lambda o: o.net_cost)
-        if worst.net_cost > recommended.net_cost:
-            saved = round(worst.net_cost - recommended.net_cost, 2)
-            lines.append(
-                f"Comparado à pior opção ({worst.label}), "
-                f"você economiza R$ {saved:.2f}."
-            )
+        if invoice_horizon:
+            pressure = invoice_horizon.invoice_pressure
+            if pressure == "CRITICAL":
+                lines.append(
+                    f"⚠️ Fatura fecha em {invoice_horizon.days_to_close} dia(s) com "
+                    f"R$ {invoice_horizon.current_cycle_committed:,.2f} já comprometidos "
+                    f"({invoice_horizon.total_committed / invoice_horizon.monthly_income:.0%} da renda) — "
+                    "prefira PIX para evitar rotativo."
+                )
+            elif pressure == "HEAVY":
+                lines.append(
+                    f"Fatura fecha em {invoice_horizon.days_to_close} dias com "
+                    f"R$ {invoice_horizon.total_committed:,.2f} comprometidos — "
+                    "atenção ao impacto no ciclo atual."
+                )
+
+        # ── Bloco 3: Histórico e alertas de perfil ──────────────────
+        if profile_ctx:
+            lines.append(profile_ctx.summary)
+
+        if fin_profile and fin_profile.trend == "CRESCENTE":
+            lines.append("Seus gastos gerais estão em tendência crescente — monitore o orçamento.")
+
+        for note in anomaly_notes:
+            lines.append(note)
+
+        if recommended.profile_fit == "CAUTELA":
+            lines.append("Atenção: esta opção merece cuidado dado seu perfil financeiro atual.")
+        elif recommended.profile_fit == "EVITAR":
+            lines.append("⚠️ Esta opção não é recomendada para seu perfil — considere as alternativas.")
 
         return " ".join(lines)
 
@@ -418,14 +657,17 @@ class PurchaseAdvisor:
         has_transactions: bool,
         has_safe_to_spend: bool,
         has_income: bool,
+        has_profile: bool,
         warning_count: int,
     ) -> float:
         score = 0.0
         if has_transactions:
-            score += 0.40
+            score += 0.35
         if has_safe_to_spend:
-            score += 0.30
+            score += 0.25
         if has_income:
-            score += 0.30
+            score += 0.25
+        if has_profile:
+            score += 0.15
         score -= min(warning_count * 0.05, 0.20)
         return max(0.10, min(1.00, score))
