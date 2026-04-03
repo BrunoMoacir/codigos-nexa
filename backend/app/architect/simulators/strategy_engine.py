@@ -86,7 +86,7 @@ class StrategyEngine:
             request.target_amount,
         )
 
-        selic_annual = market_rates.get("selic_annual", 0.1075)
+        selic_annual = market_rates.get("selic_annual", 0.1475)
         selic_monthly = (1 + selic_annual) ** (1 / 12) - 1
 
         # ── 1. Simular Estratégias ──────────────────────────────────
@@ -319,7 +319,7 @@ class StrategyEngine:
     ) -> Dict[str, Any]:
         """Simula cenário de financiamento (PRICE ou SAC)."""
         cet_annual = rates.get("best_cet_annual", 0.15)
-        selic_monthly = (1 + rates.get("selic_annual", 0.1075)) ** (1 / 12) - 1
+        selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
 
         # Calcular pelo método escolhido
         if req.amortization_method.value == "SAC":
@@ -354,8 +354,8 @@ class StrategyEngine:
         self, req: SimulationRequest, rates: Dict[str, float]
     ) -> Dict[str, Any]:
         """Simula cenário de poupar/investir (CDI) — M3.1: inclui FV real."""
-        cdi_annual    = rates.get("cdi_annual",    0.1025)
-        selic_monthly = (1 + rates.get("selic_annual", 0.1075)) ** (1 / 12) - 1
+        cdi_annual    = rates.get("cdi_annual",    0.1465)
+        selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
         ipca_annual   = rates.get("ipca_annual",   0.045)   # M3.1
 
         if req.max_monthly_budget:
@@ -414,7 +414,7 @@ class StrategyEngine:
         garantindo retrocompatibilidade com fixtures de teste que não incluem
         as chaves novas.
         """
-        selic_monthly = (1 + rates.get("selic_annual", 0.1075)) ** (1 / 12) - 1
+        selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
 
         # Parâmetros do grupo — injetados pelo ConsortiumRateProvider via ArchitectService
         admin_rate            = rates.get("consortium_admin_rate",             0.17)
@@ -484,7 +484,7 @@ class StrategyEngine:
         is_self_sustaining = True quando aluguel >= parcela bruta.
         """
         rental = req.expected_rental_income  # já garantido > 0 pelo gate has_rental
-        selic_monthly = (1 + rates.get("selic_annual", 0.1075)) ** (1 / 12) - 1
+        selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
         gross_cashflows = fin_result["cashflows"]  # [-entrada, -p1, -p2, ...]
         months = req.financing_months
 
@@ -552,7 +552,7 @@ class StrategyEngine:
         is_self_sustaining = True se o saldo nunca fica negativo.
         """
         rental = req.expected_rental_income
-        selic_annual = rates.get("selic_annual", 0.1075)
+        selic_annual = rates.get("selic_annual", 0.1475)
         selic_monthly = (1 + selic_annual) ** (1 / 12) - 1
 
         cons_months = int(rates.get("consortium_months", 72))
@@ -1070,7 +1070,7 @@ class StrategyEngine:
         if scenarios is None:
             scenarios = [0, 3, 6, 12]
 
-        selic_monthly = (1 + market_rates.get("selic_annual", 0.1325)) ** (1 / 12) - 1
+        selic_monthly = (1 + market_rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
         cet_annual    = market_rates.get("best_cet_annual", 0.20)
         ipca_annual   = market_rates.get("ipca_annual", 0.045)
 

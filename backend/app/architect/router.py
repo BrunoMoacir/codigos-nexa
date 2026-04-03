@@ -554,9 +554,10 @@ async def get_sensitivity(
             exc,
         )
         # Fallback com taxas de referência para não bloquear a resposta
+        # Referência: SELIC 14.75% a.a. (COPOM mar/2026)
         market_rates = {
-            "selic_annual":                0.1325,
-            "cdi_annual":                  0.1315,
+            "selic_annual":                0.1475,
+            "cdi_annual":                  0.1465,
             "best_cet_annual":             0.1950,
             "consortium_admin_rate":        0.17,
             "consortium_months":            72.0,
@@ -768,8 +769,8 @@ async def timing_scenarios(
     except Exception as exc:
         logger.warning("timing-scenarios | taxas indisponíveis: %s — usando fallback", exc)
         market_rates = {
-            "selic_annual":    0.1325,
-            "cdi_annual":      0.1325,
+            "selic_annual":    0.1475,
+            "cdi_annual":      0.1465,
             "best_cet_annual": 0.20,
             "ipca_annual":     0.045,
         }

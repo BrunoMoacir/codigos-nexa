@@ -111,13 +111,13 @@ class AnbimaConnector(BaseConnector):
         """
         Retorna CDI hardcoded como fallback quando a API falha.
 
-        Referência: CDI em fev/2026 ≈ 13.15% a.a. (SELIC 13.25% - 0.10%).
+        Referência: CDI em abr/2026 ≈ 14.65% a.a. (SELIC 14.75% - 0.10%).
         Atualizar trimestralmente ou sempre que a SELIC mudar mais de 0.50%.
 
         Returns:
-            {"cdi_annual": 0.1315}
+            {"cdi_annual": 0.1465}
         """
-        return {"cdi_annual": 0.1315}
+        return {"cdi_annual": 0.1465}
 
     # ── Convenience methods ───────────────────────────────────────────────
 

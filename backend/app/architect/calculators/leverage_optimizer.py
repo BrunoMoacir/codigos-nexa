@@ -41,7 +41,7 @@ Uso:
     result = optimizer.find_optimal(
         asset_value=300000,
         monthly_rent=1800,
-        selic_annual=0.1325,
+        selic_annual=0.1475,
         admin_rate=0.18,
         consortium_months=180,
     )

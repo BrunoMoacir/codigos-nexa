@@ -252,7 +252,7 @@ class SensitivityAnalyzer:
             request.target_amount,
         )
 
-        selic_monthly = (1 + market_rates.get("selic_annual", 0.1075)) ** (1 / 12) - 1
+        selic_monthly = (1 + market_rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
         baseline_strategy = baseline_response.recommended_strategy.value
 
         variables = [
@@ -411,7 +411,7 @@ class SensitivityAnalyzer:
         selic_monthly: float,
     ) -> VariableSensitivity:
         """Varia o CDI em ±2 p.p. — impacta o NPV do investimento."""
-        base_cdi = market_rates.get("cdi_annual", 0.1025)
+        base_cdi = market_rates.get("cdi_annual", 0.1465)
         cet = market_rates.get("best_cet_annual", 0.15)
         d_min, d_max, n = self._RANGES["cdi_rate"]
         points = []
@@ -494,7 +494,7 @@ class SensitivityAnalyzer:
         down_payment: float,
     ) -> float:
         try:
-            cdi_annual = market_rates.get("cdi_annual", 0.1025)
+            cdi_annual = market_rates.get("cdi_annual", 0.1465)
             if request.max_monthly_budget:
                 monthly_dep = request.max_monthly_budget
                 months = inv_calc.calculate_months_needed(

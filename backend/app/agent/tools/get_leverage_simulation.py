@@ -139,7 +139,7 @@ def get_leverage_simulation(
         service = ArchitectService()
         market_rates = service.fetch_market_rates(request)
 
-        selic_annual = market_rates.get("selic_annual", 0.1325)
+        selic_annual = market_rates.get("selic_annual", 0.1475)
         effective_admin = admin_rate if admin_rate is not None else market_rates.get("consortium_admin_rate", 0.18)
         effective_months = int(market_rates.get("consortium_months", consortium_months))
 
