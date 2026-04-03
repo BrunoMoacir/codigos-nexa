@@ -350,20 +350,46 @@ class StrategyEngine:
             "cashflows": cashflows,  # Preservado para estratégias compostas
         }
 
+    @staticmethod
+    def _get_investment_rate(cdi_annual: float, risk_profile: RiskProfile) -> float:
+        """
+        Retorna taxa de retorno esperada de investimentos por perfil de risco.
+
+        Não é garantia — é o benchmark de comparação para o SAVE_INVEST.
+        Impacta o NPV do cenário investir: perfis mais arrojados têm retorno
+        esperado maior, o que pode tornar o SAVE_INVEST mais atrativo frente
+        ao financiamento.
+
+        Critérios:
+          CONSERVADOR → CDI líquido (IR 15%): renda fixa pós-fixada
+          MODERADO    → CDI líquido + 10% upside (crédito privado / FII)
+          AGRESSIVO   → min(CDI × 1.60, 18% a.a.): exposição a renda variável
+        """
+        cdi_net = cdi_annual * 0.85  # IR 15% (prazo ≥ 720 dias)
+        if risk_profile == RiskProfile.CONSERVADOR:
+            return cdi_net
+        elif risk_profile == RiskProfile.MODERADO:
+            return cdi_net * 1.10
+        else:  # AGRESSIVO
+            return min(cdi_annual * 1.60, 0.18)
+
     def _simulate_investment(
         self, req: SimulationRequest, rates: Dict[str, float]
     ) -> Dict[str, Any]:
-        """Simula cenário de poupar/investir (CDI) — M3.1: inclui FV real."""
+        """Simula cenário de poupar/investir — M3.1: inclui FV real e benchmark por perfil."""
         cdi_annual    = rates.get("cdi_annual",    0.1465)
-        selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
         ipca_annual   = rates.get("ipca_annual",   0.045)   # M3.1
+
+        # Benchmark de retorno ajustado pelo perfil de risco do usuário
+        investment_rate = self._get_investment_rate(cdi_annual, req.risk_profile)
+        selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
 
         if req.max_monthly_budget:
             monthly_dep = req.max_monthly_budget
             months = inv_calc.calculate_months_needed(
                 req.target_amount,
                 monthly_dep,
-                cdi_annual,
+                investment_rate,
                 req.down_payment,
             )
             if months is None:
@@ -372,7 +398,7 @@ class StrategyEngine:
             months = req.financing_months
             monthly_dep = inv_calc.calculate_pmt_needed(
                 req.target_amount,
-                cdi_annual,
+                investment_rate,
                 months,
                 req.down_payment,
             )
@@ -396,9 +422,11 @@ class StrategyEngine:
             "npv": npv_val,
             "months": months,
             # M3.1 extras:
-            "fv_nominal":    round(fv_nominal, 2),
-            "fv_real":       round(fv_real, 2),
-            "ipca_annual":   ipca_annual,
+            "fv_nominal":       round(fv_nominal, 2),
+            "fv_real":          round(fv_real, 2),
+            "ipca_annual":      ipca_annual,
+            # Benchmark de retorno usado (varia por perfil de risco)
+            "investment_rate":  round(investment_rate, 4),
         }
 
     def _simulate_consortium(
