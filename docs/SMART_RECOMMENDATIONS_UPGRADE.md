@@ -16,7 +16,7 @@
 | 5 | Pressão de fatura | `forecast/cashflow/invoice_horizon.py` (novo) | ✅ Feito |
 | 6 | Refatorar PurchaseAdvisor | `purchase/purchase_advisor.py` | ✅ Feito |
 | 7 | Benchmark Architect por perfil | `architect/simulators/strategy_engine.py` | ✅ Feito |
-| 8 | Inferir risk_profile + CardBonus real | `architect/services/architect_service.py` | ⏳ Pendente |
+| 8 | Inferir risk_profile + CardBonus real | `architect/services/architect_service.py` · `architect/router.py` | ✅ Feito |
 
 ---
 

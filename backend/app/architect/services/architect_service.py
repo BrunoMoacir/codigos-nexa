@@ -102,6 +102,7 @@ class ArchitectService:
         self,
         request: SimulationRequest,
         safe_to_spend: Optional[float] = None,
+        transactions_df=None,
     ) -> SimulationResponse:
         """
         Executa a simulação completa e retorna a recomendação.
@@ -128,6 +129,9 @@ class ArchitectService:
         # ── 1. Validar inputs ────────────────────────────────────────
         accumulated_warnings: list[str] = []
         self._validate_or_raise(request, accumulated_warnings)
+
+        # ── 1.5 Inferir risk_profile do histórico se não informado ───
+        request = self._infer_risk_profile(request, transactions_df, accumulated_warnings)
 
         # ── 2. Buscar taxas de mercado ───────────────────────────────
         market_rates, rate_warnings = self._fetch_market_rates(request)
@@ -172,10 +176,12 @@ class ArchitectService:
             card_bonus = self._compute_card_optimization_bonus(
                 monthly_payment=monthly_payment,
                 financing_months=request.financing_months,
+                user_id=request.user_id,
+                monthly_income=request.monthly_income,
+                transactions_df=transactions_df,
             )
-            # "market_reference_estimate": valores de referência de mercado (2 pts/R$, R$ 0,016/pt).
-            # Não representa o cartão real do usuário — integração real com F2 é V2.
-            data_sources.append("market_reference_estimate")
+            source = "optimizer_f2" if card_bonus and card_bonus.best_card_name != "melhor cartão premium de mercado" else "market_reference_estimate"
+            data_sources.append(source)
 
         # ── 8. Montar resposta final ─────────────────────────────────
         return base_response.model_copy(
@@ -352,12 +358,62 @@ class ArchitectService:
         return round(expected_cost / denominator, 2)
 
     @staticmethod
+    def _infer_risk_profile(
+        request: "SimulationRequest",
+        transactions_df,
+        warnings: list[str],
+    ) -> "SimulationRequest":
+        """
+        Se risk_profile não foi informado na request, infere do histórico de transações
+        usando UserProfileAnalyzer + IncomeProfiler.
+
+        Mapeamento spending → risk (doc seção 13.1):
+          CONSERVADOR → CONSERVADOR  (poupa ≥ 20% — disciplinado, avesso a dívida)
+          EQUILIBRADO → MODERADO     (poupa 10–20%)
+          GASTADOR    → MODERADO     (< 10% — sem dados suficientes para inferir agressivo)
+        """
+        from app.architect.models import RiskProfile
+
+        if request.risk_profile is not None:
+            return request
+
+        if transactions_df is None:
+            return request
+
+        try:
+            from app.forecast.etl.income_profiler import IncomeProfiler
+            from app.forecast.etl.profiles import UserProfileAnalyzer
+
+            income_profile = IncomeProfiler().analyze(transactions_df)
+            fin_profile = UserProfileAnalyzer().analyze(transactions_df, income_profile)
+
+            mapping = {
+                "CONSERVADOR": RiskProfile.CONSERVADOR,
+                "EQUILIBRADO": RiskProfile.MODERADO,
+                "GASTADOR":    RiskProfile.MODERADO,
+            }
+            inferred = mapping.get(fin_profile.profile_type, RiskProfile.MODERADO)
+            warnings.append(
+                f"Perfil de risco inferido do histórico: {inferred.value} "
+                f"(spending profile={fin_profile.profile_type}, "
+                f"savings_rate={fin_profile.savings_rate:.0f}%)."
+            )
+            return request.model_copy(update={"risk_profile": inferred})
+
+        except Exception as exc:
+            logger.warning("ArchitectService | inferência de risk_profile falhou: %s", exc)
+            return request
+
+    @staticmethod
     def _compute_card_optimization_bonus(
         monthly_payment: float,
         financing_months: int,
         pts_per_brl: float = 2.0,
         point_value_brl: float = 0.016,
         best_card_name: str = "melhor cartão premium de mercado",
+        user_id: Optional[str] = None,
+        monthly_income: Optional[float] = None,
+        transactions_df=None,
     ) -> CardOptimizationBonus:
         """
         M3.3 — Calcula o retorno de pontos/cashback ao pagar parcelas no melhor cartão.
@@ -375,6 +431,27 @@ class ArchitectService:
         Returns:
             CardOptimizationBonus com retorno mensal, anual, total e % de redução.
         """
+        # Tenta obter dados reais do cartão via OptimizerService (F2)
+        if user_id and transactions_df is not None:
+            try:
+                from app.optimizer.models import OptimizationRequest
+                from app.optimizer.services.optimizer_service import OptimizerService
+
+                opt_req = OptimizationRequest(
+                    user_id=user_id,
+                    monthly_income=monthly_income,
+                )
+                report = OptimizerService().analyze(
+                    request=opt_req, transactions_df=transactions_df
+                )
+                if report.best_card and report.best_card.points_per_brl_actual:
+                    pts_per_brl = report.best_card.points_per_brl_actual
+                    point_value_brl = report.best_card.point_value_brl or point_value_brl
+                    best_card_name = report.best_card.card_name
+            except Exception as exc:
+                logger.warning("ArchitectService | OptimizerService falhou no CardBonus: %s", exc)
+                # mantém fallback de mercado
+
         monthly_bonus = round(monthly_payment * pts_per_brl * point_value_brl, 2)
         annual_bonus  = round(monthly_bonus * 12, 2)
         total_bonus   = round(monthly_bonus * financing_months, 2)
