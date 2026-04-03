@@ -159,6 +159,24 @@ async def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
         return None
 
 
+async def _fetch_transactions(user_id: str):
+    """
+    Busca o DataFrame de transações do usuário para inferência de perfil e CardBonus.
+    Retorna None em caso de falha — o service trata graciosamente a ausência.
+    """
+    try:
+        from app.core.db.queries import get_transactions_for_user
+        df = get_transactions_for_user(user_id)
+        return df if not df.is_empty() else None
+    except Exception as exc:
+        logger.warning(
+            "architect | user=%s | transações indisponíveis (%s) — sem inferência de perfil",
+            user_id,
+            exc,
+        )
+        return None
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ENDPOINT: POST /architect/simulate
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -221,9 +239,14 @@ async def simulate(request: SimulationRequest, current_user: str = Depends(get_c
     # ── 1. Buscar safe_to_spend da F1 (degradação graciosa) ──────────
     safe_to_spend = await _fetch_safe_to_spend(request.user_id)
 
+    # ── 1.5. Buscar transações para inferência de perfil e CardBonus ─
+    transactions_df = await _fetch_transactions(request.user_id)
+
     # ── 2. Chamar o service ──────────────────────────────────────────
     try:
-        response = _service.simulate(request, safe_to_spend=safe_to_spend)
+        response = _service.simulate(
+            request, safe_to_spend=safe_to_spend, transactions_df=transactions_df
+        )
         logger.info(
             "POST /architect/simulate | user=%s | estratégia=%s confidence=%.2f",
             request.user_id,
