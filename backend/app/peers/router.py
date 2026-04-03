@@ -44,10 +44,9 @@ _comparator = PeerComparator()
 @cache_response(prefix="peers", ttl=1800)  # 30 min
 async def compare_peers(
     user_id: str = Depends(require_owner),
-    monthly_income: float = Query(
-        ...,
-        gt=0,
-        description="Renda mensal líquida (R$). Determina a faixa de renda de referência.",
+    monthly_income: float | None = Query(
+        default=None,
+        description="Renda mensal líquida (R$). Determina a faixa de renda de referência. Se ausente, estima a partir das transações.",
     ),
     history_months: int = Query(
         default=3,
@@ -62,8 +61,8 @@ async def compare_peers(
     import datetime
 
     logger.info(
-        "GET /peers/compare/%s | income=R$%.0f | history=%dm",
-        user_id, monthly_income, history_months,
+        "GET /peers/compare/%s | income=%s | history=%dm",
+        user_id, str(monthly_income) if monthly_income is not None else "<estimating>", history_months,
     )
 
     # ── 1. Buscar transações do PostgreSQL ─────────────────────────────
@@ -80,6 +79,26 @@ async def compare_peers(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Nenhuma transação encontrada para user_id='{user_id}'.",
+        )
+
+    # ── 1.5 Estimar renda a partir das transações se não fornecida ───
+    if monthly_income is None or monthly_income <= 0:
+        try:
+            from app.forecast.etl.income_profiler import IncomeProfiler
+
+            income_profile = IncomeProfiler().build(df)
+            est = getattr(income_profile, "monthly_net_income", None)
+            conf = getattr(income_profile, "confidence", 0.0)
+            if est and est > 0:
+                monthly_income = est
+                logger.info("Peers: estimated monthly_income=R$%.0f (confidence=%.2f)", monthly_income, conf)
+        except Exception as ie:
+            logger.debug("Peers: não foi possível estimar renda: %s", ie)
+
+    if monthly_income is None or monthly_income <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Parâmetro 'monthly_income' ausente e não foi possível estimar a partir das transações. Informe 'monthly_income' na query.",
         )
 
     # Filtrar pela janela de meses e apenas débitos

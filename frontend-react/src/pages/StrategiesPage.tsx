@@ -58,8 +58,8 @@ export const StrategiesPage: React.FC = () => {
 
   const portfolioQuery = useQuery({
     queryKey: ['optimizer-portfolio', userId, income, maxCards],
-    queryFn: () => nexaApi.getOptimizerPortfolio(userId, maxCards, income),
-    enabled: !!userId && tab === 'optimizer' && income > 0,
+    queryFn: () => nexaApi.getOptimizerPortfolio(userId, maxCards, income > 0 ? income : undefined),
+    enabled: !!userId && tab === 'optimizer',
   });
 
   const cardsQuery = useQuery({
@@ -121,14 +121,14 @@ export const StrategiesPage: React.FC = () => {
 
   const peerQuery = useQuery({
     queryKey: ['peers', userId, income],
-    queryFn: () => nexaApi.getPeerComparison(userId, income, 3),
-    enabled: !!userId && tab === 'peers' && income > 0,
+    queryFn: () => nexaApi.getPeerComparison(userId, income > 0 ? income : undefined, 3),
+    enabled: !!userId && tab === 'peers',
   });
 
   const notificationsQuery = useQuery({
     queryKey: ['notifications', userId, income],
-    queryFn: () => nexaApi.getNotifications(userId, income, true),
-    enabled: !!userId && tab === 'peers' && income > 0,
+    queryFn: () => nexaApi.getNotifications(userId, income > 0 ? income : undefined, true),
+    enabled: !!userId && tab === 'peers',
   });
 
   const costsQuery = useQuery({

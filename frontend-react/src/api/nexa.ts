@@ -169,20 +169,17 @@ export const nexaApi = {
     return data;
   },
 
-  getPeerComparison: async (userId: string, monthlyIncome: number, historyMonths: number) => {
-    const { data } = await apiClient.get(`/peers/compare/${userId}`, {
-      params: { monthly_income: monthlyIncome, history_months: historyMonths },
-    });
+  getPeerComparison: async (userId: string, monthlyIncome?: number, historyMonths: number = 3) => {
+    const params: Record<string, unknown> = { history_months: historyMonths };
+    if (monthlyIncome && monthlyIncome > 0) params.monthly_income = monthlyIncome;
+    const { data } = await apiClient.get(`/peers/compare/${userId}`, { params });
     return data;
   },
 
-  getNotifications: async (userId: string, monthlyIncome: number, includeInfo = true) => {
-    const { data } = await apiClient.get(`/notifications/${userId}`, {
-      params: {
-        monthly_income: monthlyIncome,
-        include_info: includeInfo,
-      },
-    });
+  getNotifications: async (userId: string, monthlyIncome?: number, includeInfo = true) => {
+    const params: Record<string, unknown> = { include_info: includeInfo };
+    if (monthlyIncome && monthlyIncome > 0) params.monthly_income = monthlyIncome;
+    const { data } = await apiClient.get(`/notifications/${userId}`, { params });
     return data;
   },
 
