@@ -5,6 +5,21 @@
 
 ---
 
+## ✅ Status de Implementação
+
+| # | Mudança | Arquivo(s) | Status |
+|---|---|---|---|
+| 1 | Novos campos nos modelos | `purchase/models.py` | ✅ Feito |
+| 2 | Limiares relativos à renda | `forecast/cashflow/safe_to_spend.py` | ✅ Feito |
+| 3 | Custo de oportunidade CDI | `purchase/opportunity_cost.py` (novo) | ✅ Feito |
+| 4 | Score de pressão de perfil | `purchase/profile_context.py` (novo) | ✅ Feito |
+| 5 | Pressão de fatura | `forecast/cashflow/invoice_horizon.py` (novo) | ✅ Feito |
+| 6 | Refatorar PurchaseAdvisor | `purchase/purchase_advisor.py` | ⏳ Pendente |
+| 7 | Benchmark Architect por perfil | `architect/simulators/strategy_engine.py` | ⏳ Pendente |
+| 8 | Inferir risk_profile + CardBonus real | `architect/services/architect_service.py` | ⏳ Pendente |
+
+---
+
 ## 1. Diagnóstico: O que está errado hoje
 
 ### 1.1 Compra Inteligente sempre favorece à vista

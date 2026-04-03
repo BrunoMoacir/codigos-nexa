@@ -26,8 +26,8 @@ USAGE:
 
 import logging
 import polars as pl
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import dataclass, field
+from typing import Literal, Optional
 
 
 logger = logging.getLogger(__name__)
@@ -76,7 +76,9 @@ class SafeToSpendResult:
     safe_to_spend_daily: float
     days: int
     risk_level: RiskLevel
-    
+    income_monthly: Optional[float] = field(default=None)
+    risk_level_relative: Optional[RiskLevel] = field(default=None)
+
     def to_dict(self) -> dict:
         """Converte para dict (útil para JSON)."""
         return {
@@ -87,7 +89,9 @@ class SafeToSpendResult:
             "safe_to_spend_total": self.safe_to_spend_total,
             "safe_to_spend_daily": self.safe_to_spend_daily,
             "days": self.days,
-            "risk_level": self.risk_level
+            "risk_level": self.risk_level,
+            "income_monthly": self.income_monthly,
+            "risk_level_relative": self.risk_level_relative,
         }
 
 
@@ -141,7 +145,8 @@ class SafeToSpendCalculator:
     def calculate(
         self,
         projection_df: pl.DataFrame,
-        horizon_days: int = 30
+        horizon_days: int = 30,
+        income_monthly: Optional[float] = None,
     ) -> SafeToSpendResult:
         """
         Calcula safe-to-spend baseado na projeção.
@@ -241,6 +246,10 @@ class SafeToSpendCalculator:
         # STEP 5: Retornar resultado
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
+        risk_level_relative = self._classify_risk_relative(
+            safe_to_spend_total, min_projected_balance, income_monthly
+        ) if income_monthly is not None else None
+
         return SafeToSpendResult(
             current_balance=round(current_balance, 2),
             min_projected_balance=round(min_projected_balance, 2),
@@ -249,7 +258,9 @@ class SafeToSpendCalculator:
             safe_to_spend_total=round(safe_to_spend_total, 2),
             safe_to_spend_daily=round(safe_to_spend_daily, 2),
             days=horizon_days,
-            risk_level=risk_level
+            risk_level=risk_level,
+            income_monthly=income_monthly,
+            risk_level_relative=risk_level_relative,
         )
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -280,13 +291,42 @@ class SafeToSpendCalculator:
         # Saldo negativo = crítico
         if min_projected_balance < 0:
             return "CRITICAL"
-        
+
         # Safe-to-spend baixo ou zero
         if safe_to_spend <= 0:
             return "CRITICAL"
         elif safe_to_spend < 300:
             return "HIGH"
         elif safe_to_spend < 1000:
+            return "MEDIUM"
+        else:
+            return "LOW"
+
+    def _classify_risk_relative(
+        self,
+        safe_to_spend: float,
+        min_projected_balance: float,
+        income_monthly: Optional[float],
+    ) -> RiskLevel:
+        """
+        Classifica risco relativo à renda mensal.
+
+        Critérios:
+            CRITICAL: saldo projetado negativo ou safe_to_spend ≤ 0
+            HIGH:     safe_to_spend < 5% da renda mensal
+            MEDIUM:   safe_to_spend entre 5% e 15% da renda mensal
+            LOW:      safe_to_spend ≥ 15% da renda mensal
+        Fallback para classificação absoluta se income_monthly ausente.
+        """
+        if min_projected_balance < 0 or safe_to_spend <= 0:
+            return "CRITICAL"
+        if not income_monthly or income_monthly <= 0:
+            return self._classify_risk(safe_to_spend, min_projected_balance)
+
+        ratio = safe_to_spend / income_monthly
+        if ratio < 0.05:
+            return "HIGH"
+        elif ratio < 0.15:
             return "MEDIUM"
         else:
             return "LOW"
