@@ -405,19 +405,29 @@ class ArchitectService:
             from app.forecast.etl.income_profiler import IncomeProfiler
             from app.forecast.etl.profiles import UserProfileAnalyzer
 
-            income_profile = IncomeProfiler().analyze(transactions_df)
+            income_profile = IncomeProfiler().build(transactions_df)
             fin_profile = UserProfileAnalyzer().analyze(transactions_df, income_profile)
 
-            mapping = {
-                "CONSERVADOR": RiskProfile.CONSERVADOR,
-                "EQUILIBRADO": RiskProfile.MODERADO,
-                "GASTADOR":    RiskProfile.MODERADO,
-            }
-            inferred = mapping.get(fin_profile.profile_type, RiskProfile.MODERADO)
+            # Usa risk_appetite_inferred (v2) — mais preciso que o mapeamento manual
+            # profile_type → risk_profile que tratava GASTADOR 9% = GASTADOR -30%.
+            inferred_str = getattr(fin_profile, "risk_appetite_inferred", None)
+            if inferred_str:
+                inferred = RiskProfile(inferred_str)
+            else:
+                # fallback para retrocompatibilidade
+                mapping = {
+                    "CONSERVADOR": RiskProfile.CONSERVADOR,
+                    "EQUILIBRADO": RiskProfile.MODERADO,
+                    "GASTADOR":    RiskProfile.MODERADO,
+                }
+                inferred = mapping.get(fin_profile.profile_type, RiskProfile.MODERADO)
+
+            tier = getattr(fin_profile, "behavior_tier", fin_profile.profile_type)
+            resilience = getattr(fin_profile, "resilience_score", fin_profile.financial_health_score)
             warnings.append(
                 f"Perfil de risco inferido do histórico: {inferred.value} "
-                f"(spending profile={fin_profile.profile_type}, "
-                f"savings_rate={fin_profile.savings_rate:.0f}%)."
+                f"(tier={tier}, savings={fin_profile.savings_rate:.0f}%, "
+                f"resilience={resilience})."
             )
             return request.model_copy(update={"risk_profile": inferred})
 

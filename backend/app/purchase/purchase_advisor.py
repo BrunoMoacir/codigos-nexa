@@ -80,16 +80,19 @@ class PurchaseAdvisor:
         if income_profile and income_profile.confidence >= 0.5:
             data_sources.append("income_profiler")
 
-        # ── 3. Perfil financeiro ─────────────────────────────────────
-        fin_profile = self._fetch_financial_profile(transactions_df, income_profile)
-        if fin_profile:
-            data_sources.append("user_profile_analyzer")
-
-        # ── 4. Perfil de consumo (committed_percentage) ──────────────
+        # ── 3. Perfil de consumo (committed_percentage) — antes do financial profile
+        #       para que o behavior_tier e resilience_score incluam committed_pct
         consumption_profile = self._fetch_consumption_profile(transactions_df)
         committed_pct: float = (
             consumption_profile.committed_percentage if consumption_profile else 0.0
         )
+
+        # ── 4. Perfil financeiro ─────────────────────────────────────
+        fin_profile = self._fetch_financial_profile(
+            transactions_df, income_profile, committed_pct=committed_pct
+        )
+        if fin_profile:
+            data_sources.append("user_profile_analyzer")
 
         # ── 5. Safe-to-spend (com renda para limiares relativos) ─────
         safe_to_spend_result = self._fetch_safe_to_spend_result(
@@ -163,6 +166,8 @@ class PurchaseAdvisor:
                 committed_pct=committed_pct,
                 monthly_income=monthly_income,
                 safe_to_spend=safe_to_spend,
+                behavior_tier=getattr(fin_profile, "behavior_tier", "MODERADO"),
+                resilience_score=getattr(fin_profile, "resilience_score", None) or None,
             )
             pressure_score = min(1.0, profile_ctx.pressure_score + anomaly_pressure)
             profile_summary = profile_ctx.summary
@@ -205,6 +210,7 @@ class PurchaseAdvisor:
                 category=request.category,
                 installments=request.installments,
                 safe_to_spend_ratio=safe_ratio,
+                behavior_tier=getattr(fin_profile, "behavior_tier", "MODERADO"),
                 committed_pct=committed_pct,
             )
 
@@ -295,12 +301,19 @@ class PurchaseAdvisor:
             logger.warning("PurchaseAdvisor | IncomeProfiler falhou: %s", exc)
             return None
 
-    def _fetch_financial_profile(self, transactions_df: pl.DataFrame, income_profile):
+    def _fetch_financial_profile(
+        self,
+        transactions_df: pl.DataFrame,
+        income_profile,
+        committed_pct: float = 0.0,
+    ):
         if transactions_df.is_empty():
             return None
         try:
             from app.forecast.etl.profiles import UserProfileAnalyzer
-            return UserProfileAnalyzer().analyze(transactions_df, income_profile)
+            return UserProfileAnalyzer().analyze(
+                transactions_df, income_profile, committed_pct=committed_pct
+            )
         except Exception as exc:
             logger.warning("PurchaseAdvisor | UserProfileAnalyzer falhou: %s", exc)
             return None

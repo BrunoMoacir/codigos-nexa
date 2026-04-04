@@ -19,6 +19,9 @@ from typing import Optional
 
 from app.purchase.models import PaymentMethod, PaymentOption
 
+# Tiers de comportamento que merecem tratamento especial na recomendação
+_CRITICAL_TIERS = {"CRITICO", "RISCO"}
+
 # Categorias tipicamente discricionárias (não essenciais)
 _DISCRETIONARY_CATEGORIES = {
     "lazer", "vestuário", "roupas", "eletrônicos", "eletronicos",
@@ -40,17 +43,27 @@ def compute_pressure_score(
     health_score: int,
     committed_pct: float,
     safe_to_spend_ratio: float,
+    behavior_tier: str = "MODERADO",
+    resilience_score: Optional[int] = None,
 ) -> float:
     """
     Retorna score 0.0–1.0 de pressão financeira.
     Quanto maior, mais conservadora deve ser a recomendação.
 
-    Componentes:
-      savings_rate    → até 0.40
-      trend de gastos → até 0.20
-      committed_pct   → até 0.25
-      safe_to_spend   → até 0.15
-      health_score    → até 0.10 (score composto 0–100 do UserProfileAnalyzer)
+    Componentes base:
+      savings_rate      → até 0.40
+      trend de gastos   → até 0.20
+      committed_pct     → até 0.25
+      safe_to_spend     → até 0.15
+      saúde financeira  → até 0.10 (resilience_score ou health_score)
+
+    Componente adicional (v2):
+      behavior_tier     → até 0.30 (CRITICO/RISCO amplificam a pressão)
+
+    O behavior_tier é somado ao score base pois captura a combinação
+    savings_rate + trend de forma mais precisa — um GASTADOR em deficit
+    (CRITICO) deve receber pressão máxima mesmo que os outros indicadores
+    não tenham dados completos.
     """
     score = 0.0
 
@@ -82,13 +95,22 @@ def compute_pressure_score(
     elif safe_to_spend_ratio < 0.15:
         score += 0.08
 
-    # Saúde financeira composta (até 0.10)
-    # health_score é o score 0–100 do UserProfileAnalyzer — captura deterioração
-    # que os outros componentes ainda não refletem (ex: score caindo mas savings_rate ok)
-    if health_score < 30:
+    # Saúde financeira (até 0.10) — usa resilience_score se disponível (mais preciso)
+    # resilience_score: 6 fatores (0–100) | health_score: 3 fatores (0–100)
+    hs = resilience_score if resilience_score is not None else health_score
+    if hs < 25:
         score += 0.10
-    elif health_score < 50:
+    elif hs < 45:
         score += 0.05
+
+    # Behavior tier (até 0.30) — amplifica pressão para situações críticas (v2)
+    # CRITICO = deficit ou quase-deficit com tendência piorando
+    # RISCO   = margem muito estreita sem déficit ainda
+    # BOAS_PRATICAS/SOLIDO não adicionam (não há bonus negativo — score não penaliza quem vai bem)
+    if behavior_tier == "CRITICO":
+        score += 0.30
+    elif behavior_tier == "RISCO":
+        score += 0.15
 
     return min(1.0, score)
 
@@ -101,19 +123,26 @@ def apply_profile_fit(
     installments: int,
     safe_to_spend_ratio: float,
     committed_pct: float,
+    behavior_tier: str = "MODERADO",
 ) -> list[PaymentOption]:
     """
-    Aplica profile_fit a cada opção com base no pressure_score e perfil.
+    Aplica profile_fit a cada opção com base no pressure_score, perfil e behavior_tier.
 
-    Regras:
-      pressure < 0.2  → todas OK, custo de oportunidade decide
-      0.2–0.4         → FINANCIAMENTO → CAUTELA
-      0.4–0.6         → FINANCIAMENTO → CAUTELA; parcelado longo → OK
-      > 0.6           → FINANCIAMENTO → EVITAR; parcelado > 6x → CAUTELA
+    Regras por pressure_score:
+      < 0.2  → todas OK, custo de oportunidade decide
+      0.2–0.4 → FINANCIAMENTO → CAUTELA
+      0.4–0.6 → FINANCIAMENTO → CAUTELA; parcelado longo → OK
+      > 0.6   → FINANCIAMENTO → EVITAR; parcelado > 6x → CAUTELA
 
-    Regras adicionais por perfil:
+    Regras adicionais por profile_type:
       CONSERVADOR: sem CDC em compras discricionárias; sem parcelado > 6x se ratio < 0.15
-      GASTADOR:    CDC só se não houver alternativa acessível (tratado como pressure alta)
+      GASTADOR:    CDC como CAUTELA por padrão
+
+    Regras adicionais por behavior_tier (v2 — mais precisas que profile_type):
+      CRITICO: FINANCIAMENTO sempre EVITAR; parcelado > 3x → CAUTELA;
+               PIX/AVISTA = IDEAL (preservar caixa é prioridade máxima)
+      RISCO:   FINANCIAMENTO sempre CAUTELA (independente do pressure_score);
+               parcelado > 6x → CAUTELA
     """
     is_discretionary = category.lower() in _DISCRETIONARY_CATEGORIES
     updated: list[PaymentOption] = []
@@ -122,8 +151,14 @@ def apply_profile_fit(
         fit: str = "OK"
 
         if opt.method == PaymentMethod.FINANCIAMENTO:
-            if pressure_score > 0.6:
+            # behavior_tier tem precedência — captura déficit que pressure_score
+            # pode subestimar quando dados de committed_pct estão incompletos
+            if behavior_tier == "CRITICO":
                 fit = "EVITAR"
+            elif pressure_score > 0.6:
+                fit = "EVITAR"
+            elif behavior_tier == "RISCO":
+                fit = "CAUTELA"
             elif pressure_score > 0.2:
                 fit = "CAUTELA"
             elif profile_type == "CONSERVADOR" and is_discretionary:
@@ -133,14 +168,19 @@ def apply_profile_fit(
 
         elif opt.method == PaymentMethod.CARTAO_PARCELADO:
             n = opt.installments or installments
-            if pressure_score > 0.6 and n > 6:
+            if behavior_tier == "CRITICO" and n > 3:
+                fit = "CAUTELA"
+            elif behavior_tier == "RISCO" and n > 6:
+                fit = "CAUTELA"
+            elif pressure_score > 0.6 and n > 6:
                 fit = "CAUTELA"
             elif profile_type == "CONSERVADOR" and n > 6 and safe_to_spend_ratio < 0.15:
                 fit = "CAUTELA"
 
         elif opt.method in (PaymentMethod.PIX_AVISTA, PaymentMethod.CARTAO_AVISTA):
-            if pressure_score > 0.6:
-                fit = "IDEAL"   # preserva caixa no curto prazo
+            # CRITICO/RISCO: à vista é sempre o melhor caminho (sem novas dívidas)
+            if behavior_tier in _CRITICAL_TIERS or pressure_score > 0.6:
+                fit = "IDEAL"
 
         updated.append(opt.model_copy(update={"profile_fit": fit}))
 
@@ -155,9 +195,15 @@ def build_profile_context(
     committed_pct: float,
     monthly_income: float,
     safe_to_spend: float,
+    behavior_tier: str = "MODERADO",
+    resilience_score: Optional[int] = None,
 ) -> ProfileContext:
     """
     Calcula pressure_score e monta o resumo de perfil para o reasoning.
+
+    Parâmetros v2:
+        behavior_tier:    tier de comportamento (CRITICO/RISCO/MODERADO/BOAS_PRATICAS/SOLIDO)
+        resilience_score: score de resiliência (0–100) — mais preciso que health_score
     """
     safe_to_spend_ratio = safe_to_spend / monthly_income if monthly_income > 0 else 0.0
 
@@ -167,15 +213,43 @@ def build_profile_context(
         health_score=health_score,
         committed_pct=committed_pct,
         safe_to_spend_ratio=safe_to_spend_ratio,
+        behavior_tier=behavior_tier,
+        resilience_score=resilience_score,
     )
 
-    if score < 0.2:
-        summary = f"Perfil {profile_type.lower()}: situação financeira confortável."
+    # Sumário contextualizado — usa behavior_tier para mensagens mais precisas
+    tier_label = {
+        "CRITICO":       "crítico",
+        "RISCO":         "em risco",
+        "MODERADO":      "moderado",
+        "BOAS_PRATICAS": "sólido",
+        "SOLIDO":        "excelente",
+    }.get(behavior_tier, profile_type.lower())
+
+    if behavior_tier == "CRITICO":
+        if savings_rate < 0:
+            summary = (
+                f"Situação {tier_label}: você está gastando mais do que ganha "
+                f"({abs(savings_rate):.0f}% de déficit). Evite qualquer nova dívida."
+            )
+        else:
+            summary = (
+                f"Situação {tier_label}: margem de poupança muito baixa ({savings_rate:.0f}%) "
+                f"com gastos crescendo. Evite parcelamentos e financiamentos."
+            )
+    elif behavior_tier == "RISCO":
+        summary = (
+            f"Perfil {tier_label}: poupança de {savings_rate:.0f}% com pouca margem de segurança"
+            + (f" — {committed_pct:.0%} da renda comprometida" if committed_pct > 0.5 else "")
+            + ". Prefira opções sem juros."
+        )
+    elif score < 0.2:
+        summary = f"Perfil {tier_label}: situação financeira confortável."
     elif score < 0.4:
-        summary = f"Perfil {profile_type.lower()}: leve pressão financeira — prefira opções sem juros."
+        summary = f"Perfil {tier_label}: leve pressão financeira — prefira opções sem juros."
     elif score < 0.6:
         summary = (
-            f"Perfil {profile_type.lower()}: pressão moderada "
+            f"Perfil {tier_label}: pressão moderada "
             f"({committed_pct:.0%} da renda comprometida) — evite financiamento."
         )
     else:
