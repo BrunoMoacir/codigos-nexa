@@ -698,6 +698,73 @@ class ActionStep(BaseModel):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# EFICIÊNCIA — SEGUNDA RECOMENDAÇÃO (equilíbrio custo × tempo × liquidez)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class EfficiencyAnalysis(BaseModel):
+    """
+    Estratégia com melhor equilíbrio entre perda de capital, velocidade e orçamento.
+
+    Score (0.0–1.0) composto por três dimensões:
+      - capital_loss (40%): quanto se paga além do valor do bem (juros/taxas).
+        SAVE_INVEST = 0%, CONSORTIUM = ~15–20%, FINANCING = 30–80%.
+      - speed       (35%): velocidade de posse (meses). Menor = melhor.
+      - budget      (25%): parcela / orçamento mensal. Menor = melhor.
+
+    Presente em SimulationResponse.efficient_strategy apenas quando difere de
+    recommended_strategy, evitando duplicidade.
+
+    Attributes:
+        strategy_type:        Estratégia com maior efficiency_score.
+        efficiency_score:     Score composto (0.0 = pior, 1.0 = perfeito).
+        capital_loss_pct:     Extra pago além do valor do bem, em % (ex: 18.5 = 18,5%).
+        months_to_acquire:    Meses até ter a posse do bem.
+        budget_commitment_pct: Parcela mensal como % do orçamento (ex: 62.0 = 62%).
+        monthly_payment:      Parcela mensal absoluta (R$).
+        total_cost:           Custo total esperado desta estratégia (R$).
+        rationale:            Explicação em linguagem natural de por que é eficiente.
+    """
+
+    strategy_type: StrategyType = Field(
+        ..., description="Estratégia com maior efficiency_score"
+    )
+    efficiency_score: float = Field(
+        ..., description="Score de eficiência composto (0.0–1.0)", ge=0.0, le=1.0
+    )
+    capital_loss_pct: float = Field(
+        ...,
+        description=(
+            "Extra pago além do valor do bem em % (ex: 18.5 = 18,5%). "
+            "SAVE_INVEST = 0%. Menor = melhor."
+        ),
+        ge=0.0,
+    )
+    months_to_acquire: int = Field(
+        ..., description="Meses até a posse do bem", ge=1
+    )
+    budget_commitment_pct: float = Field(
+        ...,
+        description=(
+            "Parcela mensal como % do orçamento máximo (ex: 62.0 = 62%). "
+            "Acima de 100% indica parcela fora do orçamento."
+        ),
+        ge=0.0,
+    )
+    monthly_payment: float = Field(
+        ..., description="Parcela mensal desta estratégia (R$)", ge=0
+    )
+    total_cost: float = Field(
+        ..., description="Custo total esperado desta estratégia (R$)", ge=0
+    )
+    rationale: str = Field(
+        ...,
+        description="Justificativa em linguagem natural",
+        min_length=20,
+        max_length=400,
+    )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # RESPONSE — OUTPUT DA SIMULAÇÃO
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -914,6 +981,18 @@ class SimulationResponse(BaseModel):
         ),
     )
 
+    # ── Estratégia mais eficiente (segunda recomendação) ─────────────
+
+    efficient_strategy: Optional["EfficiencyAnalysis"] = Field(
+        default=None,
+        description=(
+            "Estratégia com melhor equilíbrio entre perda de capital, velocidade de "
+            "aquisição e impacto no orçamento. Presente apenas quando difere de "
+            "recommended_strategy. Ex: recommended=SAVE_INVEST (ótimo financeiro), "
+            "efficient_strategy=CONSORTIUM (menor perda que FINANCING, posse em 24–36 meses)."
+        ),
+    )
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # M3.4 — TIMING SCENARIO: "E SE EU ESPERAR?"
@@ -1063,6 +1142,7 @@ __all__ = [
     "CardOptimizationBonus",
     "RentalLeveragePlan",
     "CompoundStrategyLeg",
+    "EfficiencyAnalysis",
     # Response
     "SimulationResponse",
     # M3.4 — Timing
@@ -1070,3 +1150,6 @@ __all__ = [
     # Persistência
     "SimulationReport",
 ]
+
+# Resolver forward references (EfficiencyAnalysis referenciado em SimulationResponse)
+SimulationResponse.model_rebuild()
