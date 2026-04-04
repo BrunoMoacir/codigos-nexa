@@ -548,7 +548,8 @@ class StrategyEngine:
             months = max(1, result.get("months", 1))
 
             # Dimensão 1: perda de capital (40%)
-            capital_loss_raw = max(0.0, (total_cost - target) / target)
+            total_out = request.down_payment + total_cost
+            capital_loss_raw = max(0.0, (total_out - target) / target)
             score_capital = 1.0 - min(capital_loss_raw, 1.0)
 
             # Dimensão 2: velocidade de posse (35%)
@@ -579,8 +580,29 @@ class StrategyEngine:
         total_cost = float(best_result.get("expected_cost", target))
         monthly = float(best_result.get("monthly_payment", 0.0))
         months = max(1, best_result.get("months", 1))
-        capital_loss_pct = round(max(0.0, (total_cost - target) / target) * 100, 1)
+        # Capital loss = dinheiro total pago (entrada + parcelas) - valor do bem
+        total_out_of_pocket = request.down_payment + total_cost
+        capital_loss_pct = round(max(0.0, (total_out_of_pocket - target) / target) * 100, 1)
         budget_commitment_pct = round((monthly / budget * 100) if budget > 0 else 0.0, 1)
+
+        # ── Readiness: limiares ajustados por perfil de risco ──
+        rp = request.risk_profile
+        if rp == RiskProfile.CONSERVADOR:
+            ready_budget, warn_budget = 25.0, 40.0
+            ready_loss, warn_loss = 50.0, 80.0
+        elif rp == RiskProfile.AGRESSIVO:
+            ready_budget, warn_budget = 50.0, 75.0
+            ready_loss, warn_loss = 100.0, 150.0
+        else:  # MODERADO
+            ready_budget, warn_budget = 35.0, 60.0
+            ready_loss, warn_loss = 80.0, 120.0
+
+        if budget_commitment_pct > warn_budget or capital_loss_pct > warn_loss:
+            readiness_flag = "AGUARDAR"
+        elif budget_commitment_pct > ready_budget or capital_loss_pct > ready_loss:
+            readiness_flag = "ATENCAO"
+        else:
+            readiness_flag = "PRONTO"
 
         fmt = format_currency
         strategy_labels = {
@@ -593,31 +615,46 @@ class StrategyEngine:
         fin_label = strategy_labels.get(financial_winner, str(financial_winner))
         eff_label = strategy_labels.get(best_type, str(best_type))
 
-        if best_type == StrategyType.CONSORTIUM:
-            rationale = (
-                f"O {eff_label} equilibra custo e tempo: paga ~{capital_loss_pct:.0f}% "
-                f"a mais pelo bem (vs. 0% no SAVE_INVEST), mas você tem a posse em ~{months} meses "
-                f"com parcela de {fmt(monthly)}/mês. "
-                f"O {fin_label} é ótimo financeiramente, mas a perda de capital é maior."
+        # Prefixo de timing
+        if readiness_flag == "AGUARDAR":
+            timing_prefix = (
+                f"Ainda não é a hora ideal: a parcela de {fmt(monthly)}/mês representa "
+                f"{budget_commitment_pct:.0f}% do seu orçamento"
+                + (f" e o custo extra é de {capital_loss_pct:.0f}%" if capital_loss_pct > warn_loss else "")
+                + f" — acima do confortável para o perfil {rp.value}. "
+                f"Considere aumentar a entrada ou aguardar mais capacidade de poupança. "
             )
-        elif best_type == StrategyType.FINANCING:
-            rationale = (
-                f"O {eff_label} entrega o bem imediatamente com parcela de {fmt(monthly)}/mês "
-                f"({capital_loss_pct:.0f}% de custo adicional em juros). "
-                f"Mais eficiente quando tempo importa mais que custo total."
-            )
-        elif best_type in (StrategyType.FINANCING_RENTAL, StrategyType.CONSORTIUM_SELIC_RENTAL):
-            rationale = (
-                f"O {eff_label} reduz o desembolso real com a renda do aluguel, "
-                f"combinando aquisição em ~{months} meses com {capital_loss_pct:.0f}% de "
-                f"perda de capital líquida. Parcela efetiva: {fmt(monthly)}/mês."
+        elif readiness_flag == "ATENCAO":
+            timing_prefix = (
+                f"Viável, mas exige disciplina: parcela de {fmt(monthly)}/mês "
+                f"({budget_commitment_pct:.0f}% do orçamento). "
             )
         else:
-            rationale = (
-                f"O {eff_label} oferece o melhor equilíbrio entre perda de capital "
-                f"({capital_loss_pct:.0f}%), prazo ({months} meses) e parcela ({fmt(monthly)}/mês). "
-                f"Alternativa à recomendação financeira ({fin_label})."
+            timing_prefix = ""
+
+        if best_type == StrategyType.CONSORTIUM:
+            body = (
+                f"O {eff_label} equilibra custo e tempo: {capital_loss_pct:.0f}% de custo extra "
+                f"(taxa de administração), posse em ~{months} meses. "
+                f"Melhor que o {fin_label} em perda de capital."
             )
+        elif best_type == StrategyType.FINANCING:
+            body = (
+                f"O {eff_label} entrega o bem imediatamente ({capital_loss_pct:.0f}% de juros). "
+                f"Escolha quando tempo importa mais que custo total."
+            )
+        elif best_type in (StrategyType.FINANCING_RENTAL, StrategyType.CONSORTIUM_SELIC_RENTAL):
+            body = (
+                f"O {eff_label} usa o aluguel para reduzir o desembolso real: "
+                f"posse em ~{months} meses, {capital_loss_pct:.0f}% de custo líquido extra."
+            )
+        else:
+            body = (
+                f"O {eff_label} oferece o melhor equilíbrio entre perda de capital "
+                f"({capital_loss_pct:.0f}%), prazo ({months} meses) e parcela ({fmt(monthly)}/mês)."
+            )
+
+        rationale = (timing_prefix + body).strip()
 
         return EfficiencyAnalysis(
             strategy_type=best_type,
@@ -627,6 +664,7 @@ class StrategyEngine:
             budget_commitment_pct=budget_commitment_pct,
             monthly_payment=round(monthly, 2),
             total_cost=round(total_cost, 2),
+            readiness_flag=readiness_flag,
             rationale=rationale,
         )
 

@@ -711,18 +711,22 @@ class EfficiencyAnalysis(BaseModel):
       - speed       (35%): velocidade de posse (meses). Menor = melhor.
       - budget      (25%): parcela / orçamento mensal. Menor = melhor.
 
+    O campo readiness_flag indica se o usuário está financeiramente pronto para
+    esta aquisição considerando orçamento, perda de capital e perfil de risco.
+
     Presente em SimulationResponse.efficient_strategy apenas quando difere de
     recommended_strategy, evitando duplicidade.
 
     Attributes:
-        strategy_type:        Estratégia com maior efficiency_score.
-        efficiency_score:     Score composto (0.0 = pior, 1.0 = perfeito).
-        capital_loss_pct:     Extra pago além do valor do bem, em % (ex: 18.5 = 18,5%).
-        months_to_acquire:    Meses até ter a posse do bem.
+        strategy_type:         Estratégia com maior efficiency_score.
+        efficiency_score:      Score composto (0.0 = pior, 1.0 = perfeito).
+        capital_loss_pct:      Extra pago além do valor do bem, em % (ex: 18.5 = 18,5%).
+        months_to_acquire:     Meses até ter a posse do bem.
         budget_commitment_pct: Parcela mensal como % do orçamento (ex: 62.0 = 62%).
-        monthly_payment:      Parcela mensal absoluta (R$).
-        total_cost:           Custo total esperado desta estratégia (R$).
-        rationale:            Explicação em linguagem natural de por que é eficiente.
+        monthly_payment:       Parcela mensal absoluta (R$).
+        total_cost:            Custo total esperado desta estratégia (R$).
+        readiness_flag:        PRONTO / ATENCAO / AGUARDAR — prontidão financeira.
+        rationale:             Explicação em linguagem natural (inclui aviso se AGUARDAR).
     """
 
     strategy_type: StrategyType = Field(
@@ -756,11 +760,22 @@ class EfficiencyAnalysis(BaseModel):
     total_cost: float = Field(
         ..., description="Custo total esperado desta estratégia (R$)", ge=0
     )
+    readiness_flag: str = Field(
+        default="PRONTO",
+        description=(
+            "Prontidão financeira para esta aquisição: "
+            "PRONTO = parcela e custo dentro do confortável para o perfil; "
+            "ATENCAO = viável mas exige disciplina (parcela entre 35–60% do orçamento "
+            "ou perda de capital 80–120%); "
+            "AGUARDAR = ainda não é a hora — parcela acima de 60% do orçamento ou custo "
+            "excessivo para o perfil declarado."
+        ),
+    )
     rationale: str = Field(
         ...,
-        description="Justificativa em linguagem natural",
+        description="Justificativa em linguagem natural (inclui aviso de timing se AGUARDAR)",
         min_length=20,
-        max_length=400,
+        max_length=500,
     )
 
 
