@@ -183,6 +183,27 @@ class ArchitectService:
             source = "optimizer_f2" if card_bonus and card_bonus.best_card_name != "melhor cartão premium de mercado" else "market_reference_estimate"
             data_sources.append(source)
 
+        # ── 7b. Validar parcela contra orçamento ideal (BudgetAdvisor) ──
+        confidence = self._adjust_confidence_budget(
+            confidence=confidence,
+            monthly_payment=monthly_payment,
+            monthly_income=request.monthly_income,
+            transactions_df=transactions_df,
+            strategy=base_response.recommended_strategy,
+            warnings=accumulated_warnings,
+            data_sources=data_sources,
+        )
+
+        # ── 7c. Validar aportes contra metas ativas (GoalTracker) ──────
+        confidence = self._adjust_confidence_goals(
+            confidence=confidence,
+            monthly_payment=monthly_payment,
+            user_id=request.user_id,
+            strategy=base_response.recommended_strategy,
+            warnings=accumulated_warnings,
+            data_sources=data_sources,
+        )
+
         # ── 8. Montar resposta final ─────────────────────────────────
         return base_response.model_copy(
             update={
@@ -475,6 +496,102 @@ class ArchitectService:
             effective_cost_reduction_pct=reduction_pct,
             narrative=narrative,
         )
+
+    @staticmethod
+    def _adjust_confidence_budget(
+        confidence: float,
+        monthly_payment: float,
+        monthly_income: Optional[float],
+        transactions_df,
+        strategy,
+        warnings: list[str],
+        data_sources: list[str],
+    ) -> float:
+        """
+        Ajusta confidence_score com base no orçamento 50/30/20 (BudgetAdvisor).
+
+        Se a parcela do financiamento cabe dentro da margem de Desejos disponível
+        no orçamento ideal → +0.05 confidence (validação positiva).
+        Se os Essenciais estão OVER → -0.05 (sinal de aperto orçamentário).
+        """
+        if transactions_df is None or monthly_income is None or monthly_income <= 0:
+            return confidence
+        try:
+            from app.budget.budget_advisor import BudgetAdvisor
+            budget = BudgetAdvisor().suggest(transactions_df, monthly_income)
+            data_sources.append("budget_advisor")
+
+            wants_group = next((g for g in budget.group_summary if g.group == "desejos"), None)
+            essentials_group = next((g for g in budget.group_summary if g.group == "essenciais"), None)
+
+            if wants_group:
+                wants_remaining = wants_group.suggested_amount - wants_group.current_amount
+                if monthly_payment <= wants_remaining:
+                    confidence = min(1.0, confidence + 0.05)
+                else:
+                    warnings.append(
+                        f"A parcela mensal (R$ {monthly_payment:,.0f}) excede a margem "
+                        f"disponível no grupo Desejos (R$ {max(0, wants_remaining):,.0f}/mês)."
+                    )
+
+            if essentials_group and essentials_group.status == "OVER":
+                confidence = max(0.30, confidence - 0.05)
+                warnings.append(
+                    f"Essenciais representam {essentials_group.current_pct * 100:.0f}% da renda "
+                    f"(ideal: 50%) — orçamento sob pressão antes desta aquisição."
+                )
+        except Exception as exc:
+            logger.warning("ArchitectService | BudgetAdvisor falhou: %s", exc)
+        return confidence
+
+    @staticmethod
+    def _adjust_confidence_goals(
+        confidence: float,
+        monthly_payment: float,
+        user_id: Optional[str],
+        strategy,
+        warnings: list[str],
+        data_sources: list[str],
+    ) -> float:
+        """
+        Ajusta confidence_score com base nas metas financeiras ativas (GoalTracker).
+
+        Se SAVE_INVEST e metas cobrem o aporte necessário → +0.05 confidence.
+        Se metas têm gap e strategy é SAVE_INVEST → aviso sobre competição de aportes.
+        """
+        if not user_id:
+            return confidence
+        try:
+            from app.goals.tracker import GoalTracker
+            from app.core.db.session import get_db_session
+            from app.architect.models import StrategyType
+
+            with get_db_session() as db:
+                goals = GoalTracker(db).list_goals(user_id, status="ACTIVE")
+
+            if not goals:
+                return confidence
+
+            data_sources.append("goal_tracker")
+            total_gap = sum(
+                max(0.0, (g.monthly_contribution_needed or 0) - (g.monthly_contribution_actual or 0))
+                for g in goals
+            )
+
+            if strategy == StrategyType.SAVE_INVEST:
+                if total_gap == 0:
+                    # Metas no ritmo — SAVE_INVEST ainda mais viável
+                    confidence = min(1.0, confidence + 0.05)
+                elif total_gap > monthly_payment * 0.5:
+                    warnings.append(
+                        f"Você tem R$ {total_gap:,.0f}/mês de gap nas metas ativas — "
+                        f"somado à parcela mensal (R$ {monthly_payment:,.0f}), "
+                        "avalie a viabilidade de aportes simultâneos."
+                    )
+                    confidence = max(0.30, confidence - 0.05)
+        except Exception as exc:
+            logger.warning("ArchitectService | GoalTracker falhou: %s", exc)
+        return confidence
 
     @staticmethod
     def _compute_confidence(
