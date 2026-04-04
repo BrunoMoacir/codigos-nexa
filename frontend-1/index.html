@@ -879,13 +879,8 @@ body.dark input { color: var(--text-dark); }
     <div class="card">
       <div class="saldo-label">Saldo:</div>
       <div class="saldo-box">
-        <div class="saldo-valor" id="saldo-valor">
-          R$2.578,31
-          <button class="eye-btn" onclick="toggleSaldo()">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1A1A2E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-          </button>
-        </div>
-        <div class="saldo-sub" id="saldo-sub">Despesas: -R$149,60</div>
+        <div class="saldo-valor" id="saldo-valor">— <button class="eye-btn" onclick="toggleSaldo()">${window.svgEyeOff || ''}</button></div>
+        <div class="saldo-sub" id="saldo-sub">Carregando...</div>
       </div>
     </div>
 
@@ -963,138 +958,10 @@ body.dark input { color: var(--text-dark); }
       <!-- Carrossel -->
       <div class="cartoes-carousel-wrap">
         <div class="cartoes-carousel" id="cartoes-carousel">
-
-          <!-- Cartão 1: Inter — laranja, design minimalista, sem número na frente -->
-          <div class="cartao-slide" onclick="cartaoAtivo(0)">
-            <div class="cartao-card" style="background:linear-gradient(145deg,#F85C04,#FF7A1A);">
-              <!-- Círculo decorativo de fundo -->
-              <div style="position:absolute;bottom:-40px;right:-40px;width:180px;height:180px;border-radius:50%;background:rgba(255,255,255,0.07);pointer-events:none;"></div>
-
-              <div class="cartao-card-top">
-                <!-- Logo Inter: "inter" em laranja escuro com fundo branco arredondado -->
-                <div style="background:rgba(255,255,255,0.18);border-radius:8px;padding:4px 10px;">
-                  <span style="font-size:17px;font-weight:800;color:var(--white);letter-spacing:-0.5px;font-family:'Poppins',sans-serif;">inter</span>
-                </div>
-                <!-- Mastercard -->
-                <svg width="42" height="26" viewBox="0 0 42 26" fill="none">
-                  <circle cx="14" cy="13" r="12" fill="#EB001B" opacity="0.9"/>
-                  <circle cx="28" cy="13" r="12" fill="#F79E1B" opacity="0.9"/>
-                  <path d="M21 5.3a12 12 0 0 1 0 15.4A12 12 0 0 1 21 5.3z" fill="#FF5F00" opacity="0.9"/>
-                </svg>
-              </div>
-
-              <!-- Chip -->
-              <div class="cartao-card-chip">
-                <svg width="34" height="26" viewBox="0 0 34 26" fill="none"><rect width="34" height="26" rx="5" fill="rgba(255,255,255,0.22)"/><rect x="9" y="7" width="16" height="12" rx="2" fill="rgba(255,255,255,0.38)"/><line x1="17" y1="7" x2="17" y2="19" stroke="rgba(255,255,255,0.35)" stroke-width="1"/><line x1="9" y1="13" x2="25" y2="13" stroke="rgba(255,255,255,0.35)" stroke-width="1"/></svg>
-              </div>
-
-              <!-- Sem número na frente — design real Inter -->
-              <div style="font-size:11px;opacity:0.6;letter-spacing:1px;margin-top:-2px;">•••• •••• •••• 4521</div>
-
-              <div class="cartao-card-footer">
-                <div>
-                  <div class="cartao-card-label">Despesas</div>
-                  <div class="cartao-card-val">R$1.124,56</div>
-                </div>
-                <div style="text-align:center;">
-                  <div class="cartao-card-label">Melhor dia</div>
-                  <div class="cartao-card-val">dia 16</div>
-                </div>
-                <div style="text-align:right;">
-                  <div class="cartao-card-label">Limite disp.</div>
-                  <div class="cartao-card-val">R$739,82</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Cartão 2: C6 Bank — grafite escuro, logo C6 minimalista, sem número na frente -->
-          <div class="cartao-slide" onclick="cartaoAtivo(1)">
-            <div class="cartao-card" style="background:linear-gradient(145deg,#242424,#383838);">
-              <div style="position:absolute;top:-30px;left:-30px;width:160px;height:160px;border-radius:50%;background:rgba(255,255,255,0.04);pointer-events:none;"></div>
-
-              <div class="cartao-card-top">
-                <!-- Logo C6 Bank: letras C6 estilo original -->
-                <div style="display:flex;align-items:center;gap:3px;">
-                  <span style="font-size:22px;font-weight:900;color:var(--white);letter-spacing:-1px;line-height:1;">C6</span>
-                  <span style="font-size:9px;font-weight:500;color:rgba(255,255,255,0.5);margin-top:8px;letter-spacing:1px;">BANK</span>
-                </div>
-                <!-- Mastercard -->
-                <svg width="42" height="26" viewBox="0 0 42 26" fill="none">
-                  <circle cx="14" cy="13" r="12" fill="#EB001B" opacity="0.85"/>
-                  <circle cx="28" cy="13" r="12" fill="#F79E1B" opacity="0.85"/>
-                  <path d="M21 5.3a12 12 0 0 1 0 15.4A12 12 0 0 1 21 5.3z" fill="#FF5F00" opacity="0.85"/>
-                </svg>
-              </div>
-
-              <!-- Chip -->
-              <div class="cartao-card-chip">
-                <svg width="34" height="26" viewBox="0 0 34 26" fill="none"><rect width="34" height="26" rx="5" fill="rgba(255,255,255,0.12)"/><rect x="9" y="7" width="16" height="12" rx="2" fill="rgba(255,255,255,0.22)"/><line x1="17" y1="7" x2="17" y2="19" stroke="rgba(255,255,255,0.18)" stroke-width="1"/><line x1="9" y1="13" x2="25" y2="13" stroke="rgba(255,255,255,0.18)" stroke-width="1"/></svg>
-              </div>
-
-              <div style="font-size:11px;opacity:0.5;letter-spacing:1px;margin-top:-2px;">•••• •••• •••• 8832</div>
-
-              <div class="cartao-card-footer">
-                <div>
-                  <div class="cartao-card-label">Despesas</div>
-                  <div class="cartao-card-val">R$320,00</div>
-                </div>
-                <div style="text-align:center;">
-                  <div class="cartao-card-label">Melhor dia</div>
-                  <div class="cartao-card-val">dia 11</div>
-                </div>
-                <div style="text-align:right;">
-                  <div class="cartao-card-label">Limite disp.</div>
-                  <div class="cartao-card-val">R$4.680,00</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Cartão 3: Nubank — roxo icônico, design limpo, logo nu -->
-          <div class="cartao-slide" onclick="cartaoAtivo(2)">
-            <div class="cartao-card" style="background:linear-gradient(145deg,#7A0AA8,#9B1ED6);">
-              <div style="position:absolute;bottom:-50px;right:-30px;width:200px;height:200px;border-radius:50%;background:rgba(255,255,255,0.06);pointer-events:none;"></div>
-
-              <div class="cartao-card-top">
-                <!-- Logo Nu: "nu" em branco com caixa arredondada roxa escura -->
-                <div style="background:rgba(0,0,0,0.2);border-radius:8px;padding:4px 10px;">
-                  <span style="font-size:18px;font-weight:800;color:var(--white);letter-spacing:-0.5px;">nu</span>
-                </div>
-                <!-- Mastercard -->
-                <svg width="42" height="26" viewBox="0 0 42 26" fill="none">
-                  <circle cx="14" cy="13" r="12" fill="#EB001B" opacity="0.9"/>
-                  <circle cx="28" cy="13" r="12" fill="#F79E1B" opacity="0.9"/>
-                  <path d="M21 5.3a12 12 0 0 1 0 15.4A12 12 0 0 1 21 5.3z" fill="#FF5F00" opacity="0.9"/>
-                </svg>
-              </div>
-
-              <!-- Nubank real não tem chip visível na frente -->
-              <div style="height:26px;"></div>
-
-              <div style="font-size:11px;opacity:0.6;letter-spacing:1px;margin-top:-2px;">•••• •••• •••• 1197</div>
-
-              <div class="cartao-card-footer">
-                <div>
-                  <div class="cartao-card-label">Despesas</div>
-                  <div class="cartao-card-val">R$890,12</div>
-                </div>
-                <div style="text-align:center;">
-                  <div class="cartao-card-label">Melhor dia</div>
-                  <div class="cartao-card-val">dia 19</div>
-                </div>
-                <div style="text-align:right;">
-                  <div class="cartao-card-label">Limite disp.</div>
-                  <div class="cartao-card-val">R$2.109,88</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Slide: Adicionar cartão -->
-          <div class="cartao-slide">
-            <div class="cartao-card cartao-add" style="gap:0;padding:16px 20px;">
-              <div style="font-size:13px;font-weight:700;color:var(--blue-dark);margin-bottom:14px;">Adicionar cartão</div>
+          <div style="padding:18px;color:var(--text-muted);">Carregando cartões...</div>
+          <!-- Renderizado pelo JS (transacoes.renderCartoes) -->
+          <!-- Slides serão gerados dinamicamente a partir de /transactions -->
+        </div>
               <!-- Opção 1: Open Finance -->
               <button onclick="goTo('cx-open-finance')" style="width:100%;display:flex;align-items:center;gap:10px;background:var(--blue-lighter);border:none;border-radius:10px;padding:10px 12px;cursor:pointer;font-family:'Poppins',sans-serif;margin-bottom:8px;">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--blue-primary)" stroke-width="2" stroke-linecap="round"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M3 8l9-5 9 5"/></svg>
@@ -1410,7 +1277,7 @@ body.dark input { color: var(--text-dark); }
   <div class="content">
     <div style="display:flex;flex-direction:column;align-items:center;padding:8px 0 4px;">
       <div id="txd-icon" style="width:64px;height:64px;border-radius:20px;background:var(--blue-lighter);display:flex;align-items:center;justify-content:center;margin-bottom:12px;font-size:28px;">$</div>
-      <div id="txd-valor" style="font-size:32px;font-weight:800;color:var(--text-dark);letter-spacing:-1px;">R$452,78</div>
+      <div id="txd-valor" style="font-size:32px;font-weight:800;color:var(--text-dark);letter-spacing:-1px;">—</div>
       <div style="margin-top:6px;background:#E8F5E9;border-radius:20px;padding:3px 12px;font-size:12px;font-weight:600;color:var(--green);">✓ Aprovada</div>
     </div>
     <div class="card" style="padding:0;overflow:hidden;">
@@ -1559,10 +1426,7 @@ body.dark input { color: var(--text-dark); }
       <div class="event-panel">
         <div class="event-date" id="event-date">9 de setembro de 2025</div>
         <ul class="event-list" id="event-list">
-          <li>Vencimento da conta de luz.</li>
-          <li>Renovação da assinatura da Netflix.</li>
-          <li>Melhor dia de compra do cartão C6.</li>
-          <li>Pagar (amigo/conhecido) R$27,33</li>
+          <!-- items populated dynamically by agenda.js via loadAgenda() -->
         </ul>
       </div>
       <button class="btn-criar">Criar lembrete</button>
@@ -1615,11 +1479,11 @@ body.dark input { color: var(--text-dark); }
         <div style="font-size:14px;font-weight:700;color:var(--text-dark);">Orçamento do mês</div>
       </div>
       <div style="padding:14px 16px;">
-        <p style="font-size:13px;color:var(--text-mid);margin-bottom:10px;">De <strong style="color:var(--text-dark);font-size:15px;">R$3000,00</strong> você já gastou <strong style="color:var(--text-dark);">R$2401,25</strong></p>
+        <p id="budget-summary" style="font-size:13px;color:var(--text-mid);margin-bottom:10px;">De <strong id="budget-total" style="color:var(--text-dark);font-size:15px;">—</strong> você já gastou <strong id="budget-spent" style="color:var(--text-dark);">—</strong></p>
         <div style="background:var(--bg);border-radius:6px;height:10px;margin-bottom:12px;overflow:hidden;">
           <div style="width:80%;height:100%;background:var(--blue-primary);border-radius:6px;"></div>
         </div>
-        <p style="font-size:12px;color:var(--text-mid);line-height:1.5;margin-bottom:12px;">Você está em 80% do seu orçamento mensal. Para manter o plano, <strong>você pode gastar até R$93,61 / dia</strong>.</p>
+        <p id="budget-daily" style="font-size:12px;color:var(--text-mid);line-height:1.5;margin-bottom:12px;">Carregando status do orçamento...</p>
         <button class="btn-pill">Ajustar orçamento</button>
       </div>
     </div>
@@ -1632,20 +1496,9 @@ body.dark input { color: var(--text-dark); }
           <div style="font-size:13px;font-weight:700;color:var(--text-dark);">Assinaturas</div>
         </div>
         <div style="padding:12px;">
-          <p style="font-size:11.5px;color:var(--text-mid);margin-bottom:6px;">32 assinaturas ativas,<br><strong style="color:var(--text-dark);font-size:13px;">R$424,90</strong> / mês.</p>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;margin-bottom:8px;">
-            <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-mid);">
-              <span style="width:10px;height:10px;background:var(--blue-primary);border-radius:3px;flex-shrink:0;"></span>Netflix
-            </div>
-            <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-mid);">
-              <span style="width:10px;height:10px;background:#4A90D9;border-radius:3px;flex-shrink:0;"></span>Disney+
-            </div>
-            <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-mid);">
-              <span style="width:10px;height:10px;background:#1A5FA8;border-radius:3px;flex-shrink:0;"></span>Spotify
-            </div>
-            <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-mid);">
-              <span style="width:10px;height:10px;background:#6CB0F0;border-radius:3px;flex-shrink:0;"></span>Amazon
-            </div>
+          <p id="ass-summary" style="font-size:11.5px;color:var(--text-mid);margin-bottom:6px;"><span id="ass-count">—</span> assinaturas ativas,<br><strong id="ass-total" style="color:var(--text-dark);font-size:13px;">—</strong> / mês.</p>
+          <div id="ass-top-list" style="display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;margin-bottom:8px;">
+            <!-- top subscriptions populated by subscriptions.js -->
           </div>
           <button class="btn-pill" style="font-size:11px;padding:4px 10px;" onclick="goTo('ass-ver-todas')">Ver todas</button>
         </div>
@@ -1657,7 +1510,7 @@ body.dark input { color: var(--text-dark); }
             <div style="font-size:12px;font-weight:700;color:var(--text-dark);">Maior compra</div>
           </div>
           <div style="padding:12px;">
-            <p style="font-size:13px;font-weight:600;color:var(--text-dark);">R$275,01</p>
+            <p id="maior-compra" style="font-size:13px;font-weight:600;color:var(--text-dark);">—</p>
           </div>
         </div>
         <div class="card" style="padding:0;overflow:hidden;flex:1;">
@@ -2816,19 +2669,10 @@ body.dark input { color: var(--text-dark); }
   <div class="sub-header"><button class="sub-header-back" onclick="goBack()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1A1A2E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14l-4-4 4-4"/><path d="M5 10h11a4 4 0 0 1 0 8h-1"/></svg></button></div>
   <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;">
     <div style="background:var(--blue-lighter);border-radius:var(--radius-md);padding:12px 16px;">
-      <div style="font-size:14px;font-weight:700;color:var(--text-dark);">32 assinaturas ativas — R$424,90/mês</div>
+      <div id="ass-ver-todas-header" style="font-size:14px;font-weight:700;color:var(--text-dark);">— assinaturas ativas — —/mês</div>
     </div>
-    <div style="background:var(--card-bg);border-radius:var(--radius-md);overflow:hidden;">
-      <div style="font-size:11px;font-weight:600;color:var(--text-muted);padding:12px 16px 6px;text-transform:uppercase;letter-spacing:0.5px;">Entretenimento</div>
-      <div class="ass-item" style="border-bottom:1px solid var(--bg);"><div style="display:flex;align-items:center;gap:10px;"><div class="ass-icon"></div><span class="ass-name">Netflix</span></div><span class="ass-val">R$55,90</span></div>
-      <div class="ass-item" style="border-bottom:1px solid var(--bg);"><div style="display:flex;align-items:center;gap:10px;"><div class="ass-icon"></div><span class="ass-name">Disney+</span></div><span class="ass-val">R$43,90</span></div>
-      <div class="ass-item" style="border-bottom:1px solid var(--bg);"><div style="display:flex;align-items:center;gap:10px;"><div class="ass-icon"></div><span class="ass-name">Spotify</span></div><span class="ass-val">R$21,90</span></div>
-      <div class="ass-item" style="border-bottom:1px solid var(--bg);"><div style="display:flex;align-items:center;gap:10px;"><div class="ass-icon"></div><span class="ass-name">Amazon Prime</span></div><span class="ass-val">R$19,90</span></div>
-      <div class="ass-item"><div style="display:flex;align-items:center;gap:10px;"><div class="ass-icon"></div><span class="ass-name">HBO Max</span></div><span class="ass-val">R$34,90</span></div>
-      <div style="font-size:11px;font-weight:600;color:var(--text-muted);padding:12px 16px 6px;text-transform:uppercase;letter-spacing:0.5px;border-top:1px solid var(--bg);">Softwares</div>
-      <div class="ass-item" style="border-bottom:1px solid var(--bg);"><div style="display:flex;align-items:center;gap:10px;"><div class="ass-icon"></div><span class="ass-name">Adobe Creative</span></div><span class="ass-val">R$99,90</span></div>
-      <div class="ass-item" style="border-bottom:1px solid var(--bg);"><div style="display:flex;align-items:center;gap:10px;"><div class="ass-icon"></div><span class="ass-name">Microsoft 365</span></div><span class="ass-val">R$45,00</span></div>
-      <div class="ass-item"><div style="display:flex;align-items:center;gap:10px;"><div class="ass-icon"></div><span class="ass-name">Notion</span></div><span class="ass-val">R$32,00</span></div>
+    <div id="ass-list" style="background:var(--card-bg);border-radius:var(--radius-md);overflow:hidden;padding:6px 0;">
+      <div style="padding:12px 16px;color:var(--text-muted);font-size:13px;" id="ass-list-loading">Carregando assinaturas...</div>
     </div>
   </div>
 </div>
@@ -2843,6 +2687,15 @@ body.dark input { color: var(--text-dark); }
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#96C3F0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21.21 15.89A10 10 0 1 1 8 2.83"/>
         <path d="M22 12A10 10 0 0 0 12 2v10z"/>
+      </svg>
+    </div>
+  </button>
+
+  <button class="nav-btn" id="nav-chat" onclick="goTo('chat')">
+    <div class="nav-bar"></div>
+    <div class="nav-icon-wrap">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#96C3F0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
       </svg>
     </div>
   </button>
@@ -2938,7 +2791,20 @@ body.dark input { color: var(--text-dark); }
 </div>
 
 <!-- ══════════ MÓDULOS JS ══════════ -->
+<!-- ══════════ CHAT SCREEN (API-backed) ══════════ -->
+<div id="screen-chat" class="screen" style="display:none;padding:16px;">
+  <div style="display:flex;flex-direction:column;height:100%;gap:12px;">
+    <div style="flex:1;overflow:auto;padding:8px 4px;" id="chat-history"></div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input id="chat-input" type="text" placeholder="Pergunte algo sobre suas finanças..." style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--border);outline:none;" />
+      <button id="chat-send" class="confirmar-btn" style="padding:10px 14px;" onclick="sendChatUI()">Enviar</button>
+    </div>
+  </div>
+</div>
+
 <script src="js/api.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/subscriptions.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/home.js"></script>
 <script src="js/transacoes.js"></script>

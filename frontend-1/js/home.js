@@ -70,18 +70,44 @@ async function loadHome() {
 
     // 2. Budget (para breakdown por categoria)
     const totalIncome = Number(financialHealth.total_income || 0);
-    if (totalIncome > 0) {
-      try {
-        const budget = await api.getBudget(userId, totalIncome);
-        window._budgetData = budget;
-      } catch (_) { /* budget opcional */ }
-    }
+      // Se não houver renda no forecast, estimar a partir das transações recentes
+      let estimatedIncome = totalIncome;
+      if (!estimatedIncome || estimatedIncome <= 0) {
+        try {
+          const txs = await api.getTransactions(userId, 300);
+          window._txData = Array.isArray(txs) ? txs : (txs.transactions || txs.items || []);
+          // Somar entradas (valores positivos) nos últimos 90 dias e converter para mensal
+          const cutoff = Date.now() - 90 * 24 * 3600 * 1000;
+          const positives = window._txData.filter(t => (t.amount || 0) > 0 && new Date(t.date || t.transaction_date).getTime() >= cutoff);
+          const totalPos = positives.reduce((s, t) => s + Number(t.amount || 0), 0);
+          estimatedIncome = Math.round((totalPos / 3) * 100) / 100; // aproximar para mensal
+        } catch (_) {
+          estimatedIncome = 0;
+        }
+      }
+
+      if (estimatedIncome > 0) {
+        try {
+          const budget = await api.getBudget(userId, estimatedIncome);
+          window._budgetData = budget;
+        } catch (_) { /* budget opcional */ }
+      }
 
     // Renderizar
     renderSaldo(_safeToSpend, _totalExpenses);
     renderPrevisao(forecast.cashflow, dailySafe);
     renderAgenda(shadowInvoices);
     renderGastosChart(financialHealth, window._budgetData);
+    // Garantir que txData esteja disponível para sumários/gráficos
+    if (!window._txData || !window._txData.length) {
+      try {
+        const txs2 = await api.getTransactions(userId, 300);
+        window._txData = Array.isArray(txs2) ? txs2 : (txs2.transactions || txs2.items || []);
+      } catch (_) { window._txData = window._txData || []; }
+    }
+
+    // Atualizar sumários derivados (orçamento, maior compra)
+    try { window.updateBudgetSummary?.(window._forecastData, window._txData); } catch (e) { /* ignore */ }
 
   } catch (err) {
     console.error('[Home] Erro ao carregar forecast:', err);
@@ -228,11 +254,21 @@ function renderGastosChart(financialHealth, budgetData) {
   }
   // Prioridade 2: top_categories do financial_health
   else if (financialHealth.top_categories?.length) {
-    const cats = financialHealth.top_categories.slice(0, 4);
-    const n    = cats.length;
-    labels = cats;
-    data   = cats.map(() => Math.round(100 / n));
-    if (data.length) data[data.length - 1] += 100 - data.reduce((a, b) => a + b, 0);
+    // top_categories pode ser ['Alimentação','Transporte'] ou [{category:'Alimentação',amount:123}]
+    const raw = financialHealth.top_categories.slice(0, 6);
+    if (raw.length && typeof raw[0] === 'object') {
+      const items = raw.map(r => ({ category: r.category || r.name || 'Outros', amount: Number(r.amount || r.value || 0) }));
+      const total = items.reduce((s, it) => s + (it.amount || 0), 0) || 1;
+      labels = items.map(i => i.category);
+      data = items.map(i => Math.round((i.amount / total) * 100));
+      if (data.length) data[data.length - 1] += 100 - data.reduce((a, b) => a + b, 0);
+    } else {
+      const cats = raw;
+      const n    = cats.length;
+      labels = cats;
+      data   = cats.map(() => Math.round(100 / n));
+      if (data.length) data[data.length - 1] += 100 - data.reduce((a, b) => a + b, 0);
+    }
   }
   // Fallback
   else {

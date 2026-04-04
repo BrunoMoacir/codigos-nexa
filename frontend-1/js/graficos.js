@@ -22,6 +22,11 @@ function initGraficos() {
   renderGraficoDinheiro(forecast);
   renderGraficoDiarios(txData);
 
+  // Atualizar sumários derivados (orçamento, maior compra)
+  try {
+    updateBudgetSummary(forecast, txData);
+  } catch (e) { /* non-fatal */ }
+
   _graficosInited = true;
 }
 
@@ -234,30 +239,50 @@ function initComparativo() {
   const canvas = document.getElementById('chart-comparativo');
   if (!canvas) return;
 
-  // Usar monthly_forecasts se disponível
-  const forecasts = window._forecastData?.monthly_forecasts || [];
-  const meses     = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
-  let labels = [];
-  let data   = [];
-
-  if (forecasts.length > 0) {
-    labels = forecasts.map(f => `${meses[f.month - 1]}/${String(f.year).slice(2)}`);
-    data   = forecasts.map(f => f.expected_expenses);
+  // Construir uma lista de months a partir de monthly_forecasts ou txData
+  let monthSeries = [];
+  const forecasts = window._forecastData?.monthly_forecasts;
+  if (Array.isArray(forecasts) && forecasts.length) {
+    monthSeries = forecasts.map(f => ({
+      label: `${meses[f.month - 1]}/${String(f.year).slice(2)}`,
+      value: Number(f.expected_expenses || 0),
+      year: f.year, month: f.month,
+    }));
   } else {
-    // Fallback: agrupar txData por mês
-    const byMonth = {};
+    // Agrupar txData por ano-mês (últimos 6 meses)
+    const by = {};
     (window._txData || []).forEach(tx => {
       const d = new Date(tx.date || tx.transaction_date);
-      if (!isNaN(d) && (tx.amount || 0) < 0) {
-        const key = `${meses[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`;
-        byMonth[key] = (byMonth[key] || 0) + Math.abs(tx.amount);
-      }
+      if (isNaN(d)) return;
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      by[key] = (by[key] || 0) + (tx.amount < 0 ? Math.abs(Number(tx.amount || 0)) : 0);
     });
-    const entries = Object.entries(byMonth).slice(-6);
-    labels = entries.map(([k]) => k);
-    data   = entries.map(([_, v]) => v);
+    const entries = Object.entries(by).sort((a,b) => a[0].localeCompare(b[0]));
+    const last = entries.slice(-6);
+    monthSeries = last.map(([k,v]) => {
+      const [y, m] = k.split('-').map(Number);
+      return { label: `${meses[m]}/${String(y).slice(2)}`, value: v, year: y, month: m+1 };
+    });
   }
+
+  // Render selector de meses
+  try {
+    const selWrap = document.querySelector('#screen-comparativo .content > div');
+    if (selWrap) {
+      selWrap.innerHTML = monthSeries.map((m, i) => `<button class="filtro-chip${i===0? ' active':''}" data-idx="${i}">${m.label}</button>`).join('');
+      selWrap.querySelectorAll('.filtro-chip').forEach(btn => btn.addEventListener('click', (ev) => {
+        selWrap.querySelectorAll('.filtro-chip').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        const idx = Number(btn.getAttribute('data-idx'));
+        selectComparativoMonth(idx);
+      }));
+    }
+  } catch (e) { /* non-fatal */ }
+
+  const labels = monthSeries.map(m => m.label);
+  const data = monthSeries.map(m => m.value);
 
   const bgColors = data.map((_, i) => i === data.length - 1 ? '#2D7DD2' : '#BDD9F7');
 
@@ -287,6 +312,36 @@ function initComparativo() {
       animation: { duration: 600, easing: 'easeOutQuart' }
     }
   });
+  // Inicializar seleção do mês (atualiza os cards resumo)
+  function selectComparativoMonth(idx) {
+    const cur = monthSeries[idx] || { label:'-', value:0 };
+    const prev = monthSeries[idx+1] || { label:'-', value:0 };
+    // Atualizar cards que existem no HTML
+    const cards = document.querySelectorAll('#screen-comparativo .content > .card');
+    if (cards && cards.length >= 2) {
+      const curCard = cards[0];
+      const prevCard = cards[1];
+      const curLabelEl = curCard.querySelector('div');
+      const curValEl = curCard.querySelector('div + div');
+      const curDeltaEl = curCard.querySelector('div + div + div');
+      if (curLabelEl) curLabelEl.textContent = cur.label;
+      if (curValEl) curValEl.textContent = formatBRL(cur.value);
+      const diff = cur.value - prev.value;
+      const pct = prev.value ? Math.round((diff / prev.value) * 100) : 0;
+      if (curDeltaEl) {
+        curDeltaEl.textContent = `${diff >= 0 ? '▲' : '▼'} ${Math.abs(pct)}% vs anterior`;
+        curDeltaEl.style.color = diff >= 0 ? 'var(--red)' : 'var(--green)';
+      }
+      if (prevCard) {
+        const prevLabelEl = prevCard.querySelector('div');
+        const prevValEl = prevCard.querySelector('div + div');
+        if (prevLabelEl) prevLabelEl.textContent = prev.label;
+        if (prevValEl) prevValEl.textContent = formatBRL(prev.value);
+      }
+    }
+  }
+
+  try { selectComparativoMonth(0); } catch (e) { /* ignore */ }
 }
 
 // ─── 5. Donut detalhes da categoria ──────────────────────────────────────────
@@ -331,3 +386,55 @@ function initDetalhes() {
 window.initGraficos   = initGraficos;
 window.initComparativo = initComparativo;
 window.initDetalhes   = initDetalhes;
+
+// Atualiza sumários visuais: orçamento (total, gasto, diário) e maior compra
+function updateBudgetSummary(forecast, txData) {
+  const fmt = window.formatBRL || (v => String(v));
+  const budgetElTotal = document.getElementById('budget-total');
+  const budgetElSpent = document.getElementById('budget-spent');
+  const budgetElDaily = document.getElementById('budget-daily');
+  const maiorEl = document.getElementById('maior-compra');
+
+  // Determinar total do orçamento: prefer allocations.suggested_amount, fallback para income
+  let totalBudget = 0;
+  const b = window._budgetData;
+  if (b && Array.isArray(b.allocations) && b.allocations.length) {
+    totalBudget = b.allocations.reduce((s, a) => s + Number(a.suggested_amount || a.current_amount || 0), 0);
+  } else if (forecast?.financial_health?.total_income) {
+    totalBudget = Number(forecast.financial_health.total_income || 0);
+  }
+
+  // Gasto atual: prefer financial_health.total_expenses, fallback sum of txData
+  let spent = Number(forecast?.financial_health?.total_expenses || 0);
+  if (!spent && Array.isArray(txData) && txData.length) {
+    spent = txData.reduce((s, t) => s + (t.amount < 0 ? Math.abs(Number(t.amount || 0)) : 0), 0);
+  }
+
+  // Daily safe: de safe_to_spend.daily ou cálculo simples
+  let daily = Number(forecast?.safe_to_spend?.safe_to_spend_daily || 0);
+  if (!daily && totalBudget > 0) {
+    const remaining = Math.max(0, totalBudget - spent);
+    daily = Math.round((remaining / 30) * 100) / 100;
+  }
+
+  if (budgetElTotal) budgetElTotal.textContent = totalBudget > 0 ? fmt(totalBudget) : '—';
+  if (budgetElSpent) budgetElSpent.textContent = spent > 0 ? fmt(spent) : '—';
+  if (budgetElDaily) budgetElDaily.textContent = daily > 0 ? `Margem segura: ${fmt(daily)}/dia` : 'Sem dados suficientes para calcular margem diária.';
+
+  // Maior compra: encontrar maior transação negativa
+  try {
+    const txs = Array.isArray(txData) ? txData : (window._txData || []);
+    const negatives = txs.filter(t => Number(t.amount) < 0).map(t => ({ amt: Math.abs(Number(t.amount || 0)), d: t }));
+    if (negatives.length) {
+      negatives.sort((a, b) => b.amt - a.amt);
+      const top = negatives[0];
+      if (maiorEl) maiorEl.textContent = `${fmt(top.amt)} — ${top.d.description || top.d.merchant_name || top.d.category || ''}`;
+    } else {
+      if (maiorEl) maiorEl.textContent = '—';
+    }
+  } catch (e) {
+    if (maiorEl) maiorEl.textContent = '—';
+  }
+}
+
+window.updateBudgetSummary = updateBudgetSummary;

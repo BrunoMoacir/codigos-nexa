@@ -13,6 +13,7 @@ const screensWithGlobalHeader = ['home', 'graficos'];
 const navIds = {
   home:       'nav-home',
   graficos:   'nav-graficos',
+  chat:       'nav-chat',
   agenda:     'nav-agenda',
   perfil:     'nav-perfil',
   estrategias: 'nav-estrategias',
@@ -69,6 +70,8 @@ function goTo(name) {
   // Carregar dados ao entrar em tela específica
   if (name === 'home')                { loadHome().catch(console.error); }
   if (name === 'graficos')            { initGraficos(); }
+  if (name === 'chat')                { loadChat().catch(console.error); }
+  if (name === 'assinatura' || name === 'ass-ver-todas') { loadSubscriptions().catch(console.error); }
   if (name === 'detalhes' || name === 'transacoes') { initDetalhes(); }
   if (name === 'transacoes')          { renderTransacoes(window._txData || []); }
   if (name === 'metas')               { loadMetas().catch(console.error); }
@@ -122,6 +125,7 @@ async function initApp() {
     console.error('[App] Erro ao inicializar:', err);
     showScreen('home'); // Mostrar home mesmo com erro parcial
   }
+  
 }
 
 // ─── MODO PJ/PF ──────────────────────────────────────────────────────────────
@@ -404,6 +408,34 @@ document.addEventListener('DOMContentLoaded', () => {
   } else {
     showScreen('login');
   }
+  
+  // Carrega conexões bancárias do backend (Pluggy) e popula a tela
+  async function loadConexoes() {
+    const container = document.querySelector('#screen-conexoes-bancarias .content');
+    const listEl = document.getElementById('banco-lista');
+    try {
+      const userId = auth.getUserId();
+      const data = await api.getPluggyItems();
+      const items = Array.isArray(data) ? data : (data.items || data.accounts || []);
+      // Substituir a lista estática por conexões reais
+      const conexHtml = items.length ? items.map(it => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--white);border-radius:var(--radius-sm);margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:34px;height:34px;border-radius:50%;background:var(--blue-lighter);flex-shrink:0;"></div>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--text-dark);">${(it.institution_name||it.name||it.bank_name||'Conta')}</div>
+              <div style="font-size:11px;color:var(--text-muted);">Última atualização: ${it.last_synced || it.updated_at || '—'}</div>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--text-muted);">${it.status || ''}</div>
+        </div>`).join('') : '<div style="padding:20px;text-align:center;color:var(--text-muted);">Nenhuma conexão encontrada.</div>';
+      if (listEl) listEl.innerHTML = conexHtml;
+    } catch (err) {
+      // manter fallback estático
+      console.warn('[Conexoes] não foi possível carregar Pluggy:', err);
+    }
+  }
+  window.loadConexoes = loadConexoes;
 });
 
 window.initApp = initApp;
