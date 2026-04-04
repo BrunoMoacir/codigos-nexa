@@ -114,14 +114,20 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS — origens controladas por ALLOWED_ORIGINS no .env
-# Em produção defina: ALLOWED_ORIGINS=["https://app.nexa.com"]
+# CORS — qualquer origem permitida para suportar frontend local e no Railway
+# Para restringir em produção, defina ALLOWED_ORIGINS no Railway:
+#   ALLOWED_ORIGINS=https://seu-frontend.up.railway.app
+_cors_origins = settings.ALLOWED_ORIGINS
+if _cors_origins == ["*"] or not _cors_origins:
+    _cors_origins = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins=_cors_origins,
     allow_credentials=False,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Registra as rotas da API v1
