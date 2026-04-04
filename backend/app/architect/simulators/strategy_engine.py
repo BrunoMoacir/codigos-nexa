@@ -140,6 +140,9 @@ class StrategyEngine:
                 foregone_rental_pv = rental * inv_months
         npv_inv_for_comparison = npv_inv - foregone_rental_pv
 
+        # ── 2.8. Break-even rate: CET onde FINANCING == SAVE_INVEST ────
+        break_even_cet = self._find_break_even_cet(request, market_rates, npv_inv)
+
         # ── 3. Decisão: maior NPV = menor custo presente ────────────
         strategies: Dict[StrategyType, float] = {
             StrategyType.FINANCING: npv_fin,
@@ -240,10 +243,57 @@ class StrategyEngine:
                 f"em aluguel (valor presente). As estratégias compostas já incluem essa renda."
             )
 
+        # ── 4.6. Custos de transação (ITBI, cartório, registro) ─────────
+        transaction_costs_applied: Optional[float] = None
+        if request.asset_type == AssetType.IMOVEL:
+            tc_pct = request.transaction_costs_pct if request.transaction_costs_pct is not None else 0.04
+            if tc_pct > 0:
+                transaction_costs_applied = round(request.target_amount * tc_pct, 2)
+                # Somado ao custo das estratégias que envolvem aquisição imediata ou contrato
+                for result in [fin_result, cons_result, comp4_result, comp5_result]:
+                    if result is not None:
+                        result["expected_cost"] = float(result["expected_cost"]) + transaction_costs_applied
+                        result["max_cost"] = float(result["max_cost"]) + transaction_costs_applied
+                profile_warnings.append(
+                    f"Custos de transação de R$ {transaction_costs_applied:,.0f} "
+                    f"({tc_pct:.1%} do valor) incluídos no custo total "
+                    "(ITBI, cartório, registro)."
+                )
+
         # Action Plan
         action_plan = self._generate_action_plan(
             final_strategy, selected, request
         )
+
+        # ── 4.7. Alavancagem otimizada (LeverageOptimizer) ──────────────
+        leverage_analysis: Optional[dict] = None
+        if has_rental:
+            try:
+                from app.architect.calculators.leverage_optimizer import LeverageOptimizer
+                selic_annual = market_rates.get("selic_annual", 0.1475)
+                admin_rate = market_rates.get("consortium_admin_rate", 0.18)
+                lev_result = LeverageOptimizer().find_optimal(
+                    asset_value=request.target_amount,
+                    monthly_rent=request.expected_rental_income,
+                    selic_annual=selic_annual,
+                    admin_rate=admin_rate,
+                    consortium_months=request.financing_months,
+                )
+                leverage_analysis = {
+                    "is_viable": lev_result.is_viable,
+                    "recommendation": lev_result.recommendation,
+                    "rejection_reason": lev_result.rejection_reason,
+                    "optimal_multiplier": lev_result.optimal_multiplier,
+                    "optimal_letter_value": lev_result.optimal_letter_value,
+                    "final_patrimony": lev_result.final_patrimony,
+                    "rent_yield_annual": round(lev_result.rent_yield_annual, 4),
+                }
+                if lev_result.is_viable and lev_result.optimal:
+                    leverage_analysis["monthly_payment"] = round(lev_result.optimal.monthly_payment, 2)
+                    leverage_analysis["is_self_sustaining"] = lev_result.optimal.is_self_sustaining
+                    leverage_analysis["total_coverage_pct"] = round(lev_result.optimal.total_coverage_pct, 2)
+            except Exception as exc:
+                logger.warning("StrategyEngine | LeverageOptimizer falhou: %s", exc)
 
         # Plano de alavancagem por aluguel (apenas imóvel com renda informada)
         rental_leverage_plan: Optional[RentalLeveragePlan] = None
@@ -282,6 +332,51 @@ class StrategyEngine:
         # months_to_achieve: para compound consortium usa contemplação esperada, não duração total
         months_to_achieve = max(1, selected["months"])
 
+        # ── 4.8. Custos de manutenção periódica (IMOVEL / VEICULO) ────────
+        maintenance_cost_annual: Optional[float] = None
+        if request.asset_type in (AssetType.IMOVEL, AssetType.VEICULO):
+            if request.asset_type == AssetType.IMOVEL:
+                maintenance_cost_annual = round(request.target_amount * 0.01, 2)
+            else:
+                maintenance_cost_annual = 1000.0
+
+            # Financiamento: posse começa agora, duração = financing_months
+            fin_maint = self._compute_maintenance_cost(
+                request.asset_type, request.target_amount, request.financing_months
+            )
+            if fin_maint > 0:
+                fin_result["expected_cost"] += fin_maint
+                fin_result["max_cost"] += fin_maint
+
+            # Consórcio: posse estimada a partir da contemplação; usa duração total do grupo
+            cons_maint = 0.0
+            if cons_result:
+                cons_maint = self._compute_maintenance_cost(
+                    request.asset_type, request.target_amount, cons_result["months"]
+                )
+                if cons_maint > 0:
+                    cons_result["expected_cost"] += cons_maint
+                    cons_result["max_cost"] += cons_maint
+
+            # Estratégias compostas herdam manutenção da estratégia base correspondente
+            if comp4_result and fin_maint > 0:
+                comp4_result["expected_cost"] += fin_maint
+                comp4_result["max_cost"] += fin_maint
+            if comp5_result and cons_maint > 0:
+                comp5_result["expected_cost"] += cons_maint
+                comp5_result["max_cost"] += cons_maint
+
+            asset_label = "imóvel" if request.asset_type == AssetType.IMOVEL else "veículo"
+            profile_warnings.append(
+                f"Custo de manutenção estimado para o {asset_label}: "
+                f"R$ {maintenance_cost_annual:,.0f}/ano "
+                f"(incluído no custo total das estratégias de aquisição)."
+            )
+
+        data_sources = ["bacen", "anbima", "market_rates", "internal_models"]
+        if leverage_analysis:
+            data_sources.append("leverage_optimizer")
+
         return SimulationResponse(
             recommended_strategy=final_strategy,
             costs=CostScenario(
@@ -296,6 +391,7 @@ class StrategyEngine:
                 discount_rate_used=selic_monthly,
                 financing_rental=float(comp4_result["npv"]) if comp4_result else None,
                 consortium_selic_rental=float(comp5_result["npv"]) if comp5_result else None,
+                break_even_cet=break_even_cet,
             ),
             consortium_probability=(
                 cons_result["probability"] if cons_result else None
@@ -304,9 +400,12 @@ class StrategyEngine:
             months_to_achieve=months_to_achieve,
             action_plan=action_plan,
             confidence_score=0.85,
-            data_sources=["bacen", "anbima", "market_rates", "internal_models"],
+            data_sources=data_sources,
             rental_leverage_plan=rental_leverage_plan,
             compound_strategies=compound_strategies_list,
+            leverage_analysis=leverage_analysis,
+            transaction_costs_applied=transaction_costs_applied,
+            maintenance_cost_annual=maintenance_cost_annual,
             warnings=profile_warnings,
         )
 
@@ -372,6 +471,67 @@ class StrategyEngine:
             return cdi_net * 1.10
         else:  # AGRESSIVO
             return min(cdi_annual * 1.60, 0.18)
+
+    @staticmethod
+    def _compute_maintenance_cost(
+        asset_type: AssetType, target_amount: float, months: int
+    ) -> float:
+        """
+        Custo total de manutenção ao longo do período de posse (R$).
+
+        IMOVEL  → 1% do valor do imóvel por ano (reparos, pequenos consertos).
+        VEICULO → R$ 1.000/ano (revisões, pneus, imprevistos).
+        Outros  → 0.
+        """
+        if asset_type == AssetType.IMOVEL:
+            annual = target_amount * 0.01
+        elif asset_type == AssetType.VEICULO:
+            annual = 1000.0
+        else:
+            return 0.0
+        return round(annual * (months / 12), 2)
+
+    def _find_break_even_cet(
+        self, req: SimulationRequest, rates: Dict[str, float], npv_inv: float
+    ) -> Optional[float]:
+        """
+        Encontra por busca binária o CET anual onde FINANCING == SAVE_INVEST em NPV.
+
+        Abaixo desse ponto: financiar é mais barato.
+        Acima: poupar/investir é mais vantajoso.
+
+        Returns:
+            CET de equilíbrio (decimal, ex: 0.132 = 13,2% a.a.), ou None se falhar.
+        """
+        # Verificar se o crossover existe no intervalo [0.1%, 200%]
+        try:
+            rates_lo = dict(rates); rates_lo["best_cet_annual"] = 0.001
+            rates_hi = dict(rates); rates_hi["best_cet_annual"] = 2.0
+            npv_lo = self._simulate_financing(req, rates_lo)["npv"]
+            npv_hi = self._simulate_financing(req, rates_hi)["npv"]
+        except Exception:
+            return None
+
+        # Se financing nunca supera investing no intervalo, não há crossover relevante
+        if npv_lo < npv_inv and npv_hi < npv_inv:
+            return None  # SAVE_INVEST sempre melhor
+
+        lo, hi = 0.001, 2.0
+        for _ in range(60):
+            mid = (lo + hi) / 2
+            test_rates = dict(rates)
+            test_rates["best_cet_annual"] = mid
+            try:
+                npv_mid = self._simulate_financing(req, test_rates)["npv"]
+            except Exception:
+                return None
+            if npv_mid >= npv_inv:
+                lo = mid  # financing ainda melhor ou igual; CET pode subir
+            else:
+                hi = mid  # financing pior; CET deve cair
+            if hi - lo < 1e-5:
+                break
+        return round((lo + hi) / 2, 4)
 
     def _simulate_investment(
         self, req: SimulationRequest, rates: Dict[str, float]

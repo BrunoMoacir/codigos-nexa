@@ -215,6 +215,18 @@ class SimulationRequest(BaseModel):
         gt=0,
     )
 
+    transaction_costs_pct: Optional[float] = Field(
+        default=None,
+        description=(
+            "Custos de transação como percentual do target_amount (ex: 0.04 = 4%). "
+            "Inclui ITBI (2-3%), cartório, registro e avaliação. "
+            "Somado ao custo total de FINANCING e CONSORTIUM para imóvel. "
+            "Padrão usado quando None e asset_type=IMOVEL: 0.04 (4%)."
+        ),
+        ge=0.0,
+        le=0.15,
+    )
+
     # ── Validações de negócio ────────────────────────────────────────
 
     @field_validator("down_payment")
@@ -413,6 +425,14 @@ class NPVComparison(BaseModel):
     consortium_selic_rental: Optional[float] = Field(
         default=None,
         description="NPV do consórcio + SELIC + aluguel (R$). None se não calculado.",
+    )
+    break_even_cet: Optional[float] = Field(
+        default=None,
+        description=(
+            "Taxa CET anual (decimal) a partir da qual SAVE_INVEST supera FINANCING. "
+            "Ex: 0.1320 = acima de 13,2% a.a. o financiamento fica mais caro que investir. "
+            "None quando não foi possível calcular (ex: SAVE_INVEST já é sempre melhor)."
+        ),
     )
 
 
@@ -856,6 +876,41 @@ class SimulationResponse(BaseModel):
             "expected_rental_income foi informado. Contém FINANCING_RENTAL e/ou "
             "CONSORTIUM_SELIC_RENTAL com seus NPVs e análise de auto-sustentabilidade. "
             "None se asset_type != IMOVEL ou expected_rental_income não informado."
+        ),
+    )
+
+    # ── Alavancagem otimizada (imóvel + aluguel + consórcio aumentado) ─
+
+    leverage_analysis: Optional[dict] = Field(
+        default=None,
+        description=(
+            "LeverageOptimizer: testa consórcios de 1.2x–3.0x o valor do imóvel. "
+            "Presente quando asset_type=IMOVEL e expected_rental_income informado. "
+            "Indica se é possível que aluguel + SELIC paguem as parcelas sozinhos "
+            "(patrimônio 'de graça'). Inclui multiplicador ótimo e patrimônio final."
+        ),
+    )
+
+    # ── Custos de transação aplicados ────────────────────────────────
+
+    transaction_costs_applied: Optional[float] = Field(
+        default=None,
+        description=(
+            "Custos de transação somados ao custo total (ITBI, cartório, registro, etc.). "
+            "Presente quando transaction_costs_pct foi informado na request."
+        ),
+    )
+
+    # ── Custo anual de manutenção ─────────────────────────────────────
+
+    maintenance_cost_annual: Optional[float] = Field(
+        default=None,
+        description=(
+            "Custo anual estimado de manutenção do bem (R$). "
+            "IMOVEL: 1% do valor do imóvel/ano (reparos, IPTU, condomínio mínimo). "
+            "VEICULO: R$ 1.000/ano (revisões, pneus, IPVA implícito). "
+            "Incluído no custo total (expected_cost / max_cost) das estratégias de "
+            "aquisição imediata (FINANCING, CONSORTIUM). None para outros tipos de bem."
         ),
     )
 
