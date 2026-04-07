@@ -63,6 +63,7 @@ def upgrade() -> None:
     sa.Column('monthly_contribution_needed', sa.Float(), nullable=True),
     sa.Column('monthly_contribution_actual', sa.Float(), nullable=True),
     sa.Column('status', sa.String(), nullable=True),
+    sa.Column('version', sa.Integer(), server_default=sa.text('1'), nullable=False),
     sa.Column('created_at', sa.String(), nullable=False),
     sa.Column('updated_at', sa.String(), nullable=False),
     sa.PrimaryKeyConstraint('goal_id')

@@ -12,11 +12,15 @@ CREATE TABLE IF NOT EXISTS financial_goals (
   monthly_contribution_needed NUMERIC,
   monthly_contribution_actual NUMERIC,
   status TEXT DEFAULT 'ACTIVE',
+  version INTEGER NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_financial_goals_user_status ON financial_goals(user_id, status);
+
+ALTER TABLE financial_goals
+  ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
 
 -- Optional: grant minimal privileges if needed (adjust role)
 -- GRANT SELECT, INSERT, UPDATE, DELETE ON financial_goals TO nexadb_user;

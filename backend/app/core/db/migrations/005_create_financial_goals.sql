@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS financial_goals (
     -- Status: ACTIVE | COMPLETED | ABANDONED
     status                     VARCHAR DEFAULT 'ACTIVE',
 
+    -- Versão para concorrência otimista (compatibilidade com Postgres)
+    version                    INTEGER DEFAULT 1,
+
     -- Timestamp de criação
     created_at                 VARCHAR NOT NULL,
 

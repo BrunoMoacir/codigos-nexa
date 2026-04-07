@@ -40,6 +40,7 @@ from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -141,8 +142,9 @@ class GoalTracker:
     sessões internamente.
     """
 
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session | None = None) -> None:
         self.db = db
+        self._has_version_column = self._detect_version_column()
 
     # ─────────────────────────────────────────────────────────────────────
     # CRUD
@@ -300,20 +302,23 @@ class GoalTracker:
         offset: int = 0,
     ) -> list[Goal]:
         """Lista metas do usuário filtradas por status, com paginação."""
-        from app.goals.models import FinancialGoal
+        self._require_db()
         try:
-            rows = (
-                self.db.query(FinancialGoal)
-                .filter(
-                    FinancialGoal.user_id == user_id,
-                    FinancialGoal.status == status,
-                )
-                .order_by(FinancialGoal.created_at.desc())
-                .offset(offset)
-                .limit(limit)
-                .all()
+            result = self.db.execute(
+                text(
+                    """
+                    SELECT goal_id, user_id, name, goal_type, target_amount, current_amount,
+                           target_date, monthly_contribution_needed, monthly_contribution_actual,
+                           status, created_at, updated_at
+                    FROM financial_goals
+                    WHERE user_id = :user_id AND status = :status
+                    ORDER BY created_at DESC
+                    LIMIT :limit OFFSET :offset
+                    """
+                ),
+                {"user_id": user_id, "status": status, "limit": limit, "offset": offset},
             )
-            return [self._row_to_goal({c.name: getattr(r, c.name) for c in r.__table__.columns}) for r in rows]
+            return [self._row_to_goal(dict(row)) for row in result.mappings().all()]
         except Exception as e:
             logger.error("[GoalTracker] Erro ao listar metas: %s", e)
             return []
@@ -350,20 +355,34 @@ class GoalTracker:
 
     def _persist(self, goal: Goal) -> None:
         """Insere a meta no PostgreSQL via SQLAlchemy."""
-        from app.goals.models import FinancialGoal
-        row = FinancialGoal(
-            goal_id=goal.goal_id, user_id=goal.user_id, name=goal.name,
-            goal_type=goal.goal_type, target_amount=goal.target_amount,
-            current_amount=goal.current_amount, target_date=goal.target_date,
-            monthly_contribution_needed=goal.monthly_contribution_needed,
-            monthly_contribution_actual=goal.monthly_contribution_actual,
-            status=goal.status, version=goal.version,
-            created_at=goal.created_at, updated_at=goal.updated_at,
+        self._require_db()
+        payload = {
+            "goal_id": goal.goal_id,
+            "user_id": goal.user_id,
+            "name": goal.name,
+            "goal_type": goal.goal_type,
+            "target_amount": goal.target_amount,
+            "current_amount": goal.current_amount,
+            "target_date": goal.target_date,
+            "monthly_contribution_needed": goal.monthly_contribution_needed,
+            "monthly_contribution_actual": goal.monthly_contribution_actual,
+            "status": goal.status,
+            "created_at": goal.created_at,
+            "updated_at": goal.updated_at,
+        }
+        if self._has_version_column:
+            payload["version"] = goal.version
+
+        columns = ", ".join(payload.keys())
+        placeholders = ", ".join(f":{key}" for key in payload)
+        self.db.execute(
+            text(f"INSERT INTO financial_goals ({columns}) VALUES ({placeholders})"),
+            payload,
         )
-        self.db.add(row)
         self.db.commit()
 
     def _update(self, goal: Goal) -> None:
+        self._require_db()
         """
         Atualiza a meta no PostgreSQL via SQLAlchemy com lock otimista.
 
@@ -374,22 +393,55 @@ class GoalTracker:
         Raises:
             RuntimeError: se nenhuma linha for afetada (conflito de versão).
         """
-        from app.goals.models import FinancialGoal
-        rows_affected = (
-            self.db.query(FinancialGoal)
-            .filter(
-                FinancialGoal.goal_id == goal.goal_id,
-                FinancialGoal.version == goal.version,
+        if self._has_version_column:
+            result = self.db.execute(
+                text(
+                    """
+                    UPDATE financial_goals
+                    SET current_amount = :current_amount,
+                        monthly_contribution_needed = :monthly_contribution_needed,
+                        monthly_contribution_actual = :monthly_contribution_actual,
+                        status = :status,
+                        updated_at = :updated_at,
+                        version = :next_version
+                    WHERE goal_id = :goal_id AND version = :version
+                    """
+                ),
+                {
+                    "goal_id": goal.goal_id,
+                    "current_amount": goal.current_amount,
+                    "monthly_contribution_needed": goal.monthly_contribution_needed,
+                    "monthly_contribution_actual": goal.monthly_contribution_actual,
+                    "status": goal.status,
+                    "updated_at": goal.updated_at,
+                    "version": goal.version,
+                    "next_version": goal.version + 1,
+                },
             )
-            .update({
-                FinancialGoal.current_amount: goal.current_amount,
-                FinancialGoal.monthly_contribution_needed: goal.monthly_contribution_needed,
-                FinancialGoal.monthly_contribution_actual: goal.monthly_contribution_actual,
-                FinancialGoal.status: goal.status,
-                FinancialGoal.updated_at: goal.updated_at,
-                FinancialGoal.version: goal.version + 1,
-            })
-        )
+            rows_affected = result.rowcount or 0
+        else:
+            result = self.db.execute(
+                text(
+                    """
+                    UPDATE financial_goals
+                    SET current_amount = :current_amount,
+                        monthly_contribution_needed = :monthly_contribution_needed,
+                        monthly_contribution_actual = :monthly_contribution_actual,
+                        status = :status,
+                        updated_at = :updated_at
+                    WHERE goal_id = :goal_id
+                    """
+                ),
+                {
+                    "goal_id": goal.goal_id,
+                    "current_amount": goal.current_amount,
+                    "monthly_contribution_needed": goal.monthly_contribution_needed,
+                    "monthly_contribution_actual": goal.monthly_contribution_actual,
+                    "status": goal.status,
+                    "updated_at": goal.updated_at,
+                },
+            )
+            rows_affected = result.rowcount or 0
         if rows_affected == 0:
             self.db.rollback()
             raise RuntimeError(
@@ -401,11 +453,23 @@ class GoalTracker:
 
     def _load(self, goal_id: str) -> Goal:
         """Carrega uma meta do PostgreSQL. Lança LookupError se não encontrada."""
-        from app.goals.models import FinancialGoal
-        row = self.db.query(FinancialGoal).filter(FinancialGoal.goal_id == goal_id).first()
+        self._require_db()
+        result = self.db.execute(
+            text(
+                """
+                SELECT goal_id, user_id, name, goal_type, target_amount, current_amount,
+                       target_date, monthly_contribution_needed, monthly_contribution_actual,
+                       status, created_at, updated_at
+                FROM financial_goals
+                WHERE goal_id = :goal_id
+                """
+            ),
+            {"goal_id": goal_id},
+        )
+        row = result.mappings().first()
         if not row:
             raise LookupError(f"Meta não encontrada: {goal_id}")
-        return self._row_to_goal({c.name: getattr(row, c.name) for c in row.__table__.columns})
+        return self._row_to_goal(dict(row))
 
     @staticmethod
     def _row_to_goal(row: dict) -> Goal:
@@ -424,6 +488,22 @@ class GoalTracker:
             updated_at=row["updated_at"],
             version=int(row.get("version") or 1),
         )
+
+    def _detect_version_column(self) -> bool:
+        if self.db is None:
+            return False
+        try:
+            bind = self.db.get_bind()
+            if bind is None:
+                return False
+            columns = inspect(bind).get_columns("financial_goals")
+            return any(column.get("name") == "version" for column in columns)
+        except Exception:
+            return False
+
+    def _require_db(self) -> None:
+        if self.db is None:
+            raise RuntimeError("GoalTracker requires a database session for this operation.")
 
     @staticmethod
     def _build_suggestion(

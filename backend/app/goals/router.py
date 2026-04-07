@@ -16,13 +16,21 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.orm import Session
-from app.core.security import get_current_user, require_owner
+from app.core.security import get_current_user
 from app.core.database import get_db
 from app.core.cache import invalidate_user_cache
 from pydantic import BaseModel, Field, model_validator
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/goals", tags=["Metas Financeiras (MX.2)"])
+
+
+def _build_goal_tracker(db: Session):
+    from app.goals.tracker import GoalTracker
+    try:
+        return GoalTracker(db)
+    except TypeError:
+        return GoalTracker()
 
 
 # ── Schemas de request ────────────────────────────────────────────────────────
@@ -71,7 +79,8 @@ class UpdateProgressRequest(BaseModel):
 @router.post("/{user_id}", status_code=201)
 def create_goal(
     body: CreateGoalRequest,
-    user_id: str = Depends(require_owner),
+    user_id: str,
+    current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -80,9 +89,11 @@ def create_goal(
     Calcula automaticamente a contribuição mensal necessária baseada
     no valor restante e na data alvo.
     """
-    from app.goals.tracker import GoalTracker
+    if current_user != user_id:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+
     try:
-        goal = GoalTracker(db).create_goal(
+        goal = _build_goal_tracker(db).create_goal(
             user_id=user_id,
             name=body.name,
             goal_type=body.goal_type,
@@ -112,8 +123,7 @@ def list_goals_public(
     Suporta paginação via `limit` e `offset`.
     Use `include_projections=false` para omitir as projeções e reduzir o tempo de resposta.
     """
-    from app.goals.tracker import GoalTracker
-    tracker = GoalTracker(db)
+    tracker = _build_goal_tracker(db)
     goals = tracker.list_goals(user_id=user_id, status=status, limit=limit, offset=offset)
     if include_projections:
         goals_payload = [
@@ -182,12 +192,18 @@ def list_goals_simple(
 
 
 @router.get("/{user_id}/{goal_id}")
-def get_goal(goal_id: str, user_id: str = Depends(require_owner), db: Session = Depends(get_db)):
+def get_goal(
+    goal_id: str,
+    user_id: str,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """
     MX.2 — Detalhe de uma meta com projeção completa.
     """
-    from app.goals.tracker import GoalTracker
-    tracker = GoalTracker(db)
+    if current_user != user_id:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+    tracker = _build_goal_tracker(db)
     try:
         goal = tracker._load(goal_id)
     except LookupError:
@@ -206,7 +222,8 @@ def get_goal(goal_id: str, user_id: str = Depends(require_owner), db: Session = 
 def update_progress(
     goal_id: str,
     body: UpdateProgressRequest,
-    user_id: str = Depends(require_owner),
+    user_id: str,
+    current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -214,8 +231,10 @@ def update_progress(
 
     Se current_amount atingir target_amount, a meta é marcada como COMPLETED.
     """
-    from app.goals.tracker import GoalTracker
-    tracker = GoalTracker(db)
+    if current_user != user_id:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+
+    tracker = _build_goal_tracker(db)
     try:
         goal = tracker._load(goal_id)
     except LookupError:
@@ -242,12 +261,18 @@ def update_progress(
 
 
 @router.delete("/{user_id}/{goal_id}", status_code=200)
-def abandon_goal(goal_id: str, user_id: str = Depends(require_owner), db: Session = Depends(get_db)):
+def abandon_goal(
+    goal_id: str,
+    user_id: str,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """
     MX.2 — Abandona uma meta (marca como ABANDONED).
     """
-    from app.goals.tracker import GoalTracker
-    tracker = GoalTracker(db)
+    if current_user != user_id:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+    tracker = _build_goal_tracker(db)
     try:
         goal = tracker._load(goal_id)
     except LookupError:
