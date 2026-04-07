@@ -148,23 +148,18 @@ async def get_shadow_invoices(
 
         mode = "prod" if os.getenv("APP_MODE", "dev") == "prod" else "dev"
         runner_result = get_runner(mode).run_from_db(user_id=user_id, horizon_days=days_ahead)
-        
+
         if not runner_result or runner_result.get("status") != "success":
             logger.warning("⚠️ Nenhuma transação ou erro no runner para user_id=%s", user_id)
-            # Retornar lista vazia (não é erro, apenas nenhum padrão detectado)
-            return ShadowInvoiceListResponse(
-                invoices=[],
-                total_count=0,
-                total_monthly_impact=0.0,
-                subscriptions_count=0,
-                installments_count=0
-            )
+            # Não retornar cedo: prosseguir para tentar agregar assinaturas
+            # Shadow data ficará vazio e preencheremos a partir da tabela `subscriptions` se existir.
+            shadow_data = {}
+        else:
+            shadow_data = runner_result.get("projections", {}).get("shadow_events", {})
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # STEP 2: EXTRAIR SHADOW INVOICES DO RESULTADO
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-        shadow_data = runner_result.get("projections", {}).get("shadow_events", {})
         
         invoices_list = []
         total_monthly_impact = 0.0
@@ -198,6 +193,40 @@ async def get_shadow_invoices(
             subscriptions_count = shadow_data.get("subscriptions_count", 0)
             installments_count = shadow_data.get("installments_count", 0)
             total_monthly_impact = shadow_data.get("total_monthly_impact", 0.0)
+
+        # ── Incluir assinaturas presentes na tabela `subscriptions` (caso existam)
+        try:
+            from app.core.database import SessionLocal
+            from sqlalchemy import text
+            db = SessionLocal()
+            try:
+                q = db.execute(text("""
+                    SELECT name, amount, next_billing_date, status, billing_cycle
+                    FROM subscriptions
+                    WHERE user_id = :user_id
+                """), {"user_id": user_id})
+
+                subs_rows = q.fetchall()
+                for row in subs_rows:
+                    name, amt, next_billing, status, cycle = row[0], row[1], row[2], row[3], row[4]
+                    if status == 'active' and (cycle is None or (isinstance(cycle, str) and cycle.lower() == 'monthly')):
+                        invoices_list.append({
+                            "id": f"sub_tbl_{len(invoices_list)}",
+                            "date": str(next_billing) if next_billing else None,
+                            "merchant": (name or "Desconhecido").upper(),
+                            "amount": -abs(float(amt or 0.0)),
+                            "type": "subscription",
+                            "origin": "subscriptions_table",
+                            "confidence": 1.0,
+                        })
+                        subscriptions_count = subscriptions_count + 1
+                        total_monthly_impact = total_monthly_impact - abs(float(amt or 0.0))
+                        total_count = total_count + 1
+            finally:
+                db.close()
+        except Exception:
+            # Não falhar caso a tabela não exista ou haja erro de leitura
+            pass
         
         logger.info(
             f"✅ Shadow invoices detectadas",
@@ -279,10 +308,40 @@ async def get_shadow_invoice_summary(user_id: str = Depends(require_owner)):
             else:
                 shadow_data = {}
         
+        # Incluir assinaturas da tabela `subscriptions` no resumo (se existirem)
+        try:
+            from app.core.database import SessionLocal
+            from sqlalchemy import text
+            db = SessionLocal()
+            try:
+                q = db.execute(text("""
+                    SELECT amount, status, billing_cycle
+                    FROM subscriptions
+                    WHERE user_id = :user_id
+                """), {"user_id": user_id})
+                rows = q.fetchall()
+                sub_count_tbl = 0
+                sub_total_tbl = 0.0
+                for r in rows:
+                    amt, status, cycle = r[0], r[1], r[2]
+                    if status == 'active' and (cycle is None or (isinstance(cycle, str) and cycle.lower() == 'monthly')):
+                        sub_count_tbl += 1
+                        sub_total_tbl += float(amt or 0.0)
+                # Merge into shadow_data values
+                total_monthly = shadow_data.get("total_monthly_impact", 0.0) - sub_total_tbl
+                total_count = shadow_data.get("total_count", 0) + sub_count_tbl
+                subscriptions_count = shadow_data.get("subscriptions_count", 0) + sub_count_tbl
+            finally:
+                db.close()
+        except Exception:
+            total_monthly = shadow_data.get("total_monthly_impact", 0.0)
+            total_count = shadow_data.get("total_count", 0)
+            subscriptions_count = shadow_data.get("subscriptions_count", 0)
+
         return {
-            "total_monthly_committed": shadow_data.get("total_monthly_impact", 0.0),
-            "total_count": shadow_data.get("total_count", 0),
-            "subscriptions": shadow_data.get("subscriptions_count", 0),
+            "total_monthly_committed": total_monthly,
+            "total_count": total_count,
+            "subscriptions": subscriptions_count,
             "installments": shadow_data.get("installments_count", 0),
             "date_generated": datetime.now(timezone.utc).isoformat()
         }
