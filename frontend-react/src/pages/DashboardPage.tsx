@@ -255,19 +255,24 @@ export const DashboardPage: React.FC = () => {
   const agendaItems = useMemo(() => {
     return shadowInvoices
       .map((invoice: any) => {
-        const dueDate = String(invoice.next_due_date || invoice.due_date || '');
-        const daysUntil = parseDaysUntil(dueDate);
+        const rawDate = invoice.next_due_date || invoice.due_date || null;
+        const dueDate = rawDate ? String(rawDate) : null;
+        const daysUntil = dueDate ? parseDaysUntil(dueDate) : 999;
         return {
-          description: invoice.description || 'Compromisso financeiro',
+          description: invoice.description || invoice.merchant || 'Compromisso financeiro',
           amount: Math.abs(Number(invoice.amount || 0)),
           dueDate,
           daysUntil,
           type: invoice.type || 'ITEM',
         };
       })
-      .filter((item: any) => item.dueDate)
+      // keep items even when no due date (they'll appear at the end)
       .sort((a: any, b: any) => a.daysUntil - b.daysUntil)
-      .slice(0, 6);
+      .slice(0, 6)
+      .map((it: any) => ({
+        ...it,
+        dueDate: it.dueDate || 'Sem data prevista',
+      }));
   }, [shadowInvoices]);
 
   const shadowSubscriptions = useMemo(() => {
@@ -411,13 +416,13 @@ export const DashboardPage: React.FC = () => {
 
         <div style={cardStyle}>
           <div style={titleStyle}>Obrigações Futuras</div>
-          <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>{currency(Math.abs(Number(shadow.total_monthly_impact || 0)))}/mês</div>
+          <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>{currency(finalSubscriptionCost)}/mês</div>
           <div style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.6 }}>
-            {Number(shadow.total_count || 0)} itens detectados
+            {Number(shadowSummary.total_count ?? shadow.total_count ?? 0)} itens detectados
             <br />
-            {Number(shadow.subscriptions_count || 0)} assinaturas
+            {Number(shadowSummary.subscriptions ?? shadow.subscriptions_count ?? shadowSummary.subscriptions ?? 0)} assinaturas
             <br />
-            {Number(shadow.installments_count || 0)} parcelas
+            {Number(shadowSummary.installments ?? shadow.installments_count ?? 0)} parcelas
           </div>
         </div>
       </div>
@@ -669,7 +674,7 @@ export const DashboardPage: React.FC = () => {
           <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 8 }}>
             Custo mensal: {currency(finalSubscriptionCost)}
           </div>
-          {displaySubscriptions.slice(0, 4).map((sub: any, idx: number) => (
+          {displaySubscriptions.map((sub: any, idx: number) => (
             <div
               key={`${sub.merchant || sub.name || 'sub'}-${idx}`}
               style={{
