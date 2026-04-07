@@ -357,7 +357,7 @@ def main():
         print(f"  • Nome: {MOCK_USER_NAME}")
         print(f"  • Transações: {transactions_count}")
         print(f"  • Metas: {goals_count}")
-        print(f"\n🌐 Faça login em: https://codigos-nexa-production.up.railway.app")
+        print(f"\n🌐 Faça login em: https://codigos-nexa-production-d3b3.up.railway.app")
         print("\n")
 
     except Exception as e:

@@ -146,7 +146,7 @@ def main():
         sys.exit(1)
 
     print(f"\n🎉 Pronto! Teste a API:")
-    print(f"curl 'https://codigos-nexa-production.up.railway.app/api/v1/transactions/{user_id}' | jq length")
+    print(f"curl 'https://codigos-nexa-production-d3b3.up.railway.app/api/v1/transactions/{user_id}' | jq length")
 
 if __name__ == "__main__":
     main()

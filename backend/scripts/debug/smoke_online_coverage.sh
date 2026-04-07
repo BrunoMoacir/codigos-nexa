@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${BASE_URL:-https://codigos-nexa-production.up.railway.app/api/v1}"
+BASE_URL="${BASE_URL:-https://codigos-nexa-production-d3b3.up.railway.app/api/v1}"
 EMAIL="${EMAIL:-teste@nexa.com}"
 PASSWORD="${PASSWORD:-teste123}"
 OUT_DIR="${OUT_DIR:-./backend/docs/smoke-online}"

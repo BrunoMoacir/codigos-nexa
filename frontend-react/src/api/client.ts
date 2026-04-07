@@ -6,7 +6,7 @@ const ENV_API_BASE_URL = String(import.meta.env.VITE_API_URL || '').trim();
 export const API_BASE_URL = ENV_API_BASE_URL
   || (import.meta.env.DEV
     ? 'http://localhost:8000/api/v1'
-    : 'https://codigos-nexa-production.up.railway.app/api/v1');
+    : 'https://codigos-nexa-production-d3b3.up.railway.app/api/v1');
 
 // Criar instância do Axios
 const apiClient: AxiosInstance = axios.create({

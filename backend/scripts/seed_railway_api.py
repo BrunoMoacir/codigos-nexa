@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict
 
 # Configuração
-API_URL = "https://codigos-nexa-production.up.railway.app/api/v1"
+API_URL = "https://codigos-nexa-production-d3b3.up.railway.app/api/v1"
 MOCK_USER_EMAIL = "teste@nexa.com"
 MOCK_USER_PASSWORD = "teste123"
 MOCK_USER_NAME = "Bruno Teste"
@@ -197,7 +197,7 @@ def main():
         print("✨ USUÁRIO CRIADO COM SUCESSO!")
         print("=" * 70)
         print(f"\n🎯 Próximos passos:")
-        print(f"   1. Acesse: https://codigos-nexa-production.up.railway.app")
+        print(f"   1. Acesse: https://codigos-nexa-production-d3b3.up.railway.app")
         print(f"   2. Faça login com: {MOCK_USER_EMAIL} / {MOCK_USER_PASSWORD}")
         print(f"   3. Vá em 'Conexões' e crie um item Sandbox do Pluggy")
         print(f"   4. Clique em 'Sincronizar transações' para popular os dados\n")
