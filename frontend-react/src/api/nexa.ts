@@ -68,6 +68,17 @@ export const nexaApi = {
     return data;
   },
 
+  // Simple DB-backed subscriptions listing (authoritative list + totals)
+  getSubscriptionsSimple: async (userId: string) => {
+    const { data } = await apiClient.get(`/subscriptions/${userId}/simple`);
+    return data;
+  },
+
+  getShadowInvoices: async (userId: string) => {
+    const { data } = await apiClient.get(`/shadow_invoice/${userId}`);
+    return data;
+  },
+
   getShadowInvoiceSummary: async (userId: string) => {
     const { data } = await apiClient.get(`/shadow_invoice/${userId}/summary`);
     return data;

@@ -130,6 +130,18 @@ export const DashboardPage: React.FC = () => {
     enabled: !!userId,
   });
 
+  const subscriptionsSimpleQuery = useQuery({
+    queryKey: ['subscriptions_simple', userId],
+    queryFn: () => nexaApi.getSubscriptionsSimple(userId),
+    enabled: !!userId,
+  });
+
+  const shadowInvoicesQuery = useQuery({
+    queryKey: ['shadow_invoices', userId],
+    queryFn: () => nexaApi.getShadowInvoices(userId),
+    enabled: !!userId,
+  });
+
   const isLoading =
     forecastQuery.isLoading || budgetQuery.isLoading || goalsQuery.isLoading || txQuery.isLoading;
 
@@ -148,11 +160,17 @@ export const DashboardPage: React.FC = () => {
   const shadow = forecastQuery.data?.shadow_invoices || {};
   const cashflow = forecastQuery.data?.cashflow || {};
 
+  // Prefer authoritative sources: shadow summary (server), then forecast.shadow_invoices
+  const shadowSummary = shadowSummaryQuery.data || forecastQuery.data?.shadow_invoices || {};
+
+  // Invoice list: prefer direct shadow invoice endpoint, fall back to forecast embedded invoices
+  const shadowInvoicesList = shadowInvoicesQuery.data?.invoices || forecastQuery.data?.shadow_invoices?.invoices || [];
+
   const goals = goalsQuery.data?.goals || [];
   const transactions = txQuery.data?.transactions || [];
   const alerts = alertsQuery.data?.alerts || [];
   const subscriptions = subscriptionsQuery.data?.subscriptions || [];
-  const shadowInvoices = forecastQuery.data?.shadow_invoices?.invoices || [];
+  const shadowInvoices = shadowInvoicesList;
 
   const monthlyBudget = Number(safeToSpend.safe_to_spend_total || 0);
 
@@ -262,18 +280,27 @@ export const DashboardPage: React.FC = () => {
       }));
   }, [shadowInvoices]);
 
-  const usingSubscriptionFallback = subscriptionsQuery.isError || (subscriptions.length === 0 && shadowSubscriptions.length > 0);
-  const displaySubscriptions = usingSubscriptionFallback ? shadowSubscriptions : subscriptions;
-  const displaySubscriptionCount = usingSubscriptionFallback
-    ? shadowSubscriptions.length
-    : Number(subscriptionsQuery.data?.total_subscriptions || subscriptions.length);
-  const displaySubscriptionCost = usingSubscriptionFallback
-    ? shadowSubscriptions.reduce((sum: number, s: any) => sum + Number(s.monthly_amount || 0), 0)
-    : Number(subscriptionsQuery.data?.total_monthly_cost || 0);
+  // Table-backed subscriptions (DB)
+  const subscriptionsTable = subscriptionsSimpleQuery.data?.subscriptions || [];
 
-  // Prefer server-side shadow invoice summary when available (authoritative)
-  const finalSubscriptionCount = shadowSummaryQuery.data?.total_count ?? displaySubscriptionCount;
-  const finalSubscriptionCost = Math.abs(Number(shadowSummaryQuery.data?.total_monthly_committed ?? displaySubscriptionCost));
+  // Determine authoritative subscriptions list: prefer DB simple list, then detector, then shadow-derived
+  let displaySubscriptions;
+  if (subscriptionsTable && subscriptionsTable.length > 0) {
+    displaySubscriptions = subscriptionsTable;
+  } else if (subscriptions && subscriptions.length > 0) {
+    displaySubscriptions = subscriptions;
+  } else {
+    displaySubscriptions = shadowSubscriptions;
+  }
+
+  // Determine counts and costs with priority: shadow summary (server) > simple table totals > detector totals > derived shadowSubscriptions
+  const tableTotalCost = Number(subscriptionsSimpleQuery.data?.total_monthly_cost ?? 0);
+  const tableTotalCount = Number(subscriptionsSimpleQuery.data?.total_subscriptions ?? subscriptionsTable.length ?? 0);
+  const detectorTotalCost = Number(subscriptionsQuery.data?.total_monthly_cost ?? 0);
+  const detectorTotalCount = Number(subscriptionsQuery.data?.total_subscriptions ?? subscriptions.length ?? 0);
+
+  const finalSubscriptionCount = Number(shadowSummary.total_count ?? tableTotalCount ?? detectorTotalCount ?? shadowSubscriptions.length);
+  const finalSubscriptionCost = Math.abs(Number(shadowSummary.total_monthly_committed ?? tableTotalCost ?? detectorTotalCost ?? shadowSubscriptions.reduce((sum: number, s: any) => sum + Number(s.monthly_amount || 0), 0)));
 
   const showSkeleton = isLoading && !forecastQuery.data && !budgetQuery.data && !txQuery.data;
 
