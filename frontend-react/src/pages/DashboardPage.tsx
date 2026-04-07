@@ -124,6 +124,12 @@ export const DashboardPage: React.FC = () => {
     enabled: !!userId,
   });
 
+  const shadowSummaryQuery = useQuery({
+    queryKey: ['shadow_summary', userId],
+    queryFn: () => nexaApi.getShadowInvoiceSummary(userId),
+    enabled: !!userId,
+  });
+
   const isLoading =
     forecastQuery.isLoading || budgetQuery.isLoading || goalsQuery.isLoading || txQuery.isLoading;
 
@@ -264,6 +270,10 @@ export const DashboardPage: React.FC = () => {
   const displaySubscriptionCost = usingSubscriptionFallback
     ? shadowSubscriptions.reduce((sum: number, s: any) => sum + Number(s.monthly_amount || 0), 0)
     : Number(subscriptionsQuery.data?.total_monthly_cost || 0);
+
+  // Prefer server-side shadow invoice summary when available (authoritative)
+  const finalSubscriptionCount = shadowSummaryQuery.data?.total_count ?? displaySubscriptionCount;
+  const finalSubscriptionCost = Math.abs(Number(shadowSummaryQuery.data?.total_monthly_committed ?? displaySubscriptionCost));
 
   const showSkeleton = isLoading && !forecastQuery.data && !budgetQuery.data && !txQuery.data;
 
@@ -627,10 +637,10 @@ export const DashboardPage: React.FC = () => {
             </div>
           )}
           <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 6 }}>
-            Assinaturas: {displaySubscriptionCount}
+            Assinaturas: {finalSubscriptionCount}
           </div>
           <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 8 }}>
-            Custo mensal: {currency(displaySubscriptionCost)}
+            Custo mensal: {currency(finalSubscriptionCost)}
           </div>
           {displaySubscriptions.slice(0, 4).map((sub: any, idx: number) => (
             <div

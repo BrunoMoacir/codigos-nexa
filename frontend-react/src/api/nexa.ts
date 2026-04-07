@@ -68,6 +68,11 @@ export const nexaApi = {
     return data;
   },
 
+  getShadowInvoiceSummary: async (userId: string) => {
+    const { data } = await apiClient.get(`/shadow_invoice/${userId}/summary`);
+    return data;
+  },
+
   getHealthScoreHistory: async (userId: string, months = 6) => {
     const { data } = await apiClient.get(`/health-score/history/${userId}`, {
       params: { months },

@@ -12,14 +12,7 @@ const cardStyle: React.CSSProperties = {
   boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
 };
 
-const titleStyle: React.CSSProperties = {
-  fontSize: 11,
-  letterSpacing: 0.8,
-  textTransform: 'uppercase',
-  color: 'var(--text-muted)',
-  marginBottom: 8,
-  fontWeight: 600,
-};
+// titleStyle removed (unused); DashboardPage provides common title styling
 
 const buttonStyle: React.CSSProperties = {
   padding: '10px 16px',
