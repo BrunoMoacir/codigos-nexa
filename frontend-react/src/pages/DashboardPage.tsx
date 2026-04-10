@@ -252,28 +252,44 @@ export const DashboardPage: React.FC = () => {
   const pacePct = expectedSpendToDate > 0 ? (spentToDate / expectedSpendToDate) * 100 : 0;
   const paceColor = getPaceColor(pacePct);
 
+  // Table-backed subscriptions (DB)
+  const subscriptionsTable = subscriptionsSimpleQuery.data?.subscriptions || [];
+
   const agendaItems = useMemo(() => {
-    return shadowInvoices
-      .map((invoice: any) => {
-        const rawDate = invoice.next_due_date || invoice.due_date || null;
-        const dueDate = rawDate ? String(rawDate) : null;
-        const daysUntil = dueDate ? parseDaysUntil(dueDate) : 999;
-        return {
-          description: invoice.description || invoice.merchant || 'Compromisso financeiro',
-          amount: Math.abs(Number(invoice.amount || 0)),
-          dueDate,
-          daysUntil,
-          type: invoice.type || 'ITEM',
-        };
-      })
-      // keep items even when no due date (they'll appear at the end)
+    const agendaFromShadow = shadowInvoices.map((invoice: any) => {
+      const rawDate = invoice.next_due_date || invoice.due_date || invoice.date || null;
+      const dueDate = rawDate ? String(rawDate) : null;
+      const daysUntil = dueDate ? parseDaysUntil(dueDate) : 999;
+      return {
+        description: invoice.description || invoice.merchant || 'Compromisso financeiro',
+        amount: Math.abs(Number(invoice.amount || 0)),
+        dueDate,
+        daysUntil,
+        type: invoice.type || 'ITEM',
+      };
+    });
+
+    const agendaFromSubscriptions = subscriptionsTable.map((sub: any) => {
+      const rawDate = sub.next_billing_date || sub.due_date || null;
+      const dueDate = rawDate ? String(rawDate) : null;
+      const daysUntil = dueDate ? parseDaysUntil(dueDate) : 999;
+      return {
+        description: sub.merchant || sub.name || 'Assinatura',
+        amount: Math.abs(Number(sub.monthly_amount || sub.amount || 0)),
+        dueDate,
+        daysUntil,
+        type: 'SUBSCRIPTION',
+      };
+    });
+
+    return [...agendaFromShadow, ...agendaFromSubscriptions]
       .sort((a: any, b: any) => a.daysUntil - b.daysUntil)
       .slice(0, 6)
       .map((it: any) => ({
         ...it,
         dueDate: it.dueDate || 'Sem data prevista',
       }));
-  }, [shadowInvoices]);
+  }, [shadowInvoices, subscriptionsTable]);
 
   const shadowSubscriptions = useMemo(() => {
     return shadowInvoices
@@ -284,9 +300,6 @@ export const DashboardPage: React.FC = () => {
         subscription_category: 'servico_recorrente',
       }));
   }, [shadowInvoices]);
-
-  // Table-backed subscriptions (DB)
-  const subscriptionsTable = subscriptionsSimpleQuery.data?.subscriptions || [];
 
   // Determine authoritative subscriptions list: prefer DB simple list, then detector, then shadow-derived
   let displaySubscriptions;
