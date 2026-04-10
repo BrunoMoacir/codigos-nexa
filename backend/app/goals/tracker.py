@@ -116,18 +116,49 @@ class GoalProjection:
     suggestion: str
 
     def to_dict(self) -> dict:
+        monthly_needed = round(self.monthly_needed, 2)
+        months_remaining = (
+            round(self.months_remaining, 1) if self.months_remaining is not None else None
+        )
+        feasibility = self._derive_feasibility()
+        alerts = self._derive_alerts()
         return {
             "goal_id":                    self.goal_id,
             "on_track":                   self.on_track,
             "projected_completion_date":  self.projected_completion_date,
-            "months_remaining":           (
-                round(self.months_remaining, 1) if self.months_remaining is not None else None
-            ),
-            "monthly_needed":             round(self.monthly_needed, 2),
+            "completion_date":            self.projected_completion_date,
+            "months_remaining":           months_remaining,
+            "months_to_complete":         months_remaining,
+            "monthly_needed":             monthly_needed,
+            "monthly_contribution_needed": monthly_needed,
             "current_monthly_actual":     round(self.current_monthly_actual, 2),
             "gap":                        round(self.gap, 2),
+            "feasibility":                feasibility,
+            "alerts":                     alerts,
             "suggestion":                 self.suggestion,
         }
+
+    def _derive_feasibility(self) -> str:
+        if self.on_track:
+            return "EASY"
+        if self.monthly_needed <= 0:
+            return "EASY"
+        if self.gap <= 0:
+            return "EASY"
+        gap_ratio = self.gap / max(self.monthly_needed, 1e-9)
+        if gap_ratio <= 0.25:
+            return "MODERATE"
+        if gap_ratio <= 0.5:
+            return "HARD"
+        return "UNREALISTIC"
+
+    def _derive_alerts(self) -> list[str]:
+        alerts: list[str] = []
+        if self.current_monthly_actual <= 0 and self.monthly_needed > 0:
+            alerts.append("Nenhuma contribuição mensal detectada.")
+        if self.gap > 0:
+            alerts.append(f"Faltam R$ {self.gap:,.2f}/mês para atingir a meta.")
+        return alerts
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -256,7 +287,9 @@ class GoalTracker:
         Returns:
             GoalProjection completo.
         """
-        monthly_needed = goal.monthly_contribution_needed or 0.0
+        monthly_needed = goal.monthly_contribution_needed
+        if monthly_needed is None or monthly_needed <= 0:
+            monthly_needed = self._calc_monthly_needed(goal.current_amount, goal.target_amount, goal.target_date) or 0.0
         monthly_actual = goal.monthly_contribution_actual or 0.0
         remaining = goal.remaining
 

@@ -182,6 +182,20 @@ def test_projection_suggestion_with_gap():
     assert "Faltam" in proj.suggestion or "R$" in proj.suggestion
 
 
+def test_projection_recalculates_when_stored_value_is_zero():
+    """Se monthly_contribution_needed estiver zerado, a projeção deve recalcular com base na meta."""
+    goal = _make_goal(current=8_000.0, target=30_000.0, months_ahead=6)
+    goal.monthly_contribution_needed = 0.0
+
+    tracker = GoalTracker()
+    proj = tracker.get_projection(goal)
+
+    assert proj.monthly_needed > 0
+    payload = proj.to_dict()
+    assert payload["monthly_contribution_needed"] == pytest.approx(proj.monthly_needed, abs=0.01)
+    assert payload["months_to_complete"] == payload["months_remaining"]
+
+
 def test_update_progress_completes_goal():
     """Adicionar o valor restante completo deve marcar meta como COMPLETED."""
     goal = _make_goal(current=45_000.0, target=50_000.0, months_ahead=6)
