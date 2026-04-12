@@ -45,6 +45,7 @@
 - [Testes](#-testes)
 - [Exemplos de Uso](#-exemplos-de-uso)
 - [Modelo de Negócio](#-modelo-de-negócio)
+- [Estratégias de Crescimento](#-estratégias-de-crescimento)
 - [Roadmap](#-roadmap)
 - [Documentação](#-documentação)
 - [Status do Projeto](#-status-do-projeto)
@@ -289,6 +290,7 @@ A Nexa opera em **quatro dimensões**, cada uma atacando um ponto onde o sistema
 | **Open Finance nativo** | ✅ Multi-banco | ⚠️ Só o próprio | ⚠️ Manual | ⚠️ Parcial |
 | **Base legal integrada** | ✅ CDC, BACEN, STJ | ❌ | ❌ | ❌ |
 | **IA conversacional** | ✅ 13 ferramentas | ❌ | ❌ | ❌ |
+| **Score alternativo** | ✅ Fluxo de caixa real | ⚠️ Score próprio | ❌ | ❌ |
 
 ### Por que não é copiável
 
@@ -299,6 +301,8 @@ A Nexa opera em **quatro dimensões**, cada uma atacando um ponto onde o sistema
 > **3. Complexidade técnica** — 14 módulos de análise, ETL de 8 estágios, 2.000+ cartões, simulador Monte Carlo, agente ReAct com 13 ferramentas. Não é um wrapper de API.
 
 > **4. Confiança do usuário** — Uma vez que o usuário confia na Nexa como seu advogado, o custo de troca é altíssimo.
+
+> **5. Nexa Score como bureau alternativo** — Com massa crítica, o Score Nexa baseado em fluxo de caixa real vira um selo de qualidade que força bancos a baixarem juros. Nenhum concorrente tem os dados de Open Finance para replicar isso.
 
 ---
 
@@ -780,6 +784,86 @@ curl -X POST http://localhost:8000/api/v1/optimizer/recommend \
 
 ---
 
+## 🚀 Estratégias de Crescimento
+
+### 1. B2B2C — Bem-Estar Financeiro Corporativo
+
+O CAC no B2C financeiro é R$80-150/usuário. O canal B2B2C muda a economia do negócio.
+
+> **O modelo:** vender a Nexa como benefício corporativo (estilo Gympass, mas para finanças). O RH distribui o app internamente — em uma única venda, a Nexa ganha 10.000-50.000 usuários com CAC próximo de zero.
+
+| Aspecto | Detalhe |
+|:---|:---|
+| **Proposta para o RH** | Funcionários endividados faltam mais e produzem menos. Estresse financeiro custa ~R$15.000/ano por funcionário em perda de produtividade (PwC). A Nexa resolve isso. |
+| **Pricing B2B2C** | R$ 5–15 por funcionário/mês. Empresa de 10.000 funcionários = R$100k–150k MRR em um contrato. |
+| **Efeito colateral** | O funcionário conecta contas pessoais. Quando sai da empresa, já está viciado e migra para plano individual. |
+| **Escala** | 10 contratos corporativos = 50.000–100.000 usuários com CAC zero. Equivale a R$5–10M de investimento em marketing B2C. |
+
+### 2. Nexa Score — Bureau de Crédito Alternativo
+
+O Serasa olha para o passado (inadimplência). A Nexa olha para o presente (fluxo de caixa real em tempo real).
+
+> **O conceito:** criar um Score de Crédito Alternativo baseado nos 40+ indicadores da Nexa. Quando o usuário pedir empréstimo, compartilha o Nexa Score — que prova via Open Finance que ele é bom pagador — e força o banco a oferecer taxa menor.
+
+| Fase | O que acontece |
+|:---|:---|
+| **Fase 1 (interna)** | Score Nexa é gamificação — o usuário sobe de nível melhorando hábitos financeiros. Gera engajamento. |
+| **Fase 2 (compartilhável)** | Com 500k+ usuários, o Score vira exportável. O usuário mostra ao banco ao pedir crédito. |
+| **Fase 3 (bureau)** | Instituições financeiras consultam o Score Nexa como alternativa ao Serasa. A Nexa cobra por verificação. Receita sem comprometer neutralidade (o usuário decide compartilhar). |
+
+**Por que funciona:** uma pessoa que poupa 15% da renda e tem burn rate saudável é objetivamente menos arriscada do que alguém com Serasa 800 mas no limite do cheque especial. O Score Nexa captura isso — o Serasa não.
+
+### 3. Nexa Wrapped — Viralização Orgânica
+
+O brasileiro ama comparar e compartilhar. O Spotify Wrapped provou que dados pessoais em formato visual são o mecanismo viral mais poderoso que existe.
+
+> **O modelo:** todo dezembro (e trimestralmente para Pro/Total), gerar um dashboard visual personalizado com os dados financeiros do usuário.
+
+**Conteúdo do Wrapped:**
+
+```
+📊 Quanto cada banco ganhou com você este ano
+💸 Top 5 tarifas que você pagou e poderia evitar
+🏆 Total que a Nexa te economizou
+📈 Sua evolução no Score Nexa
+👥 Como você se compara com outros usuários Nexa
+```
+
+**Card compartilhável:**
+
+```
+"Eu economizei R$ 4.200 contra os bancos este ano com a @NexaAI.
+ Veja quanto VOCÊ está perdendo."
+ [Botão: Descubra grátis]
+```
+
+| Métrica | Impacto esperado |
+|:---|:---|
+| **Custo de produção** | Zero (dados já existem, template é estático) |
+| **Share rate** | 15-25% dos usuários ativos compartilham (benchmark Spotify: 20%) |
+| **Viralidade** | Cada share atinge ~300 pessoas (média de alcance Instagram/WhatsApp) |
+| **Conversão** | 3-5% dos que veem fazem download (indignação com o próprio banco) |
+
+### 4. Expansão LatAm — O Playbook Mexicano
+
+O México tem sistema bancário tão concentrado e custoso quanto o Brasil, mas com digitalização mais atrasada — janela de oportunidade.
+
+> **Por que México:** Open Banking regulado (Ley Fintech 2018), 60M de adultos sub-bancarizados, CONDUSEF (dados públicos de reclamações), e os mesmos problemas de tarifas abusivas.
+
+| Dimensão | Brasil | México |
+|:---|:---|:---|
+| **População bancarizada** | 180M | 90M |
+| **Concentração bancária** | 5 bancos = 80% | 7 bancos = 80% |
+| **Open Finance** | Fase 4 (avançado) | Fase 2 (em andamento) |
+| **Tarifa média anual** | R$ 800 | ~MXN 3.000 (~R$ 900) |
+| **Regulador** | BACEN | CNBV + CONDUSEF |
+
+**Timing:** provar o modelo no Brasil (2026-2027), adaptar ETL + conectores para o mercado mexicano (2028), escalar com a infraestrutura já validada.
+
+**Impacto no valuation:** VCs globais (Ribbit Capital, a16z, SoftBank) investem em teses "LatAm", não "Brasil". Provar que o modelo replica no México transforma a Nexa de "fintech brasileira" em "plataforma LatAm" — multiplicador de valuation de 2-3x.
+
+---
+
 ## 🗺️ Roadmap
 
 ### Fase 1 — Fundação ✅
@@ -802,6 +886,8 @@ curl -X POST http://localhost:8000/api/v1/optimizer/recommend \
 - [ ] Portabilidade de crédito assistida
 - [ ] Modo Família (até 4 membros)
 - [ ] Widget de safe-to-spend
+- [ ] Nexa Score exportável (bureau alternativo)
+- [ ] Nexa Wrapped trimestral (Pro/Total)
 
 ### Fase 3 — Defesa e Viralização (Q3–Q4 2026)
 
@@ -809,14 +895,17 @@ curl -X POST http://localhost:8000/api/v1/optimizer/recommend \
 - [ ] Recuperador de Cobranças
 - [ ] Detector de Juros Abusivos
 - [ ] Central de Evidências
-- [ ] Wrapped Financeiro Anual
+- [ ] Wrapped Financeiro Anual (viralização massiva)
+- [ ] B2B2C — primeiros contratos corporativos
 
 ### Fase 4 — Escala (2027)
 
 - [ ] Otimizador de IR em tempo real
 - [ ] Monitor de Direitos Esquecidos
-- [ ] B2B2C — bem-estar financeiro corporativo
+- [ ] B2B2C — escala nacional (50+ empresas)
+- [ ] Nexa Score aceito por instituições financeiras
 - [ ] Expansão LatAm (México)
+- [ ] API de inteligência financeira para terceiros
 
 ---
 
@@ -853,7 +942,9 @@ curl -X POST http://localhost:8000/api/v1/optimizer/recommend \
 | CI/CD GitHub Actions | ✅ Ativo |
 | Deploy Railway | ✅ Configurado |
 | Memória do agente | 🔧 Em desenvolvimento |
-| Open Finance Fase 4 | 📅 Aguardando BACEN |
+| B2B2C corporativo | 📅 Fase 3 |
+| Nexa Score (bureau) | 📅 Fase 2–3 |
+| Expansão México | 📅 Fase 4 |
 
 ---
 
@@ -861,7 +952,7 @@ curl -X POST http://localhost:8000/api/v1/optimizer/recommend \
 
 ### Nexa AI
 
-**14 funcionalidades implementadas. 30 no roadmap. 1 missão.**
+**14 funcionalidades implementadas. 30 no roadmap. 4 vetores de escala. 1 missão.**
 
 *Trabalhar para você, não para o banco.*
 
