@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from datetime import date
 from typing import Optional
 
@@ -130,7 +131,21 @@ class FeeDetector:
         if transactions_df.is_empty():
             return []
 
-        required = {"transaction_date", "amount", "description", "institution_id"}
+        # Compatibilidade com diferentes fontes: algumas pipelines usam `date`
+        # ao invés de `transaction_date`.
+        if "transaction_date" not in transactions_df.columns and "date" in transactions_df.columns:
+            transactions_df = transactions_df.with_columns(
+                pl.col("date").alias("transaction_date")
+            )
+
+        # institution_id pode não estar disponível em alguns fluxos locais.
+        # Nesses casos mantemos vazio e aplicamos fallback por descrição.
+        if "institution_id" not in transactions_df.columns:
+            transactions_df = transactions_df.with_columns(
+                pl.lit("").alias("institution_id")
+            )
+
+        required = {"transaction_date", "amount", "description"}
         missing = required - set(transactions_df.columns)
         if missing:
             logger.warning("FeeDetector | colunas ausentes: %s — retornando vazio", missing)
@@ -151,9 +166,9 @@ class FeeDetector:
         # TODO: Fase 2 — implementar via pl.when().then() em cadeia para
         # execução em Rust mantendo a ordem de prioridade.
         for row in debits.iter_rows(named=True):
-            raw_desc = (row.get("description") or "").lower()
-            raw_merchant = (row.get("merchant") or "").lower()
-            text = f"{raw_desc} {raw_merchant}".strip()
+            raw_desc = row.get("description") or ""
+            raw_merchant = row.get("merchant") or ""
+            text = _normalize_text(f"{raw_desc} {raw_merchant}".strip())
 
             fee_type = self._classify(text)
             if fee_type is None:
@@ -209,3 +224,12 @@ class FeeDetector:
                 return bank_name
 
         return f"Banco ({institution_id})" if institution_id else "Banco desconhecido"
+
+
+def _normalize_text(value: str) -> str:
+    """Normaliza acentos e caixa para melhorar matching por regex."""
+    if not value:
+        return ""
+    normalized = unicodedata.normalize("NFKD", value)
+    no_accents = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return no_accents.lower()

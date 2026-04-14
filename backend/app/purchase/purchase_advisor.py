@@ -343,7 +343,9 @@ class PurchaseAdvisor:
 
             # Garantir coluna esperada pelo CashflowProjector
             if "transaction_date" not in transactions_df.columns and "date" in transactions_df.columns:
-                transactions_df = transactions_df.with_column(pl.col("date").alias("transaction_date"))
+                transactions_df = transactions_df.with_columns(
+                    pl.col("date").alias("transaction_date")
+                )
 
             # Detectar shadow invoices a partir das transações (fallback quando não persistido no DB)
             try:
@@ -390,7 +392,9 @@ class PurchaseAdvisor:
                     from app.subscriptions.shadow_invoices.runner import run_shadow_invoice_detection
                     # garantir coluna correta
                     if "transaction_date" not in transactions_df.columns and "date" in transactions_df.columns:
-                        transactions_df = transactions_df.with_column(pl.col("date").alias("transaction_date"))
+                        transactions_df = transactions_df.with_columns(
+                            pl.col("date").alias("transaction_date")
+                        )
                     shadow_invoices = run_shadow_invoice_detection(transactions_df).to_dicts()
                 except Exception:
                     shadow_invoices = []
