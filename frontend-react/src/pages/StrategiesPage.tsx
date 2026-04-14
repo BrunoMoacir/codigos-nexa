@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { AppShell } from '../components/layout/AppShell';
 import { nexaApi } from '../api/nexa';
@@ -38,6 +38,14 @@ function toNumber(value: unknown) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  const detail = (error as any)?.response?.data?.detail;
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail;
+  }
+  return fallback;
+}
+
 export const StrategiesPage: React.FC = () => {
   const userId = localStorage.getItem('user_id') || '';
   const [tab, setTab] = useState<'optimizer' | 'architect' | 'fiscal' | 'peers' | 'advanced'>('optimizer');
@@ -53,8 +61,68 @@ export const StrategiesPage: React.FC = () => {
   const [month, setMonth] = useState<number | ''>('');
   const [purchaseAmount, setPurchaseAmount] = useState(3000);
   const [purchaseCategory, setPurchaseCategory] = useState('Eletronicos');
-  const [purchaseInstallments, setPurchaseInstallments] = useState(1);
+  const [purchaseInstallments, setPurchaseInstallments] = useState(6);
+  const [autoInstallments, setAutoInstallments] = useState(true);
   const [negotiationBank, setNegotiationBank] = useState('');
+
+  const forecastContextQuery = useQuery({
+    queryKey: ['forecast-context', userId],
+    queryFn: () => nexaApi.getForecast(userId),
+    enabled: !!userId && (tab === 'advanced' || tab === 'peers'),
+  });
+
+  const contextIncome = useMemo(() => {
+    const fromInput = toNumber(income);
+    if (fromInput > 0) return fromInput;
+    const fromForecast = toNumber(forecastContextQuery.data?.financial_health?.total_income);
+    return fromForecast > 0 ? fromForecast : 0;
+  }, [income, forecastContextQuery.data]);
+
+  const contextSafeToSpend = useMemo(
+    () => toNumber(forecastContextQuery.data?.safe_to_spend?.safe_to_spend_total),
+    [forecastContextQuery.data]
+  );
+
+  const contextHealthScore = useMemo(
+    () => toNumber(forecastContextQuery.data?.financial_health?.health_score),
+    [forecastContextQuery.data]
+  );
+
+  const contextRiskProfile = useMemo(() => {
+    const profileType = String(forecastContextQuery.data?.financial_health?.profile_type || '').toUpperCase();
+    if (profileType.includes('CONSERV')) return 'conservador';
+    if (profileType.includes('GAST')) return 'agressivo';
+    if (contextHealthScore > 0) {
+      if (contextHealthScore >= 75) return 'agressivo';
+      if (contextHealthScore <= 45) return 'conservador';
+    }
+    return 'moderado';
+  }, [forecastContextQuery.data, contextHealthScore]);
+
+  const suggestedInstallments = useMemo(() => {
+    const amount = toNumber(purchaseAmount);
+    if (amount <= 0) return 1;
+    const incomeRef = contextIncome;
+    if (incomeRef > 0) {
+      const pressure = amount / incomeRef;
+      if (pressure <= 0.2) return 1;
+      if (pressure <= 0.4) return 3;
+      if (pressure <= 0.8) return 6;
+      if (pressure <= 1.5) return 12;
+      return 18;
+    }
+    if (amount <= 500) return 1;
+    if (amount <= 2000) return 3;
+    if (amount <= 5000) return 6;
+    if (amount <= 15000) return 12;
+    return 18;
+  }, [purchaseAmount, contextIncome]);
+
+  useEffect(() => {
+    if (autoInstallments) {
+      setPurchaseInstallments(suggestedInstallments);
+    }
+  }, [autoInstallments, suggestedInstallments]);
 
   const portfolioQuery = useQuery({
     queryKey: ['optimizer-portfolio', userId, income, maxCards],
@@ -120,14 +188,14 @@ export const StrategiesPage: React.FC = () => {
   });
 
   const peerQuery = useQuery({
-    queryKey: ['peers', userId, income],
-    queryFn: () => nexaApi.getPeerComparison(userId, income > 0 ? income : undefined, 3),
+    queryKey: ['peers', userId, contextIncome],
+    queryFn: () => nexaApi.getPeerComparison(userId, contextIncome > 0 ? contextIncome : undefined, 3),
     enabled: !!userId && tab === 'peers',
   });
 
   const notificationsQuery = useQuery({
-    queryKey: ['notifications', userId, income],
-    queryFn: () => nexaApi.getNotifications(userId, income > 0 ? income : undefined, true),
+    queryKey: ['notifications', userId, contextIncome],
+    queryFn: () => nexaApi.getNotifications(userId, contextIncome > 0 ? contextIncome : undefined, true),
     enabled: !!userId && tab === 'peers',
   });
 
@@ -144,7 +212,9 @@ export const StrategiesPage: React.FC = () => {
         amount: purchaseAmount,
         category: purchaseCategory,
         installments: purchaseInstallments,
-        monthly_income: income > 0 ? income : undefined,
+        monthly_income: contextIncome > 0 ? contextIncome : undefined,
+        risk_profile: contextRiskProfile,
+        apply_opportunity_cost: true,
       }),
   });
 
@@ -580,6 +650,11 @@ export const StrategiesPage: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
             <div style={card}>
               <div style={sectionTitle}>F5 • Raio-X de Custos Bancários</div>
+              {costsQuery.isError && (
+                <div style={{ fontSize: 12, color: '#991b1b', marginBottom: 8 }}>
+                  {getErrorMessage(costsQuery.error, 'Falha ao carregar custos bancários. Verifique se o usuário possui extratos no backend.')}
+                </div>
+              )}
               <div style={{ display: 'grid', gap: 8 }}>
                 <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
                   <div style={metricLabel}>Total pago no período</div>
@@ -603,6 +678,9 @@ export const StrategiesPage: React.FC = () => {
 
             <div style={card}>
               <div style={sectionTitle}>F7 • Modo Compra Inteligente</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+                Contexto atual: renda {contextIncome > 0 ? currency(contextIncome) : 'não detectada'} • safe-to-spend {currency(contextSafeToSpend)} • score {contextHealthScore.toFixed(0)}/100 • perfil {contextRiskProfile}
+              </div>
               <div style={{ display: 'grid', gap: 8, marginBottom: 10 }}>
                 <input
                   type="number"
@@ -621,9 +699,26 @@ export const StrategiesPage: React.FC = () => {
                   value={purchaseInstallments}
                   min={1}
                   max={48}
-                  onChange={(e) => setPurchaseInstallments(Number(e.target.value || 1))}
+                  onChange={(e) => {
+                    setAutoInstallments(false);
+                    setPurchaseInstallments(Number(e.target.value || 1));
+                  }}
                   style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }}
                 />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    Sugestão inteligente: {suggestedInstallments}x
+                  </span>
+                  <button
+                    onClick={() => {
+                      setAutoInstallments(true);
+                      setPurchaseInstallments(suggestedInstallments);
+                    }}
+                    style={{ border: '1px solid var(--border-color)', background: 'var(--bg-surface)', color: 'var(--text-primary)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 12 }}
+                  >
+                    Usar sugestão
+                  </button>
+                </div>
                 <button
                   onClick={() => purchaseMutation.mutate()}
                   style={{ border: '1px solid #111', background: 'var(--text-primary)', color: 'var(--bg-surface)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}
@@ -633,6 +728,11 @@ export const StrategiesPage: React.FC = () => {
               </div>
 
               {purchaseMutation.isPending && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Calculando melhores opções...</div>}
+              {purchaseMutation.isError && (
+                <div style={{ fontSize: 12, color: '#991b1b', marginBottom: 8 }}>
+                  {getErrorMessage(purchaseMutation.error, 'Falha ao analisar compra. Verifique autenticação e dados disponíveis no backend.')}
+                </div>
+              )}
               {!purchaseMutation.isPending && Object.keys(purchaseData).length > 0 && (
                 <div style={{ display: 'grid', gap: 8 }}>
                   <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
@@ -645,6 +745,28 @@ export const StrategiesPage: React.FC = () => {
                   <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     {purchaseData.reasoning || 'Sem justificativa detalhada para este cenário.'}
                   </div>
+                  {Array.isArray(purchaseData.options) && purchaseData.options.length > 0 && (
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                      <div style={{ ...metricLabel, marginBottom: 8 }}>Comparativo de opções</div>
+                      {purchaseData.options.slice(0, 4).map((option: any, idx: number) => (
+                        <div key={`${option.method || idx}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, borderBottom: idx < Math.min(3, purchaseData.options.length - 1) ? '1px solid var(--border-color)' : 'none', padding: '6px 0' }}>
+                          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                            {option.label || option.method || 'Opção'}
+                          </div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {currency(toNumber(option.net_cost_real ?? option.net_cost ?? option.total_cost))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {Array.isArray(purchaseData.warnings) && purchaseData.warnings.length > 0 && (
+                    <div style={{ fontSize: 12, color: '#92400e' }}>
+                      {purchaseData.warnings.slice(0, 3).map((warn: string, idx: number) => (
+                        <div key={`${idx}-${warn}`}>• {warn}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -668,6 +790,11 @@ export const StrategiesPage: React.FC = () => {
             </div>
 
             {negotiatorMutation.isPending && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Gerando scripts de negociação...</div>}
+            {negotiatorMutation.isError && (
+              <div style={{ fontSize: 12, color: '#991b1b', marginBottom: 8 }}>
+                {getErrorMessage(negotiatorMutation.error, 'Falha ao gerar roteiro. Verifique se há histórico de transações no backend para este usuário.')}
+              </div>
+            )}
 
             {!negotiatorMutation.isPending && Object.keys(negotiationData).length > 0 && (
               <div style={{ display: 'grid', gap: 10 }}>
@@ -699,6 +826,13 @@ export const StrategiesPage: React.FC = () => {
                     </div>
                   </div>
                 ))}
+                {Array.isArray(negotiationData.warnings) && negotiationData.warnings.length > 0 && (
+                  <div style={{ fontSize: 12, color: '#92400e' }}>
+                    {negotiationData.warnings.slice(0, 3).map((warn: string, idx: number) => (
+                      <div key={`${idx}-${warn}`}>• {warn}</div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

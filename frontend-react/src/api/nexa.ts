@@ -211,6 +211,8 @@ export const nexaApi = {
     category: string;
     installments?: number;
     monthly_income?: number;
+    risk_profile?: 'conservador' | 'moderado' | 'agressivo';
+    apply_opportunity_cost?: boolean;
   }) => {
     const { data } = await apiClient.post('/purchase/analyze', payload);
     return data;
