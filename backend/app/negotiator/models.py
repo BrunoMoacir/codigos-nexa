@@ -76,7 +76,7 @@ class NegotiationScript(BaseModel):
     estimated_success_pct: int = Field(ge=0, le=100, description="Probabilidade estimada de sucesso (0-100)")
 
     # Metadados
-    generated_by: str = "claude-sonnet-4-6"
+    generated_by: str = "claude-haiku-4-5-20251001"
     warnings: list[str] = Field(default_factory=list)
 
 

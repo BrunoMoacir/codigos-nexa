@@ -20,7 +20,7 @@ from app.negotiator.models import (
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "claude-sonnet-4-6"
+_MODEL = "claude-haiku-4-5-20251001"
 
 # Prompt de sistema fixo — instrui o Claude a agir como especialista em negociação bancária
 _SYSTEM_PROMPT = """\

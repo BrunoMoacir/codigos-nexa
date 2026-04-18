@@ -107,7 +107,7 @@ async def generate_negotiation_script(
         scripts=scripts,
         summary=summary,
         confidence_score=confidence,
-        data_sources=["transactions_clean", "fee_detector", "bacen_selic", "claude-sonnet-4-6"],
+        data_sources=["transactions_clean", "fee_detector", "bacen_selic", "claude-haiku-4-5-20251001"],
         warnings=list(dict.fromkeys(warnings)),  # deduplica mantendo ordem
     )
 
