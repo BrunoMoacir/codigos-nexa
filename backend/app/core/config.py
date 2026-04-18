@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str | None = None
     ANTHROPIC_API_KEY: str | None = None
     LLM_PROVIDER: str = "openai"   # "openai" | "anthropic"
-    LLM_MODEL: str = "gpt-4o-mini" # ou "claude-sonnet-4-6"
+    LLM_MODEL: str = "gpt-4o-mini" # ou "claude-haiku-4-5-20251001"
 
     # DB (em dev, podemos cair para DuckDB se o Postgres não estiver acessível)
     DATABASE_URL: str = "postgresql+psycopg2://nexa_user:nexa_secret@localhost:5432/nexa_db"
