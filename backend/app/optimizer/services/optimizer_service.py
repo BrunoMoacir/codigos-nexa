@@ -20,8 +20,44 @@ from app.optimizer.card_loader import CardKnowledgeBase
 from app.optimizer.profiler import ConsumptionProfiler
 from app.optimizer.simulator import CardSimulator
 from app.optimizer.ranking import CardRanking
+from app.optimizer.insight_generator import InsightGenerator
 from app.optimizer.validators.input_validator import InputValidator
 from app.optimizer.queries import save_optimization_report
+
+# ── Camada 3 Anti-Falsos-Positivos — Gates globais ───────────────────────
+# ConfidenceGate: threshold abaixo do qual o resultado não é surfaçado ao usuário
+_CONFIDENCE_GATE = 0.65
+# MinGainFilter: ganho mínimo mensal para recomendar (R$10/mês = R$120/ano)
+_MIN_MONTHLY_GAIN_BRL = 10.0
+_MIN_ANNUAL_GAIN_BRL = _MIN_MONTHLY_GAIN_BRL * 12
+
+
+def _apply_anti_fp_gates(results: list, profile) -> list:
+    """
+    Camada 3 Anti-FP: filtros de qualidade sobre os resultados simulados.
+
+    Escopo: filtros a nível de CARTÃO (não de insight).
+    Os gates de confiança (0.65) e ganho mínimo (R$10/mês) em nível de INSIGHT
+    são aplicados no InsightGenerator, conforme a árvore de decisão 12.1.
+
+    Filtros aqui:
+    - MinGainFilter: remove cartões com ganho negativo líquido — anuidade não se paga.
+      Estes não devem aparecer como "best_card" nem em insights de troca.
+    - Mantém todos os demais no ranking para permitir que o usuário veja o panorama
+      completo, mesmo com confiança baixa (ranking já penaliza via × 0.5 se conf < 0.4).
+    """
+    filtered = []
+    for r in results:
+        # MinGainFilter: retorno líquido negativo → cartão piora a situação financeira
+        if r.net_gain_expected < 0:
+            logger.debug(
+                "AntiFF MinGainFilter: descartando %s (net_gain=R$%.0f — negativo)",
+                r.card_id, r.net_gain_expected,
+            )
+            continue
+        filtered.append(r)
+    return filtered
+
 
 # ── Mapeamento issuer → padrões regex nas descrições de transações ────────
 # Chave: nome canônico do issuer (deve coincidir com CardRecord.issuer)
@@ -102,6 +138,7 @@ class OptimizerService:
         self.profiler = profiler or ConsumptionProfiler()
         self.simulator = simulator or CardSimulator()
         self.ranking = ranking or CardRanking()
+        self.insight_generator = InsightGenerator()
         self.validator = validator or InputValidator()
 
         # Garante que a base foi carregada
@@ -199,15 +236,29 @@ class OptimizerService:
             result.eligibility_reasons = eligibility_reasons
             simulated_results.append(result)
 
-        # 5. Ranqueamento e Penalidades
+        # 5. Camada 3 Anti-FP: ConfidenceGate + MinGainFilter
+        # ConfidenceGate: descarta simulações com confiança < 0.65 (seção 5.4 da arquitetura)
+        # MinGainFilter: descarta se ganho líquido < R$10/mês = R$120/ano (seção 5.6)
+        simulated_results = _apply_anti_fp_gates(simulated_results, profile)
+
+        # 6. Ranqueamento e Penalidades
         ranked_results = self.ranking.rank(
             results=simulated_results,
             profile=profile,
         )
 
-        # 6. Formatar o Relatório
+        # 8. Camada 5 — Gerar insights acionáveis
+        current_card_id = request.current_cards[0] if request.current_cards else None
+        insights = self.insight_generator.generate(
+            ranked_results=ranked_results,
+            profile=profile,
+            current_card_id=current_card_id,
+        )
+
+        # 9. Formatar o Relatório
         return self._build_report(
-            request=request, ranked_results=ranked_results, profile_data=profile
+            request=request, ranked_results=ranked_results, profile_data=profile,
+            insights=insights,
         )
 
     def _build_report(
@@ -215,6 +266,7 @@ class OptimizerService:
         request: OptimizationRequest,
         ranked_results: list,
         profile_data,
+        insights: list | None = None,
     ) -> OptimizationReport:
 
         warnings = []
@@ -268,6 +320,7 @@ class OptimizerService:
             recommendation_type=recommendation_type,
             best_card=best_card_result,
             all_cards=ranked_results,
+            insights=insights or [],
             strategy_text=strategy_text,
             warnings=warnings,
             data_sources=["pluggy", "internal_knowledge_base"],

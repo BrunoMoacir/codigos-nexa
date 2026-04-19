@@ -192,11 +192,13 @@ class TestLiquidity:
 
     def test_liquidity_impact_formula(self, sim):
         # annuity = 1200, safe_to_spend = 500
-        # impact = (1200/12) / 500 = 100/500 = 0.2 → WARNING
+        # impact = (1200/12) / 500 = 100/500 = 0.20
+        # v2.1 thresholds: < 0.05 SAFE, < 0.10 WARNING, < 0.20 HIGH, ≥ 0.20 CRITICAL
+        # 0.20 não é < 0.20, portanto: CRITICAL
         card = _make_card(base_annuity=1200.0, waiver_type="none")
         result = sim.simulate(card, _make_profile(), safe_to_spend=500.0)
         assert result.liquidity_impact == pytest.approx(0.2, abs=0.001)
-        assert result.liquidity_risk == LiquidityRisk.WARNING
+        assert result.liquidity_risk == LiquidityRisk.CRITICAL
 
     def test_zero_safe_to_spend_with_annuity_is_critical(self, sim):
         card = _make_card(base_annuity=1200.0, waiver_type="none")
@@ -222,12 +224,13 @@ class TestConfidenceScore:
         assert result.confidence_score == pytest.approx(1.0, abs=0.01)
 
     def test_low_coverage_penalized(self, sim):
-        # coverage=1 (<2) → weight=1/6, + × 0.5 penalty → very low
+        # coverage=1 (< 2 meses) → v2.1: score = data_trust × 0.25 × income_conf × stability_factor
+        # data_trust=1.0, coverage < 2 → × 0.25, income_conf=1.0, cv≈0 → nenhuma penalidade
+        # score = 1.0 × 0.25 × 1.0 × 1.0 = 0.25
         card = _make_card(data_trust_score=1.0)
         profile = _make_profile(data_coverage_months=1, spending_stability=1.0, committed_percentage=0.0)
         result = sim.simulate(card, profile)
-        # 1/6 × 1.0 × 1.0 × 0.5 = ~0.0833
-        assert result.confidence_score == pytest.approx(1/6 * 0.5, abs=0.01)
+        assert result.confidence_score == pytest.approx(0.25, abs=0.02)
 
     def test_high_committed_percentage_penalized(self, sim):
         # coverage=6, stability=1.0, trust=1.0, committed=0.9 > 0.8 → × 0.7

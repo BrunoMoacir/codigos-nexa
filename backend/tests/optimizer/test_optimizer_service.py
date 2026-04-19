@@ -100,18 +100,28 @@ def perfil_clt_medio() -> pl.DataFrame:
 
 @pytest.fixture
 def perfil_alto_gasto() -> pl.DataFrame:
-    """Perfil premium: gastos altos (R$ 15.000/mês) incluindo viagens e internacional."""
+    """Perfil premium: gastos altos (R$ 15.000/mês) em 2 meses — arquitetura v2.1 exige ≥ 2 meses."""
     rows = [
-        _make_txn(-5000.0, txn_date=date(2026, 2, 5),  category="moradia", txn_id="aluguel"),
-        _make_txn(-2000.0, txn_date=date(2026, 2, 10), category="alimentacao", txn_id="rest"),
+        # Fevereiro 2026
+        _make_txn(-5000.0, txn_date=date(2026, 2, 5),  category="moradia", txn_id="aluguel_feb"),
+        _make_txn(-2000.0, txn_date=date(2026, 2, 10), category="alimentacao", txn_id="rest_feb"),
         _make_txn(-3000.0, txn_date=date(2026, 2, 15), category="Lazer",
-                  description="Hotel USD 590", txn_id="hotel"),
+                  description="Hotel USD 590", txn_id="hotel_feb"),
         _make_txn(-1500.0, txn_date=date(2026, 2, 20), category="Transporte",
-                  description="Passagem aerea", txn_id="voo"),
+                  description="Passagem aerea", txn_id="voo_feb"),
         _make_txn(-800.0,  txn_date=date(2026, 2, 22), category="outros",
-                  description="Amazon internacional EUR 150", txn_id="intl"),
+                  description="Amazon internacional EUR 150", txn_id="intl_feb"),
         _make_txn(20000.0, txn_date=date(2026, 2, 5),  category="renda", transaction_type="CREDIT",
-                  description="SALARIO EMPRESA X", txn_id="salario"),
+                  description="SALARIO EMPRESA X", txn_id="salario_feb"),
+        # Janeiro 2026 — segundo mês para cumprir requisito de ≥ 2 meses (arquitetura v2.1)
+        _make_txn(-5000.0, txn_date=date(2026, 1, 5),  category="moradia", txn_id="aluguel_jan"),
+        _make_txn(-2000.0, txn_date=date(2026, 1, 10), category="alimentacao", txn_id="rest_jan"),
+        _make_txn(-3000.0, txn_date=date(2026, 1, 15), category="Lazer",
+                  description="Hotel USD 590", txn_id="hotel_jan"),
+        _make_txn(-1500.0, txn_date=date(2026, 1, 20), category="Transporte",
+                  description="Passagem aerea", txn_id="voo_jan"),
+        _make_txn(20000.0, txn_date=date(2026, 1, 5),  category="renda", transaction_type="CREDIT",
+                  description="SALARIO EMPRESA X", txn_id="salario_jan"),
     ]
     return _df(*rows)
 
@@ -252,10 +262,11 @@ class TestCardSimulatorAnnuity:
 
     def test_anuidade_cobrada_abaixo_do_threshold(self):
         sim = CardSimulator()
-        # Gasto de R$ 800/mês = R$ 9.600/ano, threshold = R$ 12.000 → NÃO isenta
+        # Gasto de R$ 600/mês = R$ 7.200/ano, threshold = R$ 12.000
+        # Achievability = 1 − (12.000 − 7.200)/12.000 = 0.40 < 0.80 → NÃO isenta
         card = _card_cashback_com_anuidade(annuity=600.0, threshold=12_000.0)
         profile = ConsumptionProfiler().build(
-            _df(_make_txn(-800.0, txn_date=date(2026, 2, 10))),
+            _df(_make_txn(-600.0, txn_date=date(2026, 2, 10))),
             reference_date=TODAY,
         )
         result = sim.simulate(card, profile, safe_to_spend=2000.0)

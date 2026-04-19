@@ -47,6 +47,9 @@ class UserProfile:
     estimated_monthly_income: float = 0.0   # legado: soma bruta de créditos
     data_coverage_months: int = 0
     spending_stability: float = 0.0
+    # CV puro (std/mean) — usado pelo ConfidenceScorer com thresholds por faixa (v2.1)
+    # ≤ 0.15 → sem penalidade; 0.15–0.35 → ×0.90; 0.35–0.60 → ×0.75; > 0.60 → ×0.60
+    spend_stability_cv: float = 0.0
     income_profile: Optional[IncomeProfile] = None  # renda filtrada e classificada (M1.x)
 
 
@@ -96,7 +99,7 @@ class ConsumptionProfiler:
         data_coverage_months = self._coverage_months(df)
         monthly_totals = self._monthly_expense_totals(df)
         monthly_avg_spend = float(monthly_totals.mean()) if len(monthly_totals) > 0 else 0.0
-        spending_stability = self._spending_stability(monthly_totals)
+        spending_stability, spend_stability_cv = self._spending_stability(monthly_totals)
 
         spend_by_category = self._spend_by_category(df, data_coverage_months)
         spend_by_source = self._spend_by_source(df, data_coverage_months)
@@ -118,6 +121,7 @@ class ConsumptionProfiler:
             estimated_monthly_income=round(estimated_monthly_income, 2),
             data_coverage_months=data_coverage_months,
             spending_stability=round(spending_stability, 4),
+            spend_stability_cv=round(spend_stability_cv, 4),
             income_profile=income_profile,
         )
 
@@ -178,21 +182,26 @@ class ConsumptionProfiler:
         )
         return monthly
 
-    def _spending_stability(self, monthly_totals: pl.Series) -> float:
+    def _spending_stability(self, monthly_totals: pl.Series) -> tuple[float, float]:
         """
-        Estabilidade do gasto mensal (0.0–1.0).
-        Baixa variabilidade → score alto. Dados de 1 mês → 0.5.
+        Calcula estabilidade do gasto mensal e coeficiente de variação bruto.
+
+        Returns:
+            (spending_stability, spend_stability_cv)
+            spending_stability: 0.0–1.0, onde 1.0 = muito estável (= 1 − CV)
+            spend_stability_cv: CV puro (std/mean), usado pelo ConfidenceScorer
         """
         if len(monthly_totals) < 2:
-            return 0.5
+            return 0.5, 0.5
 
         mean = monthly_totals.mean()
         if mean == 0:
-            return 0.0
+            return 0.0, 1.0
 
         std = monthly_totals.std(ddof=0)
         cv = float(std) / float(mean)
-        return max(round(1.0 - min(cv, 1.0), 4), 0.0)
+        stability = max(round(1.0 - min(cv, 1.0), 4), 0.0)
+        return stability, round(min(cv, 1.0), 4)
 
     def _spend_by_category(self, df: pl.DataFrame, coverage_months: int) -> dict:
         """Gasto médio mensal por categoria (apenas despesas)."""

@@ -150,10 +150,80 @@ class OptimizationReport(BaseModel):
     recommendation_type: RecommendationType
     best_card: Optional[CardSimulationResult] = None
     all_cards: list[CardSimulationResult] = []
+    insights: list["ActionableInsight"] = []
     user_profile_summary: dict = {}
     data_sources: list[str] = []
     strategy_text: str = ""
     warnings: list[str] = []
+
+
+# ─── Camada 5 — Insights Acionáveis ──────────────────────────────────────────
+
+class InsightType(str, Enum):
+    """Taxonomia de insights (seção 7.1 da arquitetura v2.1)."""
+    TROCAR_PRIMARIO   = "TROCAR_PRIMARIO"    # Melhor cartão ≠ atual, ganho > R$20/mês
+    PORTFOLIO_MULTI   = "PORTFOLIO_MULTI"    # 2+ cartões melhoram retorno > R$30/mês
+    ATIVAR_BENEFICIO  = "ATIVAR_BENEFICIO"   # Benefício com utilização < 0.3 e valor > R$20/mês
+    CANCELAR_CARTAO   = "CANCELAR_CARTAO"    # Cartão com retorno líquido < -R$15/mês
+    ATINGIR_ISENCAO   = "ATINGIR_ISENCAO"    # Gap < 3 meses de gasto para waiver
+    MUDAR_CATEGORIA   = "MUDAR_CATEGORIA"    # Cartão existente melhor em categoria não usada
+    SOLICITAR_UPGRADE = "SOLICITAR_UPGRADE"  # Usuário atingiu 90%+ dos critérios do próximo tier
+
+
+class InsightEffort(str, Enum):
+    """Esforço necessário para executar o insight."""
+    BAIXO = "Baixo"
+    MEDIO = "Médio"
+    ALTO  = "Alto"
+
+
+class InsightInterval(BaseModel):
+    """
+    Intervalo de ganho estimado por percentil (seção 7.2 da arquitetura v2.1).
+
+    conservative (P25): cenário pessimista — usado para MinGainFilter (R$10/mês gate).
+    expected     (P50): cenário mais provável — mostrado em destaque ao usuário.
+    optimistic   (P75): cenário otimista — mostrado como teto.
+
+    Regra de display:
+        optimistic / conservative < 1.5 → mostrar só expected ("R$61/mês")
+        optimistic / conservative ≥ 1.5 → mostrar banda ("R$40–R$95/mês") + explicação
+    """
+    conservative: float   # P25
+    expected: float        # P50
+    optimistic: float      # P75
+
+    @property
+    def show_band(self) -> bool:
+        """True quando a incerteza é alta o suficiente para mostrar banda."""
+        if self.conservative <= 0:
+            return False
+        return (self.optimistic / self.conservative) >= 1.5
+
+    def display_text(self) -> str:
+        """Texto pronto para exibição ao usuário."""
+        if self.show_band:
+            return f"R${self.conservative:.0f}–R${self.optimistic:.0f}/mês"
+        return f"R${self.expected:.0f}/mês"
+
+
+class ActionableInsight(BaseModel):
+    """
+    Insight acionável gerado pela Camada 5 (seção 7 da arquitetura v2.1).
+
+    Ranqueados por priority_score = monthly_gain × effort_multiplier × confidence_score.
+    Só são surfaçados se confidence ≥ 0.65 e gain_interval.conservative ≥ R$10/mês.
+    """
+    type: InsightType
+    title: str
+    description: str
+    gain_interval: InsightInterval
+    effort: InsightEffort
+    confidence_score: float
+    priority_score: float
+    card_id: Optional[str] = None
+    card_name: Optional[str] = None
+    tags: list[str] = []
 
 
 # ─── M2.4: ROI do Cartão Atual ────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 # app/optimizer/simulator.py
 # CardSimulator — calcula retorno financeiro de cada cartão para o perfil do usuário
-# Passo 2.3 — Funcionalidade 2: Nexa Optimizer
+# Camada 2 (Scoring) + Camada 3 Anti-FP (Card Optimizer v2.1)
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ from app.optimizer.models import (
 from app.optimizer.profiler import UserProfile
 from app.optimizer.validators.liquidity_checker import LiquidityChecker
 
-# TODO: migrar para structlog (dependência já declarada em pyproject.toml)
 logger = logging.getLogger(__name__)
 
 # Fatores de variação para os 3 cenários (±20% do gasto base)
@@ -28,7 +27,46 @@ _SCENARIO_FACTORS: dict[str, float] = {
     "max": 1.2,
 }
 
+# Threshold de achievability para isenção de anuidade (v2.1 — antes era binário)
+# Projeção de gasto anual deve atingir ≥ 80% de probabilidade de alcançar o threshold
+_WAIVER_ACHIEVABILITY_GATE = 0.80
+
 _liquidity_checker = LiquidityChecker()
+
+
+# ─── BenefitViabilityFilter (Camada 3) ────────────────────────────────────────
+
+class BenefitViabilityFilter:
+    """
+    Hard blocks em benefícios que o perfil do usuário não viabiliza.
+
+    Benefícios bloqueados têm monthly_value = 0.00 — não podem compensar anuidade alta.
+    Proxies usados quando não há campo direto (ex: flights_per_year):
+        - travel_spend_monthly > 800 → flights_per_year ≥ 4 (proxy)
+        - travel_spend_monthly > 0   → flights_per_year ≥ 1 (proxy mínimo)
+        - international_spend_monthly > 50 → has_international_spend
+    """
+
+    # tag → condição que bloqueia completamente o benefício
+    HARD_BLOCKS: dict[BenefitTag, object] = {
+        BenefitTag.LOUNGE: lambda profile: profile.travel_spend_monthly < 800,
+        BenefitTag.INTERNACIONAL: lambda profile: profile.international_spend_monthly < 50,
+    }
+
+    def is_blocked(self, tag: BenefitTag, profile: UserProfile) -> bool:
+        condition = self.HARD_BLOCKS.get(tag)
+        if condition is None:
+            return False
+        return condition(profile)
+
+    def filter_bonus_tags(
+        self, benefit_tags: list[BenefitTag], profile: UserProfile
+    ) -> list[BenefitTag]:
+        """Retorna apenas as tags de benefício que passam no filtro de viabilidade."""
+        return [t for t in benefit_tags if not self.is_blocked(t, profile)]
+
+
+_benefit_filter = BenefitViabilityFilter()
 
 
 class CardSimulator:
@@ -118,20 +156,41 @@ class CardSimulator:
     # ─── Helpers privados ─────────────────────────────────────────────────────
 
     def _compute_annuity(self, card: CardRecord, spend_annual: float) -> tuple[float, bool]:
-        """Retorna (annuity_effective, annuity_waived)."""
+        """
+        Retorna (annuity_effective, annuity_waived).
+
+        WaiverAchievabilityCheck (v2.1): a isenção só é marcada como True se a
+        projeção de gasto anual tiver ≥ 80% de probabilidade de atingir o threshold.
+        Abaixo de 80%, a anuidade é cobrada integralmente (conservador).
+        """
         wr = card.waiver_rules
 
         if wr.type == "always_free":
             return 0.0, True
 
         if wr.type == "spend_threshold" and wr.threshold is not None:
-            if spend_annual >= wr.threshold:
+            achievability = self._compute_waiver_achievability(spend_annual, wr.threshold)
+            if achievability >= _WAIVER_ACHIEVABILITY_GATE:
                 return 0.0, True
             return card.base_annuity, False
 
         # "transaction_count": conservador — assume que o usuário não atingirá o threshold
         # "none" ou desconhecido: anuidade sempre cobrada
         return card.base_annuity, False
+
+    def _compute_waiver_achievability(self, spend_annual: float, threshold: float) -> float:
+        """
+        Calcula a probabilidade (0–1) de o gasto anual projetado atingir o threshold de isenção.
+
+        Fórmula: achievability = max(0, 1 − gap / threshold)
+        onde gap = threshold − projected_annual (quanto falta).
+
+        Um gap negativo (gasto acima do threshold) retorna 1.0.
+        """
+        if threshold <= 0:
+            return 1.0
+        gap = threshold - spend_annual
+        return max(0.0, 1.0 - gap / threshold)
 
     def _compute_benefit_value(
         self,
@@ -259,39 +318,60 @@ class CardSimulator:
 
     def _compute_confidence(self, card: CardRecord, profile: UserProfile) -> float:
         """
-        Confiança na simulação (0.0–1.0).
+        ConfidenceScorer — confiança na simulação (0.0–1.0).
 
-        Penalidades:
-        - Cobertura < 2 meses → × 0.5
-        - Comprometimento > 80% → × 0.7
+        Fórmula multiplicativa (v2.1 — alinhado com arquitetura):
+            confidence = data_trust_score
+                       × coverage_penalty     (por faixa de meses)
+                       × commitment_penalty   (× 0.7 se > 80% comprometido)
+                       × income_confidence    (da hierarquia do IncomeProfiler)
+                       × stability_factor     (por faixa de CV)
 
-        Comportamento intencional com perfis novos: a multiplicação de três
-        fatores parciais pode produzir valores muito baixos (ex.: coverage=1 mês,
-        stability=0.5, trust=0.5 → score ≈ 0.042 após penalidade). Isso é
-        conservador por design — poucos dados implicam baixa confiança. O
-        CardRanking penalizará esses cartões com × 0.5 se score < 0.4, o que
-        é aceitável: não faz sentido recomendar com confiança alta quando o
-        histórico é insuficiente.
+        Penalidades de cobertura:
+            ≥ 6 meses: sem penalidade
+            3–5 meses: × 0.85
+            2 meses:   × 0.50
+            < 2 meses: × 0.25 (não bloqueado aqui; gate está no OptimizerService)
+
+        Penalidades de CV (spend_stability_cv):
+            ≤ 0.15: sem penalidade
+            0.15–0.35: × 0.90
+            0.35–0.60: × 0.75
+            > 0.60:    × 0.60
         """
-        coverage_weight = min(profile.data_coverage_months, 6) / 6
-        stability_weight = profile.spending_stability
-        bank_trust_weight = card.data_trust_score
+        score = card.data_trust_score
 
-        score = coverage_weight * stability_weight * bank_trust_weight
+        # Coverage penalty (por faixa de meses)
+        months = profile.data_coverage_months
+        if months >= 6:
+            pass
+        elif months >= 3:
+            score *= 0.85
+        elif months >= 2:
+            score *= 0.50
+        else:
+            score *= 0.25
 
-        if profile.data_coverage_months < 2:
-            score *= 0.5
+        # Commitment penalty
         if profile.committed_percentage > 0.8:
             score *= 0.7
 
-        # MI.4: renda instável → menor confiança na projeção de benefícios
-        # Renda PJ/MIXED com alta variabilidade torna incerta a projeção de
-        # gasto anual usada para calcular pontos/cashback acumulados.
-        income_stability = getattr(profile.income_profile, "income_stability", None)
-        if income_stability is not None and income_stability < 0.5:
-            score *= 0.85
+        # Income confidence (da hierarquia do IncomeProfiler)
+        income_conf = getattr(profile.income_profile, "confidence", 1.0) or 1.0
+        score *= income_conf
 
-        return min(score, 1.0)
+        # Spend stability factor — baseado no CV puro (v2.1)
+        cv = getattr(profile, "spend_stability_cv", 1.0 - profile.spending_stability)
+        if cv <= 0.15:
+            pass
+        elif cv <= 0.35:
+            score *= 0.90
+        elif cv <= 0.60:
+            score *= 0.75
+        else:
+            score *= 0.60
+
+        return min(round(score, 4), 1.0)
 
     def _top_categories(self, profile: UserProfile, n: int = 3) -> list[str]:
         """Retorna as N categorias com maior gasto médio mensal."""

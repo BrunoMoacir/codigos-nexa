@@ -1,19 +1,25 @@
 """
 app/optimizer/miles_valuator.py
-M2.3 — Motor de Valoração de Milhas em Tempo Real
+M2.3 + PointValuationEngine — Motor de Valoração de Milhas (Card Optimizer v2.1)
 
 Carrega data/cards/miles_valuation.json e fornece taxas de conversão
 dinâmicas por programa de fidelidade e cenário de resgate.
 
 Cenários:
-    pessimistic  → resgate em produtos / cashback (menor valor)
-    expected     → transferência para companhia aérea parceira (valor médio)
-    optimistic   → promoção de transferência com bônus (maior valor)
+    pessimistic  → resgate em produtos / cashback (P25 do mercado)
+    expected     → transferência para companhia aérea parceira (P50)
+    optimistic   → promoção de transferência com bônus (P75)
+
+POINT_VALUE_DISTRIBUTIONS: distribuição de mercado por programa (R$/ponto).
+    Fonte: MaxMilhas + PassagensImperdíveis (atualização mensal).
+    Scores de ranking usam P25 (conservador). Display ao usuário usa P50.
+    Intervalo P25–P75 é mostrado quando otimista/pessimista divergem > 50%.
 
 Uso:
     valuator = get_valuator()
-    rate = valuator.get_rate("livelo", "expected")  # R$ 16.0 / 1.000 pts
-    value = valuator.compute_points_value(2.0, 3600.0, "livelo", "expected")  # R$ 115.20
+    rate = valuator.get_rate("livelo", "expected")           # R$ 16.0 / 1.000 pts
+    p25  = valuator.get_conservative_rate("livelo")          # P25 em R$/1.000 pts
+    value = valuator.compute_points_value(2.0, 3600.0, "livelo", "expected")
 """
 
 from __future__ import annotations
@@ -35,6 +41,24 @@ _SCENARIO_KEY: dict[str, str] = {
     "expected": "expected_per_1000",
     "max": "optimistic_per_1000",
     "optimistic": "optimistic_per_1000",
+}
+
+# Distribuição de mercado por programa — (P25, P50, P75) em R$/ponto
+# Fonte: MaxMilhas / PassagensImperdíveis (scraping mensal — atualizar via migration)
+# P25 → usado para scoring/ranking (conservador)
+# P50 → mostrado ao usuário como "valor esperado"
+# P75 → mostrado como "cenário otimista" quando otimista/pessimista divergem > 50%
+POINT_VALUE_DISTRIBUTIONS: dict[str, tuple[float, float, float]] = {
+    "smiles":          (0.014, 0.022, 0.038),
+    "latam_pass":      (0.013, 0.021, 0.035),
+    "livelo":          (0.015, 0.020, 0.028),
+    "itau_multiplus":  (0.013, 0.017, 0.023),
+    "xp_pontos":       (0.020, 0.025, 0.032),
+    "membership_amex": (0.017, 0.022, 0.030),
+    "esfera":          (0.013, 0.018, 0.025),
+    "nu_pontos":       (0.010, 0.015, 0.020),
+    "atomos":          (0.010, 0.015, 0.022),
+    "stix":            (0.012, 0.018, 0.025),
 }
 
 
@@ -71,20 +95,61 @@ class MilesValuator:
         """
         Retorna R$ por 1.000 pontos para o programa e cenário dados.
 
+        Prioriza POINT_VALUE_DISTRIBUTIONS (P25/P50/P75) quando o programa está na
+        tabela estática. Cai no JSON como fallback para programas não mapeados.
+
         Args:
             program: chave do programa (ex: "livelo", "smiles", "atomos")
-            scenario: "pessimistic" | "expected" | "optimistic" (aceita também "min"/"max")
+            scenario: "pessimistic" | "expected" | "optimistic" (aceita "min"/"max")
 
         Returns:
             Taxa em R$/1.000 pts, ou None se programa não encontrado.
         """
+        key = program.lower()
+        dist = POINT_VALUE_DISTRIBUTIONS.get(key)
+        if dist is not None:
+            if scenario in ("min", "pessimistic"):
+                return dist[0] * 1000  # P25 em R$/1.000 pts
+            elif scenario in ("max", "optimistic"):
+                return dist[2] * 1000  # P75
+            else:
+                return dist[1] * 1000  # P50 (expected)
+
+        # Fallback: JSON com pessimistic/expected/optimistic
         self._ensure_loaded()
-        prog = self._table.get(program.lower())
+        prog = self._table.get(key)
         if not prog:
             return None
-        key = _SCENARIO_KEY.get(scenario, "expected_per_1000")
-        value = prog.get(key)
+        json_key = _SCENARIO_KEY.get(scenario, "expected_per_1000")
+        value = prog.get(json_key)
         return float(value) if value is not None else None
+
+    def get_conservative_rate(self, program: str) -> float | None:
+        """
+        Retorna a taxa P25 (conservadora) para o programa em R$/1.000 pts.
+
+        Usado pelo scoring de ranking — princípio 1 da arquitetura:
+        'Point values usam P25 do mercado, não média.'
+        """
+        key = program.lower()
+        dist = POINT_VALUE_DISTRIBUTIONS.get(key)
+        if dist is not None:
+            return dist[0] * 1000  # P25 → R$/1.000 pts
+
+        # Fallback: usa pessimistic do JSON
+        return self.get_rate(program, "pessimistic")
+
+    def get_interval(self, program: str) -> tuple[float, float, float] | None:
+        """
+        Retorna (P25, P50, P75) em R$/1.000 pts para display ao usuário.
+
+        O intervalo P25–P75 é exibido ao usuário quando P75/P25 ≥ 1.5 (banda larga).
+        """
+        key = program.lower()
+        dist = POINT_VALUE_DISTRIBUTIONS.get(key)
+        if dist is not None:
+            return dist[0] * 1000, dist[1] * 1000, dist[2] * 1000
+        return None
 
     def get_partners(self, program: str) -> list[str]:
         """Retorna lista de parceiros de transferência do programa."""
