@@ -60,11 +60,13 @@ def build_transactions(monthly_income: float, monthly_spend: float) -> pl.DataFr
         "Lazer": 0.12, "Moradia": 0.20, "Educacao": 0.08, "Outros": 0.10,
     }
     desc_map = {
-        "Alimentacao": ["iFood Pedido", "Supermercado Extra", "Padaria Central"],
+        # "iFood Pedido Nubank" → activa detecção do emissor Nubank (eligibility_score bonus)
+        "Alimentacao": ["iFood Pedido Nubank", "Supermercado Extra", "Padaria Central"],
         "Transporte":  ["Uber Trip", "Combustível Shell", "99 Corrida"],
-        "Saude":       ["Farmácia Drogasil", "Consulta Médica", "Academia Smart"],
-        "Lazer":       ["Netflix", "Cinema Cinemark", "Bar e Restaurante"],
-        "Moradia":     ["Aluguel Imobiliária", "Condomínio", "Luz Enel"],
+        "Saude":       ["Farmácia Drogasil", "Consulta Médica", "Academia Smart Fit"],
+        "Lazer":       ["Netflix Assinatura", "Cinema Cinemark", "Bar e Restaurante"],
+        # "Banco Inter Condomínio" → activa detecção do emissor Banco Inter
+        "Moradia":     ["Aluguel Imobiliária", "Banco Inter Condomínio", "Luz Enel"],
         "Educacao":    ["Coursera", "Livros Amazon", "Escola de Idiomas"],
         "Outros":      ["Amazon Compras", "Magazine Luiza", "Loja X"],
     }
@@ -578,7 +580,7 @@ TOOLS = [
                 },
                 "tipo": {
                     "type": "string",
-                    "enum": ["IMOVEL", "VEICULO", "REFORMA", "OUTRO"],
+                    "enum": ["IMOVEL", "VEICULO", "REFORMA", "VIAGEM", "OUTRO"],
                     "default": "OUTRO",
                 },
                 "prazo_meses": {
@@ -662,14 +664,41 @@ def build_system(monthly_income: float, monthly_spend: float, safe_to_spend: flo
 - Safe-to-spend estimado: R$ {safe_to_spend:,.0f}
 - Cartão atual: {current_card}
 
-## Instruções
+## Instruções gerais
 - Responda SEMPRE em português brasileiro, de forma clara e direta.
 - Use as ferramentas disponíveis para buscar dados reais antes de responder sobre finanças.
 - Nunca invente números — execute a ferramenta e use os dados retornados.
 - Seja objetivo: destaque o que é mais importante para o usuário tomar uma decisão.
 - Use valores em R$ com formatação brasileira (ex: R$ 1.200,00).
-- Quando mostrar comparações (ex: financiamento vs consórcio), use os NPVs retornados pela ferramenta.
-- Cartões disponíveis na base: nubank-ultravioleta, nubank-roxinho, itau-personnalite, c6-carbon, xp-visa-infinite, inter-black, picpay-card, next-visa.
+
+## F2 — Optimizer de Cartões
+IDs de cartão válidos na base de conhecimento:
+- nubank-roxinho (cashback 1%, sempre grátis)
+- nubank-ultravioleta (pontos premium, lounge, seguro viagem)
+- inter-standard (cashback 0,5% / 1% alimentação)
+- inter-black (cashback 1,5%, lounge, sem anuidade com gasto ≥ R$4k/mês)
+- itau-personnalite (pontos + benefícios premium, renda mín R$10k)
+- c6-standard (0,25 pts/R$, grátis)
+- c6-carbon (pontos premium, lounge, renda mín R$5k)
+- xp-visa-infinite (cashback em investimentos XP, renda mín R$10k)
+- picpay-card (cashback 1,5% supermercados)
+- next-visa (cashback + saques grátis)
+
+Use `roi_cartao_atual` quando o usuário perguntar sobre um cartão específico (veredicto: VALE_A_PENA / MARGINAL / NAO_VALE).
+Use `carteira_ideal` para montar combinação multi-cartão que maximize retorno por categoria.
+
+## F3 — Architect de Aquisições
+Tipos de bem suportados (campo `tipo` em `simular_aquisicao`):
+- IMOVEL — apartamento/casa, mín R$50k, prazo 120–360 meses
+- VEICULO — carro/moto, mín R$5k, prazo 36–84 meses
+- REFORMA — obra/reforma, mín R$15k, prazo 24–120 meses
+- VIAGEM — viagem nacional/internacional, mín R$10k, prazo 12–60 meses
+- OUTRO — qualquer bem, mín R$1k, prazo 12–120 meses
+
+Estratégias comparadas: FINANCING, CONSORTIUM, SAVE_INVEST.
+Estratégias compostas (quando `renda_aluguel` for informado): FINANCING_RENTAL, CONSORTIUM_SELIC_RENTAL.
+Quando mostrar comparações, use os NPVs retornados — financing NPV menor = mais barato.
+Use `timing_scenarios` quando o usuário perguntar "vale esperar N meses?".
 """
 
 
@@ -756,10 +785,15 @@ st.caption("IA: claude-haiku-4-5-20251001 · Tool use real · Dados sintéticos 
 # ── Sidebar ───────────────────────────────────────────────────────
 
 PERFIS = {
-    "💼 Profissional Premium (R$ 15k)": {"income": 15_000, "spend": 8_500, "safe": 6_500},
-    "🏠 Classe Média (R$ 8.5k)":        {"income":  8_500, "spend": 5_200, "safe": 3_300},
-    "🎓 Jovem Profissional (R$ 5k)":    {"income":  5_000, "spend": 3_200, "safe": 1_800},
+    "💼 Profissional Premium (R$ 15k)": {"income": 15_000, "spend":  8_500, "safe":  6_500},
+    "🏠 Classe Média (R$ 8.5k)":        {"income":  8_500, "spend":  5_200, "safe":  3_300},
+    "🎓 Jovem Profissional (R$ 5k)":    {"income":  5_000, "spend":  3_200, "safe":  1_800},
     "🚀 Executivo Alto (R$ 25k)":       {"income": 25_000, "spend": 14_000, "safe": 11_000},
+    # Perfis focados em F3 —————————————————————————————————————
+    # safe_to_spend alto → liquidity_impact baixo → confidence_score alto no Architect
+    "🏗️ Comprador de Imóvel (R$ 18k)":  {"income": 18_000, "spend":  9_000, "safe":  9_000},
+    # travel_spend alto → activa path de viagem no F3 (VIAGEM asset type)
+    "✈️ Viajante Frequente (R$ 12k)":   {"income": 12_000, "spend":  7_500, "safe":  4_500},
 }
 
 with st.sidebar:
@@ -771,7 +805,16 @@ with st.sidebar:
     safe_to_spend  = st.number_input("Safe-to-spend (R$)", value=p["safe"],  step=200)
     current_card   = st.selectbox(
         "Cartão atual",
-        ["(nenhum)", "nubank-roxinho", "inter-black", "picpay-card", "next-visa", "nubank-ultravioleta"],
+        [
+            "(nenhum)",
+            # Nubank
+            "nubank-roxinho", "nubank-ultravioleta",
+            # Inter
+            "inter-standard", "inter-black",
+            # Outros emissores
+            "itau-personnalite", "c6-standard", "c6-carbon",
+            "xp-visa-infinite", "picpay-card", "next-visa",
+        ],
     )
     st.divider()
     st.caption("**Ferramentas disponíveis:**")
@@ -789,23 +832,53 @@ if "messages" not in st.session_state:
 
 # ── Sugestões de perguntas ────────────────────────────────────────
 
-SUGESTOES = [
-    "Qual cartão devo pedir com minha renda?",
-    "Vale a pena manter o nubank-roxinho ou devo trocar?",
-    "Me mostre a carteira ideal com 2 cartões.",
-    "Quero comprar um apartamento de R$ 500 mil. Qual a melhor estratégia?",
-    "Financiar um carro de R$ 80 mil: financiamento ou consórcio?",
-    "Compro o imóvel agora ou espero mais 2 anos poupando?",
-    "Como estão meus gastos por categoria?",
-    "Se eu alugar o imóvel, compensa mais financiar ou entrar no consórcio?",
+# ── F2: uma pergunta por tool ─────────────────────────────────────
+# perfil_consumo → gastos por categoria
+# otimizar_cartao → ranking completo com best_card
+# roi_cartao_atual → veredicto VALE/MARGINAL/NAO_VALE + gasto_adicional_para_isentar
+# carteira_ideal → MultiCardStrategy, até 4 cartões
+SUGESTOES_F2 = [
+    "Como estão meus gastos por categoria este mês?",
+    "Qual o melhor cartão para pedir com minha renda e padrão de gastos?",
+    "Vale a pena manter o nubank-roxinho ou devo trocar por outro?",
+    "Analise o ROI do meu c6-carbon: a anuidade está sendo compensada?",
+    "Monte a carteira ideal usando até 3 cartões para maximizar meu retorno.",
+    "Qual cartão me dá mais retorno em alimentação e supermercado?",
+    "Devo trocar meu inter-black por um itau-personnalite? Compare os dois.",
+    "Qual cartão Visa Infinite rende mais para quem faz compras internacionais?",
+]
+
+# ── F3: um prompt por asset_type + timing + rental_leverage ───────
+# IMOVEL → financing + consortium + NPV + rental leverage path
+# VEICULO → consortium probability + 36-84 meses
+# REFORMA → PRICE amortization curto prazo
+# VIAGEM → save_invest vs financing 12-60 meses
+# OUTRO → genérico, menor valor
+# timing_scenarios → acumular entrada vs comprar agora
+# compound strategy → consórcio + aluguel + SELIC
+SUGESTOES_F3 = [
+    "Quero comprar um apartamento de R$ 500 mil. Financiamento ou consórcio?",
+    "Financiar um carro de R$ 80 mil em 60 meses: qual a melhor estratégia?",
+    "Vou reformar minha casa por R$ 40 mil. Financiamento ou poupar/investir?",
+    "Quero fazer uma viagem de R$ 25 mil em 18 meses. Como me planejar?",
+    "Preciso de R$ 15 mil para um bem. Compare todas as estratégias disponíveis.",
+    "Compro o imóvel agora ou espero 12, 24 ou 36 meses juntando mais entrada?",
+    "Se eu alugar o imóvel de R$ 500 mil por R$ 2.500/mês, muda a estratégia?",
+    "Vale esperar 12 ou 24 meses para comprar o carro de R$ 80 mil com mais entrada?",
 ]
 
 if not st.session_state["messages"]:
-    st.write("**Perguntas para começar:**")
-    cols = st.columns(2)
-    for i, sug in enumerate(SUGESTOES):
-        if cols[i % 2].button(sug, key=f"sug_{i}", use_container_width=True):
-            st.session_state["prefill"] = sug
+    col_f2, col_f3 = st.columns(2)
+    with col_f2:
+        st.markdown("**🃏 F2 — Optimizer de Cartões**")
+        for i, sug in enumerate(SUGESTOES_F2):
+            if st.button(sug, key=f"f2_{i}", use_container_width=True):
+                st.session_state["prefill"] = sug
+    with col_f3:
+        st.markdown("**🏗️ F3 — Architect de Aquisições**")
+        for i, sug in enumerate(SUGESTOES_F3):
+            if st.button(sug, key=f"f3_{i}", use_container_width=True):
+                st.session_state["prefill"] = sug
 
 # ── Histórico de mensagens ─────────────────────────────────────────
 
