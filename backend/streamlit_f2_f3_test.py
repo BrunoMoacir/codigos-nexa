@@ -479,8 +479,13 @@ TOOLS = [
                     "type": "string",
                     "description": (
                         "ID do cartão na base de conhecimento. "
-                        "Valores válidos: nubank-ultravioleta, nubank-roxinho, itau-personnalite, "
-                        "c6-carbon, xp-visa-infinite, inter-black, picpay-card, next-visa"
+                        "Exemplos válidos: nubank-roxinho, nubank-ultravioleta, inter-standard, "
+                        "inter-win, inter-black, itau-platinum, itau-personnalite, itau-personnalite-gold, "
+                        "c6-standard, c6-carbon, xp-visa-infinite, picpay-card, meliuz-visa, "
+                        "neon-visa, santander-free, santander-unique, bb-ourocard-gold, "
+                        "bb-ourocard-infinite, bradesco-amex-gold, bradesco-amex-platinum, "
+                        "smiles-gold-amex, latam-pass-black, amazon-prime-mastercard, "
+                        "btgplus-mastercard, bradesco-diners-club"
                     ),
                 },
             },
@@ -672,17 +677,15 @@ def build_system(monthly_income: float, monthly_spend: float, safe_to_spend: flo
 - Use valores em R$ com formatação brasileira (ex: R$ 1.200,00).
 
 ## F2 — Optimizer de Cartões
-IDs de cartão válidos na base de conhecimento:
-- nubank-roxinho (cashback 1%, sempre grátis)
-- nubank-ultravioleta (pontos premium, lounge, seguro viagem)
-- inter-standard (cashback 0,5% / 1% alimentação)
-- inter-black (cashback 1,5%, lounge, sem anuidade com gasto ≥ R$4k/mês)
-- itau-personnalite (pontos + benefícios premium, renda mín R$10k)
-- c6-standard (0,25 pts/R$, grátis)
-- c6-carbon (pontos premium, lounge, renda mín R$5k)
-- xp-visa-infinite (cashback em investimentos XP, renda mín R$10k)
-- picpay-card (cashback 1,5% supermercados)
-- next-visa (cashback + saques grátis)
+IDs de cartão válidos na base de conhecimento (25 cartões):
+Nubank: nubank-roxinho (1% cashback, grátis), nubank-ultravioleta (pontos premium, lounge)
+Inter: inter-standard (0,5% cashback), inter-win, inter-black (1,5% cashback, lounge)
+Itaú: itau-platinum, itau-personnalite, itau-personnalite-gold (pontos premium)
+C6: c6-standard (grátis), c6-carbon (pontos + lounge)
+Outros: xp-visa-infinite, picpay-card, meliuz-visa, neon-visa, santander-free,
+santander-unique, bb-ourocard-gold, bb-ourocard-infinite, bradesco-amex-gold,
+bradesco-amex-platinum, bradesco-diners-club, smiles-gold-amex, latam-pass-black,
+amazon-prime-mastercard, btgplus-mastercard
 
 Use `roi_cartao_atual` quando o usuário perguntar sobre um cartão específico (veredicto: VALE_A_PENA / MARGINAL / NAO_VALE).
 Use `carteira_ideal` para montar combinação multi-cartão que maximize retorno por categoria.
@@ -810,10 +813,19 @@ with st.sidebar:
             # Nubank
             "nubank-roxinho", "nubank-ultravioleta",
             # Inter
-            "inter-standard", "inter-black",
-            # Outros emissores
-            "itau-personnalite", "c6-standard", "c6-carbon",
-            "xp-visa-infinite", "picpay-card", "next-visa",
+            "inter-standard", "inter-win", "inter-black",
+            # Itaú
+            "itau-platinum", "itau-personnalite", "itau-personnalite-gold",
+            # C6
+            "c6-standard", "c6-carbon",
+            # Outros
+            "xp-visa-infinite", "picpay-card", "meliuz-visa",
+            "neon-visa", "santander-free", "santander-unique",
+            "bb-ourocard-gold", "bb-ourocard-infinite",
+            "bradesco-amex-gold", "bradesco-amex-platinum",
+            "smiles-gold-amex", "latam-pass-black",
+            "amazon-prime-mastercard", "btgplus-mastercard",
+            "bradesco-diners-club",
         ],
     )
     st.divider()
