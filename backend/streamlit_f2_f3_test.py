@@ -69,20 +69,35 @@ def build_transactions(monthly_income: float, monthly_spend: float) -> pl.DataFr
         "Educacao":    ["Coursera", "Livros Amazon", "Escola de Idiomas"],
         "Outros":      ["Amazon Compras", "Magazine Luiza", "Loja X"],
     }
-    for m in range(3):
+    # Variação mensal de gasto (±10%) para simular sazonalidade realista ao longo do ano
+    # Meses mais caros: 0 (mês atual-1), 5 (meio do ano), 11 (12 meses atrás — férias)
+    _MONTHLY_VARIATION = [
+        1.05, 0.95, 1.00, 0.92, 0.98, 1.10,
+        1.03, 0.97, 1.00, 0.95, 1.02, 1.08,
+    ]
+    # Gasto internacional ocorre em ~metade dos meses (simulando compras esporádicas no exterior)
+    _INTL_MONTHS = {0, 1, 3, 5, 7, 9}
+
+    for m in range(12):
         base = today - timedelta(days=30 * (m + 1))
+        variation = _MONTHLY_VARIATION[m % len(_MONTHLY_VARIATION)]
+        month_spend = monthly_spend * variation
+
+        # Salário (13º em dezembro: mês 11 recebe dobro)
+        salary = monthly_income * (2.0 if m == 11 else 1.0)
         rows.append({
             "transaction_id": f"TX{tx_id:04d}", "user_id": "user_teste",
             "account_id": "acc_001", "description": "Salário Empresa ABC",
-            "amount": monthly_income, "date": base + timedelta(days=5),
+            "amount": salary, "date": base + timedelta(days=5),
             "transaction_type": "CREDIT", "category": "Renda",
             "is_recurring": True, "is_installment": False,
             "context_type": None, "context_confidence": 0.9,
             "context_override_by_user": False, "pj_subcategory": None,
         })
         tx_id += 1
+
         for cat, pct in categories.items():
-            cat_total = monthly_spend * pct
+            cat_total = month_spend * pct
             n = max(1, int(cat_total / 150))
             per = cat_total / n
             for i in range(n):
@@ -99,17 +114,20 @@ def build_transactions(monthly_income: float, monthly_spend: float) -> pl.DataFr
                     "pj_subcategory": None,
                 })
                 tx_id += 1
-        # gasto internacional mensal
-        rows.append({
-            "transaction_id": f"TX{tx_id:04d}", "user_id": "user_teste",
-            "account_id": "acc_001", "description": "Amazon USD Internacional",
-            "amount": -320.0, "date": base + timedelta(days=15),
-            "transaction_type": "CREDIT", "category": "Outros",
-            "is_recurring": False, "is_installment": False,
-            "context_type": None, "context_confidence": 0.8,
-            "context_override_by_user": False, "pj_subcategory": None,
-        })
-        tx_id += 1
+
+        # Gasto internacional (ocorre em meses selecionados)
+        if m in _INTL_MONTHS:
+            rows.append({
+                "transaction_id": f"TX{tx_id:04d}", "user_id": "user_teste",
+                "account_id": "acc_001", "description": "Amazon USD Internacional",
+                "amount": -320.0, "date": base + timedelta(days=15),
+                "transaction_type": "CREDIT", "category": "Outros",
+                "is_recurring": False, "is_installment": False,
+                "context_type": None, "context_confidence": 0.8,
+                "context_override_by_user": False, "pj_subcategory": None,
+            })
+            tx_id += 1
+
     return pl.DataFrame(rows).with_columns(pl.col("date").cast(pl.Date))
 
 
