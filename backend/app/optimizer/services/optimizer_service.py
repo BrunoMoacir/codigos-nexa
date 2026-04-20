@@ -242,9 +242,8 @@ class OptimizerService:
             result.eligibility_reasons = eligibility_reasons
             simulated_results.append(result)
 
-        # 5. Camada 3 Anti-FP: ConfidenceGate + MinGainFilter
-        # ConfidenceGate: descarta simulações com confiança < 0.65 (seção 5.4 da arquitetura)
-        # MinGainFilter: descarta se ganho líquido < R$10/mês = R$120/ano (seção 5.6)
+        # 5. Camada 3 Anti-FP: MinGainFilter (cartões com ganho negativo)
+        # ConfidenceGate (0.65) e MinGainFilter por insight são aplicados no InsightGenerator.
         simulated_results = _apply_anti_fp_gates(simulated_results, profile)
 
         # 6. Ranqueamento e Penalidades

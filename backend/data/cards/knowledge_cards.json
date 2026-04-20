@@ -16,9 +16,9 @@
       "type": "always_free",
       "description": "Sem anuidade permanente"
     },
-    "cashback_pct": 0.010,
+    "cashback_pct": 0.01,
     "cashback_cap": null,
-    "cashback_default_pct": 0.010,
+    "cashback_default_pct": 0.01,
     "cashback_categories": [],
     "points_per_brl": null,
     "points_currency": "cashback",
@@ -32,7 +32,7 @@
     ],
     "revolving_interest_monthly": 0.1599,
     "installment_interest_monthly": null,
-    "data_trust_score": 1.00,
+    "data_trust_score": 0.93,
     "request_link": null,
     "last_updated": "2025-03-01"
   },
@@ -57,8 +57,16 @@
     "cashback_cap": null,
     "cashback_default_pct": 0.005,
     "cashback_categories": [
-      {"category": "supermercado", "pct": 0.010, "cap_monthly": null},
-      {"category": "alimentacao", "pct": 0.010, "cap_monthly": null}
+      {
+        "category": "supermercado",
+        "pct": 0.01,
+        "cap_monthly": null
+      },
+      {
+        "category": "alimentacao",
+        "pct": 0.01,
+        "cap_monthly": null
+      }
     ],
     "points_per_brl": null,
     "points_currency": "cashback",
@@ -109,7 +117,7 @@
     ],
     "revolving_interest_monthly": 0.1599,
     "installment_interest_monthly": null,
-    "data_trust_score": 0.90,
+    "data_trust_score": 0.9,
     "request_link": null,
     "last_updated": "2025-03-01"
   },
@@ -134,8 +142,16 @@
     "cashback_cap": null,
     "cashback_default_pct": 0.005,
     "cashback_categories": [
-      {"category": "combustivel", "pct": 0.010, "cap_monthly": null},
-      {"category": "supermercado", "pct": 0.010, "cap_monthly": null}
+      {
+        "category": "combustivel",
+        "pct": 0.01,
+        "cap_monthly": null
+      },
+      {
+        "category": "supermercado",
+        "pct": 0.01,
+        "cap_monthly": null
+      }
     ],
     "points_per_brl": null,
     "points_currency": "cashback",
@@ -170,19 +186,33 @@
       "type": "always_free",
       "description": "Sem anuidade"
     },
-    "cashback_pct": 0.010,
+    "cashback_pct": 0.01,
     "cashback_cap": null,
-    "cashback_default_pct": 0.010,
+    "cashback_default_pct": 0.01,
     "cashback_categories": [
-      {"category": "alimentacao", "pct": 0.030, "cap_monthly": null},
-      {"category": "streaming", "pct": 0.020, "cap_monthly": null},
-      {"category": "supermercado", "pct": 0.015, "cap_monthly": null}
+      {
+        "category": "alimentacao",
+        "pct": 0.03,
+        "cap_monthly": null
+      },
+      {
+        "category": "streaming",
+        "pct": 0.02,
+        "cap_monthly": null
+      },
+      {
+        "category": "supermercado",
+        "pct": 0.015,
+        "cap_monthly": null
+      }
     ],
     "points_per_brl": null,
     "points_currency": "cashback",
     "points_conversion_rate": 0.0,
     "loyalty_program": null,
-    "benefit_tags": ["CASHBACK"],
+    "benefit_tags": [
+      "CASHBACK"
+    ],
     "benefits_detail": [
       "3% cashback em delivery e alimentação",
       "2% cashback em streaming",
@@ -192,7 +222,7 @@
     ],
     "revolving_interest_monthly": 0.1699,
     "installment_interest_monthly": null,
-    "data_trust_score": 0.80,
+    "data_trust_score": 0.8,
     "request_link": null,
     "last_updated": "2025-03-01"
   },
@@ -217,15 +247,29 @@
     "cashback_cap": null,
     "cashback_default_pct": 0.005,
     "cashback_categories": [
-      {"category": "supermercado", "pct": 0.010, "cap_monthly": null},
-      {"category": "combustivel", "pct": 0.010, "cap_monthly": null},
-      {"category": "farmacia", "pct": 0.010, "cap_monthly": null}
+      {
+        "category": "supermercado",
+        "pct": 0.01,
+        "cap_monthly": null
+      },
+      {
+        "category": "combustivel",
+        "pct": 0.01,
+        "cap_monthly": null
+      },
+      {
+        "category": "farmacia",
+        "pct": 0.01,
+        "cap_monthly": null
+      }
     ],
     "points_per_brl": null,
     "points_currency": "cashback",
     "points_conversion_rate": 0.0,
     "loyalty_program": null,
-    "benefit_tags": ["CASHBACK"],
+    "benefit_tags": [
+      "CASHBACK"
+    ],
     "benefits_detail": [
       "0,5% cashback geral",
       "1% supermercado, combustível e farmácia",
@@ -263,7 +307,9 @@
     "points_currency": "cashback",
     "points_conversion_rate": 0.0,
     "loyalty_program": null,
-    "benefit_tags": ["CASHBACK"],
+    "benefit_tags": [
+      "CASHBACK"
+    ],
     "benefits_detail": [
       "1,5% cashback geral",
       "5% cashback em Amazon.com.br",
@@ -292,21 +338,30 @@
       "type": "none",
       "description": "Anuidade R$50/mês sem isenção por gasto"
     },
-    "cashback_pct": 0.010,
+    "cashback_pct": 0.01,
     "cashback_cap": null,
-    "cashback_default_pct": 0.010,
+    "cashback_default_pct": 0.01,
     "cashback_categories": [],
     "points_per_brl": null,
     "points_currency": "cashback",
     "points_conversion_rate": 0.0,
     "loyalty_program": null,
-    "benefit_tags": ["CASHBACK"],
+    "benefit_tags": [
+      "CASHBACK",
+      "LOUNGE",
+      "TRAVEL",
+      "INSURANCE",
+      "PREMIUM"
+    ],
     "benefits_detail": [
       "1% cashback em todas as compras",
       "Cashback em débito (0,5%)",
-      "Seguro celular",
-      "Proteção de compras e garantia estendida",
-      "Mastercard Black"
+      "Acesso ilimitado a mais de 1.000 salas VIP em aeroportos (LoungeKey)",
+      "Seguro viagem internacional",
+      "Seguro celular e proteção de compras",
+      "Garantia estendida original",
+      "Mastercard Black — concierge 24h",
+      "Proteção de preço (Price Protect)"
     ],
     "revolving_interest_monthly": 0.1499,
     "installment_interest_monthly": 0.0299,
@@ -347,7 +402,7 @@
     ],
     "revolving_interest_monthly": 0.1599,
     "installment_interest_monthly": null,
-    "data_trust_score": 0.90,
+    "data_trust_score": 0.9,
     "request_link": null,
     "last_updated": "2025-03-01"
   },
@@ -372,15 +427,29 @@
     "cashback_cap": null,
     "cashback_default_pct": 0.015,
     "cashback_categories": [
-      {"category": "supermercado", "pct": 0.020, "cap_monthly": null},
-      {"category": "alimentacao", "pct": 0.020, "cap_monthly": null},
-      {"category": "combustivel", "pct": 0.015, "cap_monthly": null}
+      {
+        "category": "supermercado",
+        "pct": 0.02,
+        "cap_monthly": null
+      },
+      {
+        "category": "alimentacao",
+        "pct": 0.02,
+        "cap_monthly": null
+      },
+      {
+        "category": "combustivel",
+        "pct": 0.015,
+        "cap_monthly": null
+      }
     ],
     "points_per_brl": null,
     "points_currency": "cashback",
     "points_conversion_rate": 0.0,
     "loyalty_program": null,
-    "benefit_tags": ["CASHBACK"],
+    "benefit_tags": [
+      "CASHBACK"
+    ],
     "benefits_detail": [
       "1,5% cashback geral",
       "2% supermercado e alimentação",
@@ -418,7 +487,7 @@
     "points_per_brl": 0.5,
     "points_currency": "pontos Itaú",
     "points_conversion_rate": 17.0,
-    "loyalty_program": "pontos_itau",
+    "loyalty_program": "itau_multiplus",
     "benefit_tags": [],
     "benefits_detail": [
       "0,5 pontos Itaú por real gasto",
@@ -457,7 +526,7 @@
     "points_per_brl": 0.5,
     "points_currency": "Membership Rewards",
     "points_conversion_rate": 22.0,
-    "loyalty_program": "membership_rewards",
+    "loyalty_program": "membership_amex",
     "benefit_tags": [],
     "benefits_detail": [
       "2 pontos/real em supermercado e streaming (~4% efetivo)",
@@ -538,7 +607,13 @@
     "points_currency": "pontos XP",
     "points_conversion_rate": 25.0,
     "loyalty_program": "xp_pontos",
-    "benefit_tags": ["TRAVEL", "LOUNGE", "INSURANCE", "INTERNACIONAL", "PREMIUM"],
+    "benefit_tags": [
+      "TRAVEL",
+      "LOUNGE",
+      "INSURANCE",
+      "INTERNACIONAL",
+      "PREMIUM"
+    ],
     "benefits_detail": [
       "Pontos XP valem R$0,025 — mais valorizados do segmento",
       "Sala VIP LoungeKey (4 visitas/ano)",
@@ -549,7 +624,7 @@
     ],
     "revolving_interest_monthly": 0.1499,
     "installment_interest_monthly": 0.0249,
-    "data_trust_score": 0.90,
+    "data_trust_score": 0.9,
     "request_link": null,
     "last_updated": "2025-03-01"
   },
@@ -579,7 +654,12 @@
     "points_currency": "meli pontos",
     "points_conversion_rate": 22.0,
     "loyalty_program": "smiles",
-    "benefit_tags": ["TRAVEL", "LOUNGE", "INSURANCE", "INTERNACIONAL"],
+    "benefit_tags": [
+      "TRAVEL",
+      "LOUNGE",
+      "INSURANCE",
+      "INTERNACIONAL"
+    ],
     "benefits_detail": [
       "Sala VIP Mastercard Airport Experiences ILIMITADA",
       "2 milhas Smiles/real em viagem (~4,4% efetivo)",
@@ -616,15 +696,32 @@
     "cashback_cap": null,
     "cashback_default_pct": 0.005,
     "cashback_categories": [
-      {"category": "supermercado", "pct": 0.010, "cap_monthly": null},
-      {"category": "alimentacao", "pct": 0.010, "cap_monthly": null},
-      {"category": "viagem", "pct": 0.015, "cap_monthly": null}
+      {
+        "category": "supermercado",
+        "pct": 0.01,
+        "cap_monthly": null
+      },
+      {
+        "category": "alimentacao",
+        "pct": 0.01,
+        "cap_monthly": null
+      },
+      {
+        "category": "viagem",
+        "pct": 0.015,
+        "cap_monthly": null
+      }
     ],
     "points_per_brl": null,
     "points_currency": "cashback",
     "points_conversion_rate": 0.0,
     "loyalty_program": null,
-    "benefit_tags": ["TRAVEL", "LOUNGE", "INSURANCE", "INTERNACIONAL"],
+    "benefit_tags": [
+      "TRAVEL",
+      "LOUNGE",
+      "INSURANCE",
+      "INTERNACIONAL"
+    ],
     "benefits_detail": [
       "0,5% cashback geral",
       "1% supermercado e alimentação",
@@ -658,20 +755,41 @@
       "threshold": 180000,
       "description": "Anuidade isenta gastando R$ 180k/ano"
     },
-    "cashback_pct": 0.010,
+    "cashback_pct": 0.01,
     "cashback_cap": null,
-    "cashback_default_pct": 0.010,
+    "cashback_default_pct": 0.01,
     "cashback_categories": [
-      {"category": "supermercado", "pct": 0.015, "cap_monthly": null},
-      {"category": "alimentacao", "pct": 0.015, "cap_monthly": null},
-      {"category": "viagem", "pct": 0.020, "cap_monthly": null},
-      {"category": "combustivel", "pct": 0.010, "cap_monthly": null}
+      {
+        "category": "supermercado",
+        "pct": 0.015,
+        "cap_monthly": null
+      },
+      {
+        "category": "alimentacao",
+        "pct": 0.015,
+        "cap_monthly": null
+      },
+      {
+        "category": "viagem",
+        "pct": 0.02,
+        "cap_monthly": null
+      },
+      {
+        "category": "combustivel",
+        "pct": 0.01,
+        "cap_monthly": null
+      }
     ],
     "points_per_brl": null,
     "points_currency": "cashback",
     "points_conversion_rate": 0.0,
     "loyalty_program": null,
-    "benefit_tags": ["TRAVEL", "LOUNGE", "INSURANCE", "INTERNACIONAL"],
+    "benefit_tags": [
+      "TRAVEL",
+      "LOUNGE",
+      "INSURANCE",
+      "INTERNACIONAL"
+    ],
     "benefits_detail": [
       "1% cashback geral",
       "2% cashback em viagem",
@@ -713,7 +831,13 @@
     "points_currency": "pontos Livelo",
     "points_conversion_rate": 20.0,
     "loyalty_program": "livelo",
-    "benefit_tags": ["TRAVEL", "LOUNGE", "INSURANCE", "INTERNACIONAL", "PREMIUM"],
+    "benefit_tags": [
+      "TRAVEL",
+      "LOUNGE",
+      "INSURANCE",
+      "INTERNACIONAL",
+      "PREMIUM"
+    ],
     "benefits_detail": [
       "Sala VIP Club Milestones ILIMITADA",
       "2 pontos/real em viagem",
@@ -754,8 +878,12 @@
     "points_per_brl": 1.0,
     "points_currency": "pontos Itaú",
     "points_conversion_rate": 17.0,
-    "loyalty_program": "pontos_itau",
-    "benefit_tags": ["TRAVEL", "LOUNGE", "INSURANCE"],
+    "loyalty_program": "itau_multiplus",
+    "benefit_tags": [
+      "TRAVEL",
+      "LOUNGE",
+      "INSURANCE"
+    ],
     "benefits_detail": [
       "Exige conta Personnalité",
       "2 pontos/real em restaurantes e viagem (~3,4% efetivo)",
@@ -795,7 +923,11 @@
     "points_currency": "milhas Smiles",
     "points_conversion_rate": 22.0,
     "loyalty_program": "smiles",
-    "benefit_tags": ["TRAVEL", "INSURANCE", "INTERNACIONAL"],
+    "benefit_tags": [
+      "TRAVEL",
+      "INSURANCE",
+      "INTERNACIONAL"
+    ],
     "benefits_detail": [
       "2,5 milhas Smiles/real em passagens Gol (~5,5% efetivo)",
       "1,5 milhas/real em alimentação e combustível",
@@ -837,7 +969,12 @@
     "points_currency": "milhas Latam Pass",
     "points_conversion_rate": 21.0,
     "loyalty_program": "latam_pass",
-    "benefit_tags": ["TRAVEL", "LOUNGE", "INSURANCE", "INTERNACIONAL"],
+    "benefit_tags": [
+      "TRAVEL",
+      "LOUNGE",
+      "INSURANCE",
+      "INTERNACIONAL"
+    ],
     "benefits_detail": [
       "2,5 milhas Latam Pass/real em Latam.com",
       "Sala VIP (4 visitas/ano)",
@@ -876,8 +1013,14 @@
     "points_per_brl": 2.2,
     "points_currency": "Membership Rewards",
     "points_conversion_rate": 22.0,
-    "loyalty_program": "membership_rewards",
-    "benefit_tags": ["TRAVEL", "LOUNGE", "INSURANCE", "INTERNACIONAL", "PREMIUM"],
+    "loyalty_program": "membership_amex",
+    "benefit_tags": [
+      "TRAVEL",
+      "LOUNGE",
+      "INSURANCE",
+      "INTERNACIONAL",
+      "PREMIUM"
+    ],
     "benefits_detail": [
       "Priority Pass + Amex Centurion Lounge ILIMITADO em +1.300 aeroportos",
       "Crédito de viagem anual R$1.000",
@@ -919,8 +1062,14 @@
     "points_per_brl": 2.2,
     "points_currency": "pontos Itaú",
     "points_conversion_rate": 17.0,
-    "loyalty_program": "pontos_itau",
-    "benefit_tags": ["TRAVEL", "LOUNGE", "INSURANCE", "INTERNACIONAL", "PREMIUM"],
+    "loyalty_program": "itau_multiplus",
+    "benefit_tags": [
+      "TRAVEL",
+      "LOUNGE",
+      "INSURANCE",
+      "INTERNACIONAL",
+      "PREMIUM"
+    ],
     "benefits_detail": [
       "Exige conta Personnalité",
       "2,2 pontos/real geral (~4,4% efetivo)",
@@ -963,7 +1112,13 @@
     "points_currency": "pontos Esfera",
     "points_conversion_rate": 18.0,
     "loyalty_program": "esfera",
-    "benefit_tags": ["TRAVEL", "LOUNGE", "INSURANCE", "INTERNACIONAL", "PREMIUM"],
+    "benefit_tags": [
+      "TRAVEL",
+      "LOUNGE",
+      "INSURANCE",
+      "INTERNACIONAL",
+      "PREMIUM"
+    ],
     "benefits_detail": [
       "Exige conta Select",
       "2 pontos Esfera/real geral (~3,6% efetivo)",
@@ -1006,7 +1161,13 @@
     "points_currency": "pontos Livelo",
     "points_conversion_rate": 20.0,
     "loyalty_program": "livelo",
-    "benefit_tags": ["TRAVEL", "LOUNGE", "INSURANCE", "INTERNACIONAL", "PREMIUM"],
+    "benefit_tags": [
+      "TRAVEL",
+      "LOUNGE",
+      "INSURANCE",
+      "INTERNACIONAL",
+      "PREMIUM"
+    ],
     "benefits_detail": [
       "Exige conta Estilo no BB",
       "2 pontos Livelo/real geral (~4% efetivo)",
