@@ -265,14 +265,22 @@ class InsightGenerator:
     ) -> list[ActionableInsight]:
         insights: list[ActionableInsight] = []
 
+        current_monthly_credit_spend = profile.monthly_avg_spend * getattr(profile, "credit_spend_ratio", 1.0)
+
         for result in ranked_results[:5]:
-            # Só aplica se o cartão ainda paga anuidade (não foi isentado)
             if result.annuity_waived or result.annuity_effective <= 0:
                 continue
 
             monthly_annuity = result.annuity_effective / 12
             if monthly_annuity < 10:
                 continue
+
+            # Gap de gasto: quanto a mais por mês para atingir o threshold de isenção
+            monthly_gap: float | None = None
+            if result.waiver_threshold and result.waiver_threshold > 0:
+                needed_monthly = result.waiver_threshold / 12
+                raw_gap = needed_monthly - current_monthly_credit_spend
+                monthly_gap = round(max(raw_gap, 0.0), 2)
 
             effort = InsightEffort.MEDIO
             interval = InsightInterval(
@@ -281,13 +289,26 @@ class InsightGenerator:
                 optimistic=monthly_annuity,
             )
 
+            if monthly_gap is not None and monthly_gap > 0:
+                description = (
+                    f"Gastando mais R${monthly_gap:,.0f}/mês no {result.card_name} "
+                    f"você elimina a anuidade de {interval.display_text()}."
+                )
+            elif monthly_gap == 0.0:
+                description = (
+                    f"Você já está próximo do threshold de isenção do {result.card_name}. "
+                    f"Concentrar seus gastos nele pode eliminar a anuidade de {interval.display_text()}."
+                )
+            else:
+                description = (
+                    f"Aumentar gastos no {result.card_name} pode eliminar a anuidade "
+                    f"de {interval.display_text()}."
+                )
+
             insights.append(ActionableInsight(
                 type=InsightType.ATINGIR_ISENCAO,
                 title=f"Isentar anuidade do {result.card_name}",
-                description=(
-                    f"Aumentar gastos no {result.card_name} pode eliminar a anuidade "
-                    f"de {interval.display_text()}."
-                ),
+                description=description,
                 gain_interval=interval,
                 effort=effort,
                 confidence_score=result.confidence_score,

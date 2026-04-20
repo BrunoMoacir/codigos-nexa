@@ -140,6 +140,7 @@ class CardSimulationResult(BaseModel):
     explanation_steps: list[str] = []
     benefit_highlights: list[str] = []
     benefit_tags: list[BenefitTag] = []
+    waiver_threshold: Optional[float] = None  # gasto anual necessário para isentar anuidade
 
 
 class OptimizationReport(BaseModel):

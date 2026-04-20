@@ -128,6 +128,12 @@ class CardSimulator:
             card, profile, spend_annual, annuity_effective, annuity_waived, values, net_gain_expected
         )
 
+        waiver_threshold = (
+            card.waiver_rules.threshold
+            if card.waiver_rules.type == "spend_threshold" and card.waiver_rules.threshold
+            else None
+        )
+
         return CardSimulationResult(
             card_id=card.card_id,
             card_name=card.name,
@@ -151,6 +157,7 @@ class CardSimulator:
             explanation_steps=explanation_steps,
             benefit_highlights=card.benefits_detail[:3],
             benefit_tags=list(card.benefit_tags),
+            waiver_threshold=waiver_threshold,
         )
 
     # ─── Helpers privados ─────────────────────────────────────────────────────
@@ -493,11 +500,27 @@ class CardSimulator:
                 f"Pontos gerados: R$ {spend_annual:,.0f} × {card.points_per_brl} "
                 f"= {pts_annual:,.0f} pontos/ano"
             )
-            steps.append(
-                f"Valor dos pontos: {pts_annual:,.0f} ÷ 1.000 "
-                f"× R$ {card.points_conversion_rate} "
-                f"= R$ {values['expected']:,.2f}/ano"
-            )
+            # M2.3: usar taxa real do MilesValuator (P50) em vez do fallback estático
+            if card.loyalty_program:
+                dynamic_rate = get_valuator().get_rate(card.loyalty_program, "expected")
+                if dynamic_rate:
+                    steps.append(
+                        f"Valor dos pontos ({card.loyalty_program} P50): "
+                        f"{pts_annual:,.0f} ÷ 1.000 × R$ {dynamic_rate:.1f} "
+                        f"= R$ {values['expected']:,.2f}/ano"
+                    )
+                else:
+                    steps.append(
+                        f"Valor dos pontos: {pts_annual:,.0f} ÷ 1.000 "
+                        f"× R$ {card.points_conversion_rate} "
+                        f"= R$ {values['expected']:,.2f}/ano"
+                    )
+            else:
+                steps.append(
+                    f"Valor dos pontos: {pts_annual:,.0f} ÷ 1.000 "
+                    f"× R$ {card.points_conversion_rate} "
+                    f"= R$ {values['expected']:,.2f}/ano"
+                )
         elif card.card_type in (CardType.CASHBACK, CardType.INVESTBACK):
             if card.cashback_categories and profile is not None:
                 rules_by_pct = sorted(card.cashback_categories, key=lambda r: r.pct, reverse=True)
