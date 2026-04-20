@@ -209,6 +209,12 @@ class OptimizerService:
             exclude_consigned=True,  # Por padrão excluímos consignados para ser conservador
         )
 
+        # Fallback de liquidez: quando safe_to_spend não vem da F1, usa 30% da renda
+        # mensal estimada. Sem isso, todos os cartões com anuidade recebem CRITICAL (×0.2).
+        effective_safe_to_spend = request.safe_to_spend or (
+            (annual_income / 12 * 0.30) if annual_income > 0 else None
+        )
+
         # 4. Simular cada cartão e calcular a pontuação de elegibilidade
         issuers = extract_issuers_from_transactions(transactions_df)
 
@@ -218,7 +224,7 @@ class OptimizerService:
             result = self.simulator.simulate(
                 card=card,
                 profile=profile,
-                safe_to_spend=request.safe_to_spend,
+                safe_to_spend=effective_safe_to_spend,
             )
 
             # Calcular score de elegibilidade realística e adicionar os warnings na simulação
@@ -249,10 +255,24 @@ class OptimizerService:
 
         # 8. Camada 5 — Gerar insights acionáveis
         current_card_id = request.current_cards[0] if request.current_cards else None
+
+        # Retorno mensal do cartão atual — necessário para TROCAR_PRIMARIO ser incremental.
+        # Sem isso, o insight mostraria o ganho total do novo cartão, não o ganho adicional.
+        current_card_monthly_return = 0.0
+        if current_card_id:
+            current_card_record = self.knowledge_base.get_by_id(current_card_id)
+            if current_card_record is not None:
+                try:
+                    roi = self.simulator.calculate_current_card_roi(current_card_record, profile)
+                    current_card_monthly_return = roi.net_roi / 12
+                except Exception:
+                    pass  # fallback seguro: 0.0 (insight superestima, não trava)
+
         insights = self.insight_generator.generate(
             ranked_results=ranked_results,
             profile=profile,
             current_card_id=current_card_id,
+            current_card_monthly_return=current_card_monthly_return,
         )
 
         # 9. Formatar o Relatório

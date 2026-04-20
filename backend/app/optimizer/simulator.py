@@ -412,23 +412,29 @@ class CardSimulator:
                 + (f" (threshold: R$ {threshold:,.0f})" if threshold else "")
             )
 
-        # Cashback em categoria relevante.
-        # break intencional: o cashback_pct dos cartões atuais é flat (sem distinção
-        # de categoria), então uma razão com a categoria de maior gasto já é
-        # representativa. Se futuramente o modelo suportar cashback_categories com
-        # taxas diferenciadas, este bloco deve ser refatorado para iterar todas.
-        if card.card_type in (CardType.CASHBACK, CardType.INVESTBACK) and card.cashback_pct:
-            top_cats = self._top_categories(profile, n=3)
-            for cat in top_cats:
-                cat_spend = profile.spend_by_category.get(cat, 0.0)
-                if cat_spend > 100:
-                    annual_cashback = cat_spend * 12 * card.cashback_pct
+        # Cashback em categoria relevante — M2.5 ou flat
+        if card.card_type in (CardType.CASHBACK, CardType.INVESTBACK):
+            if card.cashback_categories:
+                # M2.5: mostrar as duas maiores taxas por categoria
+                rules_by_pct = sorted(card.cashback_categories, key=lambda r: r.pct, reverse=True)
+                highlights = [f"{r.category} {r.pct * 100:.0f}%" for r in rules_by_pct[:2]]
+                if highlights:
                     reasons.append(
-                        f"Seu gasto médio de R$ {cat_spend:,.0f}/mês em {cat} "
-                        f"rende {card.cashback_pct * 100:.0f}% de cashback "
-                        f"= R$ {annual_cashback:,.0f}/ano"
+                        f"Cashback diferenciado por categoria: {', '.join(highlights)}"
+                        + (" e outras" if len(rules_by_pct) > 2 else "")
                     )
-                    break
+            elif card.cashback_pct:
+                top_cats = self._top_categories(profile, n=3)
+                for cat in top_cats:
+                    cat_spend = profile.spend_by_category.get(cat, 0.0)
+                    if cat_spend > 100:
+                        annual_cashback = cat_spend * 12 * card.cashback_pct
+                        reasons.append(
+                            f"Seu gasto médio de R$ {cat_spend:,.0f}/mês em {cat} "
+                            f"rende {card.cashback_pct * 100:.0f}% de cashback "
+                            f"= R$ {annual_cashback:,.0f}/ano"
+                        )
+                        break
 
         # Gasto internacional expressivo
         if profile.international_spend_monthly > 300 and BenefitTag.INTERNACIONAL in card.benefit_tags:
@@ -492,11 +498,18 @@ class CardSimulator:
                 f"× R$ {card.points_conversion_rate} "
                 f"= R$ {values['expected']:,.2f}/ano"
             )
-        elif card.card_type in (CardType.CASHBACK, CardType.INVESTBACK) and card.cashback_pct:
-            steps.append(
-                f"Cashback: R$ {spend_annual:,.0f} × {card.cashback_pct * 100:.1f}% "
-                f"= R$ {values['expected']:,.2f}/ano"
-            )
+        elif card.card_type in (CardType.CASHBACK, CardType.INVESTBACK):
+            if card.cashback_categories and profile is not None:
+                rules_by_pct = sorted(card.cashback_categories, key=lambda r: r.pct, reverse=True)
+                cat_desc = ", ".join(f"{r.category} {r.pct * 100:.0f}%" for r in rules_by_pct[:2])
+                steps.append(
+                    f"Cashback por categoria ({cat_desc}...): R$ {values['expected']:,.2f}/ano"
+                )
+            elif card.cashback_pct:
+                steps.append(
+                    f"Cashback: R$ {spend_annual:,.0f} × {card.cashback_pct * 100:.1f}% "
+                    f"= R$ {values['expected']:,.2f}/ano"
+                )
 
         steps.append(
             f"Ganho líquido esperado: R$ {values['expected']:,.2f} − "
