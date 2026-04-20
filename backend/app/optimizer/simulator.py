@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 
+from app.optimizer.constants import TRAVEL_SPEND_THRESHOLD
 from app.optimizer.miles_valuator import get_valuator
 from app.optimizer.models import (
     BenefitTag,
@@ -42,14 +43,14 @@ class BenefitViabilityFilter:
 
     Benefícios bloqueados têm monthly_value = 0.00 — não podem compensar anuidade alta.
     Proxies usados quando não há campo direto (ex: flights_per_year):
-        - travel_spend_monthly > 800 → flights_per_year ≥ 4 (proxy)
+        - travel_spend_monthly > TRAVEL_SPEND_THRESHOLD → flights_per_year ≥ 4 (proxy)
         - travel_spend_monthly > 0   → flights_per_year ≥ 1 (proxy mínimo)
         - international_spend_monthly > 50 → has_international_spend
     """
 
     # tag → condição que bloqueia completamente o benefício
     HARD_BLOCKS: dict[BenefitTag, object] = {
-        BenefitTag.LOUNGE: lambda profile: profile.travel_spend_monthly < 800,
+        BenefitTag.LOUNGE: lambda profile: profile.travel_spend_monthly < TRAVEL_SPEND_THRESHOLD,
         BenefitTag.INTERNACIONAL: lambda profile: profile.international_spend_monthly < 50,
     }
 
