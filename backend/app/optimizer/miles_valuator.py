@@ -44,20 +44,23 @@ _SCENARIO_KEY: dict[str, str] = {
 }
 
 # Distribuição de mercado por programa — (P25, P50, P75) em R$/ponto
-# Fonte: MaxMilhas / PassagensImperdíveis (scraping mensal — atualizar via migration)
+# Fonte: miles_valuation.json (pessimistic/expected/optimistic_per_1000 ÷ 1000)
+# Programas sem entrada no JSON usam estimativas de mercado (latam_pass, itau_multiplus, etc.)
 # P25 → usado para scoring/ranking (conservador)
 # P50 → mostrado ao usuário como "valor esperado"
 # P75 → mostrado como "cenário otimista" quando otimista/pessimista divergem > 50%
 POINT_VALUE_DISTRIBUTIONS: dict[str, tuple[float, float, float]] = {
-    "smiles":          (0.014, 0.022, 0.038),
+    # Sincronizados com miles_valuation.json (Mar/2026)
+    "smiles":          (0.012, 0.022, 0.040),
+    "livelo":          (0.008, 0.016, 0.028),
+    "nu_pontos":       (0.008, 0.014, 0.022),
+    "atomos":          (0.007, 0.014, 0.024),
+    # Estimativas de mercado (programas não cobertos pelo JSON)
     "latam_pass":      (0.013, 0.021, 0.035),
-    "livelo":          (0.015, 0.020, 0.028),
     "itau_multiplus":  (0.013, 0.017, 0.023),
     "xp_pontos":       (0.020, 0.025, 0.032),
     "membership_amex": (0.017, 0.022, 0.030),
     "esfera":          (0.013, 0.018, 0.025),
-    "nu_pontos":       (0.010, 0.015, 0.020),
-    "atomos":          (0.010, 0.015, 0.022),
     "stix":            (0.012, 0.018, 0.025),
 }
 
