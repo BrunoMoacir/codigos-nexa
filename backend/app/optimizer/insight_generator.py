@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from app.optimizer.constants import INTL_SPEND_THRESHOLD, TRAVEL_SPEND_THRESHOLD
 from app.optimizer.models import (
     ActionableInsight,
     BenefitTag,
@@ -499,9 +500,9 @@ class InsightGenerator:
 
     def _estimate_benefit_value(self, tag, profile: "UserProfile") -> float:
         """Estimativa simplificada de valor mensal do benefício com base no perfil."""
-        if tag == BenefitTag.LOUNGE and profile.travel_spend_monthly > 800:
+        if tag == BenefitTag.LOUNGE and profile.travel_spend_monthly > TRAVEL_SPEND_THRESHOLD:
             return 70.0  # R$70/uso × ~1 uso/mês
-        if tag == BenefitTag.INTERNACIONAL and profile.international_spend_monthly > 500:
+        if tag == BenefitTag.INTERNACIONAL and profile.international_spend_monthly > INTL_SPEND_THRESHOLD:
             return 25.0  # estimativa de economia em IOF
         return 0.0
 

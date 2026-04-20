@@ -358,9 +358,10 @@ class ConsumptionProfiler:
         Usuários com alto uso de débito têm retorno de cartão de crédito superestimado
         se usarmos monthly_avg_spend bruto. Este ratio corrige isso.
 
-        Floor de 0.50: mesmo um usuário 100% débito transferiria ao menos metade
-        do gasto para um novo cartão de crédito — assumir 0 seria excessivamente
-        conservador e eliminaria todas as recomendações.
+        Floor de 0.10: usuário predominantemente débito pode não querer crédito —
+        assumir 50% causava superestimação de 5-10x para usuários PIX-only.
+        Floor mínimo de 10% evita retorno=0 para usuários sem histórico de crédito,
+        preservando recomendações básicas sem inflar resultados.
         """
         credit = spend_by_source.get("credit", 0.0)
         debit = spend_by_source.get("debit", 0.0)
@@ -368,4 +369,4 @@ class ConsumptionProfiler:
         if total <= 0:
             return 1.0
         raw_ratio = credit / total
-        return max(raw_ratio, 0.50)
+        return max(raw_ratio, 0.10)

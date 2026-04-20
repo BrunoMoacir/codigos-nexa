@@ -6,6 +6,12 @@ from __future__ import annotations
 
 import logging
 
+from app.optimizer.constants import (
+    INTL_SPEND_THRESHOLD as _INTL_SPEND_THRESHOLD,
+    TRAVEL_SPEND_THRESHOLD as _TRAVEL_SPEND_THRESHOLD,
+    INTL_RANKING_BONUS as _INTL_BONUS,
+    LOUNGE_RANKING_BONUS as _LOUNGE_BONUS,
+)
 from app.optimizer.models import BenefitTag, CardSimulationResult, LiquidityRisk
 from app.optimizer.profiler import UserProfile
 
@@ -19,14 +25,6 @@ _LIQUIDITY_MULTIPLIER: dict[LiquidityRisk, float] = {
     LiquidityRisk.HIGH: 0.60,      # −40%
     LiquidityRisk.CRITICAL: 0.20,  # −80%
 }
-
-# Thresholds de gasto mensal para bônus de benefícios específicos (BenefitViabilityFilter)
-_INTL_SPEND_THRESHOLD = 500.0    # R$/mês — proxy para has_international_spend
-_TRAVEL_SPEND_THRESHOLD = 800.0  # R$/mês — proxy para flights_per_year ≥ 4
-
-# Bônus anuais adicionados ao score quando perfil valida o benefício
-_INTL_BONUS = 200.0   # R$/ano
-_LOUNGE_BONUS = 300.0  # R$/ano
 
 # Se benefícios somados > 40% do ganho base, aplicar desconto de 15% (regra anti-FP)
 _BENEFIT_DOMINANCE_THRESHOLD = 0.40
