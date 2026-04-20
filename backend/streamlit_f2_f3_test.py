@@ -256,6 +256,7 @@ def tool_roi_cartao_atual(
 
 def tool_carteira_ideal(
     monthly_income: float, monthly_spend: float, safe_to_spend: float, max_cards: int,
+    current_card_ids: list[str] | None = None,
 ) -> dict:
     from app.optimizer.multi_card_strategy import MultiCardStrategist
     from app.optimizer.profiler import ConsumptionProfiler
@@ -265,7 +266,7 @@ def tool_carteira_ideal(
     kb = get_card_kb()
     eligible = kb.filter_eligible(
         annual_income=monthly_income * 12,
-        current_card_ids=[],
+        current_card_ids=current_card_ids,
         exclude_consigned=True,
     )
     strategy = MultiCardStrategist()
@@ -617,18 +618,19 @@ TOOLS = [
 # EXECUTOR DE TOOLS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def execute_tool(name: str, inputs: dict, monthly_income: float, monthly_spend: float, safe_to_spend: float) -> dict:
+def execute_tool(name: str, inputs: dict, monthly_income: float, monthly_spend: float, safe_to_spend: float, current_card: str = "(nenhum)") -> dict:
+    active_cards = [current_card] if current_card != "(nenhum)" else []
     try:
         if name == "perfil_consumo":
             return tool_perfil_consumo(monthly_income, monthly_spend, safe_to_spend)
         if name == "otimizar_cartao":
             return tool_otimizar_cartao(
                 monthly_income, monthly_spend, safe_to_spend,
-                current_cards=inputs.get("cartoes_atuais", []),
+                current_cards=inputs.get("cartoes_atuais") or active_cards,
             )
         if name == "roi_cartao_atual":
             return tool_roi_cartao_atual(
-                card_id=inputs["card_id"],
+                card_id=inputs.get("card_id") or (active_cards[0] if active_cards else ""),
                 monthly_income=monthly_income, monthly_spend=monthly_spend,
                 safe_to_spend=safe_to_spend,
             )
@@ -636,6 +638,7 @@ def execute_tool(name: str, inputs: dict, monthly_income: float, monthly_spend: 
             return tool_carteira_ideal(
                 monthly_income, monthly_spend, safe_to_spend,
                 max_cards=inputs.get("max_cartoes", 2),
+                current_card_ids=active_cards,
             )
         if name == "simular_aquisicao":
             return tool_simular_aquisicao(
@@ -768,6 +771,7 @@ def run_agent(
                     result = execute_tool(
                         tool_name, tool_input,
                         monthly_income, monthly_spend, safe_to_spend,
+                        current_card=current_card,
                     )
 
                 tool_results.append({
