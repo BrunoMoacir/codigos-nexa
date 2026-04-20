@@ -258,7 +258,7 @@ def tool_roi_cartao_atual(
 def tool_carteira_ideal(
     monthly_income: float, monthly_spend: float, safe_to_spend: float, max_cards: int,
 ) -> dict:
-    from app.optimizer.multi_card_strategy import MultiCardStrategy
+    from app.optimizer.multi_card_strategy import MultiCardStrategist
     from app.optimizer.profiler import ConsumptionProfiler
     df = build_transactions(monthly_income, monthly_spend)
     profiler = ConsumptionProfiler()
@@ -269,15 +269,14 @@ def tool_carteira_ideal(
         current_card_ids=[],
         exclude_consigned=True,
     )
-    strategy = MultiCardStrategy(knowledge_base=kb)
-    result = strategy.compute(
+    strategy = MultiCardStrategist()
+    result = strategy.optimize_portfolio(
         profile=profile,
         eligible_cards=eligible,
         max_cards=max_cards,
-        safe_to_spend=safe_to_spend,
     )
     wallet = []
-    for ca in result.wallet:
+    for ca in result.cards:
         wallet.append({
             "cartao": ca.card.name,
             "categorias_direcionadas": ca.assigned_categories,
@@ -288,16 +287,18 @@ def tool_carteira_ideal(
         })
     return {
         "retorno_anual_total": round(result.total_annual_return, 2),
-        "ganho_vs_cartao_unico": round(result.gain_vs_single_card, 2),
-        "quantidade_cartoes": len(result.wallet),
+        "ganho_liquido_total": round(result.net_annual_gain, 2),
+        "ganho_vs_cartao_unico": round(result.vs_single_best, 2),
+        "quantidade_cartoes": len(result.cards),
         "carteira": wallet,
+        "explicacao": result.explanation,
     }
 
 
 def tool_simular_aquisicao(
     valor: float, entrada: float, tipo: str, prazo_meses: int,
     perfil_risco: str, safe_to_spend: float, incluir_consorcio: bool,
-    renda_aluguel: float | None,
+    renda_aluguel: float | None, monthly_income: float,
 ) -> dict:
     from app.architect.models import SimulationRequest
     req_kwargs: dict = {
@@ -311,6 +312,7 @@ def tool_simular_aquisicao(
         "amortization_method": "PRICE",
         "include_consortium": incluir_consorcio,
         "prefers_consortium": False,
+        "monthly_income": monthly_income,
     }
     if tipo == "IMOVEL":
         req_kwargs["transaction_costs_pct"] = 0.04
@@ -396,7 +398,7 @@ def tool_timing_scenarios(
     cenarios_espera: list[int],
 ) -> dict:
     from app.architect.models import SimulationRequest
-    from app.architect.simulators.timing_simulator import TimingSimulator
+    from app.architect.simulators.strategy_engine import StrategyEngine
     svc = get_architect()
     req = SimulationRequest(
         user_id="user_teste",
@@ -407,12 +409,19 @@ def tool_timing_scenarios(
         financing_months=prazo_meses,
         include_consortium=True,
     )
-    timing = TimingSimulator(architect_service=svc)
-    scenarios = timing.compute(
-        base_request=req,
-        safe_to_spend=safe_to_spend,
+    try:
+        market_rates = svc.fetch_market_rates(req)
+    except Exception:
+        market_rates = {
+            "selic_annual": 0.1475, "cdi_annual": 0.1465,
+            "best_cet_annual": 0.20, "ipca_annual": 0.045,
+        }
+    engine = StrategyEngine()
+    scenarios = engine.simulate_timing_scenarios(
+        request=req,
+        market_rates=market_rates,
         monthly_savings=poupanca_mensal,
-        wait_months_list=sorted(cenarios_espera),
+        scenarios=sorted(cenarios_espera),
     )
     return {
         "cenarios": [
@@ -639,6 +648,7 @@ def execute_tool(name: str, inputs: dict, monthly_income: float, monthly_spend: 
                 safe_to_spend=safe_to_spend,
                 incluir_consorcio=inputs.get("incluir_consorcio", True),
                 renda_aluguel=inputs.get("renda_aluguel"),
+                monthly_income=monthly_income,
             )
         if name == "timing_scenarios":
             return tool_timing_scenarios(

@@ -227,6 +227,14 @@ class SimulationRequest(BaseModel):
         le=0.15,
     )
 
+    # Renda mensal do usuário — usada pelo M3.3 (card_optimization_bonus)
+    # e pelo BudgetAdvisor para calcular comprometimento de renda.
+    monthly_income: Optional[float] = Field(
+        default=None,
+        description="Renda mensal bruta do usuário (R$). Melhora a precisão do card_optimization_bonus.",
+        gt=0,
+    )
+
     # ── Validações de negócio ────────────────────────────────────────
 
     @field_validator("down_payment")
