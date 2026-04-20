@@ -34,16 +34,15 @@ import streamlit as st
 # CLIENTE ANTHROPIC
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent.parent / ".env")
+except Exception:
+    pass
+
 @st.cache_resource
 def get_client() -> anthropic.Anthropic:
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        try:
-            from dotenv import load_dotenv
-            load_dotenv(Path(__file__).parent.parent / ".env")
-            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        except Exception:
-            pass
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or None
     return anthropic.Anthropic(api_key=api_key)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

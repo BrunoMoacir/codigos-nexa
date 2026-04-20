@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from app.optimizer.models import (
     ActionableInsight,
+    BenefitTag,
     CardSimulationResult,
     InsightEffort,
     InsightInterval,
@@ -31,6 +32,26 @@ _TRIGGER_GAIN_TROCAR_PRIMARIO  = 20.0   # R$/mês
 _TRIGGER_GAIN_PORTFOLIO_MULTI  = 30.0   # R$/mês
 _TRIGGER_GAIN_ATIVAR_BENEFICIO = 20.0   # R$/mês
 _TRIGGER_LOSS_CANCELAR_CARTAO  = -15.0  # R$/mês (prejuízo)
+_TRIGGER_GAIN_MUDAR_CATEGORIA  = 15.0   # R$/mês por categoria
+_UPGRADE_ELIGIBILITY_GATE      = 0.85   # elegibilidade mínima para surfaçar upgrade
+_UPGRADE_MIN_ANNUITY           = 300.0  # anuidade mínima que indica cartão premium (R$/ano)
+_MIN_CATEGORY_SPEND_MONTHLY    = 200.0  # gasto mínimo em categoria para insight MUDAR_CATEGORIA
+
+# Mapeamento de categoria de gasto → BenefitTag mais relevante
+_CATEGORY_BENEFIT_MAP: dict[str, BenefitTag] = {
+    "alimentacao":  BenefitTag.CASHBACK,
+    "supermercado": BenefitTag.CASHBACK,
+    "farmacia":     BenefitTag.CASHBACK,
+    "transporte":   BenefitTag.TRAVEL,
+    "lazer":        BenefitTag.TRAVEL,
+    "viagem":       BenefitTag.TRAVEL,
+    "internacional": BenefitTag.INTERNACIONAL,
+}
+
+# Tags que identificam cartões premium para SOLICITAR_UPGRADE
+_UPGRADE_PREMIUM_TAGS: frozenset[BenefitTag] = frozenset({
+    BenefitTag.LOUNGE, BenefitTag.PREMIUM, BenefitTag.INSURANCE,
+})
 
 # ConfidenceGate para surfaçar insights (regra de ouro do anti-falso-positivo)
 _INSIGHT_CONFIDENCE_GATE = 0.65
@@ -100,7 +121,20 @@ class InsightGenerator:
         # 4. ATINGIR_ISENCAO
         insights.extend(self._try_atingir_isencao(ranked_results, profile))
 
-        # 5. Filtrar e ranquear
+        # 5. CANCELAR_CARTAO
+        insight = self._try_cancelar_cartao(current_card_id, current_card_monthly_return)
+        if insight:
+            insights.append(insight)
+
+        # 6. MUDAR_CATEGORIA
+        insights.extend(self._try_mudar_categoria(ranked_results, profile, current_card_id))
+
+        # 7. SOLICITAR_UPGRADE
+        insight = self._try_solicitar_upgrade(ranked_results, profile, current_card_id)
+        if insight:
+            insights.append(insight)
+
+        # 8. Filtrar e ranquear
         valid = [i for i in insights if self._passes_gates(i)]
         valid.sort(key=lambda i: i.priority_score, reverse=True)
 
@@ -184,8 +218,6 @@ class InsightGenerator:
         ranked_results: list[CardSimulationResult],
         profile: "UserProfile",
     ) -> list[ActionableInsight]:
-        from app.optimizer.models import BenefitTag
-
         insights: list[ActionableInsight] = []
         seen_tags: set[str] = set()
 
@@ -266,6 +298,167 @@ class InsightGenerator:
 
         return insights
 
+    def _try_cancelar_cartao(
+        self,
+        current_card_id: str | None,
+        current_card_monthly_return: float,
+    ) -> ActionableInsight | None:
+        """
+        Ativa quando o cartão atual gera prejuízo líquido > R$15/mês.
+
+        Requer que optimizer_service passe current_card_monthly_return calculado
+        via M2.4 (CurrentCardROI). Sem esse dado (default 0.0) o insight nunca dispara,
+        o que é o comportamento correto — não cancelar sem evidência.
+        """
+        if not current_card_id:
+            return None
+        if current_card_monthly_return >= _TRIGGER_LOSS_CANCELAR_CARTAO:
+            return None
+
+        monthly_loss = abs(current_card_monthly_return)
+        annual_savings = monthly_loss * 12
+        interval = InsightInterval(
+            conservative=monthly_loss * 0.8,
+            expected=monthly_loss,
+            optimistic=monthly_loss * 1.1,
+        )
+        effort = InsightEffort.MEDIO
+        confidence = 0.80
+
+        return ActionableInsight(
+            type=InsightType.CANCELAR_CARTAO,
+            title="Considere cancelar este cartão",
+            description=(
+                f"Seu cartão atual está gerando prejuízo de {interval.display_text()}. "
+                f"Cancelá-lo pode economizar R${annual_savings:.0f}/ano em anuidade "
+                f"sem retorno correspondente."
+            ),
+            gain_interval=interval,
+            effort=effort,
+            confidence_score=confidence,
+            priority_score=self._priority(monthly_loss, effort, confidence),
+            card_id=current_card_id,
+        )
+
+    def _try_mudar_categoria(
+        self,
+        ranked_results: list[CardSimulationResult],
+        profile: "UserProfile",
+        current_card_id: str | None,
+    ) -> list[ActionableInsight]:
+        """
+        Para cada categoria de alto gasto do usuário, verifica se um cartão
+        ranqueado tem benefício específico que justifique direcionar aquele gasto.
+        """
+        insights: list[ActionableInsight] = []
+        seen_categories: set[str] = set()
+        total_spend = max(profile.monthly_avg_spend, 1.0)
+
+        top_categories = sorted(
+            profile.spend_by_category.items(), key=lambda x: x[1], reverse=True
+        )
+
+        for category, monthly_spend in top_categories[:3]:
+            if monthly_spend < _MIN_CATEGORY_SPEND_MONTHLY:
+                break
+            if category in seen_categories:
+                continue
+
+            target_tag = _CATEGORY_BENEFIT_MAP.get(category)
+            if not target_tag:
+                continue
+
+            best = next(
+                (r for r in ranked_results[:5]
+                 if target_tag in r.benefit_tags and r.card_id != current_card_id),
+                None,
+            )
+            if best is None:
+                continue
+
+            # Ganho proporcional ao peso da categoria no gasto total
+            category_ratio = min(monthly_spend / total_spend, 1.0)
+            category_gain_monthly = (best.net_gain_expected / 12) * category_ratio
+
+            if category_gain_monthly < _TRIGGER_GAIN_MUDAR_CATEGORIA:
+                continue
+
+            seen_categories.add(category)
+            effort = InsightEffort.BAIXO
+            interval = InsightInterval(
+                conservative=category_gain_monthly * 0.7,
+                expected=category_gain_monthly,
+                optimistic=category_gain_monthly * 1.3,
+            )
+
+            insights.append(ActionableInsight(
+                type=InsightType.MUDAR_CATEGORIA,
+                title=f"Otimizar gastos em {category}",
+                description=(
+                    f"Você gasta R${monthly_spend:.0f}/mês em {category}. "
+                    f"O {best.card_name} tem benefício {target_tag.value} que pode render "
+                    f"{interval.display_text()} adicionais nesta categoria."
+                ),
+                gain_interval=interval,
+                effort=effort,
+                confidence_score=best.confidence_score,
+                priority_score=self._priority(category_gain_monthly, effort, best.confidence_score),
+                card_id=best.card_id,
+                card_name=best.card_name,
+                tags=[category, target_tag.value],
+            ))
+
+        return insights
+
+    def _try_solicitar_upgrade(
+        self,
+        ranked_results: list[CardSimulationResult],
+        profile: "UserProfile",
+        current_card_id: str | None,
+    ) -> ActionableInsight | None:
+        """
+        Ativa quando o usuário tem eligibility ≥ 85% para um cartão premium
+        (LOUNGE, PREMIUM ou INSURANCE) com anuidade ≥ R$300/ano e retorno positivo.
+        """
+        for result in ranked_results[:5]:
+            if result.card_id == current_card_id:
+                continue
+            if result.eligibility_score < _UPGRADE_ELIGIBILITY_GATE:
+                continue
+            if result.annuity_effective < _UPGRADE_MIN_ANNUITY:
+                continue
+
+            premium_tags = [t for t in result.benefit_tags if t in _UPGRADE_PREMIUM_TAGS]
+            if not premium_tags:
+                continue
+
+            monthly_gain = result.net_gain_expected / 12
+            if monthly_gain < _INSIGHT_MIN_MONTHLY_GAIN:
+                continue
+
+            effort = InsightEffort.ALTO
+            interval = self._make_interval(result)
+            confidence = result.confidence_score * result.eligibility_score
+
+            return ActionableInsight(
+                type=InsightType.SOLICITAR_UPGRADE,
+                title=f"Upgrade para {result.card_name}",
+                description=(
+                    f"Seu perfil financeiro qualifica para o {result.card_name}, "
+                    f"cartão premium com {', '.join(t.value for t in premium_tags[:2])}. "
+                    f"O retorno estimado é {interval.display_text()}."
+                ),
+                gain_interval=interval,
+                effort=effort,
+                confidence_score=confidence,
+                priority_score=self._priority(monthly_gain, effort, confidence),
+                card_id=result.card_id,
+                card_name=result.card_name,
+                tags=[t.value for t in premium_tags],
+            )
+
+        return None
+
     # ─── Helpers ──────────────────────────────────────────────────────────────
 
     def _make_interval(
@@ -285,7 +478,6 @@ class InsightGenerator:
 
     def _estimate_benefit_value(self, tag, profile: "UserProfile") -> float:
         """Estimativa simplificada de valor mensal do benefício com base no perfil."""
-        from app.optimizer.models import BenefitTag
         if tag == BenefitTag.LOUNGE and profile.travel_spend_monthly > 800:
             return 70.0  # R$70/uso × ~1 uso/mês
         if tag == BenefitTag.INTERNACIONAL and profile.international_spend_monthly > 500:
