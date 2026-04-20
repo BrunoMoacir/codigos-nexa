@@ -51,6 +51,9 @@ class UserProfile:
     # ≤ 0.15 → sem penalidade; 0.15–0.35 → ×0.90; 0.35–0.60 → ×0.75; > 0.60 → ×0.60
     spend_stability_cv: float = 0.0
     income_profile: Optional[IncomeProfile] = None  # renda filtrada e classificada (M1.x)
+    # Fração do gasto total que já transita por crédito (0.0–1.0).
+    # Floor de 0.5: usuários 100% débito transfeririam ao menos metade para um novo cartão.
+    credit_spend_ratio: float = 1.0
 
 
 class ConsumptionProfiler:
@@ -107,6 +110,7 @@ class ConsumptionProfiler:
         travel_spend_monthly = self._travel_spend(df, data_coverage_months)
         estimated_monthly_income = self._monthly_income(df)
         committed_percentage = self._committed_percentage(shadow_invoices_df, monthly_avg_spend)
+        credit_spend_ratio = self._credit_spend_ratio(spend_by_source)
 
         # Renda filtrada e classificada (IncomeProfiler opera sobre o df já recortado)
         income_profile = IncomeProfiler().build(df)
@@ -123,6 +127,7 @@ class ConsumptionProfiler:
             spending_stability=round(spending_stability, 4),
             spend_stability_cv=round(spend_stability_cv, 4),
             income_profile=income_profile,
+            credit_spend_ratio=round(credit_spend_ratio, 4),
         )
 
         logger.info(
@@ -345,3 +350,22 @@ class ConsumptionProfiler:
         total_committed = max(total_committed, 0.0)
 
         return min(round(total_committed / monthly_avg_spend, 4), 1.0)
+
+    def _credit_spend_ratio(self, spend_by_source: dict) -> float:
+        """
+        Fração do gasto total que já transita por crédito.
+
+        Usuários com alto uso de débito têm retorno de cartão de crédito superestimado
+        se usarmos monthly_avg_spend bruto. Este ratio corrige isso.
+
+        Floor de 0.50: mesmo um usuário 100% débito transferiria ao menos metade
+        do gasto para um novo cartão de crédito — assumir 0 seria excessivamente
+        conservador e eliminaria todas as recomendações.
+        """
+        credit = spend_by_source.get("credit", 0.0)
+        debit = spend_by_source.get("debit", 0.0)
+        total = credit + debit
+        if total <= 0:
+            return 1.0
+        raw_ratio = credit / total
+        return max(raw_ratio, 0.50)

@@ -102,7 +102,7 @@ class CardSimulator:
             eligibility_score e eligibility_reasons são deixados nos defaults (0.0 / [])
             e preenchidos pelo OptimizerService via CardKnowledgeBase.
         """
-        spend_annual = profile.monthly_avg_spend * 12
+        spend_annual = profile.monthly_avg_spend * profile.credit_spend_ratio * 12
 
         annuity_effective, annuity_waived = self._compute_annuity(card, spend_annual)
 
@@ -528,7 +528,7 @@ class CardSimulator:
         Returns:
             CurrentCardROI com ROI real, veredicto e explicação em linguagem natural.
         """
-        spend_annual = profile.monthly_avg_spend * 12
+        spend_annual = profile.monthly_avg_spend * profile.credit_spend_ratio * 12
 
         # 1. Anuidade efetiva e isenção
         annuity_paid, annuity_waived = self._compute_annuity(card, spend_annual)
