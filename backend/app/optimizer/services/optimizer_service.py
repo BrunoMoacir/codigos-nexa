@@ -260,7 +260,13 @@ class OptimizerService:
         current_card_monthly_return = 0.0
         if current_card_id:
             current_card_record = self.knowledge_base.get_by_id(current_card_id)
-            if current_card_record is not None:
+            if current_card_record is None:
+                logger.warning(
+                    "current_card_id='%s' não encontrado na knowledge base — "
+                    "TROCAR_PRIMARIO usará baseline 0 (ganho pode estar superestimado).",
+                    current_card_id,
+                )
+            else:
                 try:
                     roi = self.simulator.calculate_current_card_roi(current_card_record, profile)
                     current_card_monthly_return = roi.net_roi / 12

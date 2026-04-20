@@ -565,7 +565,7 @@
     "cashback_categories": [],
     "points_per_brl": 0.8,
     "points_currency": "pontos Livelo",
-    "points_conversion_rate": 20.0,
+    "points_conversion_rate": 16.0,
     "loyalty_program": "livelo",
     "benefit_tags": [],
     "benefits_detail": [
@@ -829,7 +829,7 @@
     "cashback_categories": [],
     "points_per_brl": 1.0,
     "points_currency": "pontos Livelo",
-    "points_conversion_rate": 20.0,
+    "points_conversion_rate": 16.0,
     "loyalty_program": "livelo",
     "benefit_tags": [
       "TRAVEL",
@@ -1159,7 +1159,7 @@
     "cashback_categories": [],
     "points_per_brl": 2.0,
     "points_currency": "pontos Livelo",
-    "points_conversion_rate": 20.0,
+    "points_conversion_rate": 16.0,
     "loyalty_program": "livelo",
     "benefit_tags": [
       "TRAVEL",
