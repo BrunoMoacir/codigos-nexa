@@ -55,6 +55,52 @@ class UserProfile:
     # Floor de 0.5: usuários 100% débito transfeririam ao menos metade para um novo cartão.
     credit_spend_ratio: float = 1.0
 
+    # ── Campos de Inteligência Comportamental (Fase 1) ────────────────────────
+    # Todos com default para compatibilidade retroativa
+
+    travel_frequency_score: float = 0.0          # 0–100 (TravelDetector)
+    travel_profile: str = "OCASIONAL"            # OCASIONAL | MODERADO | FREQUENTE | INTENSO
+    foodie_score: float = 0.0                    # 0–100 (FoodieDetector)
+    foodie_profile: str = "BASICO"               # BASICO | APRECIADOR | GOURMET | ENTUSIASTA
+
+    # savings_rate: FONTE = profiles.py::UserProfileAnalyzer.savings_rate (já calculado com
+    # income_profile filtrado, behavior_tier e resilience_score de 6 fatores).
+    # NÃO recalcular aqui — ler de UserProfileAnalyzer(df, income_profile).savings_rate
+    # Valor em % (ex: 22.5 = 22.5%). profiles.py usa porcentagem, não fração.
+    savings_rate: float = 0.0
+
+    investor_type: str = "NONE"                  # NONE | CASUAL | ATIVO | DIVERSIFICADO
+    is_likely_mei: bool = False                  # sinal de microempreendedor
+    lifestyle_cluster: str = "NAO_CLASSIFICADO"  # ver T1.7
+    merchant_diversity_score: float = 0.0        # 0–100: diversidade de merchants únicos
+
+    # subscription_burn_monthly: R$/mês em assinaturas de streaming (STREAMING L2).
+    # DISTINTO de committed_percentage: committed_pct cobre TODAS as obrigações recorrentes
+    # (shadow_invoices = parcelas + assinaturas), normalizado pelo gasto mensal total.
+    # subscription_burn_monthly é apenas streaming (Netflix, Spotify, etc.), em R$/mês absoluto.
+    subscription_burn_monthly: float = 0.0
+
+
+def _calc_merchant_diversity(df: pl.DataFrame) -> float:
+    """Score 0–100: quanto mais merchants únicos, mais diversificado."""
+    if "description" not in df.columns:
+        return 0.0
+    unique_merchants = df.filter(pl.col("amount") < 0)["description"].n_unique()
+    return round(min(unique_merchants, 100), 1)
+
+
+def _calc_subscription_burn(df: pl.DataFrame, coverage_months: int) -> float:
+    """R$/mês em assinaturas de streaming (STREAMING L2)."""
+    if "merchant_category_l2" not in df.columns:
+        return 0.0
+    streaming_df = df.filter(
+        pl.col("merchant_category_l2").is_in({"STREAMING"}) & (pl.col("amount") < 0)
+    )
+    if streaming_df.is_empty():
+        return 0.0
+    total = float(streaming_df["amount"].sum()) * -1
+    return round(total / max(coverage_months, 1), 2)
+
 
 class ConsumptionProfiler:
     """
@@ -119,6 +165,27 @@ class ConsumptionProfiler:
         # Renda filtrada e classificada (IncomeProfiler opera sobre o df já recortado)
         income_profile = IncomeProfiler().build(df)
 
+        # Detectors comportamentais (T1.6)
+        from app.optimizer.detectors.travel_detector import TravelDetector
+        from app.optimizer.detectors.foodie_detector import FoodieDetector
+        from app.optimizer.detectors.investor_detector import InvestorDetector
+        from app.optimizer.detectors.mei_detector import MEIDetector
+
+        total_spend_12m = monthly_avg_spend * data_coverage_months
+
+        travel_result = TravelDetector().calc_travel_score(df, total_spend_12m)
+        foodie_result = FoodieDetector().calc_foodie_score(df, monthly_avg_spend)
+        investor_result = InvestorDetector().calc_investor_profile(df)
+        mei_result = MEIDetector().detect_mei_pattern(df, income_profile)
+        merchant_diversity = _calc_merchant_diversity(df)
+        subscription_burn = _calc_subscription_burn(df, data_coverage_months)
+
+        # savings_rate: LIDO de UserProfileAnalyzer — não recalcular.
+        from app.forecast.etl.profiles import UserProfileAnalyzer as _UPA
+        _etl_profile = _UPA().analyze(df, income_profile, committed_percentage)
+        savings_rate_pct = _etl_profile.savings_rate
+        resilience_score = _etl_profile.resilience_score
+
         profile = UserProfile(
             monthly_avg_spend=round(monthly_avg_spend, 2),
             committed_percentage=round(committed_percentage, 4),
@@ -132,7 +199,21 @@ class ConsumptionProfiler:
             spend_stability_cv=round(spend_stability_cv, 4),
             income_profile=income_profile,
             credit_spend_ratio=round(credit_spend_ratio, 4),
+            travel_frequency_score=travel_result["travel_frequency_score"],
+            travel_profile=travel_result["travel_profile"],
+            foodie_score=foodie_result["foodie_score"],
+            foodie_profile=foodie_result["foodie_profile"],
+            savings_rate=savings_rate_pct,
+            investor_type=investor_result["investor_type"],
+            is_likely_mei=mei_result["is_likely_mei"],
+            merchant_diversity_score=merchant_diversity,
+            subscription_burn_monthly=subscription_burn,
         )
+
+        # Clustering de estilo de vida (T1.7)
+        from app.optimizer.detectors.lifestyle_classifier import LifestyleClassifier
+        cluster_result = LifestyleClassifier().classify(profile)
+        profile.lifestyle_cluster = cluster_result["lifestyle_cluster"]
 
         logger.info(
             f"ConsumptionProfiler: avg_spend={profile.monthly_avg_spend:.2f}, "
@@ -141,7 +222,8 @@ class ConsumptionProfiler:
             f"pattern={income_profile.income_pattern}, "
             f"conf={income_profile.confidence:.2f}), "
             f"coverage={profile.data_coverage_months}m, "
-            f"stability={profile.spending_stability:.2f}"
+            f"stability={profile.spending_stability:.2f}, "
+            f"cluster={profile.lifestyle_cluster}"
         )
 
         return profile
