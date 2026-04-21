@@ -17,7 +17,7 @@
 
 - [Fase 1 — Feature Store & Detecção Básica (0–3 meses)](#fase-1)
   - [T1.1 — Enriquecimento do Feature Store de Transações](#t11) ✅
-  - [T1.2 — Detector de Viajante Frequente (`travel_frequency_score`)](#t12)
+  - [T1.2 — Detector de Viajante Frequente (`travel_frequency_score`)](#t12) ✅
   - [T1.3 — Detector de Foodie Gastronômico](#t13)
   - [T1.4 — Detector de Investidor Ativo](#t14)
   - [T1.5 — Detector de MEI/Microempreendedor](#t15)
@@ -314,7 +314,7 @@ df = TransactionFeatureEnricher().enrich(df)
 ---
 
 <a name="t12"></a>
-### T1.2 — Detector de Viajante Frequente (`travel_frequency_score`)
+### T1.2 — Detector de Viajante Frequente (`travel_frequency_score`) ✅
 
 **O que implementar:** Score 0–100 que quantifica frequência, intensidade e exposição internacional de viagens nos últimos 12 meses.
 
