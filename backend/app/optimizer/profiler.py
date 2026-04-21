@@ -99,6 +99,10 @@ class ConsumptionProfiler:
             logger.warning("ConsumptionProfiler: sem transações nos últimos 90 dias")
             return UserProfile()
 
+        # Enriquecimento de features comportamentais (T1.1 — User Intelligence Fase 1)
+        from app.optimizer.feature_store import TransactionFeatureEnricher
+        df = TransactionFeatureEnricher().enrich(df)
+
         data_coverage_months = self._coverage_months(df)
         monthly_totals = self._monthly_expense_totals(df)
         monthly_avg_spend = float(monthly_totals.mean()) if len(monthly_totals) > 0 else 0.0
