@@ -16,7 +16,7 @@
 ## Índice
 
 - [Fase 1 — Feature Store & Detecção Básica (0–3 meses)](#fase-1)
-  - [T1.1 — Enriquecimento do Feature Store de Transações](#t11)
+  - [T1.1 — Enriquecimento do Feature Store de Transações](#t11) ✅
   - [T1.2 — Detector de Viajante Frequente (`travel_frequency_score`)](#t12)
   - [T1.3 — Detector de Foodie Gastronômico](#t13)
   - [T1.4 — Detector de Investidor Ativo](#t14)
@@ -51,7 +51,7 @@
 ---
 
 <a name="t11"></a>
-### T1.1 — Enriquecimento do Feature Store de Transações
+### T1.1 — Enriquecimento do Feature Store de Transações ✅
 
 **O que implementar:** Adicionar campos derivados ao DataFrame de transações que alimentam TODOS os detectores desta fase e das fases seguintes. Sem isso, nenhum outro detector funciona.
 
