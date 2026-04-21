@@ -152,6 +152,48 @@ export const nexaApi = {
     return data;
   },
 
+  getOptimizerPromotionOpportunities: async (
+    userId: string,
+    cards: string[],
+    pointsBalance?: Record<string, number>
+  ) => {
+    const points = pointsBalance
+      ? Object.entries(pointsBalance)
+          .filter(([, qty]) => Number.isFinite(Number(qty)) && Number(qty) > 0)
+          .map(([program, qty]) => `${program}:${Math.trunc(Number(qty))}`)
+          .join(',')
+      : '';
+
+    const { data } = await apiClient.get('/optimizer/promotions/opportunities', {
+      params: {
+        user_id: userId,
+        cards: cards.join(','),
+        points_balance: points,
+      },
+    });
+    return data;
+  },
+
+  getOptimizerReports: async (userId: string) => {
+    const { data } = await apiClient.get(`/optimizer/reports/${userId}`);
+    return data;
+  },
+
+  getOptimizerReportDetail: async (reportId: string) => {
+    const { data } = await apiClient.get(`/optimizer/reports/${reportId}/detail`);
+    return data;
+  },
+
+  getOptimizerRoi: async (userId: string, cardId: string, monthlySpend?: number) => {
+    const { data } = await apiClient.get(`/optimizer/roi/${cardId}`, {
+      params: {
+        user_id: userId,
+        monthly_spend: monthlySpend,
+      },
+    });
+    return data;
+  },
+
   architectSimulate: async (payload: Record<string, unknown>) => {
     const { data } = await apiClient.post('/architect/simulate', payload);
     return data;

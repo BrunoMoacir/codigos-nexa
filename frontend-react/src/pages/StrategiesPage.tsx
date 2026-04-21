@@ -142,11 +142,52 @@ export const StrategiesPage: React.FC = () => {
     enabled: tab === 'optimizer',
   });
 
+  const optimizerReportsQuery = useQuery({
+    queryKey: ['optimizer-reports', userId],
+    queryFn: () => nexaApi.getOptimizerReports(userId),
+    enabled: !!userId && tab === 'optimizer',
+  });
+
   const [currentCard, setCurrentCard] = useState('');
   const opportunityQuery = useQuery({
     queryKey: ['optimizer-opportunity', userId, currentCard],
     queryFn: () => nexaApi.getOptimizerOpportunityCost(userId, currentCard, 3),
     enabled: !!userId && !!currentCard && tab === 'optimizer',
+  });
+
+  const roiQuery = useQuery({
+    queryKey: ['optimizer-roi', userId, currentCard],
+    queryFn: () => nexaApi.getOptimizerRoi(userId, currentCard),
+    enabled: !!userId && !!currentCard && tab === 'optimizer',
+  });
+
+  const promotionOpportunitiesQuery = useQuery({
+    queryKey: [
+      'optimizer-promo-opportunities',
+      userId,
+      currentCard,
+      tab,
+      portfolioQuery.data?.cards?.length || 0,
+      cardsQuery.data?.cards?.length || cardsQuery.data?.results?.length || 0,
+    ],
+    queryFn: () => {
+      const cardsFromPortfolio = (portfolioQuery.data?.cards || [])
+        .map((c: any) => String(c.card_name || c.name || c.card_id || '').trim())
+        .filter(Boolean)
+        .slice(0, 4);
+
+      const apiCards = cardsQuery.data?.cards || cardsQuery.data?.results || [];
+      const selectedCard = apiCards.find((c: any) => (c.card_id || c.id) === currentCard);
+      const selectedName = String(selectedCard?.name || selectedCard?.card_name || currentCard || '').trim();
+
+      const candidateCards = Array.from(new Set([...cardsFromPortfolio, selectedName].filter(Boolean))).slice(0, 5);
+      if (candidateCards.length === 0) {
+        return Promise.resolve({ opportunities: [], alerted_count: 0 });
+      }
+
+      return nexaApi.getOptimizerPromotionOpportunities(userId, candidateCards);
+    },
+    enabled: !!userId && tab === 'optimizer',
   });
 
   const architectMutation = useMutation({
@@ -229,6 +270,7 @@ export const StrategiesPage: React.FC = () => {
   const optimizerCards = cardsQuery.data?.cards || cardsQuery.data?.results || [];
   const portfolioCards = portfolioQuery.data?.cards || [];
   const promotions = promotionsQuery.data?.promotions || [];
+  const optimizerReports = optimizerReportsQuery.data?.reports || [];
   const architectResult = architectMutation.data || {};
   const architectActionPlan = architectResult?.action_plan || [];
   const architectNpv = architectResult?.npv || {};
@@ -240,7 +282,11 @@ export const StrategiesPage: React.FC = () => {
   const purchaseData = purchaseMutation.data || {};
   const negotiationData = negotiatorMutation.data || {};
 
-  const isOptimizerLoading = portfolioQuery.isLoading || cardsQuery.isLoading || promotionsQuery.isLoading;
+  const isOptimizerLoading =
+    portfolioQuery.isLoading ||
+    cardsQuery.isLoading ||
+    promotionsQuery.isLoading ||
+    optimizerReportsQuery.isLoading;
   const isArchitectLoading = architectHistory.isLoading || architectMetrics.isLoading;
   const isFiscalLoading = fiscalReport.isLoading || fiscalMixed.isLoading;
   const isPeersLoading = peerQuery.isLoading || notificationsQuery.isLoading;
@@ -391,6 +437,15 @@ export const StrategiesPage: React.FC = () => {
                     <div style={metricLabel}>Melhor alternativa</div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
                       {opportunityQuery.data?.best_alternative || opportunityQuery.data?.recommended_card || 'Sem recomendação específica'}
+                    </div>
+                  </div>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                    <div style={metricLabel}>ROI do cartão atual</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {roiQuery.data?.verdict || roiQuery.data?.diagnosis || 'Sem diagnóstico'}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                      Retorno anual: {currency(toNumber(roiQuery.data?.annual_return_value || roiQuery.data?.annual_return || 0))}
                     </div>
                   </div>
                 </div>
