@@ -432,7 +432,7 @@ if profile.travel_spend_monthly > _TRAVEL_SPEND_THRESHOLD and BenefitTag.LOUNGE 
 ---
 
 <a name="t13"></a>
-### T1.3 — Detector de Foodie Gastronômico
+### T1.3 — Detector de Foodie Gastronômico ✅
 
 **O que implementar:** Score 0–100 que detecta intensidade do perfil gastronômico, combinando percentual de gastos em alimentação, diversidade de restaurantes e ticket médio.
 
