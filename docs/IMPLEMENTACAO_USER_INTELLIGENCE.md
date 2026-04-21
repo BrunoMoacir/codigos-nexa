@@ -20,7 +20,7 @@
   - [T1.2 — Detector de Viajante Frequente (`travel_frequency_score`)](#t12) ✅
   - [T1.3 — Detector de Foodie Gastronômico](#t13) ✅
   - [T1.4 — Detector de Investidor Ativo](#t14) ✅
-  - [T1.5 — Detector de MEI/Microempreendedor](#t15)
+  - [T1.5 — Detector de MEI/Microempreendedor](#t15) ✅
   - [T1.6 — Expansão do `UserProfile` com novos campos](#t16)
   - [T1.7 — Clustering K-Means com 5 clusters básicos](#t17)
   - [T1.8 — Integração dos detectors no pipeline do Optimizer](#t18)
@@ -612,7 +612,7 @@ class InvestorDetector:
 ---
 
 <a name="t15"></a>
-### T1.5 — Detector de MEI/Microempreendedor
+### T1.5 — Detector de MEI/Microempreendedor ✅
 
 **O que implementar:** Identificar usuários PF que têm padrão de gasto/renda de MEI, para eventual recomendação de conta PJ + separação de fluxos.
 
