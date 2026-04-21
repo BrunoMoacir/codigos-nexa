@@ -19,7 +19,7 @@
   - [T1.1 — Enriquecimento do Feature Store de Transações](#t11) ✅
   - [T1.2 — Detector de Viajante Frequente (`travel_frequency_score`)](#t12) ✅
   - [T1.3 — Detector de Foodie Gastronômico](#t13) ✅
-  - [T1.4 — Detector de Investidor Ativo](#t14)
+  - [T1.4 — Detector de Investidor Ativo](#t14) ✅
   - [T1.5 — Detector de MEI/Microempreendedor](#t15)
   - [T1.6 — Expansão do `UserProfile` com novos campos](#t16)
   - [T1.7 — Clustering K-Means com 5 clusters básicos](#t17)
@@ -531,7 +531,7 @@ Quando `foodie_score >= 55` e o cartão atual não possui `BenefitTag.CASHBACK` 
 ---
 
 <a name="t14"></a>
-### T1.4 — Detector de Investidor Ativo
+### T1.4 — Detector de Investidor Ativo ✅
 
 **O que implementar:** Detectar usuários com movimentações regulares em corretoras, distinguindo investidor casual de ativo de diversificado.
 
