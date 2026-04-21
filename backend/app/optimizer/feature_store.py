@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 import polars as pl
 
@@ -21,7 +22,9 @@ _MCC_CAR_RENTAL = {7512, 7513}
 _MCC_TRAVEL_INSURANCE = {6300}
 _MCC_INVESTMENT_BROKERS = {6211}
 
-# ── Keywords por domínio ───────────────────────────────────────────────────────
+# ── Keywords por domínio (fonte única de verdade) ──────────────────────────────
+# Usados tanto nos flags booleanos (is_travel_related, is_delivery, etc.)
+# quanto nos classificadores L2. Não duplicar inline.
 _TRAVEL_KEYWORDS = [
     "AIRBNB", "BOOKING", "DECOLAR", "LATAM", "AZUL", "GOL",
     "EXPEDIA", "LOCALIZA", "MOVIDA", "UNIDAS", "HURB", "123MILHAS",
@@ -39,8 +42,43 @@ _B2B_KEYWORDS = [
 ]
 _COWORKING_KEYWORDS = ["WEWORK", "REGUS", "SPACES", "COWORKING", "ROOMO"]
 
-# Padrão para detecção de transação no exterior (proxy sem geocoding)
-_FOREIGN_PATTERN = r"IOF|USD|EUR|GBP|\bDOLLAR\b|\bEURO\b|EXTERIOR|INTERNATIONAL|INTERNATIONAL"
+# Subcategorias usadas exclusivamente no classificador L2 ──────────────────────
+_VOO_KEYWORDS      = ["LATAM", "GOL", "AZUL", "AVIANCA", "TAM AIR"]
+_LOCADORA_KEYWORDS = ["LOCALIZA", "MOVIDA", "UNIDAS", "HERTZ"]
+_HOTEL_KEYWORDS    = ["HOTEL", "POUSADA", "INN ", "RESORT"]
+_FARMACIA_KEYWORDS = ["FARMACIA", "DROGASIL", "DROGA RAIA", "PACHECO", "ULTRAFARMA"]
+_ACADEMIA_KEYWORDS = ["ACADEMIA", "SMARTFIT", "BLUEFIT", "BODYTECH"]
+_ESCOLA_KEYWORDS   = ["ESCOLA", "COLEGIO", "CRECHE", "UNIVERSIDADE", "FACULDADE"]
+_SAUDE_KEYWORDS    = ["PEDIATR", "CLINICA INFANTIL", "HOSPITAL", "PLANO SAUDE"]
+_SUPERMERCADO_KEYWORDS = ["SUPERMERCADO", "CARREFOUR", "EXTRA ", "PAO DE ACUCAR", "MERCADO"]
+_RESTAURANTE_KEYWORDS  = ["RESTAURANTE", "LANCHONETE", "PIZZARIA", "HAMBURGER", "SUSHI"]
+_STREAMING_KEYWORDS    = ["NETFLIX", "SPOTIFY", "AMAZON PRIME", "DISNEY", "HBO", "GLOBOPLAY", "DEEZER"]
+
+# ── Padrões regex pré-compilados (re.escape em keywords literais) ──────────────
+# Listas de keywords literais são escapadas para evitar que caracteres como
+# espaços, pontos ou parênteses em nomes de merchants sejam interpretados como
+# metacaracteres regex.
+def _kw_pattern(keywords: list[str]) -> str:
+    return "|".join(re.escape(k) for k in keywords)
+
+_P_TRAVEL      = _kw_pattern(_TRAVEL_KEYWORDS)
+_P_DELIVERY    = _kw_pattern(_DELIVERY_KEYWORDS)
+_P_BROKER      = _kw_pattern(_BROKER_KEYWORDS)
+_P_B2B         = _kw_pattern(_B2B_KEYWORDS)
+_P_COWORKING   = _kw_pattern(_COWORKING_KEYWORDS)
+_P_VOO         = _kw_pattern(_VOO_KEYWORDS)
+_P_LOCADORA    = _kw_pattern(_LOCADORA_KEYWORDS)
+_P_HOTEL       = _kw_pattern(_HOTEL_KEYWORDS)
+_P_FARMACIA    = _kw_pattern(_FARMACIA_KEYWORDS)
+_P_ACADEMIA    = _kw_pattern(_ACADEMIA_KEYWORDS)
+_P_ESCOLA      = _kw_pattern(_ESCOLA_KEYWORDS)
+_P_SAUDE       = _kw_pattern(_SAUDE_KEYWORDS)
+_P_SUPERMERCADO = _kw_pattern(_SUPERMERCADO_KEYWORDS)
+_P_RESTAURANTE  = _kw_pattern(_RESTAURANTE_KEYWORDS)
+_P_STREAMING    = _kw_pattern(_STREAMING_KEYWORDS)
+
+# _FOREIGN_PATTERN não usa re.escape: contém metacaracteres intencionais (\b)
+_FOREIGN_PATTERN = r"IOF|USD|EUR|GBP|\bDOLLAR\b|\bEURO\b|EXTERIOR|INTERNATIONAL"
 
 
 class TransactionFeatureEnricher:
@@ -74,6 +112,8 @@ class TransactionFeatureEnricher:
         if "transaction_type" not in df.columns:
             return df.with_columns(pl.lit("UNKNOWN").alias("payment_method"))
 
+        # Fallback pl.lit("") quando description ausente: str.contains sempre
+        # retorna False em string vazia, garantindo que todos caem no ramo DEBIT/CREDIT.
         desc_upper = (
             pl.col("description").str.to_uppercase()
             if "description" in df.columns
@@ -108,9 +148,8 @@ class TransactionFeatureEnricher:
             conditions.append(pl.col("mcc").is_in(list(all_travel_mccs)))
 
         if "description" in df.columns:
-            pattern = "|".join(_TRAVEL_KEYWORDS)
             conditions.append(
-                pl.col("description").str.to_uppercase().str.contains(pattern)
+                pl.col("description").str.to_uppercase().str.contains(_P_TRAVEL)
             )
 
         if not conditions:
@@ -129,9 +168,8 @@ class TransactionFeatureEnricher:
         if "description" not in df.columns:
             return df.with_columns(pl.lit(False).alias("is_delivery"))
 
-        pattern = "|".join(_DELIVERY_KEYWORDS)
         return df.with_columns(
-            pl.col("description").str.to_uppercase().str.contains(pattern).alias("is_delivery")
+            pl.col("description").str.to_uppercase().str.contains(_P_DELIVERY).alias("is_delivery")
         )
 
     def _add_is_broker(self, df: pl.DataFrame) -> pl.DataFrame:
@@ -143,9 +181,8 @@ class TransactionFeatureEnricher:
         if "mcc" in df.columns:
             conditions.append(pl.col("mcc").is_in(list(_MCC_INVESTMENT_BROKERS)))
         if "description" in df.columns:
-            pattern = "|".join(_BROKER_KEYWORDS)
             conditions.append(
-                pl.col("description").str.to_uppercase().str.contains(pattern)
+                pl.col("description").str.to_uppercase().str.contains(_P_BROKER)
             )
 
         if not conditions:
@@ -163,14 +200,14 @@ class TransactionFeatureEnricher:
         if "description" not in df.columns:
             return df.with_columns(pl.lit(False).alias("is_b2b"))
 
-        pattern = "|".join(_B2B_KEYWORDS)
         return df.with_columns(
-            pl.col("description").str.to_uppercase().str.contains(pattern).alias("is_b2b")
+            pl.col("description").str.to_uppercase().str.contains(_P_B2B).alias("is_b2b")
         )
 
     def _add_merchant_category_l2(self, df: pl.DataFrame) -> pl.DataFrame:
         """
         Subcategoria L2 por keyword na descrição.
+        Usa os padrões pré-compilados (_P_*) — não duplica listas inline.
         Fase 1: regras determinísticas. Fase 3: modelo ML (T3.1) complementa.
         """
         if "merchant_category_l2" in df.columns:
@@ -181,33 +218,33 @@ class TransactionFeatureEnricher:
         desc = pl.col("description").str.to_uppercase()
 
         expr = (
-            pl.when(desc.str.contains("|".join(_DELIVERY_KEYWORDS)))
+            pl.when(desc.str.contains(_P_DELIVERY))
             .then(pl.lit("DELIVERY"))
             .when(desc.str.contains("AIRBNB"))
             .then(pl.lit("AIRBNB"))
-            .when(desc.str.contains("LOCALIZA|MOVIDA|UNIDAS|HERTZ"))
+            .when(desc.str.contains(_P_LOCADORA))
             .then(pl.lit("LOCADORA"))
-            .when(desc.str.contains("LATAM|GOL|AZUL|AVIANCA|TAM"))
+            .when(desc.str.contains(_P_VOO))
             .then(pl.lit("VOO"))
-            .when(desc.str.contains("HOTEL|POUSADA|INN|RESORT"))
+            .when(desc.str.contains(_P_HOTEL))
             .then(pl.lit("HOTEL"))
-            .when(desc.str.contains("FARMACIA|DROGASIL|DROGA RAIA|PACHECO|ULTRAFARMA"))
+            .when(desc.str.contains(_P_FARMACIA))
             .then(pl.lit("FARMACIA"))
-            .when(desc.str.contains("ACADEMIA|SMARTFIT|BLUEFIT|BODYTECH"))
+            .when(desc.str.contains(_P_ACADEMIA))
             .then(pl.lit("ACADEMIA"))
-            .when(desc.str.contains("ESCOLA|COLEGIO|CRECHE|UNIVERSIDADE|FACULDADE"))
+            .when(desc.str.contains(_P_ESCOLA))
             .then(pl.lit("ESCOLA"))
-            .when(desc.str.contains("PEDIATR|CLINICA INFANTIL|HOSPITAL|PLANO SAUDE"))
+            .when(desc.str.contains(_P_SAUDE))
             .then(pl.lit("SAUDE"))
-            .when(desc.str.contains("|".join(_BROKER_KEYWORDS)))
+            .when(desc.str.contains(_P_BROKER))
             .then(pl.lit("CORRETORA"))
-            .when(desc.str.contains("SUPERMERCADO|CARREFOUR|EXTRA|PAO DE ACUCAR|MERCADO"))
+            .when(desc.str.contains(_P_SUPERMERCADO))
             .then(pl.lit("SUPERMERCADO"))
-            .when(desc.str.contains("RESTAURANTE|LANCHONETE|PIZZARIA|HAMBURGER|SUSHI"))
+            .when(desc.str.contains(_P_RESTAURANTE))
             .then(pl.lit("RESTAURANTE"))
-            .when(desc.str.contains("NETFLIX|SPOTIFY|AMAZON PRIME|DISNEY|HBO|GLOBOPLAY|DEEZER"))
+            .when(desc.str.contains(_P_STREAMING))
             .then(pl.lit("STREAMING"))
-            .when(desc.str.contains("|".join(_COWORKING_KEYWORDS)))
+            .when(desc.str.contains(_P_COWORKING))
             .then(pl.lit("COWORKING"))
             .otherwise(pl.lit(None))
         )
