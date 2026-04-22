@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { AppShell } from '../components/layout/AppShell';
 import { nexaApi } from '../api/nexa';
+import type { ChatHistoryItem } from '../api/types';
 
 type Message = {
   role: 'user' | 'assistant';
@@ -9,9 +10,18 @@ type Message = {
   ts: string;
 };
 
+function mapHistoryItem(item: ChatHistoryItem): Message {
+  return {
+    role: item.role === 'assistant' ? 'assistant' : 'user',
+    content: item.content,
+    ts: item.created_at || new Date().toISOString(),
+  };
+}
+
 export const ChatPage: React.FC = () => {
   const userId = localStorage.getItem('user_id') || '';
   const storageKey = useMemo(() => `nexa-chat-history:${userId || 'anon'}`, [userId]);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const defaultAssistantMessage = useMemo<Message>(
     () => ({
       role: 'assistant',
@@ -24,6 +34,12 @@ export const ChatPage: React.FC = () => {
 
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([defaultAssistantMessage]);
+
+  const historyQuery = useQuery<ChatHistoryItem[]>({
+    queryKey: ['chat-history', userId],
+    queryFn: () => nexaApi.getChatHistory(userId, 100),
+    enabled: !!userId,
+  });
 
   useEffect(() => {
     try {
@@ -46,12 +62,28 @@ export const ChatPage: React.FC = () => {
   }, [defaultAssistantMessage, storageKey]);
 
   useEffect(() => {
+    const history = (historyQuery.data || [])
+      .map(mapHistoryItem)
+      .filter((item) => item.content.trim().length > 0);
+
+    if (history.length > 0) {
+      setMessages(history);
+    }
+  }, [historyQuery.data]);
+
+  useEffect(() => {
     try {
       localStorage.setItem(storageKey, JSON.stringify(messages));
     } catch {
       // Ignora falha de persistência no navegador.
     }
   }, [messages, storageKey]);
+
+  useEffect(() => {
+    if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === 'function') {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  }, [messages]);
 
   const chatMutation = useMutation({
     mutationFn: (message: string) => nexaApi.sendChatMessage(userId, message),
@@ -66,6 +98,7 @@ export const ChatPage: React.FC = () => {
         ...prev,
         { role: 'assistant', content: String(content), ts: new Date().toISOString() },
       ]);
+      void historyQuery.refetch();
     },
     onError: () => {
       setMessages((prev) => [
@@ -82,7 +115,7 @@ export const ChatPage: React.FC = () => {
 
   const send = () => {
     const text = input.trim();
-    if (!text || chatMutation.isPending) {
+    if (!userId || !text || chatMutation.isPending) {
       return;
     }
 
@@ -116,12 +149,23 @@ export const ChatPage: React.FC = () => {
           border: '1px solid var(--border-color)',
           borderRadius: 12,
           padding: 14,
-          display: 'grid',
-          gridTemplateRows: '1fr auto',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
           minHeight: 580,
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+            {historyQuery.isLoading
+              ? 'Carregando memória do chat...'
+              : historyQuery.isError
+                ? 'Memória remota indisponível; usando histórico local do navegador.'
+                : messages.length > 1
+                  ? `${messages.length - 1} mensagens salvas`
+                  : 'Nenhuma conversa salva ainda'}
+          </div>
+
           <button
             onClick={clearChat}
             style={{
@@ -138,7 +182,7 @@ export const ChatPage: React.FC = () => {
           </button>
         </div>
 
-        <div style={{ overflowY: 'auto', padding: 6 }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 6 }}>
           {messages.map((m, idx) => (
             <div
               key={`${m.ts}-${idx}`}
@@ -164,9 +208,10 @@ export const ChatPage: React.FC = () => {
               </div>
             </div>
           ))}
+          <div ref={messagesEndRef} />
         </div>
 
-        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 10, display: 'flex', gap: 8 }}>
+        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 10, display: 'flex', gap: 8, flexShrink: 0 }}>
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
