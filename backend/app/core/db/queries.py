@@ -57,6 +57,7 @@ def _get_transactions_for_user_duckdb(user_id: str):
                 """
                 SELECT
                   transaction_id,
+                                    account_id,
                   date,
                   amount,
                   description,
@@ -118,6 +119,7 @@ def get_transactions_for_user(user_id: str, db: Optional[Session] = None):
         data = [
             {
                 "transaction_id": t.transaction_id,
+                    "account_id": t.account_id,
                 "date": t.date,
                 "amount": float(t.amount) if t.amount else 0.0,
                 "description": t.description if t.description else "Sem descrição",

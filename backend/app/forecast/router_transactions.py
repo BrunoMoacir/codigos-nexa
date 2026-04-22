@@ -264,6 +264,7 @@ async def get_user_transactions(
                 c
                 for c in (
                     "transaction_id",
+                    "account_id",
                     "description",
                     "amount",
                     "date",

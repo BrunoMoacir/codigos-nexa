@@ -306,6 +306,15 @@ async def get_forecast(
         txns_df = transactions.get("pf_pj_classified_df")
         monthly_expenses = 0.0
         top_categories_list = []
+        analyzer_profile = None
+
+        try:
+            analyzer_profile = UserProfileAnalyzer().analyze(
+                txns_df,
+                income_profile=income_profile_obj,
+            )
+        except Exception as profile_err:
+            logger.debug("Nao foi possivel calcular perfil consolidado: %s", profile_err)
 
         if txns_df is not None and not txns_df.is_empty() and "amount" in txns_df.columns:
             # Get expense transactions (negative amounts) in last 90 days
@@ -399,6 +408,9 @@ async def get_forecast(
         else:
             income_profile_dict = {}
             profile_data = runner_result.get("profile", {})
+
+        if analyzer_profile is not None:
+            profile_data["health_score"] = analyzer_profile.financial_health_score
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # STEP 3: CONSTRUIR RESPOSTA

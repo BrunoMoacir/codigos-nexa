@@ -216,12 +216,20 @@ export const DashboardPage: React.FC = () => {
 
   const dailySpendData = useMemo(() => {
     const byDate = new Map<string, number>();
+    const cutoff = new Date();
+    cutoff.setHours(0, 0, 0, 0);
+    cutoff.setDate(cutoff.getDate() - 13);
 
     transactions.forEach((tx: any) => {
       const amount = Number(tx.amount || 0);
       const date = String(tx.date || '');
       if (!date) return;
       if (amount >= 0) return;
+
+      const [year, month, day] = date.split('-').map(Number);
+      if (!year || !month || !day) return;
+      const parsed = new Date(year, month - 1, day);
+      if (Number.isNaN(parsed.getTime()) || parsed < cutoff) return;
 
       byDate.set(date, (byDate.get(date) || 0) + Math.abs(amount));
     });
