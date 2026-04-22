@@ -48,7 +48,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 
 export const StrategiesPage: React.FC = () => {
   const userId = localStorage.getItem('user_id') || '';
-  const [tab, setTab] = useState<'optimizer' | 'architect' | 'fiscal' | 'peers' | 'advanced'>('optimizer');
+  const [tab, setTab] = useState<'optimizer' | 'cards' | 'architect' | 'fiscal' | 'peers' | 'advanced'>('optimizer');
 
   const [income, setIncome] = useState(0);
   const [maxCards, setMaxCards] = useState(3);
@@ -136,6 +136,12 @@ export const StrategiesPage: React.FC = () => {
     enabled: tab === 'optimizer',
   });
 
+  const accountCardsQuery = useQuery({
+    queryKey: ['cards-transactions', userId],
+    queryFn: () => nexaApi.getTransactions(userId, 500),
+    enabled: !!userId && tab === 'cards',
+  });
+
   const promotionsQuery = useQuery({
     queryKey: ['optimizer-promotions'],
     queryFn: () => nexaApi.getOptimizerPromotions(),
@@ -188,6 +194,16 @@ export const StrategiesPage: React.FC = () => {
       return nexaApi.getOptimizerPromotionOpportunities(userId, candidateCards);
     },
     enabled: !!userId && tab === 'optimizer',
+  });
+
+  const optimizerAnalysisMutation = useMutation({
+    mutationFn: () =>
+      nexaApi.analyzeOptimizer({
+        user_id: userId,
+        current_cards: currentCard ? [currentCard] : [],
+        safe_to_spend: contextSafeToSpend > 0 ? contextSafeToSpend : undefined,
+        monthly_income: contextIncome > 0 ? contextIncome : undefined,
+      }),
   });
 
   const architectMutation = useMutation({
@@ -271,6 +287,7 @@ export const StrategiesPage: React.FC = () => {
   const portfolioCards = portfolioQuery.data?.cards || [];
   const promotions = promotionsQuery.data?.promotions || [];
   const optimizerReports = optimizerReportsQuery.data?.reports || [];
+  const transactionCards = accountCardsQuery.data?.transactions || [];
   const architectResult = architectMutation.data || {};
   const architectActionPlan = architectResult?.action_plan || [];
   const architectNpv = architectResult?.npv || {};
@@ -281,16 +298,80 @@ export const StrategiesPage: React.FC = () => {
   const costsData = costsQuery.data || {};
   const purchaseData = purchaseMutation.data || {};
   const negotiationData = negotiatorMutation.data || {};
+  const optimizerAnalysis = optimizerAnalysisMutation.data || {};
+  const optimizerBestCard = optimizerAnalysis.best_card || {};
+  const optimizerInsights = Array.isArray(optimizerAnalysis.insights) ? optimizerAnalysis.insights : [];
+  const optimizerLifeEvents = Array.isArray(optimizerAnalysis.life_events) ? optimizerAnalysis.life_events : [];
+  const optimizerWarnings = Array.isArray(optimizerAnalysis.warnings) ? optimizerAnalysis.warnings : [];
+  const optimizerProfileSummary = optimizerAnalysis.user_profile_summary || {};
 
   const isOptimizerLoading =
     portfolioQuery.isLoading ||
     cardsQuery.isLoading ||
     promotionsQuery.isLoading ||
     optimizerReportsQuery.isLoading;
+  const isCardsLoading = accountCardsQuery.isLoading;
   const isArchitectLoading = architectHistory.isLoading || architectMetrics.isLoading;
   const isFiscalLoading = fiscalReport.isLoading || fiscalMixed.isLoading;
   const isPeersLoading = peerQuery.isLoading || notificationsQuery.isLoading;
   const isAdvancedLoading = costsQuery.isLoading;
+
+  const accountCardSummaries = useMemo(() => {
+    const groups = new Map<string, {
+      account_id: string;
+      label: string;
+      transaction_count: number;
+      total_spent: number;
+      total_income: number;
+      net_total: number;
+      last_activity: string;
+      categories: Record<string, number>;
+      sample_descriptions: string[];
+    }>();
+
+    transactionCards.forEach((tx: any, index: number) => {
+      const accountId = String(tx.account_id || 'sem_account_id').trim() || 'sem_account_id';
+      if (!groups.has(accountId)) {
+        groups.set(accountId, {
+          account_id: accountId,
+          label: accountId === 'sem_account_id' ? `Conta ${index + 1}` : `Conta ${groups.size + 1}`,
+          transaction_count: 0,
+          total_spent: 0,
+          total_income: 0,
+          net_total: 0,
+          last_activity: '',
+          categories: {},
+          sample_descriptions: [],
+        });
+      }
+
+      const entry = groups.get(accountId)!;
+      const amount = toNumber(tx.amount);
+      const category = String(tx.category || 'Sem categoria');
+      const date = String(tx.date || '');
+      const description = String(tx.description || '').trim();
+
+      entry.transaction_count += 1;
+      entry.net_total += amount;
+      entry.categories[category] = (entry.categories[category] || 0) + Math.abs(amount);
+      if (amount >= 0) {
+        entry.total_income += amount;
+      } else {
+        entry.total_spent += Math.abs(amount);
+      }
+      if (date && (!entry.last_activity || date > entry.last_activity)) {
+        entry.last_activity = date;
+      }
+      if (description && entry.sample_descriptions.length < 3) {
+        entry.sample_descriptions.push(description);
+      }
+    });
+
+    return Array.from(groups.values()).sort((a, b) => {
+      if (b.transaction_count !== a.transaction_count) return b.transaction_count - a.transaction_count;
+      return b.total_spent - a.total_spent;
+    });
+  }, [transactionCards]);
 
   const topPeerInsights = useMemo(() => {
     const rawInsights = peerData?.insights || peerData?.highlights || [];
@@ -319,6 +400,7 @@ export const StrategiesPage: React.FC = () => {
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         {[
           ['optimizer', 'Optimizer'],
+          ['cards', 'Cartões'],
           ['architect', 'Architect'],
           ['fiscal', 'Fiscal'],
           ['peers', 'Peers & Alertas'],
@@ -463,7 +545,236 @@ export const StrategiesPage: React.FC = () => {
                   </div>
                 </div>
               ))}
+              <div style={{ marginTop: 10, borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
+                <div style={{ ...metricLabel, marginBottom: 6 }}>Oportunidades para o portfólio</div>
+                {(promotionOpportunitiesQuery.data?.opportunities || []).length === 0 && (
+                  <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Sem oportunidades personalizadas no momento.</div>
+                )}
+                {(promotionOpportunitiesQuery.data?.opportunities || []).slice(0, 3).map((item: any, idx: number) => (
+                  <div key={`${item.user_card || idx}`} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                    • {item.user_card || 'Cartão'}: {item.alert_text || 'Promoção disponível'}
+                  </div>
+                ))}
+              </div>
             </div>
+          </div>
+
+          <div style={card}>
+            <div style={sectionTitle}>Optimizer Intelligence</div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => optimizerAnalysisMutation.mutate()}
+                style={{ border: '1px solid #111', background: 'var(--text-primary)', color: 'var(--bg-surface)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}
+              >
+                Rodar análise completa
+              </button>
+              {currentCard && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', alignSelf: 'center' }}>
+                  Usando o cartão selecionado como referência atual.
+                </div>
+              )}
+            </div>
+
+            {optimizerAnalysisMutation.isPending && (
+              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Gerando relatório inteligente...</div>
+            )}
+            {optimizerAnalysisMutation.isError && (
+              <div style={{ fontSize: 12, color: '#991b1b', marginBottom: 8 }}>
+                {getErrorMessage(optimizerAnalysisMutation.error, 'Falha ao gerar análise completa do Optimizer.')}
+              </div>
+            )}
+
+            {!optimizerAnalysisMutation.isPending && Object.keys(optimizerAnalysis).length > 0 && (
+              <div style={{ display: 'grid', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                    <div style={metricLabel}>Recomendação</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {optimizerAnalysis.recommendation_type || 'N/A'}
+                    </div>
+                  </div>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                    <div style={metricLabel}>Estratégia</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {optimizerAnalysis.strategy_text || 'N/A'}
+                    </div>
+                  </div>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                    <div style={metricLabel}>Melhor cartão</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {optimizerBestCard.card_name || optimizerBestCard.name || optimizerBestCard.card_id || 'Sem cartão'}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                      Ganho líquido: {currency(toNumber(optimizerBestCard.net_gain_expected || optimizerBestCard.net_gain || 0))}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                    <div style={{ ...metricLabel, marginBottom: 8 }}>Resumo do perfil</div>
+                    <div style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+                      <div>Cluster: {optimizerProfileSummary.lifestyle_cluster || optimizerProfileSummary.cluster || 'N/A'}</div>
+                      <div>FSS: {optimizerProfileSummary.fss ?? 'N/A'} {optimizerProfileSummary.fss_level ? `(${optimizerProfileSummary.fss_level})` : ''}</div>
+                      <div>Família com filhos: {optimizerProfileSummary.is_family_with_kids ? 'Sim' : 'Não'}</div>
+                      <div>Dia ideal de notificação: {optimizerProfileSummary.best_notification_day ?? 'N/A'}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                    <div style={{ ...metricLabel, marginBottom: 8 }}>Eventos de vida detectados</div>
+                    {optimizerLifeEvents.length === 0 && (
+                      <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Nenhum evento relevante encontrado.</div>
+                    )}
+                    {optimizerLifeEvents.slice(0, 4).map((event: any, idx: number) => (
+                      <div key={`${event.event || idx}`} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                        • {event.event || 'Evento'} - {event.trigger_action || 'Ação sugerida'}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                  <div style={{ ...metricLabel, marginBottom: 8 }}>Insights acionáveis</div>
+                  {optimizerInsights.length === 0 && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Nenhum insight acionável disponível.</div>
+                  )}
+                  {optimizerInsights.slice(0, 4).map((insight: any, idx: number) => (
+                    <div key={`${insight.type || idx}`} style={{ borderBottom: idx < Math.min(3, optimizerInsights.length - 1) ? '1px solid var(--border-color)' : 'none', padding: '8px 0' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {insight.title || insight.type || 'Insight'}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                        {insight.description || 'Sem descrição disponível.'}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+                        Ganho: {insight.gain_interval?.expected ? currency(toNumber(insight.gain_interval.expected)) : 'N/A'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {optimizerWarnings.length > 0 && (
+                  <div style={{ fontSize: 12, color: '#92400e' }}>
+                    {optimizerWarnings.slice(0, 3).map((warn: string, idx: number) => (
+                      <div key={`${idx}-${warn}`}>• {warn}</div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                  <div style={{ ...metricLabel, marginBottom: 8 }}>Histórico de relatórios</div>
+                  {optimizerReports.length === 0 && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Nenhum relatório salvo encontrado.</div>
+                  )}
+                  {optimizerReports.slice(0, 4).map((report: any, idx: number) => (
+                    <div key={`${report.report_id || idx}`} style={{ borderBottom: idx < Math.min(3, optimizerReports.length - 1) ? '1px solid var(--border-color)' : 'none', padding: '8px 0' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {report.best_card?.card_name || report.best_card_name || report.recommendation_type || 'Relatório'}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                        {report.generated_at ? String(report.generated_at).slice(0, 10) : 'Data indisponível'}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+                        {report.strategy_text || 'Sem descrição resumida.'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === 'cards' && (
+        <div style={{ display: 'grid', gap: 12 }}>
+          {isCardsLoading && (
+            <div style={{ ...card, color: 'var(--text-muted)', fontSize: 14 }}>Carregando cartões detectados nas transações...</div>
+          )}
+
+          <div style={card}>
+            <div style={sectionTitle}>Cartões cadastrados na conta</div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+              Esta visão usa diretamente as transações injetadas no backend para agrupar as contas/cartões do seu `user_id`.
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 12 }}>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                <div style={metricLabel}>Cartões/contas detectados</div>
+                <div style={metricValue}>{accountCardSummaries.length}</div>
+              </div>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                <div style={metricLabel}>Transações carregadas</div>
+                <div style={metricValue}>{transactionCards.length}</div>
+              </div>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                <div style={metricLabel}>Total de despesas</div>
+                <div style={metricValue}>{currency(transactionCards.reduce((sum: number, tx: any) => sum + (toNumber(tx.amount) < 0 ? Math.abs(toNumber(tx.amount)) : 0), 0))}</div>
+              </div>
+            </div>
+
+            {accountCardSummaries.length === 0 && (
+              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>
+                Nenhuma conta/cartão encontrado nas transações atuais.
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+            {accountCardSummaries.map((item: any) => {
+              const topCategory = Object.entries(item.categories || {})
+                .sort((a, b) => Number(b[1]) - Number(a[1]))[0];
+
+              return (
+                <div key={item.account_id} style={card}>
+                  <div style={sectionTitle}>{item.label}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+                    ID da conta/cartão: {item.account_id}
+                  </div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                      <div style={metricLabel}>Movimentações</div>
+                      <div style={metricValue}>{item.transaction_count}</div>
+                    </div>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                      <div style={metricLabel}>Despesas</div>
+                      <div style={metricValue}>{currency(item.total_spent)}</div>
+                    </div>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                      <div style={metricLabel}>Receitas</div>
+                      <div style={metricValue}>{currency(item.total_income)}</div>
+                    </div>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                      <div style={metricLabel}>Categoria dominante</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {topCategory ? `${topCategory[0]} (${currency(toNumber(topCategory[1]))})` : 'Sem categoria'}
+                      </div>
+                    </div>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                      <div style={metricLabel}>Última movimentação</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {item.last_activity ? String(item.last_activity).slice(0, 10) : 'Sem data'}
+                      </div>
+                    </div>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                      <div style={metricLabel}>Exemplos</div>
+                      <div style={{ display: 'grid', gap: 4 }}>
+                        {(item.sample_descriptions || []).slice(0, 3).map((desc: string, idx: number) => (
+                          <div key={`${item.account_id}-${idx}`} style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                            • {desc}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                      <div style={metricLabel}>Saldo líquido nas transações</div>
+                      <div style={metricValue}>{currency(item.net_total)}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
