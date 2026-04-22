@@ -113,8 +113,9 @@ class CardRanking:
 
         if cluster == "EXPLORADOR_GLOBAL":
             if BenefitTag.LOUNGE in result.benefit_tags or BenefitTag.TRAVEL in result.benefit_tags:
-                benefits_bonus *= 1.25
-                score = result.net_gain_expected * multiplier + benefits_bonus
+                # Adiciona 25% do bonus já computado — NÃO recalcula o score do zero
+                # para preservar o desconto de dominância (regra 40%) já aplicado acima.
+                score += benefits_bonus * 0.25
 
         elif cluster == "URBANO_FOODIE":
             if BenefitTag.CASHBACK in result.benefit_tags:
@@ -138,7 +139,47 @@ class CardRanking:
 
         return score
 
+    # ── Score base sem cluster (usado pelo hyperscore para evitar double-counting) ──
+
+    def _compute_base_score(self, result: CardSimulationResult, profile: UserProfile) -> float:
+        """
+        Score financeiro puro: liquidez + benefícios + penalidades, SEM bônus de cluster.
+        Usado por _compute_hyperscore como W2, para que W1 (cluster relevance) não
+        duplique o ajuste que _compute_score já faria pelo cluster.
+        """
+        multiplier = _LIQUIDITY_MULTIPLIER.get(result.liquidity_risk, 1.0)
+        score = result.net_gain_expected * multiplier
+
+        benefits_bonus = 0.0
+        if (
+            profile.international_spend_monthly > _INTL_SPEND_THRESHOLD
+            and BenefitTag.INTERNACIONAL in result.benefit_tags
+        ):
+            benefits_bonus += _INTL_BONUS
+        if (
+            profile.travel_spend_monthly > _TRAVEL_SPEND_THRESHOLD
+            and BenefitTag.LOUNGE in result.benefit_tags
+        ):
+            benefits_bonus += _LOUNGE_BONUS
+        if benefits_bonus > 0 and result.net_gain_expected > 0:
+            if benefits_bonus > _BENEFIT_DOMINANCE_THRESHOLD * result.net_gain_expected:
+                benefits_bonus *= _BENEFIT_DOMINANCE_DISCOUNT
+        score += benefits_bonus
+
+        if result.confidence_score < 0.4:
+            score *= 0.5
+        if result.eligibility_score < 0.5:
+            score *= 0.4
+        elif result.eligibility_score < 0.7:
+            score *= 0.75
+
+        return score
+
     # ── Ranker hiperpersonalizado (T2.4) ─────────────────────────────────────
+
+    # Valor de normalização para W2: R$3.000/ano ≈ ganho de um cartão premium brasileiro.
+    # Cartões acima desse valor recebem score W2 = 1.0 (sem penalidade — são ótimos).
+    _W2_NORMALIZATION = 3000.0
 
     def rank_hyperpersonalized(
         self,
@@ -147,10 +188,10 @@ class CardRanking:
     ) -> list[CardSimulationResult]:
         """
         Ranker hiperpersonalizado com 4 pesos (melhorias_analise_perfil.md §8.1):
-            W1 = relevância ao cluster (40%)
-            W2 = impacto financeiro em R$ (30%)
-            W3 = propensity estimada (20%)
-            W4 = timing/adequação momento (10%)
+            W1 = relevância ao cluster (40%)   → normalizado 0-100
+            W2 = impacto financeiro (30%)       → normalizado 0-100 (ref: R$3k/ano)
+            W3 = propensity estimada (20%)      → normalizado 0-100
+            W4 = timing/adequação momento (10%) → normalizado 0-100
 
         Backward compatible: se UserProfile não tem cluster classificado, recai no rank() clássico.
         """
@@ -183,19 +224,29 @@ class CardRanking:
         result: CardSimulationResult,
         profile: UserProfile,
     ) -> float:
+        """
+        Score composto 0-100 com 4 pesos genuínos.
+
+        W2 usa _compute_base_score (sem bônus de cluster) para evitar que o
+        cluster seja contado duas vezes — uma vez em W1 e outra em W2.
+        Todos os componentes são normalizados para 0-100 antes da ponderação.
+        """
         cluster = getattr(profile, "lifestyle_cluster", "NAO_CLASSIFICADO")
 
-        w2_financial = self._compute_score(result, profile)
-        w1_cluster = self._cluster_relevance(result, profile, cluster) * 200
-        w3_propensity = self._estimate_propensity(result, profile) * 100
-        w4_timing = self._calc_timing_score(result, profile) * 50
+        # W1: relevância ao cluster (0-1) → 0-100
+        w1 = self._cluster_relevance(result, profile, cluster) * 100
 
-        return (
-            0.40 * w1_cluster
-            + 0.30 * w2_financial
-            + 0.20 * w3_propensity
-            + 0.10 * w4_timing
-        )
+        # W2: impacto financeiro sem cluster (R$/ano) normalizado por R$3k → 0-100
+        base = self._compute_base_score(result, profile)
+        w2 = min(max(base, 0.0) / self._W2_NORMALIZATION, 1.0) * 100
+
+        # W3: propensity (0-1) → 0-100
+        w3 = self._estimate_propensity(result, profile) * 100
+
+        # W4: timing (0-1) → 0-100
+        w4 = self._calc_timing_score(result, profile) * 100
+
+        return 0.40 * w1 + 0.30 * w2 + 0.20 * w3 + 0.10 * w4
 
     def _cluster_relevance(
         self,

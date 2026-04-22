@@ -82,11 +82,21 @@ class UserProfile:
 
     # ── Campos de Inteligência Comportamental (Fase 2) ────────────────────────
 
+    # resilience_score: lido de UserProfileAnalyzer (profiles.py).
+    # Repassado ao FSSCalculator para evitar recalcular savings_rate, tendência e committed_pct.
+    resilience_score: float = 0.0             # 0–100, maior = mais resiliente (profiles.py)
+
     fss: float = 0.0                          # Financial Stress Score 0–100 (FSSCalculator)
     fss_level: str = "SAUDAVEL"               # SAUDAVEL | ATENCAO | ALERTA | CRITICO
 
-    is_family_with_kids: bool = False          # detector de família com filhos (FamilyDetector)
+    is_airbnb_user: bool = False               # T2.5: usa Airbnb (TravelDetector)
+    is_digital_nomad: bool = False             # T2.5: Airbnb regular + coworking
+
+    is_family_with_kids: bool = False          # T2.3: detector de família com filhos
     family_score: float = 0.0                  # 0–100 (FamilyDetector)
+
+    peak_spend_day_of_month: Optional[int] = None   # T2.7: dia do mês com pico de gasto
+    best_notification_day: int = 5                  # T2.7: melhor dia para notificar
 
 
 def _calc_merchant_diversity(df: pl.DataFrame) -> float:
@@ -212,13 +222,33 @@ class ConsumptionProfiler:
             foodie_score=foodie_result["foodie_score"],
             foodie_profile=foodie_result["foodie_profile"],
             savings_rate=savings_rate_pct,
+            resilience_score=round(resilience_score, 1),
             investor_type=investor_result["investor_type"],
             is_likely_mei=mei_result["is_likely_mei"],
             merchant_diversity_score=merchant_diversity,
             subscription_burn_monthly=subscription_burn,
         )
 
-        # Clustering de estilo de vida (T1.7)
+        # Detectors Fase 2 que alimentam o LifestyleClassifier — devem rodar ANTES dele.
+
+        # T2.3 — FamilyDetector (opera sobre o df enriquecido, janela 90 dias)
+        from app.optimizer.detectors.family_detector import FamilyDetector
+        family_result = FamilyDetector().detect_family_profile(df)
+        profile.is_family_with_kids = family_result["is_family_with_kids"]
+        profile.family_score = family_result["family_score"]
+
+        # T2.5 — Airbnb / Nômade Digital
+        airbnb_result = TravelDetector().detect_airbnb_profile(df)
+        profile.is_airbnb_user = airbnb_result["is_airbnb_user"]
+        profile.is_digital_nomad = airbnb_result["is_digital_nomad"]
+
+        # T2.7 — Temporal Intelligence
+        from app.optimizer.detectors.temporal_detector import TemporalDetector
+        temporal_result = TemporalDetector().analyze(df)
+        profile.peak_spend_day_of_month = temporal_result["peak_spend_day_of_month"]
+        profile.best_notification_day = temporal_result["best_notification_day"]
+
+        # Clustering de estilo de vida (T1.7) — usa family_score e is_airbnb_user acima
         from app.optimizer.detectors.lifestyle_classifier import LifestyleClassifier
         cluster_result = LifestyleClassifier().classify(profile)
         profile.lifestyle_cluster = cluster_result["lifestyle_cluster"]

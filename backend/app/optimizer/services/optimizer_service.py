@@ -246,11 +246,14 @@ class OptimizerService:
         # ConfidenceGate (0.65) e MinGainFilter por insight são aplicados no InsightGenerator.
         simulated_results = _apply_anti_fp_gates(simulated_results, profile)
 
-        # Fase 2 — detectors comportamentais adicionais
+        # Fase 2 — FSS (opera sobre todas as transações para cheque especial / IOF)
+        # Family/Temporal/Airbnb já rodaram dentro do ConsumptionProfiler.build().
         from app.optimizer.detectors.fss_calculator import FSSCalculator
-        from app.optimizer.detectors.family_detector import FamilyDetector
 
-        fss_result = FSSCalculator().calc_fss(profile, transactions_df)
+        fss_result = FSSCalculator().calc_fss(
+            profile, transactions_df,
+            resilience_score=int(profile.resilience_score),
+        )
         profile.fss = fss_result["fss"]
         profile.fss_level = fss_result["fss_level"]
 
@@ -259,10 +262,6 @@ class OptimizerService:
                 "FSS CRÍTICO (score=%.0f) para usuário — ativando modo defesa.",
                 fss_result["fss"],
             )
-
-        family_result = FamilyDetector().detect_family_profile(transactions_df)
-        profile.is_family_with_kids = family_result["is_family_with_kids"]
-        profile.family_score = family_result["family_score"]
 
         # Detecção de eventos de vida (T2.1)
         from app.optimizer.detectors.life_events_detector import LifeEventsDetector
@@ -282,17 +281,35 @@ class OptimizerService:
                     (pl.col("date") >= _cutoff_hist_start) &
                     (pl.col("date") < _cutoff_hist_end)
                 )
-                _income_ref = (
+
+                # Renda recente: do perfil atual (90 dias, já filtrado pelo profiler)
+                _income_recent = (
                     profile.income_profile.monthly_net_income
                     if profile.income_profile
                     else profile.estimated_monthly_income
                 )
 
+                # Renda histórica: média de créditos na janela 6–18 meses
+                # Calculada diretamente da série histórica para detectar variações reais.
+                _income_historical = _income_recent  # fallback se sem histórico
+                if not _txns_history.is_empty() and "amount" in _txns_history.columns:
+                    _hist_credits = _txns_history.filter(pl.col("amount") > 0)
+                    if not _hist_credits.is_empty():
+                        _hist_months = (
+                            _hist_credits
+                            .with_columns(
+                                (pl.col("date").dt.year() * 100 + pl.col("date").dt.month()).alias("ym")
+                            )
+                            .select("ym").unique().height
+                        )
+                        if _hist_months > 0:
+                            _income_historical = float(_hist_credits["amount"].sum()) / _hist_months
+
                 detected = LifeEventsDetector().detect_all(
                     txns_recent=_txns_recent,
                     txns_history=_txns_history,
-                    income_recent=_income_ref,
-                    income_historical=_income_ref,
+                    income_recent=_income_recent,
+                    income_historical=_income_historical,
                 )
                 life_events_raw = [
                     {

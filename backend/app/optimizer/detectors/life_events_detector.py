@@ -36,8 +36,10 @@ _BABY_KEYWORDS = [
 ]
 
 _MOVING_KEYWORDS = [
-    "DEPOSITO ALUGUEL", "ALUGUEL", "MUDANCA", "LEROY MERLIN",
-    "TOKSTOK", "ETNA", "MADEIRAMADEIRA", "CASA SHOW", "TELHANORTE",
+    # Sinais de reforma/móveis/mudança — excluem qualquer keyword de aluguel recorrente.
+    # "ALUGUEL" e "DEPOSITO ALUGUEL" são pagamentos mensais, não eventos de mudança.
+    "MUDANCA", "LEROY MERLIN", "TOKSTOK", "ETNA",
+    "MADEIRAMADEIRA", "CASA SHOW", "TELHANORTE",
     "CONSTRUTORA", "IMOVEL",
 ]
 
@@ -125,13 +127,19 @@ class LifeEventsDetector:
         recent_spend = self._keyword_spend(recent, _MOVING_KEYWORDS)
         historical_spend = self._keyword_spend(history, _MOVING_KEYWORDS)
 
-        if recent_spend > 500 and recent_spend > historical_spend * 3:
+        # Requer gasto alto E sem histórico prévio similar.
+        # Guard explícito: historical_spend < 100 previne falso positivo quando
+        # historical_spend == 0 (sem histórico) — nesse caso "any spend > 0" passaria.
+        if recent_spend > 500 and historical_spend < 100:
             return LifeEvent(
                 event="home_change",
                 confidence=0.70,
                 detected_at=date.today(),
                 trigger_action="show_financing_vs_rent_analysis",
-                supporting_signals=[f"moving_spend=R${recent_spend:.0f}"],
+                supporting_signals=[
+                    f"moving_spend=R${recent_spend:.0f}",
+                    f"moving_historical=R${historical_spend:.0f}",
+                ],
             )
         return None
 

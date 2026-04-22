@@ -187,13 +187,18 @@ class InsightGenerator:
         interval = self._make_interval(best, current_monthly_return)
         effort = InsightEffort.MEDIO
 
+        base_description = (
+            f"Com seu padrão de gastos, o {best.card_name} pode render "
+            f"{interval.display_text()} a mais do que seu cartão atual."
+        )
+        description = self._personalize_description(
+            base_description, profile, best.net_gain_expected
+        )
+
         return ActionableInsight(
             type=InsightType.TROCAR_PRIMARIO,
             title=f"Trocar para {best.card_name}",
-            description=(
-                f"Com seu padrão de gastos, o {best.card_name} pode render "
-                f"{interval.display_text()} a mais do que seu cartão atual."
-            ),
+            description=description,
             gain_interval=interval,
             effort=effort,
             confidence_score=best.confidence_score,

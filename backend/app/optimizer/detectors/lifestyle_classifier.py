@@ -49,9 +49,14 @@ class LifestyleClassifier:
 
     def _score_explorer(self, p: UserProfile) -> float:
         score = 0.0
-        score += min(p.travel_frequency_score / 100, 1.0) * 0.50
+        score += min(p.travel_frequency_score / 100, 1.0) * 0.45
         score += min(p.international_spend_monthly / 500, 1.0) * 0.30
-        score += (1.0 if p.travel_profile in ("FREQUENTE", "INTENSO") else 0.0) * 0.20
+        score += (1.0 if p.travel_profile in ("FREQUENTE", "INTENSO") else 0.0) * 0.15
+        # T2.5: Airbnb / nômade digital reforça cluster de explorador
+        if getattr(p, "is_digital_nomad", False):
+            score += 0.10
+        elif getattr(p, "is_airbnb_user", False):
+            score += 0.05
         return score
 
     def _score_foodie(self, p: UserProfile) -> float:
@@ -70,6 +75,13 @@ class LifestyleClassifier:
         return score
 
     def _score_family(self, p: UserProfile) -> float:
+        # Sinal direto do FamilyDetector (T2.3) — tem prioridade sobre heurísticas
+        if getattr(p, "is_family_with_kids", False):
+            family_s = getattr(p, "family_score", 0.0)
+            # family_score 0-100 → 0.4-1.0 (threshold de detecção já é 40)
+            return 0.4 + min(family_s / 100, 1.0) * 0.6
+
+        # Fallback heurístico para perfis sem FamilyDetector
         edu_health = (
             p.spend_by_category.get("Saúde", 0)
             + p.spend_by_category.get("Educação", 0)
