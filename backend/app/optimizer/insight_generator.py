@@ -135,7 +135,10 @@ class InsightGenerator:
         if insight:
             insights.append(insight)
 
-        # 8. Filtrar e ranquear
+        # 8. Insights por cluster de estilo de vida
+        insights.extend(self._generate_cluster_insights(ranked_results, profile))
+
+        # 10. Filtrar e ranquear
         valid = [i for i in insights if self._passes_gates(i)]
         valid.sort(key=lambda i: i.priority_score, reverse=True)
 
@@ -480,6 +483,88 @@ class InsightGenerator:
             )
 
         return None
+
+    def _generate_cluster_insights(
+        self,
+        ranked: list[CardSimulationResult],
+        profile: "UserProfile",
+    ) -> list[ActionableInsight]:
+        """Insights específicos por cluster de estilo de vida."""
+        insights: list[ActionableInsight] = []
+        cluster = getattr(profile, "lifestyle_cluster", "NAO_CLASSIFICADO")
+
+        if cluster == "EXPLORADOR_GLOBAL" and profile.travel_spend_monthly > 500:
+            top_card = ranked[0] if ranked else None
+            if top_card and BenefitTag.TRAVEL not in top_card.benefit_tags:
+                annual_travel = profile.travel_spend_monthly * 12
+                effort = InsightEffort.MEDIO
+                interval = InsightInterval(
+                    conservative=80.0,
+                    expected=120.0,
+                    optimistic=200.0,
+                )
+                insights.append(ActionableInsight(
+                    type=InsightType.MUDAR_CATEGORIA,
+                    title="Seu perfil de viajante merece milhas",
+                    description=(
+                        f"Você gastou R${annual_travel:.0f}/ano em viagens "
+                        f"sem acumular milhas. Um cartão de milhas premium poderia gerar "
+                        f"uma passagem gratuita por ano no seu padrão de uso."
+                    ),
+                    gain_interval=interval,
+                    effort=effort,
+                    confidence_score=top_card.confidence_score,
+                    priority_score=self._priority(120.0, effort, top_card.confidence_score),
+                    tags=["viagem", BenefitTag.TRAVEL.value],
+                ))
+
+        elif cluster == "INVESTIDOR_CAUTELOSO":
+            top_card = ranked[0] if ranked else None
+            if top_card and top_card.annuity_effective > 500:
+                effort = InsightEffort.BAIXO
+                monthly_savings = top_card.annuity_effective / 12
+                interval = InsightInterval(
+                    conservative=monthly_savings * 0.8,
+                    expected=monthly_savings,
+                    optimistic=monthly_savings,
+                )
+                insights.append(ActionableInsight(
+                    type=InsightType.MUDAR_CATEGORIA,
+                    title="Anuidade alta reduz seu retorno real",
+                    description=(
+                        f"Como investidor, cada R${top_card.annuity_effective:.0f}/ano em anuidade "
+                        f"representa custo de oportunidade. Considere cartões com isenção "
+                        f"por volume ou anuidade zero com cashback equivalente."
+                    ),
+                    gain_interval=interval,
+                    effort=effort,
+                    confidence_score=top_card.confidence_score,
+                    priority_score=self._priority(monthly_savings, effort, top_card.confidence_score),
+                    tags=["investidor", "anuidade"],
+                ))
+
+        elif cluster == "MICROEMPREENDEDOR":
+            top_card = ranked[0] if ranked else None
+            if top_card and BenefitTag.CASHBACK in top_card.benefit_tags:
+                effort = InsightEffort.BAIXO
+                monthly_gain = top_card.net_gain_expected / 12
+                interval = self._make_interval(top_card)
+                insights.append(ActionableInsight(
+                    type=InsightType.MUDAR_CATEGORIA,
+                    title="Cashback para separar gastos PJ e PF",
+                    description=(
+                        f"MEIs se beneficiam de cartões com cashback em compras do negócio. "
+                        f"O {top_card.card_name} pode retornar {interval.display_text()} "
+                        f"sobre seus gastos mistos."
+                    ),
+                    gain_interval=interval,
+                    effort=effort,
+                    confidence_score=top_card.confidence_score,
+                    priority_score=self._priority(monthly_gain, effort, top_card.confidence_score),
+                    tags=["mei", BenefitTag.CASHBACK.value],
+                ))
+
+        return insights
 
     # ─── Helpers ──────────────────────────────────────────────────────────────
 

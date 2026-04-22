@@ -108,6 +108,24 @@ class CardRanking:
 
         score += benefits_bonus
 
+        # Bônus por cluster — ajusta relevância de benefícios ao estilo de vida
+        cluster = getattr(profile, "lifestyle_cluster", "NAO_CLASSIFICADO")
+
+        if cluster == "EXPLORADOR_GLOBAL":
+            if BenefitTag.LOUNGE in result.benefit_tags or BenefitTag.TRAVEL in result.benefit_tags:
+                benefits_bonus *= 1.25
+                score = result.net_gain_expected * multiplier + benefits_bonus
+
+        elif cluster == "URBANO_FOODIE":
+            if BenefitTag.CASHBACK in result.benefit_tags:
+                food_spend = profile.spend_by_category.get("Alimentação", 0)
+                if food_spend > 500:
+                    score += food_spend * 0.005
+
+        elif cluster == "INVESTIDOR_CAUTELOSO":
+            if result.annuity_effective > 500:
+                score *= 0.90
+
         # 3. Penalidade de confiança (multiplicativa após bônus)
         if result.confidence_score < 0.4:
             score *= 0.5
