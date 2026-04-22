@@ -190,6 +190,16 @@ export const StrategiesPage: React.FC = () => {
     enabled: !!userId && tab === 'optimizer',
   });
 
+  const optimizerAnalysisMutation = useMutation({
+    mutationFn: () =>
+      nexaApi.analyzeOptimizer({
+        user_id: userId,
+        current_cards: currentCard ? [currentCard] : [],
+        safe_to_spend: contextSafeToSpend > 0 ? contextSafeToSpend : undefined,
+        monthly_income: contextIncome > 0 ? contextIncome : undefined,
+      }),
+  });
+
   const architectMutation = useMutation({
     mutationFn: () =>
       nexaApi.architectSimulate({
@@ -281,6 +291,12 @@ export const StrategiesPage: React.FC = () => {
   const costsData = costsQuery.data || {};
   const purchaseData = purchaseMutation.data || {};
   const negotiationData = negotiatorMutation.data || {};
+  const optimizerAnalysis = optimizerAnalysisMutation.data || {};
+  const optimizerBestCard = optimizerAnalysis.best_card || {};
+  const optimizerInsights = Array.isArray(optimizerAnalysis.insights) ? optimizerAnalysis.insights : [];
+  const optimizerLifeEvents = Array.isArray(optimizerAnalysis.life_events) ? optimizerAnalysis.life_events : [];
+  const optimizerWarnings = Array.isArray(optimizerAnalysis.warnings) ? optimizerAnalysis.warnings : [];
+  const optimizerProfileSummary = optimizerAnalysis.user_profile_summary || {};
 
   const isOptimizerLoading =
     portfolioQuery.isLoading ||
@@ -463,7 +479,144 @@ export const StrategiesPage: React.FC = () => {
                   </div>
                 </div>
               ))}
+              <div style={{ marginTop: 10, borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
+                <div style={{ ...metricLabel, marginBottom: 6 }}>Oportunidades para o portfólio</div>
+                {(promotionOpportunitiesQuery.data?.opportunities || []).length === 0 && (
+                  <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Sem oportunidades personalizadas no momento.</div>
+                )}
+                {(promotionOpportunitiesQuery.data?.opportunities || []).slice(0, 3).map((item: any, idx: number) => (
+                  <div key={`${item.user_card || idx}`} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                    • {item.user_card || 'Cartão'}: {item.alert_text || 'Promoção disponível'}
+                  </div>
+                ))}
+              </div>
             </div>
+          </div>
+
+          <div style={card}>
+            <div style={sectionTitle}>Optimizer Intelligence</div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => optimizerAnalysisMutation.mutate()}
+                style={{ border: '1px solid #111', background: 'var(--text-primary)', color: 'var(--bg-surface)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}
+              >
+                Rodar análise completa
+              </button>
+              {currentCard && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', alignSelf: 'center' }}>
+                  Usando o cartão selecionado como referência atual.
+                </div>
+              )}
+            </div>
+
+            {optimizerAnalysisMutation.isPending && (
+              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Gerando relatório inteligente...</div>
+            )}
+            {optimizerAnalysisMutation.isError && (
+              <div style={{ fontSize: 12, color: '#991b1b', marginBottom: 8 }}>
+                {getErrorMessage(optimizerAnalysisMutation.error, 'Falha ao gerar análise completa do Optimizer.')}
+              </div>
+            )}
+
+            {!optimizerAnalysisMutation.isPending && Object.keys(optimizerAnalysis).length > 0 && (
+              <div style={{ display: 'grid', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                    <div style={metricLabel}>Recomendação</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {optimizerAnalysis.recommendation_type || 'N/A'}
+                    </div>
+                  </div>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                    <div style={metricLabel}>Estratégia</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {optimizerAnalysis.strategy_text || 'N/A'}
+                    </div>
+                  </div>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                    <div style={metricLabel}>Melhor cartão</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {optimizerBestCard.card_name || optimizerBestCard.name || optimizerBestCard.card_id || 'Sem cartão'}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                      Ganho líquido: {currency(toNumber(optimizerBestCard.net_gain_expected || optimizerBestCard.net_gain || 0))}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                    <div style={{ ...metricLabel, marginBottom: 8 }}>Resumo do perfil</div>
+                    <div style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+                      <div>Cluster: {optimizerProfileSummary.lifestyle_cluster || optimizerProfileSummary.cluster || 'N/A'}</div>
+                      <div>FSS: {optimizerProfileSummary.fss ?? 'N/A'} {optimizerProfileSummary.fss_level ? `(${optimizerProfileSummary.fss_level})` : ''}</div>
+                      <div>Família com filhos: {optimizerProfileSummary.is_family_with_kids ? 'Sim' : 'Não'}</div>
+                      <div>Dia ideal de notificação: {optimizerProfileSummary.best_notification_day ?? 'N/A'}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                    <div style={{ ...metricLabel, marginBottom: 8 }}>Eventos de vida detectados</div>
+                    {optimizerLifeEvents.length === 0 && (
+                      <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Nenhum evento relevante encontrado.</div>
+                    )}
+                    {optimizerLifeEvents.slice(0, 4).map((event: any, idx: number) => (
+                      <div key={`${event.event || idx}`} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                        • {event.event || 'Evento'} - {event.trigger_action || 'Ação sugerida'}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                  <div style={{ ...metricLabel, marginBottom: 8 }}>Insights acionáveis</div>
+                  {optimizerInsights.length === 0 && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Nenhum insight acionável disponível.</div>
+                  )}
+                  {optimizerInsights.slice(0, 4).map((insight: any, idx: number) => (
+                    <div key={`${insight.type || idx}`} style={{ borderBottom: idx < Math.min(3, optimizerInsights.length - 1) ? '1px solid var(--border-color)' : 'none', padding: '8px 0' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {insight.title || insight.type || 'Insight'}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                        {insight.description || 'Sem descrição disponível.'}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+                        Ganho: {insight.gain_interval?.expected ? currency(toNumber(insight.gain_interval.expected)) : 'N/A'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {optimizerWarnings.length > 0 && (
+                  <div style={{ fontSize: 12, color: '#92400e' }}>
+                    {optimizerWarnings.slice(0, 3).map((warn: string, idx: number) => (
+                      <div key={`${idx}-${warn}`}>• {warn}</div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                  <div style={{ ...metricLabel, marginBottom: 8 }}>Histórico de relatórios</div>
+                  {optimizerReports.length === 0 && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Nenhum relatório salvo encontrado.</div>
+                  )}
+                  {optimizerReports.slice(0, 4).map((report: any, idx: number) => (
+                    <div key={`${report.report_id || idx}`} style={{ borderBottom: idx < Math.min(3, optimizerReports.length - 1) ? '1px solid var(--border-color)' : 'none', padding: '8px 0' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {report.best_card?.card_name || report.best_card_name || report.recommendation_type || 'Relatório'}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                        {report.generated_at ? String(report.generated_at).slice(0, 10) : 'Data indisponível'}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+                        {report.strategy_text || 'Sem descrição resumida.'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -194,6 +194,16 @@ export const nexaApi = {
     return data;
   },
 
+  analyzeOptimizer: async (payload: {
+    user_id: string;
+    current_cards?: string[];
+    safe_to_spend?: number;
+    monthly_income?: number;
+  }) => {
+    const { data } = await apiClient.post('/optimizer/analyze', payload);
+    return data;
+  },
+
   architectSimulate: async (payload: Record<string, unknown>) => {
     const { data } = await apiClient.post('/architect/simulate', payload);
     return data;
