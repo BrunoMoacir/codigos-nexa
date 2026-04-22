@@ -13,6 +13,7 @@ vi.mock('../../../api/nexa', () => ({
     getOptimizerCards: vi.fn(),
     getOptimizerPromotions: vi.fn(),
     getOptimizerOpportunityCost: vi.fn(),
+    getTransactions: vi.fn(),
     getOptimizerPromotionOpportunities: vi.fn(),
     getOptimizerReports: vi.fn(),
     getOptimizerRoi: vi.fn(),
@@ -58,6 +59,7 @@ beforeEach(() => {
   (nexaApi.getOptimizerPortfolio as ReturnType<typeof vi.fn>).mockResolvedValue({ cards: [] });
   (nexaApi.getOptimizerCards as ReturnType<typeof vi.fn>).mockResolvedValue({ cards: [] });
   (nexaApi.getOptimizerPromotions as ReturnType<typeof vi.fn>).mockResolvedValue({ promotions: [] });
+  (nexaApi.getTransactions as ReturnType<typeof vi.fn>).mockResolvedValue({ transactions: [] });
   (nexaApi.getOptimizerPromotionOpportunities as ReturnType<typeof vi.fn>).mockResolvedValue({ opportunities: [] });
   (nexaApi.getOptimizerReports as ReturnType<typeof vi.fn>).mockResolvedValue({ reports: [] });
   (nexaApi.getOptimizerRoi as ReturnType<typeof vi.fn>).mockResolvedValue({ verdict: 'NAO_VALE' });

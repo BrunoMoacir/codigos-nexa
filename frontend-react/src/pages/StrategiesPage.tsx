@@ -48,7 +48,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 
 export const StrategiesPage: React.FC = () => {
   const userId = localStorage.getItem('user_id') || '';
-  const [tab, setTab] = useState<'optimizer' | 'architect' | 'fiscal' | 'peers' | 'advanced'>('optimizer');
+  const [tab, setTab] = useState<'optimizer' | 'cards' | 'architect' | 'fiscal' | 'peers' | 'advanced'>('optimizer');
 
   const [income, setIncome] = useState(0);
   const [maxCards, setMaxCards] = useState(3);
@@ -134,6 +134,12 @@ export const StrategiesPage: React.FC = () => {
     queryKey: ['optimizer-cards'],
     queryFn: () => nexaApi.getOptimizerCards(),
     enabled: tab === 'optimizer',
+  });
+
+  const accountCardsQuery = useQuery({
+    queryKey: ['cards-transactions', userId],
+    queryFn: () => nexaApi.getTransactions(userId, 500),
+    enabled: !!userId && tab === 'cards',
   });
 
   const promotionsQuery = useQuery({
@@ -281,6 +287,7 @@ export const StrategiesPage: React.FC = () => {
   const portfolioCards = portfolioQuery.data?.cards || [];
   const promotions = promotionsQuery.data?.promotions || [];
   const optimizerReports = optimizerReportsQuery.data?.reports || [];
+  const transactionCards = accountCardsQuery.data?.transactions || [];
   const architectResult = architectMutation.data || {};
   const architectActionPlan = architectResult?.action_plan || [];
   const architectNpv = architectResult?.npv || {};
@@ -303,10 +310,68 @@ export const StrategiesPage: React.FC = () => {
     cardsQuery.isLoading ||
     promotionsQuery.isLoading ||
     optimizerReportsQuery.isLoading;
+  const isCardsLoading = accountCardsQuery.isLoading;
   const isArchitectLoading = architectHistory.isLoading || architectMetrics.isLoading;
   const isFiscalLoading = fiscalReport.isLoading || fiscalMixed.isLoading;
   const isPeersLoading = peerQuery.isLoading || notificationsQuery.isLoading;
   const isAdvancedLoading = costsQuery.isLoading;
+
+  const accountCardSummaries = useMemo(() => {
+    const groups = new Map<string, {
+      account_id: string;
+      label: string;
+      transaction_count: number;
+      total_spent: number;
+      total_income: number;
+      net_total: number;
+      last_activity: string;
+      categories: Record<string, number>;
+      sample_descriptions: string[];
+    }>();
+
+    transactionCards.forEach((tx: any, index: number) => {
+      const accountId = String(tx.account_id || 'sem_account_id').trim() || 'sem_account_id';
+      if (!groups.has(accountId)) {
+        groups.set(accountId, {
+          account_id: accountId,
+          label: accountId === 'sem_account_id' ? `Conta ${index + 1}` : `Conta ${groups.size + 1}`,
+          transaction_count: 0,
+          total_spent: 0,
+          total_income: 0,
+          net_total: 0,
+          last_activity: '',
+          categories: {},
+          sample_descriptions: [],
+        });
+      }
+
+      const entry = groups.get(accountId)!;
+      const amount = toNumber(tx.amount);
+      const category = String(tx.category || 'Sem categoria');
+      const date = String(tx.date || '');
+      const description = String(tx.description || '').trim();
+
+      entry.transaction_count += 1;
+      entry.net_total += amount;
+      entry.categories[category] = (entry.categories[category] || 0) + Math.abs(amount);
+      if (amount >= 0) {
+        entry.total_income += amount;
+      } else {
+        entry.total_spent += Math.abs(amount);
+      }
+      if (date && (!entry.last_activity || date > entry.last_activity)) {
+        entry.last_activity = date;
+      }
+      if (description && entry.sample_descriptions.length < 3) {
+        entry.sample_descriptions.push(description);
+      }
+    });
+
+    return Array.from(groups.values()).sort((a, b) => {
+      if (b.transaction_count !== a.transaction_count) return b.transaction_count - a.transaction_count;
+      return b.total_spent - a.total_spent;
+    });
+  }, [transactionCards]);
 
   const topPeerInsights = useMemo(() => {
     const rawInsights = peerData?.insights || peerData?.highlights || [];
@@ -335,6 +400,7 @@ export const StrategiesPage: React.FC = () => {
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         {[
           ['optimizer', 'Optimizer'],
+          ['cards', 'Cartões'],
           ['architect', 'Architect'],
           ['fiscal', 'Fiscal'],
           ['peers', 'Peers & Alertas'],
@@ -617,6 +683,98 @@ export const StrategiesPage: React.FC = () => {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {tab === 'cards' && (
+        <div style={{ display: 'grid', gap: 12 }}>
+          {isCardsLoading && (
+            <div style={{ ...card, color: 'var(--text-muted)', fontSize: 14 }}>Carregando cartões detectados nas transações...</div>
+          )}
+
+          <div style={card}>
+            <div style={sectionTitle}>Cartões cadastrados na conta</div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+              Esta visão usa diretamente as transações injetadas no backend para agrupar as contas/cartões do seu `user_id`.
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 12 }}>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                <div style={metricLabel}>Cartões/contas detectados</div>
+                <div style={metricValue}>{accountCardSummaries.length}</div>
+              </div>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                <div style={metricLabel}>Transações carregadas</div>
+                <div style={metricValue}>{transactionCards.length}</div>
+              </div>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                <div style={metricLabel}>Total de despesas</div>
+                <div style={metricValue}>{currency(transactionCards.reduce((sum: number, tx: any) => sum + (toNumber(tx.amount) < 0 ? Math.abs(toNumber(tx.amount)) : 0), 0))}</div>
+              </div>
+            </div>
+
+            {accountCardSummaries.length === 0 && (
+              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>
+                Nenhuma conta/cartão encontrado nas transações atuais.
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+            {accountCardSummaries.map((item: any) => {
+              const topCategory = Object.entries(item.categories || {})
+                .sort((a, b) => Number(b[1]) - Number(a[1]))[0];
+
+              return (
+                <div key={item.account_id} style={card}>
+                  <div style={sectionTitle}>{item.label}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+                    ID da conta/cartão: {item.account_id}
+                  </div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                      <div style={metricLabel}>Movimentações</div>
+                      <div style={metricValue}>{item.transaction_count}</div>
+                    </div>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                      <div style={metricLabel}>Despesas</div>
+                      <div style={metricValue}>{currency(item.total_spent)}</div>
+                    </div>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                      <div style={metricLabel}>Receitas</div>
+                      <div style={metricValue}>{currency(item.total_income)}</div>
+                    </div>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                      <div style={metricLabel}>Categoria dominante</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {topCategory ? `${topCategory[0]} (${currency(toNumber(topCategory[1]))})` : 'Sem categoria'}
+                      </div>
+                    </div>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                      <div style={metricLabel}>Última movimentação</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {item.last_activity ? String(item.last_activity).slice(0, 10) : 'Sem data'}
+                      </div>
+                    </div>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                      <div style={metricLabel}>Exemplos</div>
+                      <div style={{ display: 'grid', gap: 4 }}>
+                        {(item.sample_descriptions || []).slice(0, 3).map((desc: string, idx: number) => (
+                          <div key={`${item.account_id}-${idx}`} style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                            • {desc}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
+                      <div style={metricLabel}>Saldo líquido nas transações</div>
+                      <div style={metricValue}>{currency(item.net_total)}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
