@@ -21,17 +21,17 @@
   - [T1.3 — Detector de Foodie Gastronômico](#t13) ✅
   - [T1.4 — Detector de Investidor Ativo](#t14) ✅
   - [T1.5 — Detector de MEI/Microempreendedor](#t15) ✅
-  - [T1.6 — Expansão do `UserProfile` com novos campos](#t16)
-  - [T1.7 — Clustering K-Means com 5 clusters básicos](#t17)
-  - [T1.8 — Integração dos detectors no pipeline do Optimizer](#t18)
+  - [T1.6 — Expansão do `UserProfile` com novos campos](#t16) ✅
+  - [T1.7 — Clustering K-Means com 5 clusters básicos](#t17) ✅
+  - [T1.8 — Integração dos detectors no pipeline do Optimizer](#t18) ✅
 - [Fase 2 — Life Events, FSS e Motor de Recomendação (3–6 meses)](#fase-2)
-  - [T2.1 — Detector de Eventos de Vida (Life Stage Intelligence)](#t21)
-  - [T2.2 — Financial Stress Score (FSS)](#t22)
-  - [T2.3 — Detector de Pai/Mãe com Filhos](#t23)
-  - [T2.4 — Motor de Recomendação Hiperpersonalizada (4-weight ranker)](#t24)
-  - [T2.5 — Detector de Usuário Airbnb / Nômade Digital](#t25)
-  - [T2.6 — Personalização de Insights por Cluster](#t26)
-  - [T2.7 — Inteligência Temporal (peak_spend_day, notification timing)](#t27)
+  - [T2.1 — Detector de Eventos de Vida (Life Stage Intelligence)](#t21) ✅
+  - [T2.2 — Financial Stress Score (FSS)](#t22) ✅
+  - [T2.3 — Detector de Pai/Mãe com Filhos](#t23) ✅
+  - [T2.4 — Motor de Recomendação Hiperpersonalizada (4-weight ranker)](#t24) ✅
+  - [T2.5 — Detector de Usuário Airbnb / Nômade Digital](#t25) ✅
+  - [T2.6 — Personalização de Insights por Cluster](#t26) ✅
+  - [T2.7 — Inteligência Temporal (peak_spend_day, notification timing)](#t27) ✅
 - [Fase 3 — ML Pipeline (6–12 meses)](#fase-3)
   - [T3.1 — Classificador de Merchant (NLP + MCC)](#t31)
   - [T3.2 — Predição de Gastos (Prophet)](#t32)
@@ -688,7 +688,7 @@ class MEIDetector:
 ---
 
 <a name="t16"></a>
-### T1.6 — Expansão do `UserProfile` com novos campos
+### T1.6 — Expansão do `UserProfile` com novos campos ✅
 
 **O que implementar:** Adicionar os campos dos detectors ao `UserProfile` existente sem quebrar a interface atual.
 
@@ -789,7 +789,7 @@ def _calc_subscription_burn(df: pl.DataFrame, coverage_months: int) -> float:
 ---
 
 <a name="t17"></a>
-### T1.7 — Clustering K-Means com 5 Clusters Básicos
+### T1.7 — Clustering K-Means com 5 Clusters Básicos ✅
 
 **O que implementar:** Classificar cada UserProfile em um dos 5 clusters principais. Sem dependência de banco de dados — clustering heurístico baseado em regras de score (ML real na Fase 3).
 
@@ -931,7 +931,7 @@ profile.lifestyle_cluster = cluster_result["lifestyle_cluster"]
 ---
 
 <a name="t18"></a>
-### T1.8 — Integração dos Detectors no Pipeline do Optimizer
+### T1.8 — Integração dos Detectors no Pipeline do Optimizer ✅
 
 **O que implementar:** Garantir que os novos campos do `UserProfile` são consumidos pelo `CardRanking` e `InsightGenerator` com melhorias concretas na qualidade das recomendações.
 
@@ -1012,7 +1012,7 @@ def _generate_cluster_insights(
 ---
 
 <a name="t21"></a>
-### T2.1 — Detector de Eventos de Vida (Life Stage Intelligence)
+### T2.1 — Detector de Eventos de Vida (Life Stage Intelligence) ✅
 
 **O que implementar:** Sistema de detecção de eventos de vida baseado em padrões de transações. Cada evento tem um conjunto de sinais, threshold de confiança e ação associada.
 
@@ -1229,7 +1229,7 @@ class LifeEventsDetector:
 ---
 
 <a name="t22"></a>
-### T2.2 — Financial Stress Score (FSS)
+### T2.2 — Financial Stress Score (FSS) ✅
 
 **O que implementar:** Índice único 0–100 (100 = máximo estresse) que combina múltiplos indicadores de deterioração financeira. Trigger para intervenção proativa.
 
@@ -1398,7 +1398,7 @@ fss_level: str = "SAUDAVEL"  # SAUDAVEL | ATENCAO | ALERTA | CRITICO
 ---
 
 <a name="t23"></a>
-### T2.3 — Detector de Pai/Mãe com Filhos
+### T2.3 — Detector de Pai/Mãe com Filhos ✅
 
 **O que implementar:** Identificar famílias com filhos — um dos perfis de maior LTV e com necessidades financeiras específicas (previdência, educação, saúde).
 
@@ -1498,7 +1498,7 @@ class FamilyDetector:
 ---
 
 <a name="t24"></a>
-### T2.4 — Motor de Recomendação Hiperpersonalizada (4-weight ranker)
+### T2.4 — Motor de Recomendação Hiperpersonalizada (4-weight ranker) ✅
 
 **O que implementar:** Substituir o ranker atual (baseado apenas em `net_gain`) por um motor com 4 pesos que considera cluster, impacto financeiro, conversão estimada e timing.
 
@@ -1658,7 +1658,7 @@ def _calc_timing_score(
 ---
 
 <a name="t25"></a>
-### T2.5 — Detector de Usuário Airbnb / Nômade Digital
+### T2.5 — Detector de Usuário Airbnb / Nômade Digital ✅
 
 **O que implementar:** Identificar o perfil específico de usuário Airbnb (preferência por acomodação alternativa) vs. nômade digital.
 
@@ -1704,7 +1704,7 @@ def detect_airbnb_profile(self, df: pl.DataFrame) -> dict:
 ---
 
 <a name="t26"></a>
-### T2.6 — Personalização de Insights por Cluster
+### T2.6 — Personalização de Insights por Cluster ✅
 
 **O que implementar:** Adaptar o texto dos 7 tipos de insights existentes para incorporar linguagem personalizada pelo cluster do usuário.
 
@@ -1761,7 +1761,7 @@ def _personalize_description(
 ---
 
 <a name="t27"></a>
-### T2.7 — Inteligência Temporal (peak_spend_day, notification timing)
+### T2.7 — Inteligência Temporal (peak_spend_day, notification timing) ✅
 
 **O que implementar:** Calcular padrões temporais de gasto para personalizar o timing de notificações e recomendações.
 

@@ -80,6 +80,14 @@ class UserProfile:
     # subscription_burn_monthly é apenas streaming (Netflix, Spotify, etc.), em R$/mês absoluto.
     subscription_burn_monthly: float = 0.0
 
+    # ── Campos de Inteligência Comportamental (Fase 2) ────────────────────────
+
+    fss: float = 0.0                          # Financial Stress Score 0–100 (FSSCalculator)
+    fss_level: str = "SAUDAVEL"               # SAUDAVEL | ATENCAO | ALERTA | CRITICO
+
+    is_family_with_kids: bool = False          # detector de família com filhos (FamilyDetector)
+    family_score: float = 0.0                  # 0–100 (FamilyDetector)
+
 
 def _calc_merchant_diversity(df: pl.DataFrame) -> float:
     """Score 0–100: quanto mais merchants únicos, mais diversificado."""

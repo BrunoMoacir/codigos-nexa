@@ -137,3 +137,115 @@ class CardRanking:
             score *= 0.75
 
         return score
+
+    # ── Ranker hiperpersonalizado (T2.4) ─────────────────────────────────────
+
+    def rank_hyperpersonalized(
+        self,
+        results: list[CardSimulationResult],
+        profile: UserProfile,
+    ) -> list[CardSimulationResult]:
+        """
+        Ranker hiperpersonalizado com 4 pesos (melhorias_analise_perfil.md §8.1):
+            W1 = relevância ao cluster (40%)
+            W2 = impacto financeiro em R$ (30%)
+            W3 = propensity estimada (20%)
+            W4 = timing/adequação momento (10%)
+
+        Backward compatible: se UserProfile não tem cluster classificado, recai no rank() clássico.
+        """
+        if not results:
+            return []
+
+        has_cluster = (
+            hasattr(profile, "lifestyle_cluster")
+            and profile.lifestyle_cluster != "NAO_CLASSIFICADO"
+        )
+        if not has_cluster:
+            return self.rank(results, profile)
+
+        scored = [(r, self._compute_hyperscore(r, profile)) for r in results]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        ranked = [r for r, _ in scored]
+
+        if ranked and ranked[0].eligibility_score < 0.4:
+            next_eligible = next(
+                (r for r in ranked[1:] if r.eligibility_score >= 0.6), None
+            )
+            if next_eligible:
+                ranked.remove(next_eligible)
+                ranked.insert(0, next_eligible)
+
+        return ranked
+
+    def _compute_hyperscore(
+        self,
+        result: CardSimulationResult,
+        profile: UserProfile,
+    ) -> float:
+        cluster = getattr(profile, "lifestyle_cluster", "NAO_CLASSIFICADO")
+
+        w2_financial = self._compute_score(result, profile)
+        w1_cluster = self._cluster_relevance(result, profile, cluster) * 200
+        w3_propensity = self._estimate_propensity(result, profile) * 100
+        w4_timing = self._calc_timing_score(result, profile) * 50
+
+        return (
+            0.40 * w1_cluster
+            + 0.30 * w2_financial
+            + 0.20 * w3_propensity
+            + 0.10 * w4_timing
+        )
+
+    def _cluster_relevance(
+        self,
+        result: CardSimulationResult,
+        profile: UserProfile,
+        cluster: str,
+    ) -> float:
+        relevance = 0.5
+
+        if cluster == "EXPLORADOR_GLOBAL":
+            travel_tags = {BenefitTag.LOUNGE, BenefitTag.TRAVEL, BenefitTag.INSURANCE}
+            tag_overlap = len(travel_tags & set(result.benefit_tags)) / len(travel_tags)
+            relevance = 0.3 + tag_overlap * 0.7
+
+        elif cluster == "URBANO_FOODIE":
+            relevance = 0.8 if BenefitTag.CASHBACK in result.benefit_tags else 0.3
+
+        elif cluster == "INVESTIDOR_CAUTELOSO":
+            if result.annuity_effective == 0:
+                relevance = 0.9
+            elif result.annuity_effective <= 300:
+                relevance = 0.65
+            else:
+                relevance = 0.3
+
+        elif cluster == "ESTRESSE_FINANCEIRO":
+            relevance = 0.9 if result.annuity_effective == 0 else 0.2
+
+        return relevance
+
+    def _estimate_propensity(
+        self,
+        result: CardSimulationResult,
+        profile: UserProfile,
+    ) -> float:
+        propensity = 0.5
+        propensity += (result.eligibility_score - 0.5) * 0.4
+        if result.confidence_score >= 0.8:
+            propensity += 0.1
+        if result.net_gain_expected > 1200:
+            propensity += 0.15
+        return round(min(max(propensity, 0.0), 1.0), 3)
+
+    def _calc_timing_score(
+        self,
+        result: CardSimulationResult,
+        profile: UserProfile,
+    ) -> float:
+        timing = 0.5
+        fss_level = getattr(profile, "fss_level", "SAUDAVEL")
+        if fss_level in ("ALERTA", "CRITICO"):
+            timing = 0.1 if result.annuity_effective > 300 else 0.6
+        return timing

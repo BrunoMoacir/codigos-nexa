@@ -156,6 +156,7 @@ class OptimizationReport(BaseModel):
     data_sources: list[str] = []
     strategy_text: str = ""
     warnings: list[str] = []
+    life_events: list[dict] = []
 
 
 # ─── Camada 5 — Insights Acionáveis ──────────────────────────────────────────

@@ -246,8 +246,69 @@ class OptimizerService:
         # ConfidenceGate (0.65) e MinGainFilter por insight são aplicados no InsightGenerator.
         simulated_results = _apply_anti_fp_gates(simulated_results, profile)
 
+        # Fase 2 — detectors comportamentais adicionais
+        from app.optimizer.detectors.fss_calculator import FSSCalculator
+        from app.optimizer.detectors.family_detector import FamilyDetector
+
+        fss_result = FSSCalculator().calc_fss(profile, transactions_df)
+        profile.fss = fss_result["fss"]
+        profile.fss_level = fss_result["fss_level"]
+
+        if fss_result["fss_level"] == "CRITICO":
+            logger.warning(
+                "FSS CRÍTICO (score=%.0f) para usuário — ativando modo defesa.",
+                fss_result["fss"],
+            )
+
+        family_result = FamilyDetector().detect_family_profile(transactions_df)
+        profile.is_family_with_kids = family_result["is_family_with_kids"]
+        profile.family_score = family_result["family_score"]
+
+        # Detecção de eventos de vida (T2.1)
+        from app.optimizer.detectors.life_events_detector import LifeEventsDetector
+        from datetime import date as _date, timedelta as _timedelta
+        life_events_raw: list[dict] = []
+        try:
+            _ref = reference_date or _date.today()
+            _cutoff_recent = _ref - _timedelta(days=60)
+            _cutoff_hist_end = _ref - _timedelta(days=180)
+            _cutoff_hist_start = _ref - _timedelta(days=540)
+
+            if "date" in transactions_df.columns:
+                _txns_recent = transactions_df.filter(
+                    pl.col("date") >= _cutoff_recent
+                )
+                _txns_history = transactions_df.filter(
+                    (pl.col("date") >= _cutoff_hist_start) &
+                    (pl.col("date") < _cutoff_hist_end)
+                )
+                _income_ref = (
+                    profile.income_profile.monthly_net_income
+                    if profile.income_profile
+                    else profile.estimated_monthly_income
+                )
+
+                detected = LifeEventsDetector().detect_all(
+                    txns_recent=_txns_recent,
+                    txns_history=_txns_history,
+                    income_recent=_income_ref,
+                    income_historical=_income_ref,
+                )
+                life_events_raw = [
+                    {
+                        "event": e.event,
+                        "confidence": e.confidence,
+                        "detected_at": e.detected_at.isoformat(),
+                        "trigger_action": e.trigger_action,
+                        "supporting_signals": e.supporting_signals,
+                    }
+                    for e in detected
+                ]
+        except Exception as _exc:
+            logger.warning("LifeEventsDetector falhou: %s", _exc)
+
         # 6. Ranqueamento e Penalidades
-        ranked_results = self.ranking.rank(
+        ranked_results = self.ranking.rank_hyperpersonalized(
             results=simulated_results,
             profile=profile,
         )
@@ -283,7 +344,7 @@ class OptimizerService:
         # 9. Formatar o Relatório
         return self._build_report(
             request=request, ranked_results=ranked_results, profile_data=profile,
-            insights=insights,
+            insights=insights, life_events=life_events_raw,
         )
 
     def _build_report(
@@ -292,6 +353,7 @@ class OptimizerService:
         ranked_results: list,
         profile_data,
         insights: list | None = None,
+        life_events: list | None = None,
     ) -> OptimizationReport:
 
         warnings = []
@@ -349,6 +411,7 @@ class OptimizerService:
             strategy_text=strategy_text,
             warnings=warnings,
             data_sources=["pluggy", "internal_knowledge_base"],
+            life_events=life_events or [],
         )
 
         try:

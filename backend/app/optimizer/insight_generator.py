@@ -59,6 +59,30 @@ _INSIGHT_CONFIDENCE_GATE = 0.65
 # MinGainFilter — P25 do ganho deve ser ≥ R$10/mês para surfaçar
 _INSIGHT_MIN_MONTHLY_GAIN = 10.0
 
+# T2.6 — Templates de linguagem personalizados por cluster
+_CLUSTER_TONE: dict[str, dict] = {
+    "EXPLORADOR_GLOBAL": {
+        "prefix": "Para quem viaja como você",
+        "emphasis": "milhas e lounge",
+        "currency_framing": "passagem grátis",
+    },
+    "URBANO_FOODIE": {
+        "prefix": "Com seu gasto em alimentação",
+        "emphasis": "cashback e benefícios em restaurantes",
+        "currency_framing": "refeição grátis",
+    },
+    "INVESTIDOR_CAUTELOSO": {
+        "prefix": "Calculando o custo de oportunidade",
+        "emphasis": "retorno líquido sobre anuidade",
+        "currency_framing": "rendimento no investimento",
+    },
+    "FAMILIA_ESTRUTURADA": {
+        "prefix": "Para sua família",
+        "emphasis": "cashback em supermercado e farmácia",
+        "currency_framing": "mês de compras grátis",
+    },
+}
+
 
 class InsightGenerator:
     """
@@ -567,6 +591,22 @@ class InsightGenerator:
         return insights
 
     # ─── Helpers ──────────────────────────────────────────────────────────────
+
+    def _personalize_description(
+        self,
+        base_description: str,
+        profile: "UserProfile",
+        gain_annual: float,
+    ) -> str:
+        """Enriquece o texto do insight com contexto do cluster (T2.6)."""
+        cluster = getattr(profile, "lifestyle_cluster", "NAO_CLASSIFICADO")
+        tone = _CLUSTER_TONE.get(cluster)
+        if not tone:
+            return base_description
+        return (
+            f"{tone['prefix']}, {base_description.lower()} "
+            f"Foco em {tone['emphasis']} — equivale a R${gain_annual:.0f}/ano."
+        )
 
     def _make_interval(
         self,
