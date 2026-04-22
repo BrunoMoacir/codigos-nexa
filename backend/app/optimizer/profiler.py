@@ -222,7 +222,7 @@ class ConsumptionProfiler:
             foodie_score=foodie_result["foodie_score"],
             foodie_profile=foodie_result["foodie_profile"],
             savings_rate=savings_rate_pct,
-            resilience_score=round(resilience_score, 1),
+            resilience_score=round(float(resilience_score), 1),
             investor_type=investor_result["investor_type"],
             is_likely_mei=mei_result["is_likely_mei"],
             merchant_diversity_score=merchant_diversity,
