@@ -162,7 +162,7 @@ class InsightGenerator:
         # 8. Insights por cluster de estilo de vida
         insights.extend(self._generate_cluster_insights(ranked_results, profile))
 
-        # 10. Filtrar e ranquear
+        # 9. Filtrar e ranquear
         valid = [i for i in insights if self._passes_gates(i)]
         valid.sort(key=lambda i: i.priority_score, reverse=True)
 

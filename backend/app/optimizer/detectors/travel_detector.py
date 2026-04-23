@@ -46,9 +46,18 @@ class TravelDetector:
             logger.warning("TravelDetector: campo is_travel_related ausente — rode T1.1 primeiro")
             return self._zero_result("SEM_DADOS")
 
-        travel_df = df.filter(
-            pl.col("is_travel_related") & (pl.col("amount") < 0)
-        )
+        # Combina is_travel_related (MCC + keywords gerais) com merchant_category_l2
+        # (VOO, HOTEL, LOCADORA, AIRBNB) para cobertura máxima.
+        travel_filter = pl.col("is_travel_related") & (pl.col("amount") < 0)
+        if "merchant_category_l2" in df.columns:
+            _TRAVEL_L2 = {"VOO", "HOTEL", "LOCADORA", "AIRBNB"}
+            l2_filter = (
+                pl.col("merchant_category_l2").is_in(list(_TRAVEL_L2))
+                & (pl.col("amount") < 0)
+            )
+            travel_filter = travel_filter | l2_filter
+
+        travel_df = df.filter(travel_filter)
 
         if travel_df.is_empty():
             return self._zero_result()
