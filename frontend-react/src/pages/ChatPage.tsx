@@ -183,7 +183,10 @@ export const ChatPage: React.FC = () => {
           display: 'flex',
           flexDirection: 'column',
           gap: 12,
-          minHeight: 580,
+          height: 'calc(100vh - 220px)',
+          maxHeight: 760,
+          minHeight: 520,
+          overflow: 'hidden',
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -215,7 +218,7 @@ export const ChatPage: React.FC = () => {
           </button>
         </div>
 
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 6 }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 6, scrollbarGutter: 'stable' }}>
           {messages.map((m, idx) => (
             <div
               key={`${m.ts}-${idx}`}
