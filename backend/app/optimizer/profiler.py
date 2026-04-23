@@ -189,9 +189,12 @@ class ConsumptionProfiler:
         from app.optimizer.detectors.investor_detector import InvestorDetector
         from app.optimizer.detectors.mei_detector import MEIDetector
 
-        total_spend_12m = monthly_avg_spend * data_coverage_months
+        # total_spend_period: gasto total no período coberto (90d, ~3m).
+        # Nomeado anteriormente total_spend_12m por engano — não é anualizado.
+        total_spend_period = monthly_avg_spend * data_coverage_months
 
-        travel_result = TravelDetector().calc_travel_score(df, total_spend_12m)
+        travel_detector = TravelDetector()
+        travel_result = travel_detector.calc_travel_score(df, total_spend_period)
         foodie_result = FoodieDetector().calc_foodie_score(df, monthly_avg_spend)
         investor_result = InvestorDetector().calc_investor_profile(df)
         mei_result = MEIDetector().detect_mei_pattern(df, income_profile)
@@ -204,13 +207,19 @@ class ConsumptionProfiler:
         savings_rate_pct = _etl_profile.savings_rate
         resilience_score = _etl_profile.resilience_score
 
+        # travel_spend_monthly: TravelDetector usa is_travel_related (T1.1) — mais preciso
+        # que _travel_spend() que só olha categorias L1 (Lazer + Transporte).
+        # Usa o valor do detector se positivo; fallback para categoria L1 caso contrário.
+        detector_travel_spend = travel_result.get("travel_spend_monthly", 0.0)
+        effective_travel_spend = detector_travel_spend if detector_travel_spend > 0 else travel_spend_monthly
+
         profile = UserProfile(
             monthly_avg_spend=round(monthly_avg_spend, 2),
             committed_percentage=round(committed_percentage, 4),
             spend_by_category=spend_by_category,
             spend_by_source=spend_by_source,
             international_spend_monthly=round(international_spend_monthly, 2),
-            travel_spend_monthly=round(travel_spend_monthly, 2),
+            travel_spend_monthly=round(effective_travel_spend, 2),
             estimated_monthly_income=round(estimated_monthly_income, 2),
             data_coverage_months=data_coverage_months,
             spending_stability=round(spending_stability, 4),
@@ -237,8 +246,8 @@ class ConsumptionProfiler:
         profile.is_family_with_kids = family_result["is_family_with_kids"]
         profile.family_score = family_result["family_score"]
 
-        # T2.5 — Airbnb / Nômade Digital
-        airbnb_result = TravelDetector().detect_airbnb_profile(df)
+        # T2.5 — Airbnb / Nômade Digital (reutiliza instância já criada acima)
+        airbnb_result = travel_detector.detect_airbnb_profile(df)
         profile.is_airbnb_user = airbnb_result["is_airbnb_user"]
         profile.is_digital_nomad = airbnb_result["is_digital_nomad"]
 
