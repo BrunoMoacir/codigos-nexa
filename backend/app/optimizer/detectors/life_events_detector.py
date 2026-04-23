@@ -57,6 +57,13 @@ _EDUCATION_KEYWORDS = [
 _SALARY_INCREASE_THRESHOLD = 0.20
 _SALARY_DROP_THRESHOLD = -0.20
 
+# Padrões pré-compilados — re.escape garante que keywords com caracteres especiais
+# (ex: pontos, parênteses) não sejam interpretados como metacaracteres regex.
+_P_BABY     = re.compile("|".join(re.escape(k) for k in _BABY_KEYWORDS),     re.IGNORECASE)
+_P_MOVING   = re.compile("|".join(re.escape(k) for k in _MOVING_KEYWORDS),   re.IGNORECASE)
+_P_WEDDING  = re.compile("|".join(re.escape(k) for k in _WEDDING_KEYWORDS),  re.IGNORECASE)
+_P_EDUCATION = re.compile("|".join(re.escape(k) for k in _EDUCATION_KEYWORDS), re.IGNORECASE)
+
 
 class LifeEventsDetector:
 
@@ -91,21 +98,20 @@ class LifeEventsDetector:
 
         return events
 
-    def _keyword_spend(self, df: pl.DataFrame, keywords: list[str]) -> float:
+    def _keyword_spend(self, df: pl.DataFrame, pattern: re.Pattern) -> float:
         if df.is_empty() or "description" not in df.columns:
             return 0.0
-        pattern = "|".join(keywords)
         filtered = df.filter(
             (pl.col("amount") < 0) &
-            pl.col("description").str.to_uppercase().str.contains(pattern)
+            pl.col("description").str.to_uppercase().str.contains(pattern.pattern)
         )
         return float(filtered["amount"].sum()) * -1 if not filtered.is_empty() else 0.0
 
     def _detect_new_baby(
         self, recent: pl.DataFrame, history: pl.DataFrame
     ) -> LifeEvent | None:
-        recent_spend = self._keyword_spend(recent, _BABY_KEYWORDS)
-        historical_spend = self._keyword_spend(history, _BABY_KEYWORDS)
+        recent_spend = self._keyword_spend(recent, _P_BABY)
+        historical_spend = self._keyword_spend(history, _P_BABY)
 
         if recent_spend > 200 and historical_spend < 50:
             signals = [
@@ -125,8 +131,8 @@ class LifeEventsDetector:
     def _detect_moving(
         self, recent: pl.DataFrame, history: pl.DataFrame
     ) -> LifeEvent | None:
-        recent_spend = self._keyword_spend(recent, _MOVING_KEYWORDS)
-        historical_spend = self._keyword_spend(history, _MOVING_KEYWORDS)
+        recent_spend = self._keyword_spend(recent, _P_MOVING)
+        historical_spend = self._keyword_spend(history, _P_MOVING)
 
         # Requer gasto alto E sem histórico prévio similar.
         # Guard explícito: historical_spend < 100 previne falso positivo quando
@@ -147,22 +153,30 @@ class LifeEventsDetector:
     def _detect_wedding(
         self, recent: pl.DataFrame, history: pl.DataFrame
     ) -> LifeEvent | None:
-        recent_spend = self._keyword_spend(recent, _WEDDING_KEYWORDS)
-        if recent_spend > 1000:
+        recent_spend = self._keyword_spend(recent, _P_WEDDING)
+        historical_spend = self._keyword_spend(history, _P_WEDDING)
+
+        # Exige gasto recente alto E ausência de padrão histórico similar,
+        # para distinguir eventos pontuais (um casamento) de gastos regulares em eventos.
+        if recent_spend > 1000 and historical_spend < 200:
+            confidence = 0.85 if recent_spend > 3000 else 0.75
             return LifeEvent(
                 event="wedding",
-                confidence=0.75,
+                confidence=confidence,
                 detected_at=date.today(),
                 trigger_action="show_couple_financial_planning",
-                supporting_signals=[f"wedding_spend=R${recent_spend:.0f}"],
+                supporting_signals=[
+                    f"wedding_spend=R${recent_spend:.0f}",
+                    f"wedding_historical=R${historical_spend:.0f}",
+                ],
             )
         return None
 
     def _detect_new_education(
         self, recent: pl.DataFrame, history: pl.DataFrame
     ) -> LifeEvent | None:
-        recent_spend = self._keyword_spend(recent, _EDUCATION_KEYWORDS)
-        historical_spend = self._keyword_spend(history, _EDUCATION_KEYWORDS)
+        recent_spend = self._keyword_spend(recent, _P_EDUCATION)
+        historical_spend = self._keyword_spend(history, _P_EDUCATION)
 
         if recent_spend > 300 and historical_spend < 100:
             return LifeEvent(
