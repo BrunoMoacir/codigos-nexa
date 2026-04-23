@@ -71,7 +71,9 @@ class LifestyleClassifier:
         score = 0.0
         score += (1.0 if p.investor_type in ("ATIVO", "DIVERSIFICADO") else
                   0.5 if p.investor_type == "CASUAL" else 0.0) * 0.50
-        score += min(p.savings_rate * 2, 1.0) * 0.50
+        # savings_rate é porcentagem (ex: 22.5 = 22.5%). Normalizar para 0-1 dividindo por 50
+        # para que 25% → 0.5, 50% → 1.0 (full score).
+        score += min(p.savings_rate / 50, 1.0) * 0.50
         return score
 
     def _score_family(self, p: UserProfile) -> float:
@@ -105,12 +107,21 @@ class LifestyleClassifier:
 
     def _score_financial_stress(self, p: UserProfile) -> float:
         score = 0.0
-        if p.savings_rate < -0.05:
+        # savings_rate é porcentagem: -5 = -5%. Threshold alinhado com FSSCalculator.
+        if p.savings_rate < -5:
             score += 0.4
+        elif p.savings_rate < 0:
+            score += 0.15
         if p.committed_percentage > 0.6:
             score += 0.3
         if p.spending_stability < 0.3:
             score += 0.3
+        # FSS já calculado (T2.2): se disponível, usa como sinal direto de estresse.
+        fss_level = getattr(p, "fss_level", None)
+        if fss_level == "CRITICO":
+            score = max(score, 0.75)
+        elif fss_level == "ALERTA":
+            score = max(score, 0.50)
         return score
 
     def _score_mei(self, p: UserProfile) -> float:
