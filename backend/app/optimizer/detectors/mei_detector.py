@@ -73,10 +73,23 @@ class MEIDetector:
         else:
             logger.debug("MEIDetector: is_b2b ausente — rode T1.1 primeiro")
 
-        # ── Sinal 3: recebimentos de múltiplos CNPJs ─────────────────────────
-        # payer_document_type é campo opcional do Open Finance (nem sempre presente)
+        # ── Sinal 3: recebimentos de múltiplos CNPJs distintos ───────────────────
+        # payer_document_type é campo opcional do Open Finance (nem sempre presente).
+        # Conta CNPJs únicos, não transações: 1 empresa pagando 10x não é 10 clientes.
         pj_credits = 0
-        if "payer_document_type" in df.columns:
+        if "payer_document_type" in df.columns and "payer_document" in df.columns:
+            pj_credits = (
+                df.filter(
+                    (pl.col("amount") > 0)
+                    & (pl.col("payer_document_type").str.to_uppercase() == "CNPJ")
+                )
+                .select("payer_document")
+                .n_unique()
+            )
+            if pj_credits >= _MIN_CNPJ_PAYERS:
+                signals.append("multiple_cnpj_payers")
+        elif "payer_document_type" in df.columns:
+            # Sem campo de documento distinto, conta transações como proxy (menos preciso)
             pj_credits = df.filter(
                 (pl.col("amount") > 0)
                 & (pl.col("payer_document_type").str.to_uppercase() == "CNPJ")
