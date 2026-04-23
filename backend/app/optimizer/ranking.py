@@ -127,6 +127,27 @@ class CardRanking:
             if result.annuity_effective > 500:
                 score *= 0.90
 
+        elif cluster == "FAMILIA_ESTRUTURADA":
+            # Famílias valorizam cashback em supermercado, farmácia e saúde
+            if BenefitTag.CASHBACK in result.benefit_tags:
+                family_spend = (
+                    profile.spend_by_category.get("Supermercado", 0)
+                    + profile.spend_by_category.get("Saúde", 0)
+                    + profile.spend_by_category.get("Educação", 0)
+                )
+                if family_spend > 400:
+                    score += family_spend * 0.004
+
+        elif cluster == "DIGITAL_NATIVO":
+            # Nativos digitais preferem cartões sem anuidade ou com cashback flat
+            if result.annuity_effective == 0:
+                score += 80
+            elif result.annuity_effective <= 200:
+                score += 30
+            # Penaliza cartões com anuidade alta: custo de oportunidade digital
+            if result.annuity_effective > 500:
+                score *= 0.85
+
         # 3. Penalidade de confiança (multiplicativa após bônus)
         if result.confidence_score < 0.4:
             score *= 0.5
@@ -274,6 +295,22 @@ class CardRanking:
 
         elif cluster == "ESTRESSE_FINANCEIRO":
             relevance = 0.9 if result.annuity_effective == 0 else 0.2
+
+        elif cluster == "FAMILIA_ESTRUTURADA":
+            if BenefitTag.CASHBACK in result.benefit_tags:
+                relevance = 0.85
+            elif result.annuity_effective == 0:
+                relevance = 0.70
+            else:
+                relevance = 0.40
+
+        elif cluster == "DIGITAL_NATIVO":
+            if result.annuity_effective == 0:
+                relevance = 0.90
+            elif result.annuity_effective <= 200 and BenefitTag.CASHBACK in result.benefit_tags:
+                relevance = 0.65
+            else:
+                relevance = 0.30
 
         return relevance
 
