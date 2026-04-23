@@ -115,14 +115,21 @@ export const nexaApi = {
   },
 
   // Chat
-  sendChatMessage: async (userId: string, message: string) => {
-    const { data } = await apiClient.post('/chat/', { user_id: userId, message });
+  sendChatMessage: async (userId: string, message: string, sessionId?: string) => {
+    const { data } = await apiClient.post('/chat/', { user_id: userId, message, session_id: sessionId });
     return data;
   },
 
   getChatHistory: async (userId: string, limit = 50) => {
     const { data } = await apiClient.get('/chat/history', {
       params: { user_id: userId, limit },
+    });
+    return data;
+  },
+
+  clearChatHistory: async (userId: string) => {
+    const { data } = await apiClient.delete('/chat/history', {
+      params: { user_id: userId },
     });
     return data;
   },

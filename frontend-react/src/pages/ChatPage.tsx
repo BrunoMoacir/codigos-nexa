@@ -18,9 +18,14 @@ function mapHistoryItem(item: ChatHistoryItem): Message {
   };
 }
 
+function generateChatSessionId() {
+  return globalThis.crypto?.randomUUID?.() || `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export const ChatPage: React.FC = () => {
   const userId = localStorage.getItem('user_id') || '';
   const storageKey = useMemo(() => `nexa-chat-history:${userId || 'anon'}`, [userId]);
+  const sessionKey = useMemo(() => `nexa-chat-session:${userId || 'anon'}`, [userId]);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const defaultAssistantMessage = useMemo<Message>(
     () => ({
@@ -34,6 +39,13 @@ export const ChatPage: React.FC = () => {
 
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([defaultAssistantMessage]);
+  const [sessionId, setSessionId] = useState(() => {
+    try {
+      return localStorage.getItem(sessionKey) || generateChatSessionId();
+    } catch {
+      return generateChatSessionId();
+    }
+  });
 
   const historyQuery = useQuery<ChatHistoryItem[]>({
     queryKey: ['chat-history', userId],
@@ -80,13 +92,21 @@ export const ChatPage: React.FC = () => {
   }, [messages, storageKey]);
 
   useEffect(() => {
+    try {
+      localStorage.setItem(sessionKey, sessionId);
+    } catch {
+      // Ignora falha de persistência no navegador.
+    }
+  }, [sessionId, sessionKey]);
+
+  useEffect(() => {
     if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === 'function') {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
   }, [messages]);
 
   const chatMutation = useMutation({
-    mutationFn: (message: string) => nexaApi.sendChatMessage(userId, message),
+    mutationFn: (message: string) => nexaApi.sendChatMessage(userId, message, sessionId),
     onSuccess: (data) => {
       const content =
         data?.response ||
@@ -113,6 +133,27 @@ export const ChatPage: React.FC = () => {
     },
   });
 
+  const clearChat = async () => {
+    const nextSessionId = generateChatSessionId();
+    const initial = [defaultAssistantMessage];
+
+    setSessionId(nextSessionId);
+    setMessages(initial);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(initial));
+      localStorage.setItem(sessionKey, nextSessionId);
+    } catch {
+      // Ignora falha de persistência no navegador.
+    }
+
+    try {
+      await nexaApi.clearChatHistory(userId);
+      await historyQuery.refetch();
+    } catch {
+      // Mantém o estado local limpo mesmo se a exclusão remota falhar.
+    }
+  };
+
   const send = () => {
     const text = input.trim();
     if (!userId || !text || chatMutation.isPending) {
@@ -125,16 +166,6 @@ export const ChatPage: React.FC = () => {
     ]);
     setInput('');
     chatMutation.mutate(text);
-  };
-
-  const clearChat = () => {
-    const initial = [defaultAssistantMessage];
-    setMessages(initial);
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(initial));
-    } catch {
-      // Ignora falha de persistência no navegador.
-    }
   };
 
   return (
@@ -168,6 +199,7 @@ export const ChatPage: React.FC = () => {
 
           <button
             onClick={clearChat}
+            disabled={historyQuery.isLoading}
             style={{
               border: '1px solid var(--border-color)',
               background: 'var(--bg-surface)',
@@ -176,6 +208,7 @@ export const ChatPage: React.FC = () => {
               padding: '6px 10px',
               cursor: 'pointer',
               fontSize: 12,
+              opacity: historyQuery.isLoading ? 0.7 : 1,
             }}
           >
             Limpar conversa

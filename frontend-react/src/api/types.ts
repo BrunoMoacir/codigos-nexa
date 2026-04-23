@@ -157,6 +157,7 @@ export interface ChatMessage {
 }
 
 export interface ChatRequest {
+  user_id: string;
   message: string;
   session_id?: string;
 }

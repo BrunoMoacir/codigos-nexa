@@ -26,10 +26,15 @@ limiter = Limiter(key_func=get_remote_address)
 class ChatRequest(BaseModel):
     user_id: str
     message: str
+    session_id: str | None = None
 
 
 class ChatResponse(BaseModel):
     response: str
+
+
+class ChatClearResponse(BaseModel):
+    deleted_count: int
 
 
 class ChatHistoryItem(BaseModel):
@@ -86,8 +91,11 @@ async def chat_with_agent(
             ]
         }
 
-        # O thread_id agrupa o histórico na memória do agente
-        config = {"configurable": {"thread_id": chat_request.user_id}}
+        # O thread_id agrupa o histórico na memória do agente.
+        # Se a UI fornecer session_id, ele permite reiniciar a conversa sem
+        # perder o histórico persistido por usuário.
+        thread_id = chat_request.session_id or chat_request.user_id
+        config = {"configurable": {"thread_id": thread_id}}
 
         # Executa o agente em thread pool com timeout de 60s para não bloquear workers
         loop = asyncio.get_event_loop()
@@ -158,3 +166,21 @@ def get_chat_history(
         )
         for row in rows
     ]
+
+
+@router.delete("/history", response_model=ChatClearResponse)
+def clear_chat_history(
+    user_id: str = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> ChatClearResponse:
+    """Remove o histórico persistido do chat para o usuário autenticado."""
+
+    deleted_count = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.user_id == user_id)
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+
+    logger.info("Historico de chat removido para user_id=%s | deleted=%d", user_id, deleted_count)
+    return ChatClearResponse(deleted_count=deleted_count)
