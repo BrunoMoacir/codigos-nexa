@@ -6,7 +6,14 @@ Componentes exclusivos do FSS: rotativo do cartão, cheque especial, queda abrup
 """
 
 from __future__ import annotations
+import re
 import polars as pl
+
+# Pré-compilado para evitar re-join a cada chamada de _calc_overdraft_usage
+_OVERDRAFT_PATTERN = re.compile(
+    r"CHEQUE ESPECIAL|LIMITE ESPECIAL|IOF ESPECIAL|JUROS ESPECIAL",
+    re.IGNORECASE,
+)
 
 
 class FSSCalculator:
@@ -60,7 +67,9 @@ class FSSCalculator:
             signals.append(f"overdraft_usage={overdraft_score:.1%}")
 
         # Queda abrupta de renda — EXCLUSIVO FSS
-        if income_3m_avg and income_12m_avg and income_12m_avg > 0:
+        # income_3m_avg pode ser 0.0 (renda caiu para zero = maior sinal de estresse);
+        # `if income_3m_avg` bloquearia esse caso, então usa `is not None`.
+        if income_3m_avg is not None and income_12m_avg is not None and income_12m_avg > 0:
             income_drop = (income_3m_avg - income_12m_avg) / income_12m_avg
             if income_drop < -0.15:
                 score += 20
@@ -88,11 +97,8 @@ class FSSCalculator:
         if df.is_empty() or "description" not in df.columns:
             return 0.0
 
-        overdraft_patterns = ["CHEQUE ESPECIAL", "LIMITE ESPECIAL", "IOF ESPECIAL", "JUROS ESPECIAL"]
-        pattern = "|".join(overdraft_patterns)
-
         overdraft_months = (
-            df.filter(pl.col("description").str.to_uppercase().str.contains(pattern))
+            df.filter(pl.col("description").str.to_uppercase().str.contains(_OVERDRAFT_PATTERN.pattern))
             .with_columns(
                 (pl.col("date").dt.year() * 100 + pl.col("date").dt.month()).alias("ym")
             )
