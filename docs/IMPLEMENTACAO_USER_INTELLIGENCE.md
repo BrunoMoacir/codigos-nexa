@@ -1942,6 +1942,9 @@ class MerchantClassifier:
 <a name="t32"></a>
 ### T3.2 — Predição de Gastos Futuros (Prophet) ✅
 
+> **Implementado em:** `backend/app/ml/spend_predictor.py`
+> **Diferenças da spec:** Interface aprimorada com `SpendPrediction` (dataclass frozen com `confidence_interval` property), método `predict_by_category()` para todas as categorias de uma vez, e campo `months_of_data` no resultado. Prophet importado de forma lazy (não quebra se não instalado). Testes: `tests/optimizer/test_spend_predictor.py` (31 testes).
+
 **O que implementar:** Modelo Prophet para prever gastos dos próximos 30 dias por categoria, habilitando "safe-to-spend" preciso e alertas antecipados.
 
 **Arquivo a criar:** `backend/app/ml/spend_predictor.py`
@@ -2123,6 +2126,9 @@ Adicionar ao `OptimizationReport`:
 
 <a name="t35"></a>
 ### T3.5 — A/B Testing Framework ✅
+
+> **Implementado em:** `backend/app/core/ab_testing.py`
+> **Diferenças da spec:** `get_variant()` recebe `experiment_name` e consulta o registry `EXPERIMENTS` (dict de `Experiment` dataclasses), lançando `ValueError` para experimentos não registrados. Adicionado `log_exposure()` para rastreamento. Os 3 experimentos iniciais (`ranker_v2_hyperpersonalized`, `cluster_tone_personalization`, `life_events_nudge`) já estão cabeados no `optimizer_service.py` e `insight_generator.py`. Testes: `tests/optimizer/test_ab_testing.py` (31 testes, incluindo integração).
 
 **O que implementar:** Infraestrutura para testar variantes de recomendação e medir impacto real.
 
