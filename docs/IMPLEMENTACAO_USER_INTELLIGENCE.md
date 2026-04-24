@@ -1940,7 +1940,7 @@ class MerchantClassifier:
 ---
 
 <a name="t32"></a>
-### T3.2 — Predição de Gastos Futuros (Prophet)
+### T3.2 — Predição de Gastos Futuros (Prophet) ✅
 
 **O que implementar:** Modelo Prophet para prever gastos dos próximos 30 dias por categoria, habilitando "safe-to-spend" preciso e alertas antecipados.
 
@@ -2122,7 +2122,7 @@ Adicionar ao `OptimizationReport`:
 ---
 
 <a name="t35"></a>
-### T3.5 — A/B Testing Framework
+### T3.5 — A/B Testing Framework ✅
 
 **O que implementar:** Infraestrutura para testar variantes de recomendação e medir impacto real.
 
