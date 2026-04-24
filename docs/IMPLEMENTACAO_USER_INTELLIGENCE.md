@@ -34,10 +34,10 @@
   - [T2.7 — Inteligência Temporal (peak_spend_day, notification timing)](#t27) ✅
 - [Fase 3 — ML Pipeline (6–12 meses)](#fase-3)
   - [T3.1 — Classificador de Merchant (NLP + MCC)](#t31)
-  - [T3.2 — Predição de Gastos (Prophet)](#t32)
+  - [T3.2 — Predição de Gastos (Prophet)](#t32) ✅
   - [T3.3 — Propensity to Churn](#t33)
   - [T3.4 — Collaborative Filtering para Recomendação](#t34)
-  - [T3.5 — A/B Testing Framework](#t35)
+  - [T3.5 — A/B Testing Framework](#t35) ✅
 - [Pré-requisitos transversais](#prereqs)
 - [Métricas de Sucesso por Fase](#metricas)
 
