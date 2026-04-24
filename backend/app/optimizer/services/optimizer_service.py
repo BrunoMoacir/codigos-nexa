@@ -324,11 +324,28 @@ class OptimizerService:
         except Exception as _exc:
             logger.warning("LifeEventsDetector falhou: %s", _exc)
 
+        # ── A/B Testing — resolver variantes para este usuário ───────────────
+        from app.core.ab_testing import ABVariant, get_variant, log_exposure
+
+        _uid = str(request.user_id)
+        ab_ranker = get_variant(_uid, "ranker_v2_hyperpersonalized")
+        ab_tone   = get_variant(_uid, "cluster_tone_personalization")
+        ab_events = get_variant(_uid, "life_events_nudge")
+        log_exposure(_uid, "ranker_v2_hyperpersonalized", ab_ranker)
+        log_exposure(_uid, "cluster_tone_personalization", ab_tone)
+        log_exposure(_uid, "life_events_nudge", ab_events)
+
         # 6. Ranqueamento e Penalidades
-        ranked_results = self.ranking.rank_hyperpersonalized(
-            results=simulated_results,
-            profile=profile,
-        )
+        if ab_ranker is ABVariant.TREATMENT:
+            ranked_results = self.ranking.rank_hyperpersonalized(
+                results=simulated_results,
+                profile=profile,
+            )
+        else:
+            ranked_results = self.ranking.rank(
+                results=simulated_results,
+                profile=profile,
+            )
 
         # 8. Camada 5 — Gerar insights acionáveis
         current_card_id = request.current_cards[0] if request.current_cards else None
@@ -356,12 +373,15 @@ class OptimizerService:
             profile=profile,
             current_card_id=current_card_id,
             current_card_monthly_return=current_card_monthly_return,
+            enable_cluster_tone=ab_tone is ABVariant.TREATMENT,
         )
 
         # 9. Formatar o Relatório
+        # life_events_nudge CONTROL → relatório sem eventos (nudge desativado)
+        active_life_events = life_events_raw if ab_events is ABVariant.TREATMENT else []
         return self._build_report(
             request=request, ranked_results=ranked_results, profile_data=profile,
-            insights=insights, life_events=life_events_raw,
+            insights=insights, life_events=active_life_events,
         )
 
     def _build_report(

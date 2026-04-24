@@ -107,6 +107,7 @@ class InsightGenerator:
         profile: "UserProfile",
         current_card_id: str | None = None,
         current_card_monthly_return: float = 0.0,
+        enable_cluster_tone: bool = True,
     ) -> list[ActionableInsight]:
         """
         Gera lista de insights ranqueados por priority_score.
@@ -130,7 +131,8 @@ class InsightGenerator:
 
         # 1. TROCAR_PRIMARIO
         insight = self._try_trocar_primario(
-            best, profile, current_card_id, current_card_monthly_return
+            best, profile, current_card_id, current_card_monthly_return,
+            enable_cluster_tone=enable_cluster_tone,
         )
         if insight:
             insights.append(insight)
@@ -159,8 +161,9 @@ class InsightGenerator:
         if insight:
             insights.append(insight)
 
-        # 8. Insights por cluster de estilo de vida
-        insights.extend(self._generate_cluster_insights(ranked_results, profile))
+        # 8. Insights por cluster de estilo de vida (apenas TREATMENT)
+        if enable_cluster_tone:
+            insights.extend(self._generate_cluster_insights(ranked_results, profile))
 
         # 9. Filtrar e ranquear
         valid = [i for i in insights if self._passes_gates(i)]
@@ -176,6 +179,7 @@ class InsightGenerator:
         profile: "UserProfile",
         current_card_id: str | None,
         current_monthly_return: float,
+        enable_cluster_tone: bool = True,
     ) -> ActionableInsight | None:
         if best.card_id == current_card_id:
             return None
@@ -192,7 +196,8 @@ class InsightGenerator:
             f"{interval.display_text()} a mais do que seu cartão atual."
         )
         description = self._personalize_description(
-            base_description, profile, best.net_gain_expected
+            base_description, profile, best.net_gain_expected,
+            enable_cluster_tone=enable_cluster_tone,
         )
 
         return ActionableInsight(
@@ -602,8 +607,11 @@ class InsightGenerator:
         base_description: str,
         profile: "UserProfile",
         gain_annual: float,
+        enable_cluster_tone: bool = True,
     ) -> str:
         """Enriquece o texto do insight com contexto do cluster (T2.6)."""
+        if not enable_cluster_tone:
+            return base_description
         cluster = getattr(profile, "lifestyle_cluster", "NAO_CLASSIFICADO")
         tone = _CLUSTER_TONE.get(cluster)
         if not tone:
