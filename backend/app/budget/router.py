@@ -137,14 +137,32 @@ async def get_budget_advice(
         )
         return suggestion.to_dict()
 
-    # ── 2. Montar DataFrame para o formato exigido ──────────────────
+    # ── 2. Detectar cluster comportamental (ConsumptionProfiler) ───────
+    # Usa o DataFrame original (coluna `date`) antes do rename para transaction_date.
+    lifestyle_cluster = "NAO_CLASSIFICADO"
+    try:
+        from app.optimizer.profiler import ConsumptionProfiler
+        prof_df = transactions_df
+        if "transaction_date" in transactions_df.columns and "date" not in transactions_df.columns:
+            prof_df = transactions_df.rename({"transaction_date": "date"})
+        cp = ConsumptionProfiler().build(prof_df)
+        lifestyle_cluster = cp.lifestyle_cluster
+        logger.info("GET /budget/%s | cluster=%s", user_id, lifestyle_cluster)
+    except Exception as exc:
+        logger.debug("ConsumptionProfiler indisponível para budget/%s: %s", user_id, exc)
+
+    # ── 3. Montar DataFrame para o formato exigido ──────────────────
     if "date" in transactions_df.columns:
         transactions_df = transactions_df.rename({"date": "transaction_date"})
 
-    # ── 3. Gerar sugestão ──────────────────────────────────────────
+    # ── 4. Gerar sugestão ──────────────────────────────────────────
     advisor = BudgetAdvisor(history_months=history_months)
     try:
-        suggestion = advisor.suggest(transactions_df, monthly_income=monthly_income)
+        suggestion = advisor.suggest(
+            transactions_df,
+            monthly_income=monthly_income,
+            lifestyle_cluster=lifestyle_cluster,
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

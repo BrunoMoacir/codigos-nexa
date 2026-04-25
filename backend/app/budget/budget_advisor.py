@@ -63,11 +63,67 @@ SAVINGS: frozenset[str] = frozenset([
     "reserva_emergencia", "aplicacao",
 ])
 
-# Metas ideais da regra 50/30/20
+# Metas ideais padrão (regra 50/30/20)
 _TARGET_PCT: dict[str, float] = {
     "essenciais": 0.50,
     "desejos":    0.30,
     "poupanca":   0.20,
+}
+
+# Metas ajustadas por cluster de estilo de vida.
+# Apenas os 5 clusters com padrão de gasto claramente diferente do 50/30/20 padrão.
+# Clusters não listados aqui herdam _TARGET_PCT.
+_CLUSTER_TARGETS: dict[str, dict] = {
+    "EXPLORADOR_GLOBAL": {
+        "essenciais": 0.47,
+        "desejos":    0.35,  # viagem é estilo de vida, não desperdício
+        "poupanca":   0.18,
+        "rule_label": "47/35/18 (viajante)",
+        "note": (
+            "Viajante frequente: alocamos 35% para Desejos (inclui viagens como estilo de vida) "
+            "e reduzimos a meta de Poupança para 18%."
+        ),
+    },
+    "INVESTIDOR_CAUTELOSO": {
+        "essenciais": 0.50,
+        "desejos":    0.20,  # menos consumo para investir mais
+        "poupanca":   0.30,  # eleva poupança para 30%
+        "rule_label": "50/20/30 (investidor)",
+        "note": (
+            "Investidor ativo: meta de Poupança elevada para 30% para alimentar aportes mensais. "
+            "Desejos limitados a 20%."
+        ),
+    },
+    "ESTRESSE_FINANCEIRO": {
+        "essenciais": 0.55,  # provavelmente estouram essenciais
+        "desejos":    0.15,  # corte agressivo de desejos
+        "poupanca":   0.30,  # prioriza reserva de emergência
+        "rule_label": "55/15/30 (foco em estabilidade)",
+        "note": (
+            "⚠️ Pressão financeira detectada: Desejos reduzidos a 15% e reserva de emergência "
+            "priorizada (30%). Foque em estabilizar antes de qualquer gasto discricionário."
+        ),
+    },
+    "FAMILIA_ESTRUTURADA": {
+        "essenciais": 0.55,  # escola, saúde e alimentação são naturalmente maiores
+        "desejos":    0.25,
+        "poupanca":   0.20,
+        "rule_label": "55/25/20 (família)",
+        "note": (
+            "Família com filhos: Essenciais ajustados para 55% — escola, saúde e alimentação "
+            "naturalmente ultrapassam os 50% do padrão."
+        ),
+    },
+    "MICROEMPREENDEDOR": {
+        "essenciais": 0.50,
+        "desejos":    0.30,
+        "poupanca":   0.20,
+        "rule_label": "50/30/20 (apenas fluxo PF)",
+        "note": (
+            "⚠️ MEI/autônomo detectado: este orçamento considera SOMENTE o fluxo pessoal (PF). "
+            "Receitas e despesas PJ devem ser gerenciadas em conta separada para não distorcer a análise."
+        ),
+    },
 }
 
 # Status de alocação
@@ -217,6 +273,8 @@ class BudgetSuggestion:
     rule_applied: str = "50/30/20 adaptado"
     summary_text: str = ""
     confidence: float = 1.0
+    lifestyle_cluster: str = "NAO_CLASSIFICADO"
+    cluster_note: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -231,6 +289,8 @@ class BudgetSuggestion:
             "rule_applied":        self.rule_applied,
             "summary_text":        self.summary_text,
             "confidence":          round(self.confidence, 2),
+            "lifestyle_cluster":   self.lifestyle_cluster,
+            "cluster_note":        self.cluster_note,
         }
 
 
@@ -269,6 +329,7 @@ class BudgetAdvisor:
         transactions_df: pl.DataFrame,
         monthly_income: float,
         reference_month: Optional[tuple[int, int]] = None,
+        lifestyle_cluster: str = "NAO_CLASSIFICADO",
     ) -> BudgetSuggestion:
         """
         Gera sugestão de orçamento baseada no histórico de transações.
@@ -282,6 +343,8 @@ class BudgetAdvisor:
                 calcular % e sugestões da regra 50/30/20.
             reference_month: (ano, mês) de referência para calcular histórico.
                 Padrão: mês atual.
+            lifestyle_cluster: Cluster comportamental do usuário (via ConsumptionProfiler).
+                Ajusta os targets ideais de cada grupo. Padrão: "NAO_CLASSIFICADO" (50/30/20).
 
         Returns:
             BudgetSuggestion com alocações, cortes e texto de sugestão.
@@ -289,8 +352,18 @@ class BudgetAdvisor:
         if monthly_income <= 0:
             raise ValueError("monthly_income deve ser positivo")
 
+        # Resolve targets e nota do cluster — padrão 50/30/20 para clusters não mapeados
+        cluster_cfg   = _CLUSTER_TARGETS.get(lifestyle_cluster, {})
+        active_targets = {
+            "essenciais": cluster_cfg.get("essenciais", _TARGET_PCT["essenciais"]),
+            "desejos":    cluster_cfg.get("desejos",    _TARGET_PCT["desejos"]),
+            "poupanca":   cluster_cfg.get("poupanca",   _TARGET_PCT["poupanca"]),
+        }
+        cluster_note  = cluster_cfg.get("note", "")
+        rule_label    = cluster_cfg.get("rule_label", "50/30/20 adaptado")
+
         if transactions_df.is_empty():
-            return self._empty_suggestion(monthly_income)
+            return self._empty_suggestion(monthly_income, lifestyle_cluster, cluster_note, rule_label)
 
         required = {"transaction_date", "amount", "category"}
         missing = required - set(transactions_df.columns)
@@ -380,7 +453,7 @@ class BudgetAdvisor:
 
         # ── 5. Calcular GroupSummary ──────────────────────────────────
         group_summaries: list[GroupSummary] = []
-        for group, target_pct in _TARGET_PCT.items():
+        for group, target_pct in active_targets.items():
             amt = group_totals.get(group, 0.0)
             current_pct = amt / monthly_income if monthly_income > 0 else 0.0
             delta = current_pct - target_pct
@@ -412,7 +485,7 @@ class BudgetAdvisor:
             
             amt = row["monthly_avg"]
             current_pct = amt / monthly_income if monthly_income > 0 else 0.0
-            target_pct_group = _TARGET_PCT.get(group, 0.0)
+            target_pct_group = active_targets.get(group, 0.0)
 
             # Número de categorias no grupo → split proporcional do target
             n_in_group = sum(1 for g in cat_groups.values() if g == group)
@@ -470,13 +543,17 @@ class BudgetAdvisor:
 
         # ── 9. Texto de resumo ─────────────────────────────────────────
         expenses_pct_income = total_expenses_avg / monthly_income if monthly_income > 0 else 0.0
-        summary_text = _build_summary_text(group_summaries, savings_gap, monthly_income, n_months)
+        summary_text = _build_summary_text(
+            group_summaries, savings_gap, monthly_income, n_months, cluster_note
+        )
 
         # Confiança: menor com pouco histórico ou income estimado
         confidence = min(1.0, 0.5 + 0.5 * (n_months / self._history_months))
 
         logger.info(
-            "BudgetAdvisor | renda=R$%.0f | %d meses | essenciais=%.0f%% | desejos=%.0f%% | poupança=%.0f%% | cortes=%d",
+            "BudgetAdvisor | cluster=%s | renda=R$%.0f | %d meses | "
+            "essenciais=%.0f%% | desejos=%.0f%% | poupança=%.0f%% | cortes=%d",
+            lifestyle_cluster,
             monthly_income,
             n_months,
             group_totals.get("essenciais", 0) / monthly_income * 100,
@@ -494,17 +571,31 @@ class BudgetAdvisor:
             group_summary=group_summaries,
             allocations=allocations,
             actionable_cuts=actionable_cuts,
-            rule_applied="50/30/20 adaptado",
+            rule_applied=rule_label,
             summary_text=summary_text,
             confidence=round(confidence, 2),
+            lifestyle_cluster=lifestyle_cluster,
+            cluster_note=cluster_note,
         )
 
     # ─────────────────────────────────────────────────────────────────
     # PRIVATE HELPERS
     # ─────────────────────────────────────────────────────────────────
 
-    def _empty_suggestion(self, monthly_income: float) -> BudgetSuggestion:
+    def _empty_suggestion(
+        self,
+        monthly_income: float,
+        lifestyle_cluster: str = "NAO_CLASSIFICADO",
+        cluster_note: str = "",
+        rule_label: str = "50/30/20 adaptado",
+    ) -> BudgetSuggestion:
         """Retorna sugestão neutra quando não há dados suficientes."""
+        cluster_cfg = _CLUSTER_TARGETS.get(lifestyle_cluster, {})
+        targets = {
+            "essenciais": cluster_cfg.get("essenciais", _TARGET_PCT["essenciais"]),
+            "desejos":    cluster_cfg.get("desejos",    _TARGET_PCT["desejos"]),
+            "poupanca":   cluster_cfg.get("poupanca",   _TARGET_PCT["poupanca"]),
+        }
         group_summaries = [
             GroupSummary(
                 group=group,
@@ -515,20 +606,23 @@ class BudgetAdvisor:
                 status=_STATUS_UNDER,
                 delta_pct=-target,
             )
-            for group, target in _TARGET_PCT.items()
+            for group, target in targets.items()
         ]
+        savings_target = targets["poupanca"]
         return BudgetSuggestion(
             income=round(monthly_income, 2),
             history_months=0,
             total_expenses_avg=0.0,
             expenses_pct_income=0.0,
-            savings_gap=round(monthly_income * 0.20, 2),
+            savings_gap=round(monthly_income * savings_target, 2),
             group_summary=group_summaries,
             allocations=[],
             actionable_cuts=[],
-            rule_applied="50/30/20 adaptado",
+            rule_applied=rule_label,
             summary_text="Sem dados históricos suficientes para gerar orçamento.",
             confidence=0.0,
+            lifestyle_cluster=lifestyle_cluster,
+            cluster_note=cluster_note,
         )
 
 
@@ -603,10 +697,14 @@ def _build_summary_text(
     savings_gap: float,
     income: float,
     n_months: int,
+    cluster_note: str = "",
 ) -> str:
     """Gera texto de resumo em linguagem natural."""
     period_label = f"últimos {n_months} {'mês' if n_months == 1 else 'meses'}"
-    parts = [f"Com base nos {period_label}:"]
+    parts = []
+    if cluster_note:
+        parts.append(cluster_note)
+    parts.append(f"Com base nos {period_label}:")
 
     labels = {"essenciais": "Essenciais", "desejos": "Desejos", "poupanca": "Poupança"}
     for g in groups:
