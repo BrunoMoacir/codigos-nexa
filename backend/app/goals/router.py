@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.core.security import get_current_user
 from app.core.database import get_db
 from app.core.cache import invalidate_user_cache
+from app.core.db.queries import get_transactions_for_user
 from pydantic import BaseModel, Field, model_validator
 
 logger = logging.getLogger(__name__)
@@ -132,6 +133,21 @@ def list_goals_public(
         ]
     else:
         goals_payload = [g.to_dict() for g in goals]
+
+    # ── Perfil comportamental × metas ────────────────────────────────────────
+    profile_context: dict = {}
+    try:
+        from app.optimizer.profiler import ConsumptionProfiler
+        from app.goals.profile_advisor import GoalProfileAdvisor
+
+        transactions_df = get_transactions_for_user(user_id)
+        if not transactions_df.is_empty():
+            user_profile = ConsumptionProfiler().build(transactions_df)
+            active_goals  = [g for g in goals if g.status == "ACTIVE"]
+            profile_context = GoalProfileAdvisor().analyze(user_profile, active_goals).to_dict()
+    except Exception as exc:
+        logger.debug("[Goals] GoalProfileAdvisor indisponível para user=%s: %s", user_id, exc)
+
     return {
         "user_id": user_id,
         "status_filter": status,
@@ -139,6 +155,7 @@ def list_goals_public(
         "offset": offset,
         "total": len(goals),
         "goals": goals_payload,
+        "profile_context": profile_context,
     }
 
 
