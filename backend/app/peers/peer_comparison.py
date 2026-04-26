@@ -129,6 +129,70 @@ _CATEGORY_LABELS: dict[str, str] = {
     "poupanca":    "Poupança",
 }
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# OFFSETS POR CLUSTER — deltas (p.p.) sobre o benchmark de faixa de renda
+#
+# Representam o padrão observado de cada cluster: o que pessoas com esse
+# estilo de vida gastam a mais/menos em cada categoria vs. a média da faixa.
+# Somados ao benchmark IBGE/POF resultam no benchmark efetivo do cluster.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_CLUSTER_OFFSETS: dict[str, dict[str, float]] = {
+    # Viajante frequente: mais transporte e lazer (passagens, hotéis, experiências),
+    # compensa reduzindo moradia (apê menor ou alugado) e poupança.
+    "EXPLORADOR_GLOBAL": {
+        "transporte":  +0.05,
+        "lazer":       +0.05,
+        "moradia":     -0.03,
+        "alimentacao": -0.01,
+        "poupanca":    -0.04,
+        "outros":      +0.01,
+    },
+    # Investidor ativo: poupança/investimentos elevados, reduz lazer e consumo discricionário.
+    "INVESTIDOR_CAUTELOSO": {
+        "poupanca":    +0.10,
+        "lazer":       -0.04,
+        "vestuario":   -0.02,
+        "outros":      -0.04,
+    },
+    # Família com filhos: mais moradia (espaço), alimentação e educação;
+    # lazer individual cai, poupança comprimida pelas despesas fixas.
+    "FAMILIA_ESTRUTURADA": {
+        "moradia":     +0.04,
+        "alimentacao": +0.03,
+        "educacao":    +0.05,
+        "lazer":       -0.03,
+        "vestuario":   -0.01,
+        "poupanca":    -0.05,
+    },
+    # MEI/autônomo: mais "outros" (ferramentas PJ, coworking, NF-e) e transporte
+    # (deslocamentos de negócio); poupança irregular.
+    "MICROEMPREENDEDOR": {
+        "outros":      +0.06,
+        "transporte":  +0.02,
+        "poupanca":    -0.03,
+        "lazer":       -0.02,
+        "alimentacao": -0.01,
+    },
+    # Sob pressão financeira: moradia e alimentação consomem fatia maior;
+    # lazer e poupança comprimidos.
+    "ESTRESSE_FINANCEIRO": {
+        "moradia":     +0.05,
+        "alimentacao": +0.03,
+        "poupanca":    -0.06,
+        "lazer":       -0.02,
+    },
+}
+
+# Rótulo de cluster para uso em frases de insight
+_CLUSTER_LABELS: dict[str, str] = {
+    "EXPLORADOR_GLOBAL":    "viajantes frequentes",
+    "INVESTIDOR_CAUTELOSO": "investidores ativos",
+    "FAMILIA_ESTRUTURADA":  "famílias com filhos",
+    "MICROEMPREENDEDOR":    "microempreendedores",
+    "ESTRESSE_FINANCEIRO":  "perfis sob pressão financeira",
+}
+
 # Limiar de desvio para classificar "acima"/"abaixo" da média (3 p.p.)
 _DELTA_THRESHOLD = 0.03
 
@@ -164,32 +228,38 @@ class PeerComparisonReport:
     highlights_above: list[str]     # categorias acima da média (nomes amigáveis)
     highlights_below: list[str]     # categorias com controle acima da média
     summary_text: str
+    lifestyle_cluster: str = "NAO_CLASSIFICADO"
+    cluster_label: str = ""          # ex: "viajantes frequentes"
+    benchmark_source: str = "IBGE/POF 2022-2023"
 
     def to_dict(self) -> dict:
         return {
-            "income_bracket":          self.income_bracket,
-            "bracket_label":           self.bracket_label,
-            "monthly_income":          self.monthly_income,
-            "user_savings_rate":       round(self.user_savings_rate * 100, 1),
-            "benchmark_savings_rate":  round(self.benchmark_savings_rate * 100, 1),
+            "income_bracket":           self.income_bracket,
+            "bracket_label":            self.bracket_label,
+            "monthly_income":           self.monthly_income,
+            "user_savings_rate":        round(self.user_savings_rate * 100, 1),
+            "benchmark_savings_rate":   round(self.benchmark_savings_rate * 100, 1),
             "savings_percentile_label": self.savings_percentile_label,
+            "lifestyle_cluster":        self.lifestyle_cluster,
+            "cluster_label":            self.cluster_label,
+            "benchmark_source":         self.benchmark_source,
             "categories": [
                 {
-                    "category":            c.category,
-                    "label":               c.label,
-                    "user_pct":            round(c.user_pct * 100, 1),
-                    "benchmark_pct":       round(c.benchmark_pct * 100, 1),
-                    "user_amount_brl":     round(c.user_amount_brl, 2),
-                    "benchmark_amount_brl": round(c.benchmark_amount_brl, 2),
-                    "delta_pct":           round(c.delta_pct * 100, 1),
-                    "status":              c.status,
-                    "insight":             c.insight,
+                    "category":             c.category,
+                    "label":                c.label,
+                    "user_pct":             round(c.user_pct * 100, 1),
+                    "benchmark_pct":        round(c.benchmark_pct * 100, 1),
+                    "user_amount_brl":       round(c.user_amount_brl, 2),
+                    "benchmark_amount_brl":  round(c.benchmark_amount_brl, 2),
+                    "delta_pct":            round(c.delta_pct * 100, 1),
+                    "status":               c.status,
+                    "insight":              c.insight,
                 }
                 for c in self.categories
             ],
             "highlights_above": self.highlights_above,
             "highlights_below": self.highlights_below,
-            "summary_text":    self.summary_text,
+            "summary_text":     self.summary_text,
         }
 
 
@@ -221,6 +291,32 @@ class PeerComparator:
             if lo <= monthly_income <= hi:
                 return bracket
         return "PREMIUM"
+
+    @staticmethod
+    def _effective_benchmarks(
+        bracket: str,
+        lifestyle_cluster: str,
+    ) -> tuple[dict[str, float], str, str]:
+        """
+        Retorna (benchmarks_efetivos, cluster_label, benchmark_source).
+
+        Aplica os offsets de cluster sobre o benchmark IBGE/POF da faixa de renda.
+        Categorias são clampeadas em [0, 1] após o ajuste.
+        Quando cluster desconhecido, retorna o benchmark de faixa sem alteração.
+        """
+        base = dict(_BENCHMARKS[bracket])
+        offsets = _CLUSTER_OFFSETS.get(lifestyle_cluster, {})
+
+        if not offsets:
+            return base, "", "IBGE/POF 2022-2023"
+
+        effective = {
+            cat: max(0.0, min(1.0, base.get(cat, 0.0) + offsets.get(cat, 0.0)))
+            for cat in base
+        }
+        cluster_label    = _CLUSTER_LABELS.get(lifestyle_cluster, "perfis similares")
+        benchmark_source = f"IBGE/POF 2022-2023 + cluster {lifestyle_cluster}"
+        return effective, cluster_label, benchmark_source
 
     @staticmethod
     def _savings_percentile_label(
@@ -279,9 +375,10 @@ class PeerComparator:
         monthly_income: float,
         category_spending: dict[str, float],
         savings_amount: Optional[float] = None,
+        lifestyle_cluster: str = "NAO_CLASSIFICADO",
     ) -> PeerComparisonReport:
         """
-        Compara gastos por categoria com benchmarks IBGE/POF da faixa de renda.
+        Compara gastos por categoria com benchmarks IBGE/POF ajustados ao cluster.
 
         Args:
             monthly_income:    Renda mensal líquida (R$).
@@ -289,6 +386,10 @@ class PeerComparator:
                                Categorias desconhecidas são somadas em 'outros'.
             savings_amount:    Valor poupado no mês (R$). Se None, calculado como
                                max(0, income - total_expenses).
+            lifestyle_cluster: Cluster comportamental do usuário (optional).
+                               Quando fornecido, aplica offsets específicos do cluster
+                               sobre os benchmarks IBGE/POF, gerando comparações
+                               como "viajantes frequentes com sua renda gastam X%".
 
         Returns:
             PeerComparisonReport com posicionamento por categoria e texto de resumo.
@@ -300,7 +401,9 @@ class PeerComparator:
             raise ValueError("monthly_income deve ser positivo")
 
         bracket = self._get_bracket(monthly_income)
-        benchmarks = _BENCHMARKS[bracket]
+        benchmarks, cluster_label, benchmark_source = self._effective_benchmarks(
+            bracket, lifestyle_cluster
+        )
         known_cats = set(benchmarks.keys()) - {"poupanca"}
 
         # Agrupar gastos nas categorias canônicas
@@ -329,23 +432,29 @@ class PeerComparator:
             delta      = user_pct - bench_pct
             label      = _CATEGORY_LABELS.get(cat, cat.title())
 
+            peer_ref = (
+                f"{cluster_label} com sua renda"
+                if cluster_label else
+                "perfis similares"
+            )
             if delta > _DELTA_THRESHOLD:
                 status  = "acima"
                 insight = (
                     f"Você gasta {user_pct*100:.1f}% da renda em {label.lower()} "
-                    f"— {delta*100:.1f} p.p. acima da média para sua faixa ({bench_pct*100:.1f}%)."
+                    f"— {delta*100:.1f} p.p. acima do esperado para {peer_ref} ({bench_pct*100:.1f}%)."
                 )
             elif delta < -_DELTA_THRESHOLD:
                 status  = "abaixo"
                 insight = (
                     f"Você gasta {user_pct*100:.1f}% em {label.lower()} "
-                    f"— {abs(delta)*100:.1f} p.p. abaixo da média ({bench_pct*100:.1f}%). Ótimo controle."
+                    f"— {abs(delta)*100:.1f} p.p. abaixo do esperado para {peer_ref} ({bench_pct*100:.1f}%). "
+                    "Ótimo controle."
                 )
             else:
                 status  = "na_media"
                 insight = (
                     f"Seu gasto em {label.lower()} ({user_pct*100:.1f}%) "
-                    f"está dentro da média para sua faixa ({bench_pct*100:.1f}%)."
+                    f"está dentro do esperado para {peer_ref} ({bench_pct*100:.1f}%)."
                 )
 
             comparisons.append(CategoryComparison(
@@ -362,25 +471,30 @@ class PeerComparator:
 
         # Adicionar poupança como categoria especial
         savings_delta = user_savings_rate - benchmark_savings_rate
+        peer_ref_savings = (
+            f"{cluster_label} com sua renda"
+            if cluster_label else
+            f"perfis similares ({_BRACKET_LABEL[bracket]})"
+        )
         if savings_delta > _DELTA_THRESHOLD:
             savings_status  = "acima"
             savings_insight = (
                 f"Seu índice de poupança ({user_savings_rate*100:.1f}%) está "
-                f"{savings_delta*100:.1f} p.p. acima da média da sua faixa "
+                f"{savings_delta*100:.1f} p.p. acima do esperado para {peer_ref_savings} "
                 f"({benchmark_savings_rate*100:.1f}%). Excelente!"
             )
         elif savings_delta < -_DELTA_THRESHOLD:
             savings_status  = "abaixo"
             savings_insight = (
                 f"Seu índice de poupança ({user_savings_rate*100:.1f}%) está "
-                f"{abs(savings_delta)*100:.1f} p.p. abaixo da média da sua faixa "
+                f"{abs(savings_delta)*100:.1f} p.p. abaixo do esperado para {peer_ref_savings} "
                 f"({benchmark_savings_rate*100:.1f}%)."
             )
         else:
             savings_status  = "na_media"
             savings_insight = (
                 f"Seu índice de poupança ({user_savings_rate*100:.1f}%) "
-                f"está dentro da média para sua faixa ({benchmark_savings_rate*100:.1f}%)."
+                f"está dentro do esperado para {peer_ref_savings} ({benchmark_savings_rate*100:.1f}%)."
             )
 
         comparisons.append(CategoryComparison(
@@ -409,13 +523,18 @@ class PeerComparator:
 
         # Texto de resumo
         parts: list[str] = []
+        peer_group = (
+            f"{cluster_label} com renda similar"
+            if cluster_label else
+            f"perfis similares ({_BRACKET_LABEL[bracket]})"
+        )
         if highlights_above:
-            parts.append(f"Gasta acima da média em: {', '.join(highlights_above[:3])}.")
+            parts.append(f"Gasta acima do esperado em: {', '.join(highlights_above[:3])}.")
         if highlights_below:
-            parts.append(f"Controle acima da média em: {', '.join(highlights_below[:3])}.")
+            parts.append(f"Controle acima do esperado em: {', '.join(highlights_below[:3])}.")
         parts.append(
             f"Índice de poupança ({user_savings_rate*100:.1f}%) — {percentile_label} "
-            f"dos perfis similares ({_BRACKET_LABEL[bracket]})."
+            f"dos {peer_group}."
         )
         summary_text = " ".join(parts)
 
@@ -430,6 +549,9 @@ class PeerComparator:
             highlights_above=highlights_above,
             highlights_below=highlights_below,
             summary_text=summary_text,
+            lifestyle_cluster=lifestyle_cluster,
+            cluster_label=cluster_label,
+            benchmark_source=benchmark_source,
         )
 
 

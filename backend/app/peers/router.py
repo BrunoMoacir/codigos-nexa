@@ -101,6 +101,24 @@ async def compare_peers(
             detail="Parâmetro 'monthly_income' ausente e não foi possível estimar a partir das transações. Informe 'monthly_income' na query.",
         )
 
+    # ── 2. Detectar cluster comportamental ───────────────────────────
+    lifestyle_cluster = "NAO_CLASSIFICADO"
+    try:
+        from app.optimizer.profiler import ConsumptionProfiler
+
+        prof_df = df
+        if "transaction_date" in df.columns and "date" not in df.columns:
+            prof_df = df.rename({"transaction_date": "date"})
+
+        beh_profile = ConsumptionProfiler().build(prof_df)
+        lifestyle_cluster = beh_profile.lifestyle_cluster
+        logger.info(
+            "GET /peers/compare/%s | cluster=%s",
+            user_id, lifestyle_cluster,
+        )
+    except Exception as exc:
+        logger.debug("Peers: ConsumptionProfiler indisponível para %s: %s", user_id, exc)
+
     # Filtrar pela janela de meses e apenas débitos
     if "date" in df.columns:
         cutoff = datetime.date.today() - datetime.timedelta(days=history_months * 30)
@@ -114,7 +132,7 @@ async def compare_peers(
             detail=f"Nenhuma transação de débito encontrada para user_id='{user_id}'.",
         )
 
-    # ── 2. Agregar por categoria e calcular média mensal ──────────────
+    # ── 3. Agregar por categoria e calcular média mensal ──────────────
     raw: dict[str, float] = {}
     for row in debit_rows:
         cat = (row.get("category") or "outros").lower().strip()
@@ -126,11 +144,12 @@ async def compare_peers(
         else raw
     )
 
-    # ── 3. Comparar com benchmarks ────────────────────────────────────
+    # ── 4. Comparar com benchmarks ────────────────────────────────────
     try:
         report = _comparator.compare(
             monthly_income=monthly_income,
             category_spending=category_spending,
+            lifestyle_cluster=lifestyle_cluster,
         )
     except ValueError as exc:
         raise HTTPException(
