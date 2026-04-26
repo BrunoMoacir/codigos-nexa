@@ -61,6 +61,10 @@ class HealthScoreHistoryResponse(BaseModel):
     change_90d: Optional[int] = None    # diferença vs 3 meses atrás
     history: List[HealthScorePoint]
     data_quality: str                   # "OK" | "INSUFFICIENT_DATA" | "NO_TRANSACTIONS"
+    resilience_score: Optional[int] = None    # sub-score do UserProfileAnalyzer (0–100)
+    fss_score: Optional[float] = None         # Financial Stress Score do FSSCalculator (0–100, 100 = máximo estresse)
+    fss_level: Optional[str] = None           # SAUDAVEL | ATENCAO | ALERTA | CRITICO
+    fss_signals: Optional[List[str]] = None   # sinais que compõem o FSS (ex: "overdraft_usage=12%")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -149,6 +153,10 @@ def get_health_score_history_endpoint(
     current_score: Optional[int] = None
     current_savings_rate = 0.0
     current_profile_type = "GASTADOR"
+    current_resilience_score: Optional[int] = None
+    current_fss_score: Optional[float] = None
+    current_fss_level: Optional[str] = None
+    current_fss_signals: Optional[List[str]] = None
 
     if transactions_df.is_empty():
         data_quality = "NO_TRANSACTIONS"
@@ -168,9 +176,10 @@ def get_health_score_history_endpoint(
             analyzer = UserProfileAnalyzer()
             profile = analyzer.analyze(transactions_df, income_profile=income_profile)
 
-            current_score = profile.financial_health_score
+            resilience_score = profile.resilience_score
             current_savings_rate = profile.savings_rate
             current_profile_type = profile.profile_type
+            current_resilience_score = resilience_score
 
             if transactions_df.height < 10:
                 data_quality = "INSUFFICIENT_DATA"
@@ -178,6 +187,35 @@ def get_health_score_history_endpoint(
         except Exception as e:
             logger.error("[health-score] Erro ao calcular profile: %s", e, exc_info=True)
             raise HTTPException(status_code=500, detail="Erro ao calcular score financeiro.")
+
+        # ── 2b. FSS via ConsumptionProfiler (sinais exclusivos: rotativo, cheque especial, queda de renda)
+        fss_value = 0.0
+        try:
+            from app.optimizer.profiler import ConsumptionProfiler
+
+            prof_df = transactions_df
+            if "transaction_date" in transactions_df.columns and "date" not in transactions_df.columns:
+                prof_df = transactions_df.rename({"transaction_date": "date"})
+
+            beh_profile = ConsumptionProfiler().build(prof_df)
+            fss_value = beh_profile.fss
+            current_fss_score  = fss_value
+            current_fss_level  = beh_profile.fss_level
+            current_fss_signals = getattr(beh_profile, "fss_signals", None)
+            logger.info(
+                "[health-score] FSS calculado para user=%s: %.1f (%s)",
+                user_id, fss_value, beh_profile.fss_level,
+            )
+        except Exception as fss_err:
+            logger.debug("[health-score] ConsumptionProfiler/FSS indisponível: %s", fss_err)
+
+        # ── 2c. Score combinado: resilience (robustez) + FSS invertido (ausência de estresse)
+        # Pesos 60/40: resilience é mais abrangente (6 fatores vs 3 exclusivos do FSS).
+        current_score = round(resilience_score * 0.60 + (100 - fss_value) * 0.40)
+        logger.info(
+            "[health-score] Score combinado user=%s: resilience=%d fss=%.1f → combined=%d",
+            user_id, resilience_score, fss_value, current_score,
+        )
 
         # ── 3. Persistir snapshot do mês corrente ──────────────────
         saved = save_health_score_snapshot(
@@ -222,4 +260,8 @@ def get_health_score_history_endpoint(
         change_90d=change_90d,
         history=history_points,
         data_quality=data_quality,
+        resilience_score=current_resilience_score,
+        fss_score=current_fss_score,
+        fss_level=current_fss_level,
+        fss_signals=current_fss_signals,
     )
