@@ -2320,5 +2320,179 @@ cd backend && streamlit run streamlit_f2_f3_test.py --server.headless true
 
 ---
 
+---
+
+## Integrações de Perfil nas Funcionalidades do Produto (Abril 2026)
+
+> **Contexto:** Auditoria identificou que `ConsumptionProfiler` produzia um perfil comportamental rico (lifestyle_cluster, FSS, life_events, investor_type, etc.) mas as funcionalidades do produto (Agent, Budget, Metas) eram completamente agnósticas a ele. Esta seção documenta as 4 integrações realizadas para fechar esse gap.
+
+---
+
+### I1 — Agent System Prompt: REGRA ZERO + Personalização por Cluster
+
+**Arquivo:** `backend/app/agent/graph.py`
+
+**Problema:** O agente LangChain iniciava toda sessão sem contexto comportamental do usuário, gerando respostas genéricas independente do cluster.
+
+**Solução:**
+- Criada nova tool `get_user_profile_context` (ver I2) e adicionada como ferramenta #0 na lista do agente.
+- Adicionada **REGRA ZERO** ao `SYSTEM_PROMPT`: na primeira mensagem de qualquer sessão, chamar `get_user_profile_context` antes de qualquer outra ferramenta.
+- Adicionada seção **COMO USAR O PERFIL** com regras por cluster:
+
+| Cluster | Regra de comportamento do agente |
+|---|---|
+| `EXPLORADOR_GLOBAL` | Destaque milhas, lounge, benefícios internacionais |
+| `FAMILIA_ESTRUTURADA` | Foco em segurança, educação dos filhos, seguro de vida |
+| `MICROEMPREENDEDOR` | Sempre distinguir fluxo PJ de PF |
+| `INVESTIDOR_CAUTELOSO` | Tom técnico, retornos, indexadores |
+| `ESTRESSE_FINANCEIRO` | Empático, não sugerir produtos com custo adicional |
+| FSS `CRITICO`/`ALERTA` | Priorizar dívidas antes de qualquer nova meta |
+| Life event `new_baby` | Sugerir meta de educação e cobertura de seguro |
+| Life event `income_drop` | Revisão de orçamento urgente |
+
+---
+
+### I2 — Nova Tool: `get_user_profile_context`
+
+**Arquivo:** `backend/app/agent/tools/get_user_profile_context.py` *(novo)*
+
+**Responsabilidade:** Retorna o perfil comportamental completo do usuário em texto LLM-consumível, com cache em memória de 30 minutos para evitar re-execução dos 12 detectores a cada mensagem.
+
+**Output inclui:**
+- Cluster de estilo de vida com "tom" associado (ex: "Viajante global, experiências e aventura")
+- FSS com emoji e nível (`SAUDAVEL` ✅ / `ATENCAO` ⚠️ / `ALERTA` 🔴 / `CRITICO` 🆘)
+- Sinais comportamentais: `is_likely_mei`, `is_family_with_kids`, `investor_type`, `travel_frequency_score`, `foodie_score`
+- `savings_rate`, `subscription_burn`, `peak_spend_day_of_month`, `best_notification_day`
+
+```python
+@tool
+def get_user_profile_context(user_id: str) -> str:
+    """Retorna o perfil comportamental completo do usuário para personalização do agente."""
+    cached = _get_cached(user_id)
+    if cached:
+        return cached
+    transactions_df = get_transactions_for_user(user_id)
+    profile = ConsumptionProfiler().build(transactions_df)
+    text = _format_profile(user_id, profile)
+    _set_cached(user_id, text)
+    return text
+```
+
+---
+
+### I3 — `get_financial_forecast`: Correção + ConsumptionProfiler + LifeEventsDetector
+
+**Arquivo:** `backend/app/agent/tools/get_financial_forecast.py`
+
+**Problema 1 (bug):** `result.get("user_profile")` sempre retornava `None` porque `run_from_db()` não inclui essa chave no dict de retorno. O bloco de health score nunca executava.
+
+**Correção:** Extrair `transactions_df` do `result["transactions"]["pf_pj_classified_df"]` (já em memória, sem I/O extra) e chamar `UserProfileAnalyzer().analyze()` diretamente.
+
+**Problema 2 (gap):** A tool não expunha cluster comportamental, FSS nem eventos de vida — deixando o agente sem contexto para personalizar respostas sobre saúde financeira.
+
+**Adições:**
+- `ConsumptionProfiler().build(transactions_df)` → cluster, FSS (com emoji), savings_rate no output
+- `LifeEventsDetector().detect_all(txns_recent, txns_history, ...)` com splits de 60 dias (recente) e 6 meses (histórico) → eventos com confiança e trigger_action
+
+Ambas as chamadas falham silenciosamente com `logger.debug` se indisponíveis.
+
+**Seções novas no output:**
+```
+🧠 **Perfil Comportamental:**
+   • Cluster: EXPLORADOR_GLOBAL
+   • Estresse Financeiro: ✅ SAUDAVEL (FSS 82/100)
+   • Taxa de poupança: 18.3%
+
+🔔 **Eventos de Vida Detectados:**
+   • new_education (confiança 78%) → Sugerir meta de educação
+```
+
+---
+
+### I4 — Budget M1.3: Metas 50/30/20 Cluster-Aware
+
+**Arquivos:** `backend/app/budget/budget_advisor.py` + `backend/app/budget/router.py`
+
+**Problema:** `BudgetAdvisor` sugeria sempre 50/30/20 independente do comportamento real do usuário.
+
+**Solução:**
+
+Adicionado `_CLUSTER_TARGETS` em `budget_advisor.py`:
+
+| Cluster | Regra | Nota |
+|---|---|---|
+| `EXPLORADOR_GLOBAL` | 47/35/18 | Viajante: mais margem em desejos |
+| `INVESTIDOR_CAUTELOSO` | 50/20/30 | Investidor: poupança elevada para 30% |
+| `ESTRESSE_FINANCEIRO` | 55/15/30 | Foco em estabilidade + redução de dívidas |
+| `FAMILIA_ESTRUTURADA` | 55/25/20 | Família: essenciais maiores, desejos contidos |
+| `MICROEMPREENDEDOR` | 50/30/20 | Padrão, mas com nota sobre fluxo PJ |
+| outros | 50/30/20 | Regra padrão |
+
+`BudgetSuggestion` ganhou campos `lifestyle_cluster` e `cluster_note` (retornados em `to_dict()`).
+
+Em `router.py`, foi adicionado um Step 2 que chama `ConsumptionProfiler` **antes** do rename de coluna (`date` → `transaction_date`) e passa `lifestyle_cluster` para `advisor.suggest()`.
+
+---
+
+### I5 — Metas MX.2: `GoalProfileAdvisor` + Wiring no Router
+
+**Arquivos:** `backend/app/goals/profile_advisor.py` *(novo)* + `backend/app/goals/router.py`
+
+**Problema:** O sistema de metas era completamente agnóstico ao perfil: não sugeria metas por cluster, não detectava incompatibilidade entre meta e FSS atual, não calculava viabilidade de ritmo de poupança.
+
+**Solução — `GoalProfileAdvisor`:**
+
+```python
+@dataclass
+class GoalProfileContext:
+    profile_alerts: list[str]       # avisos por FSS / cluster
+    suggested_goals: list[dict]     # sugestões de novos tipos de meta
+    goal_warnings: dict[str, str]   # aviso por goal_id (inviabilidade)
+```
+
+**`_add_fss_alerts()`:** gera alertas textuais para CRITICO / ALERTA / ATENCAO com emoji.
+
+**`_add_cluster_suggestions()`:** sugere automaticamente:
+- Reserva de emergência quando FSS não é SAUDAVEL ou usuário é investidor ativo
+- `EXPLORADOR_GLOBAL` → Fundo de Viagens (R$8.000)
+- `FAMILIA_ESTRUTURADA` → Fundo de Educação (R$30.000)
+- `MICROEMPREENDEDOR` → Capital de Giro PJ (3× gasto médio)
+- `INVESTIDOR_CAUTELOSO` sem meta de longo prazo → Previdência/Aposentadoria (R$500.000)
+
+**`_add_goal_warnings()`:** por meta ativa:
+- FSS CRITICO + meta não-emergência → alerta para pausar
+- `needed > savings × 1.5` → alerta de inviabilidade de ritmo
+- Sem poupança detectada + prazo definido → alerta de contribuição necessária
+
+**Router (`list_goals_public`):** adicionado bloco pós-lista de metas:
+```python
+transactions_df = get_transactions_for_user(user_id)
+user_profile    = ConsumptionProfiler().build(transactions_df)
+active_goals    = [g for g in goals if g.status == "ACTIVE"]
+profile_context = GoalProfileAdvisor().analyze(user_profile, active_goals).to_dict()
+# → retornado em "profile_context" no response dict
+```
+
+**Response de `GET /goals/{user_id}` passou a incluir:**
+```json
+{
+  "goals": [...],
+  "profile_context": {
+    "lifestyle_cluster": "FAMILIA_ESTRUTURADA",
+    "fss_level": "ATENCAO",
+    "fss_score": 62.0,
+    "investor_type": "CONSERVADOR",
+    "savings_rate": 11.5,
+    "profile_alerts": ["⚠️ FSS em Atenção (62/100): ..."],
+    "suggested_goals": [{"goal_type": "educacao", "name": "Fundo de Educação", ...}],
+    "goal_warnings": {"abc-123": "⚠️ Esta meta exige R$ 1.200/mês..."}
+  }
+}
+```
+
+Toda a lógica do `GoalProfileAdvisor` falha silenciosamente com `logger.debug` se `ConsumptionProfiler` estiver indisponível, mantendo a resposta de metas funcionando normalmente.
+
+---
+
 *Nexa AI — Documento de Implementação v1.0 — Abril 2026*
 *Baseado em: `docs/melhorias_analise_perfil.md` + auditoria do optimizer*
