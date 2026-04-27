@@ -437,6 +437,17 @@ class OptimizerService:
 
         import uuid
         
+        user_profile_summary = {
+            "lifestyle_cluster":  getattr(profile_data, "lifestyle_cluster",  "NAO_CLASSIFICADO"),
+            "fss_level":          getattr(profile_data, "fss_level",          "SAUDAVEL"),
+            "fss":                round(getattr(profile_data, "fss", 0.0), 1),
+            "investor_type":      getattr(profile_data, "investor_type",      "NONE"),
+            "savings_rate":       round(getattr(profile_data, "savings_rate", 0.0), 1),
+            "monthly_avg_spend":  round(getattr(profile_data, "monthly_avg_spend", 0.0), 2),
+            "is_likely_mei":      getattr(profile_data, "is_likely_mei",      False),
+            "is_family_with_kids":getattr(profile_data, "is_family_with_kids",False),
+        }
+
         report = OptimizationReport(
             report_id=str(uuid.uuid4()),
             user_id=request.user_id,
@@ -449,6 +460,7 @@ class OptimizerService:
             warnings=warnings,
             data_sources=["pluggy", "internal_knowledge_base"],
             life_events=life_events or [],
+            user_profile_summary=user_profile_summary,
         )
 
         try:

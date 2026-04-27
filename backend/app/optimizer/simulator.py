@@ -135,6 +135,18 @@ class CardSimulator:
             else None
         )
 
+        # Campos para ArchitectService.CardOptimizationBonus:
+        # points_per_brl_actual: apenas para cartões POINTS com acumulação definida.
+        # point_value_brl: derivado de points_value_expected ÷ pontos_gerados_esperados.
+        from app.optimizer.models import CardType
+        points_per_brl_actual: float | None = None
+        point_value_brl: float | None = None
+        if card.card_type == CardType.POINTS and card.points_per_brl:
+            points_per_brl_actual = card.points_per_brl
+            pts_generated = spend_annual * card.points_per_brl
+            if pts_generated > 0 and values["expected"] > 0:
+                point_value_brl = round(values["expected"] / pts_generated, 6)
+
         return CardSimulationResult(
             card_id=card.card_id,
             card_name=card.name,
@@ -159,6 +171,8 @@ class CardSimulator:
             benefit_highlights=card.benefits_detail[:3],
             benefit_tags=list(card.benefit_tags),
             waiver_threshold=waiver_threshold,
+            points_per_brl_actual=points_per_brl_actual,
+            point_value_brl=point_value_brl,
         )
 
     # ─── Helpers privados ─────────────────────────────────────────────────────

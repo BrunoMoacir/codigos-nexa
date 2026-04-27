@@ -141,6 +141,9 @@ class CardSimulationResult(BaseModel):
     benefit_highlights: list[str] = []
     benefit_tags: list[BenefitTag] = []
     waiver_threshold: Optional[float] = None  # gasto anual necessário para isentar anuidade
+    # Campos usados pelo ArchitectService para calcular CardOptimizationBonus
+    points_per_brl_actual: Optional[float] = None   # pts/R$ acumulados (None para cashback)
+    point_value_brl: Optional[float] = None         # R$ por ponto (None para cashback)
 
 
 class OptimizationReport(BaseModel):
