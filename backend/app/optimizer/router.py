@@ -50,16 +50,41 @@ async def analyze_cards(
                 "category": pl.Utf8, "pf_pj_label": pl.Utf8, "type": pl.Utf8
             })
 
-        # O shadow_invoices_df real depende do runner completo da F1. 
-        # Por enquanto, mantemos None; o profiler lida com isso perfeitamente.
-        shadow_invoices_df = None
+        # Shadow invoices — obrigações futuras projetadas (assinaturas + parcelamentos).
+        # Alimentam committed_percentage no profiler, melhorando o cálculo de liquidity risk.
+        shadow_invoices_df: pl.DataFrame | None = None
+        try:
+            from app.subscriptions.shadow_invoices.runner import run_shadow_invoice_detection
+            txns_for_shadow = transactions_df
+            if "date" in transactions_df.columns and "transaction_date" not in transactions_df.columns:
+                txns_for_shadow = transactions_df.rename({"date": "transaction_date"})
+            shadow_invoices_df = run_shadow_invoice_detection(txns_for_shadow)
+            logger.info("[API] shadow_invoices=%d eventos para user=%s", len(shadow_invoices_df), request.user_id)
+        except Exception as shadow_exc:
+            logger.debug("[API] shadow_invoice indisponível para user=%s: %s", request.user_id, shadow_exc)
+
+        # GoalContext — aportes mensais nas metas ativas comprometem margem como obrigação futura.
+        if request.monthly_goals_commitment == 0.0 and request.user_id:
+            try:
+                from app.goals.tracker import GoalTracker
+                from app.core.db.session import get_db_session
+                with get_db_session() as db:
+                    active_goals = GoalTracker(db).list_goals(request.user_id, status="ACTIVE")
+                commitment = sum(
+                    (g.monthly_contribution_needed or 0.0) for g in active_goals
+                )
+                if commitment > 0:
+                    request = request.model_copy(update={"monthly_goals_commitment": commitment})
+                    logger.info("[API] monthly_goals_commitment=R$%.0f para user=%s", commitment, request.user_id)
+            except Exception as goal_exc:
+                logger.debug("[API] GoalTracker indisponível para optimizer user=%s: %s", request.user_id, goal_exc)
 
         service = OptimizerService()
-        
+
         report = service.analyze(
             request=request,
             transactions_df=transactions_df,
-            shadow_invoices_df=shadow_invoices_df
+            shadow_invoices_df=shadow_invoices_df,
         )
         
         return report
