@@ -425,6 +425,18 @@ class OptimizerService:
             )
 
         best_card_result = ranked_results[0]
+
+        # GoalContext: avisa quando anuidade do melhor cartão compromete aportes nas metas.
+        if request.monthly_goals_commitment > 0:
+            annuity_monthly = best_card_result.annuity_effective / 12
+            total_committed  = annuity_monthly + request.monthly_goals_commitment
+            estimated_savings = profile_data.monthly_avg_spend * getattr(profile_data, "savings_rate", 0.0) / 100
+            if estimated_savings > 0 and total_committed > estimated_savings * 0.80:
+                warnings.append(
+                    f"A anuidade do {best_card_result.card_name} (R$ {annuity_monthly:,.0f}/mês) "
+                    f"somada aos aportes nas metas ativas (R$ {request.monthly_goals_commitment:,.0f}/mês) "
+                    f"totaliza R$ {total_committed:,.0f}/mês — verifique a compatibilidade com sua margem disponível."
+                )
         recommendation_type = RecommendationType.SWITCH_RECOMMENDED
 
         # Se o melhor cartão dá prejuízo, recomendamos não trocar

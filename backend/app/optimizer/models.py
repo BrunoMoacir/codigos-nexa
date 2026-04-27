@@ -55,6 +55,7 @@ class OptimizationRequest(BaseModel):
     current_cards: list[str] = []       # IDs dos cartões que o usuário já possui
     safe_to_spend: Optional[float] = None   # injetado pela rota via F1
     monthly_income: Optional[float] = None  # fallback se safe_to_spend=None
+    monthly_goals_commitment: float = 0.0   # soma dos aportes mensais necessários nas metas ativas
 
     @field_validator("user_id")
     @classmethod
