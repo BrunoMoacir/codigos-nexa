@@ -45,10 +45,11 @@ EXPERIMENTS: dict[str, Experiment] = {
     "life_events_nudge": Experiment(
         name="life_events_nudge",
         description=(
-            "CONTROL: relatório sem eventos de vida detectados. "
-            "TREATMENT: relatório com nudges baseados em LifeEventsDetector (T2.1)."
+            "Experimento graduado: 100% TREATMENT (feature ativa para todos os usuários). "
+            "Notificações e forecast já integram LifeEvents independentemente do optimizer. "
+            "Gate mantido para retrocompatibilidade — pode ser removido no próximo cleanup."
         ),
-        traffic_pct=0.50,
+        traffic_pct=1.0,
     ),
 }
 
