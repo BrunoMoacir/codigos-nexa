@@ -64,6 +64,7 @@ NotificationType = Literal[
     "SCORE_IMPROVED",
     "GOAL_PROGRESS",
     "SAFE_TO_SPEND_LOW",
+    "LIFE_EVENT",
 ]
 
 # Thresholds para safe-to-spend baixo
@@ -204,6 +205,14 @@ class SafeToSpendInput:
 
 
 @dataclass
+class LifeEventInput:
+    """Evento de vida detectado pelo LifeEventsDetector."""
+    event: str           # "new_baby" | "home_change" | "wedding" | "new_education" | "income_increase" | "income_drop"
+    confidence: float    # 0.0–1.0
+    trigger_action: str  # ação definida no detector
+
+
+@dataclass
 class NotificationContext:
     """
     Contexto completo para geração de notificações proativas.
@@ -238,6 +247,9 @@ class NotificationContext:
 
     # Safe-to-spend atual
     safe_to_spend: Optional[SafeToSpendInput] = None
+
+    # Eventos de vida detectados pelo LifeEventsDetector
+    life_events: list[LifeEventInput] = field(default_factory=list)
 
     # Dia do mês atual (para contexto em mensagens)
     current_day: int = 0
@@ -636,6 +648,116 @@ def generate_safe_to_spend_low_notification(
     )]
 
 
+_LIFE_EVENT_CONFIG: dict[str, dict] = {
+    "new_baby": {
+        "priority": "WARNING",
+        "title": "👶 Bebê detectado no extrato",
+        "message": (
+            "Identificamos gastos com bebê nos últimos 60 dias. "
+            "A chegada de um filho muda bastante o orçamento — vale revisar metas, "
+            "reservas e cobertura de seguro de vida."
+        ),
+        "action_hint": "Crie uma meta de reserva para despesas de bebê e revise seu orçamento mensal.",
+    },
+    "home_change": {
+        "priority": "INFO",
+        "title": "🏠 Possível mudança de residência detectada",
+        "message": (
+            "Detectamos gastos com mudança ou reforma recentemente. "
+            "É um bom momento para revisar custos fixos, seguro residencial e orçamento de moradia."
+        ),
+        "action_hint": "Revise gastos fixos com moradia e verifique se seu seguro cobre a nova residência.",
+    },
+    "wedding": {
+        "priority": "INFO",
+        "title": "💍 Casamento detectado — hora de planejar a dois",
+        "message": (
+            "Detectamos gastos com cerimônia ou casamento. "
+            "Finanças a dois têm dinâmicas diferentes — contas compartilhadas, metas conjuntas e objetivos alinhados."
+        ),
+        "action_hint": "Considere criar metas conjuntas e alinhar objetivos financeiros com seu parceiro(a).",
+    },
+    "new_education": {
+        "priority": "INFO",
+        "title": "🎓 Início de curso ou faculdade detectado",
+        "message": (
+            "Identificamos gastos com educação superior recentemente. "
+            "Uma meta de médio prazo pode ajudar a planejar os próximos semestres sem comprometer o orçamento."
+        ),
+        "action_hint": "Crie uma meta para cobrir os próximos 12 meses de mensalidades.",
+    },
+    "income_increase": {
+        "priority": "INFO",
+        "title": "📈 Aumento de renda detectado",
+        "message": (
+            "Sua renda recente está acima do histórico em mais de 20%. "
+            "É o momento ideal para direcionar o incremento para investimentos ou metas antes de se acostumar a gastar mais."
+        ),
+        "action_hint": "Invista o aumento antes que ele vire novo custo fixo.",
+    },
+    "income_drop": {
+        "priority": "CRITICAL",
+        "title": "📉 Queda de renda detectada",
+        "message": (
+            "Sua renda recente caiu mais de 20% em relação ao histórico. "
+            "Priorize a reserva de emergência e revise gastos fixos imediatamente."
+        ),
+        "action_hint": "Corte gastos discricionários e garanta pelo menos 3 meses de reserva de emergência.",
+    },
+}
+
+# Confiança mínima para converter evento de vida em notificação
+_LIFE_EVENT_MIN_CONFIDENCE = 0.60
+
+
+def generate_life_event_notifications(
+    events: list[LifeEventInput],
+) -> list[Notification]:
+    """
+    LIFE_EVENT — evento de vida de alto impacto financeiro detectado.
+
+    Converte eventos do LifeEventsDetector em notificações proativas.
+    Filtra por confidence >= 0.60 para evitar falsos positivos.
+    Cada tipo de evento aparece no máximo 1x (o de maior confiança).
+    """
+    seen: set[str] = set()
+    notes: list[Notification] = []
+
+    # Ordena por confiança descendente para garantir que, se houver duplicata,
+    # o evento de maior confiança seja o que gera notificação.
+    sorted_events = sorted(events, key=lambda e: e.confidence, reverse=True)
+
+    for evt in sorted_events:
+        if evt.confidence < _LIFE_EVENT_MIN_CONFIDENCE:
+            continue
+        if evt.event in seen:
+            continue
+        seen.add(evt.event)
+
+        cfg = _LIFE_EVENT_CONFIG.get(evt.event)
+        if cfg is None:
+            continue
+
+        confidence_pct = int(evt.confidence * 100)
+        notes.append(Notification(
+            id=_new_id(),
+            type="LIFE_EVENT",
+            priority=cfg["priority"],
+            title=cfg["title"],
+            message=cfg["message"],
+            generated_at=_now(),
+            metadata={
+                "event":          evt.event,
+                "confidence":     evt.confidence,
+                "trigger_action": evt.trigger_action,
+                "confidence_pct": confidence_pct,
+            },
+            action_hint=cfg["action_hint"],
+        ))
+
+    return notes
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ORQUESTRADOR PRINCIPAL
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -712,6 +834,9 @@ class ProactiveNotifier:
         # 9. Safe-to-spend baixo
         notes.extend(generate_safe_to_spend_low_notification(ctx.safe_to_spend))
 
+        # 10. Eventos de vida
+        notes.extend(generate_life_event_notifications(ctx.life_events))
+
         # Ordenar por prioridade
         notes.sort(key=lambda n: _PRIORITY_ORDER.get(n.priority, 3))
 
@@ -743,6 +868,7 @@ __all__ = [
     "ScoreChangeInput",
     "GoalProgressInput",
     "SafeToSpendInput",
+    "LifeEventInput",
     "generate_burn_rate_notifications",
     "generate_anomaly_notifications",
     "generate_subscription_increase_notifications",
@@ -752,4 +878,5 @@ __all__ = [
     "generate_score_improved_notification",
     "generate_goal_progress_notifications",
     "generate_safe_to_spend_low_notification",
+    "generate_life_event_notifications",
 ]

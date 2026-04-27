@@ -25,6 +25,7 @@ from app.notifications.notifier import (
     SafeToSpendInput,
     ScoreChangeInput,
     GoalProgressInput,
+    LifeEventInput,
 )
 
 logger = logging.getLogger(__name__)
@@ -163,7 +164,40 @@ def get_notifications(
                         description=a.description,
                     ))
 
-        # ── 5. Assinaturas com preço aumentado ─────────────────────
+        # ── 5. Eventos de vida (LifeEventsDetector) ───────────────────
+        try:
+            from app.optimizer.detectors.life_events_detector import LifeEventsDetector
+
+            if transactions_df is not None and not transactions_df.is_empty():
+                date_col = "date" if "date" in transactions_df.columns else "transaction_date"
+                today = date.today()
+
+                txns_recent = transactions_df.filter(
+                    pl.col(date_col).cast(pl.Date) >= today - timedelta(days=60)
+                )
+                txns_history = transactions_df.filter(
+                    pl.col(date_col).cast(pl.Date) < today - timedelta(days=180)
+                )
+
+                income_recent     = income_profile.monthly_net_income if income_profile else 0.0
+                income_historical = income_recent
+
+                life_events = LifeEventsDetector().detect_all(
+                    txns_recent=txns_recent,
+                    txns_history=txns_history,
+                    income_recent=income_recent,
+                    income_historical=income_historical,
+                )
+                for evt in life_events:
+                    ctx.life_events.append(LifeEventInput(
+                        event=evt.event,
+                        confidence=evt.confidence,
+                        trigger_action=evt.trigger_action,
+                    ))
+        except Exception as le_exc:
+            logger.debug("LifeEventsDetector indisponível: %s", le_exc)
+
+        # ── 7. Assinaturas com preço aumentado ─────────────────────
         try:
             from app.subscriptions.subscription_detector import SubscriptionDetector
             if transactions_df is not None and not transactions_df.is_empty():
@@ -182,7 +216,7 @@ def get_notifications(
         except Exception as sub_exc:
             logger.debug("SubscriptionDetector indisponível: %s", sub_exc)
 
-        # ── 6. Safe-to-spend ───────────────────────────────────────
+        # ── 8. Safe-to-spend ───────────────────────────────────────
         projections = runner_result.get("projections", {})
         sts_obj = projections.get("safe_to_spend")
         if sts_obj is not None:
@@ -193,7 +227,7 @@ def get_notifications(
                 monthly_safe_amount=monthly,
             )
 
-        # ── 7. Metas ativas ────────────────────────────────────────
+        # ── 9. Metas ativas ────────────────────────────────────────
         try:
             tracker = GoalTracker()
             active_goals = tracker.list_goals(user_id=user_id, status="ACTIVE")
