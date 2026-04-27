@@ -183,6 +183,14 @@ class ArchitectService:
             source = "optimizer_f2" if card_bonus and card_bonus.best_card_name != "melhor cartão premium de mercado" else "market_reference_estimate"
             data_sources.append(source)
 
+            # Penalizar confidence quando o melhor cartão tem risco de liquidez alto.
+            if card_bonus and card_bonus.liquidity_risk in ("HIGH", "CRITICAL"):
+                confidence = max(0.30, confidence - 0.05)
+                accumulated_warnings.append(
+                    f"O cartão recomendado ({card_bonus.best_card_name}) apresenta risco de liquidez "
+                    f"{card_bonus.liquidity_risk} para sua margem atual — avalie se a anuidade é sustentável."
+                )
+
         # ── 7b. Validar parcela contra orçamento ideal (BudgetAdvisor) ──
         confidence = self._adjust_confidence_budget(
             confidence=confidence,
@@ -462,6 +470,7 @@ class ArchitectService:
         Returns:
             CardOptimizationBonus com retorno mensal, anual, total e % de redução.
         """
+        card_liquidity_risk = "SAFE"
         # Tenta obter dados reais do cartão via OptimizerService (F2)
         if user_id and transactions_df is not None:
             try:
@@ -476,9 +485,10 @@ class ArchitectService:
                     request=opt_req, transactions_df=transactions_df
                 )
                 if report.best_card and report.best_card.points_per_brl_actual:
-                    pts_per_brl = report.best_card.points_per_brl_actual
-                    point_value_brl = report.best_card.point_value_brl or point_value_brl
-                    best_card_name = report.best_card.card_name
+                    pts_per_brl         = report.best_card.points_per_brl_actual
+                    point_value_brl     = report.best_card.point_value_brl or point_value_brl
+                    best_card_name      = report.best_card.card_name
+                    card_liquidity_risk = str(report.best_card.liquidity_risk)
             except Exception as exc:
                 logger.warning("ArchitectService | OptimizerService falhou no CardBonus: %s", exc)
                 # mantém fallback de mercado
@@ -505,6 +515,7 @@ class ArchitectService:
             total_bonus_brl=total_bonus,
             effective_cost_reduction_pct=reduction_pct,
             narrative=narrative,
+            liquidity_risk=card_liquidity_risk,
         )
 
     @staticmethod

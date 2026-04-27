@@ -530,6 +530,11 @@ class CardOptimizationBonus(BaseModel):
         min_length=10,
         max_length=400,
     )
+    liquidity_risk: str = Field(
+        default="SAFE",
+        description="Risco de liquidez do melhor cartão (SAFE | WARNING | HIGH | CRITICAL), "
+                    "conforme avaliação do Optimizer.",
+    )
 
 
 class RentalLeveragePlan(BaseModel):
