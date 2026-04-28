@@ -27,12 +27,14 @@ from app.notifications.notifier import (
     GoalProgressInput,
     LifeEventInput,
 )
+from app.notifications.relevance_filter import NotificationRelevanceFilter
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/notifications", tags=["Notifications (MX.3)"])
 
 _notifier = ProactiveNotifier()
+_relevance_filter = NotificationRelevanceFilter()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -249,8 +251,9 @@ def get_notifications(
         logger.warning("NexaRunner indisponível para /notifications/%s: %s", user_id, exc)
         # Retorna notificações vazias em caso de falha — não lança 500
 
-    # ── 8. Gerar notificações ──────────────────────────────────────
+    # ── 8. Gerar e filtrar notificações ───────────────────────────
     all_notes = _notifier.generate(ctx)
+    all_notes = _relevance_filter.filter(all_notes)
 
     if not include_info:
         all_notes = [n for n in all_notes if n.priority != "INFO"]
