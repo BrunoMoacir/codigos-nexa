@@ -411,11 +411,12 @@ def test_notifier_to_dict_valid_json_structure():
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from app.notifications.router import router as notif_router
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_owner
 
 _app = FastAPI()
 _app.include_router(notif_router)
 _app.dependency_overrides[get_current_user] = lambda: "test_user"
+_app.dependency_overrides[require_owner] = lambda: "test_user"
 _client = TestClient(_app)
 
 
@@ -452,3 +453,253 @@ def test_api_include_info_false_filters():
     data = resp.json()
     for n in data["notifications"]:
         assert n["priority"] != "INFO"
+
+
+# ── 13. NotificationRelevanceFilter ──────────────────────────────────────────
+
+from app.notifications.relevance_filter import NotificationRelevanceFilter
+from datetime import datetime, timezone
+
+
+def _make(type: str, priority: str, metadata: dict) -> Notification:
+    return Notification(
+        id="x", type=type, priority=priority,
+        title="T", message="M",
+        generated_at=datetime.now(timezone.utc),
+        metadata=metadata,
+    )
+
+
+_rf = NotificationRelevanceFilter()
+
+
+# — threshold por tipo —
+
+def test_filter_burn_rate_below_75_dropped():
+    n = _make("BURN_RATE_HIGH", "WARNING", {"pct_consumed": 72.0})
+    assert _rf.filter([n]) == []
+
+
+def test_filter_burn_rate_at_75_passes():
+    n = _make("BURN_RATE_HIGH", "WARNING", {"pct_consumed": 75.0})
+    assert len(_rf.filter([n])) == 1
+
+
+def test_filter_burn_rate_critical_always_passes():
+    # CRITICAL nunca é descartado pelo cap por tipo
+    n = _make("BURN_RATE_HIGH", "CRITICAL", {"pct_consumed": 91.0})
+    assert len(_rf.filter([n])) == 1
+
+
+def test_filter_anomaly_weak_factor_dropped():
+    n = _make("ANOMALY_DETECTED", "WARNING", {"factor": 2.0, "amount": 500.0})
+    assert _rf.filter([n]) == []
+
+
+def test_filter_anomaly_low_amount_dropped():
+    n = _make("ANOMALY_DETECTED", "WARNING", {"factor": 3.0, "amount": 50.0})
+    assert _rf.filter([n]) == []
+
+
+def test_filter_anomaly_strong_passes():
+    n = _make("ANOMALY_DETECTED", "WARNING", {"factor": 2.5, "amount": 100.0})
+    assert len(_rf.filter([n])) == 1
+
+
+def test_filter_subscription_small_increase_dropped():
+    n = _make("SUBSCRIPTION_INCREASE", "WARNING", {
+        "pct_change": 5.0, "old_amount": 29.0, "new_amount": 30.5
+    })
+    assert _rf.filter([n]) == []
+
+
+def test_filter_subscription_big_pct_passes():
+    n = _make("SUBSCRIPTION_INCREASE", "WARNING", {
+        "pct_change": 40.0, "old_amount": 29.0, "new_amount": 40.6
+    })
+    assert len(_rf.filter([n])) == 1
+
+
+def test_filter_subscription_big_absolute_passes():
+    # R$12 de diferença absoluta, mas pct baixo
+    n = _make("SUBSCRIPTION_INCREASE", "WARNING", {
+        "pct_change": 4.0, "old_amount": 300.0, "new_amount": 312.0
+    })
+    assert len(_rf.filter([n])) == 1
+
+
+def test_filter_card_opportunity_low_gain_dropped():
+    n = _make("CARD_OPPORTUNITY", "INFO", {"monthly_gain_missed": 25.0})
+    assert _rf.filter([n]) == []
+
+
+def test_filter_card_opportunity_passes():
+    n = _make("CARD_OPPORTUNITY", "INFO", {"monthly_gain_missed": 30.0})
+    assert len(_rf.filter([n])) == 1
+
+
+def test_filter_waiver_impossible_daily_dropped():
+    n = _make("WAIVER_ALERT", "INFO", {"amount_needed": 500.0, "daily_spend_needed": 500.0})
+    assert _rf.filter([n]) == []
+
+
+def test_filter_waiver_achievable_passes():
+    n = _make("WAIVER_ALERT", "INFO", {"amount_needed": 200.0, "daily_spend_needed": 50.0})
+    assert len(_rf.filter([n])) == 1
+
+
+def test_filter_transfer_promo_low_bonus_dropped():
+    n = _make("TRANSFER_PROMO", "INFO", {"bonus_pct": 10, "user_points": 5000})
+    assert _rf.filter([n]) == []
+
+
+def test_filter_transfer_promo_no_points_dropped():
+    n = _make("TRANSFER_PROMO", "INFO", {"bonus_pct": 50, "user_points": 500})
+    assert _rf.filter([n]) == []
+
+
+def test_filter_transfer_promo_passes():
+    n = _make("TRANSFER_PROMO", "INFO", {"bonus_pct": 50, "user_points": 5000})
+    assert len(_rf.filter([n])) == 1
+
+
+def test_filter_score_small_delta_dropped():
+    n = _make("SCORE_IMPROVED", "INFO", {"delta": 3.0})
+    assert _rf.filter([n]) == []
+
+
+def test_filter_score_big_delta_passes():
+    n = _make("SCORE_IMPROVED", "INFO", {"delta": 5.0})
+    assert len(_rf.filter([n])) == 1
+
+
+def test_filter_score_negative_big_delta_passes():
+    n = _make("SCORE_IMPROVED", "WARNING", {"delta": -6.0})
+    assert len(_rf.filter([n])) == 1
+
+
+def test_filter_goal_25pct_dropped():
+    n = _make("GOAL_PROGRESS", "INFO", {"milestone": 25.0})
+    assert _rf.filter([n]) == []
+
+
+def test_filter_goal_50pct_passes():
+    n = _make("GOAL_PROGRESS", "INFO", {"milestone": 50.0})
+    assert len(_rf.filter([n])) == 1
+
+
+def test_filter_goal_100pct_passes():
+    n = _make("GOAL_PROGRESS", "INFO", {"milestone": 100.0})
+    assert len(_rf.filter([n])) == 1
+
+
+def test_filter_safe_to_spend_always_passes():
+    n = _make("SAFE_TO_SPEND_LOW", "CRITICAL", {"daily_safe": 20.0, "monthly_safe": 600.0})
+    assert len(_rf.filter([n])) == 1
+
+
+def test_filter_life_event_low_confidence_dropped():
+    n = _make("LIFE_EVENT", "WARNING", {"confidence": 0.65, "event": "new_baby"})
+    assert _rf.filter([n]) == []
+
+
+def test_filter_life_event_high_confidence_passes():
+    n = _make("LIFE_EVENT", "WARNING", {"confidence": 0.75, "event": "income_drop"})
+    assert len(_rf.filter([n])) == 1
+
+
+# — cap por tipo —
+
+def test_filter_max_2_per_type_warning():
+    notes = [
+        _make("CARD_OPPORTUNITY", "INFO", {"monthly_gain_missed": 50.0}),
+        _make("CARD_OPPORTUNITY", "INFO", {"monthly_gain_missed": 60.0}),
+        _make("CARD_OPPORTUNITY", "INFO", {"monthly_gain_missed": 70.0}),
+    ]
+    result = _rf.filter(notes)
+    assert len(result) == 2
+
+
+def test_filter_critical_exempt_from_type_cap():
+    notes = [
+        _make("BURN_RATE_HIGH", "CRITICAL", {"pct_consumed": 95.0}),
+        _make("BURN_RATE_HIGH", "CRITICAL", {"pct_consumed": 110.0}),
+        _make("BURN_RATE_HIGH", "CRITICAL", {"pct_consumed": 105.0}),
+    ]
+    result = _rf.filter(notes)
+    # Todos 3 CRITICAL devem passar (limite de tipo não se aplica a CRITICAL)
+    # Mas cap global de 5 os limita
+    assert len(result) == 3
+
+
+# — cap global —
+
+def test_filter_global_cap_5():
+    notes = [
+        _make("BURN_RATE_HIGH", "WARNING", {"pct_consumed": 80.0}),
+        _make("ANOMALY_DETECTED", "WARNING", {"factor": 3.0, "amount": 200.0}),
+        _make("SUBSCRIPTION_INCREASE", "WARNING", {"pct_change": 25.0, "old_amount": 30.0, "new_amount": 37.5}),
+        _make("CARD_OPPORTUNITY", "INFO", {"monthly_gain_missed": 40.0}),
+        _make("WAIVER_ALERT", "INFO", {"amount_needed": 100.0, "daily_spend_needed": 10.0}),
+        _make("TRANSFER_PROMO", "INFO", {"bonus_pct": 30, "user_points": 2000}),
+        _make("SCORE_IMPROVED", "INFO", {"delta": 8.0}),
+    ]
+    result = _rf.filter(notes)
+    assert len(result) <= 5
+
+
+def test_filter_critical_prioritized_in_global_cap():
+    # Com 6 notificações mas 1 CRITICAL, o CRITICAL deve sobreviver ao cap
+    notes = [
+        _make("BURN_RATE_HIGH", "CRITICAL", {"pct_consumed": 110.0}),
+        _make("ANOMALY_DETECTED", "WARNING", {"factor": 3.0, "amount": 200.0}),
+        _make("SUBSCRIPTION_INCREASE", "WARNING", {"pct_change": 25.0, "old_amount": 30.0, "new_amount": 37.5}),
+        _make("CARD_OPPORTUNITY", "INFO", {"monthly_gain_missed": 40.0}),
+        _make("WAIVER_ALERT", "INFO", {"amount_needed": 100.0, "daily_spend_needed": 10.0}),
+        _make("TRANSFER_PROMO", "INFO", {"bonus_pct": 30, "user_points": 2000}),
+    ]
+    result = _rf.filter(notes)
+    assert len(result) <= 5
+    assert any(n.priority == "CRITICAL" for n in result)
+
+
+def test_filter_empty_input():
+    assert _rf.filter([]) == []
+
+
+# — integração com ProactiveNotifier —
+
+def test_filter_integrated_with_notifier():
+    """
+    Gera 9 tipos via ProactiveNotifier e valida que o filtro reduz para ≤ 5
+    e preserva a ordem CRITICAL → WARNING → INFO.
+    """
+    ctx = NotificationContext(
+        burn_rate_categories=[
+            BurnRateCategoryInput("alimentacao", 920.0, 1000.0, 0.92, 20),   # CRITICAL ✓
+            BurnRateCategoryInput("lazer",        760.0, 1000.0, 0.76, 20),   # WARNING  ✓
+            BurnRateCategoryInput("transporte",   750.0, 1000.0, 0.75, 20),   # WARNING  ✓ (type cap: 2)
+        ],
+        anomalies=[
+            AnomalyInput("Amazon",   800.0, 4.0, "UNUSUAL_AMOUNT", "Alto"),   # CRITICAL ✓
+            AnomalyInput("iFood",    150.0, 2.3, "UNUSUAL_AMOUNT", "Baixo"),  # descartado (factor<2.5)
+        ],
+        card_opportunities=[
+            CardOpportunityInput("Nubank", 20.0, "reason"),   # descartado (gain<30)
+        ],
+        score_change=ScoreChangeInput(60.0, 63.0, 3.0),       # descartado (delta<5)
+        safe_to_spend=SafeToSpendInput(30.0, 900.0),           # CRITICAL ✓
+        goal_progress=[
+            GoalProgressInput("Casa", "g1", 25.0, 100000.0),  # descartado (25% milestone)
+            GoalProgressInput("Viagem", "g2", 75.0, 5000.0),  # INFO ✓
+        ],
+    )
+
+    raw = ProactiveNotifier().generate(ctx)
+    filtered = _rf.filter(raw)
+
+    assert len(filtered) <= 5
+    priorities = [n.priority for n in filtered]
+    # Deve estar ordenado CRITICAL→WARNING→INFO
+    order = {"CRITICAL": 0, "WARNING": 1, "INFO": 2}
+    assert priorities == sorted(priorities, key=lambda p: order[p])
