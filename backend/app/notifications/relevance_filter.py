@@ -6,14 +6,17 @@ Responsabilidade:
     aquelas que não atingem os critérios de relevância e confiança por tipo.
 
 Etapas em ordem:
-    1. Threshold de qualidade por tipo  — elimina sinal fraco / ruído
-    2. Cap por tipo (máx. 2 por tipo)   — evita flood de um único assunto
-    3. Cap global   (máx. 5 total)      — limita volume total ao usuário
+    1. Threshold de qualidade por tipo    — elimina sinal fraco / ruído
+    1b. Deduplicação de GOAL_PROGRESS     — evita dois alertas do mesmo marco/meta
+    2. Cap por tipo (máx. 2 por tipo)     — evita flood de um único assunto
+    3. Cap global                         — CRITICAL ilimitado; não-CRITICAL limitado
+                                            a max(0, _MAX_NON_CRITICAL - outros slots)
 
 Regras de proteção:
-    - Notificações CRITICAL nunca são descartadas pelo cap por tipo.
-    - O cap global é aplicado depois de todos os outros filtros, priorizando
-      a ordem CRITICAL → WARNING → INFO (já garantida pelo ProactiveNotifier).
+    - Notificações CRITICAL nunca são descartadas pelo cap por tipo nem pelo
+      cap global — quem está em crise financeira real precisa ver todos os alertas.
+    - O cap global limita apenas INFO e WARNING ao total de _MAX_NON_CRITICAL,
+      preservando a ordem CRITICAL → WARNING → INFO.
 """
 
 from __future__ import annotations
@@ -54,16 +57,17 @@ def _card_opportunity_relevant(n: Notification) -> bool:
 
 
 def _waiver_relevant(n: Notification) -> bool:
-    # Alerta de isenção só faz sentido se a meta for alcançável (≤ R$400/dia)
-    # e ainda houver valor restante
-    daily = n.metadata.get("daily_spend_needed", 9_999.0)
+    # Meta atingível:
+    #   - diária ≤ R$400/dia (ritmo razoável de gasto)
+    #   - total restante ≤ R$3.000 (não faz sentido notificar se falta muito)
+    daily  = n.metadata.get("daily_spend_needed", 9_999.0)
     amount = n.metadata.get("amount_needed", 0.0)
-    return amount > 0 and daily <= 400.0
+    return amount > 0 and daily <= 400.0 and amount <= 3_000.0
 
 
 def _transfer_promo_relevant(n: Notification) -> bool:
     # Promoção relevante: bônus ≥ 20% e usuário tem pontos suficientes (≥ 1 000)
-    bonus = n.metadata.get("bonus_pct", 0.0)   # já em %, ex: 50
+    bonus  = n.metadata.get("bonus_pct", 0.0)   # já em %, ex: 50
     points = n.metadata.get("user_points", 0)
     return bonus >= 20 and points >= 1_000
 
@@ -102,10 +106,10 @@ _TYPE_FILTERS: dict[str, Callable[[Notification], bool]] = {
     "LIFE_EVENT":            _life_event_relevant,
 }
 
-# ── Caps globais ──────────────────────────────────────────────────────────────
+# ── Caps ──────────────────────────────────────────────────────────────────────
 
-_MAX_TOTAL    = 5   # máx. notificações entregues ao usuário
-_MAX_PER_TYPE = 2   # máx. por tipo (não se aplica a CRITICAL)
+_MAX_NON_CRITICAL = 4   # slots para WARNING + INFO (CRITICAL é ilimitado)
+_MAX_PER_TYPE     = 2   # máx. por tipo (não se aplica a CRITICAL)
 
 
 # ── Classe principal ──────────────────────────────────────────────────────────
@@ -133,6 +137,22 @@ class NotificationRelevanceFilter:
             else:
                 dropped_quality += 1
 
+        # ── Etapa 1b: deduplicação de GOAL_PROGRESS ───────────────────
+        # O gerador pode emitir duas notificações do mesmo marco para a mesma
+        # meta quando pct_complete cai dentro da tolerância ±5 p.p. de 50% e 55%.
+        seen_goal_milestones: set[tuple[str, float]] = set()
+        deduped: list[Notification] = []
+        dropped_goal_dup = 0
+        for n in after_quality:
+            if n.type == "GOAL_PROGRESS":
+                key = (n.metadata.get("goal_id", ""), n.metadata.get("milestone", 0.0))
+                if key in seen_goal_milestones:
+                    dropped_goal_dup += 1
+                    continue
+                seen_goal_milestones.add(key)
+            deduped.append(n)
+        after_quality = deduped
+
         # ── Etapa 2: cap por tipo (CRITICAL é imune) ──────────────────
         type_counts: dict[str, int] = {}
         after_type_cap: list[Notification] = []
@@ -148,18 +168,24 @@ class NotificationRelevanceFilter:
             else:
                 dropped_type += 1
 
-        # ── Etapa 3: cap global ───────────────────────────────────────
-        after_global = after_type_cap[:_MAX_TOTAL]
-        dropped_global = max(0, len(after_type_cap) - _MAX_TOTAL)
+        # ── Etapa 3: cap global (CRITICAL ilimitado) ──────────────────
+        # CRITICAL passa sempre — usuário em crise precisa ver todos os alertas.
+        # WARNING + INFO preenchem os _MAX_NON_CRITICAL slots restantes.
+        critical_notes = [n for n in after_type_cap if n.priority == "CRITICAL"]
+        non_critical   = [n for n in after_type_cap if n.priority != "CRITICAL"]
 
-        total_dropped = dropped_quality + dropped_type + dropped_global
+        after_global   = critical_notes + non_critical[:_MAX_NON_CRITICAL]
+        dropped_global = max(0, len(non_critical) - _MAX_NON_CRITICAL)
+
+        total_dropped = dropped_quality + dropped_goal_dup + dropped_type + dropped_global
         if total_dropped > 0:
             logger.info(
                 "NotificationRelevanceFilter | in=%d → out=%d "
-                "(quality=%d type_cap=%d global_cap=%d)",
+                "(quality=%d goal_dup=%d type_cap=%d global_cap=%d)",
                 len(notifications),
                 len(after_global),
                 dropped_quality,
+                dropped_goal_dup,
                 dropped_type,
                 dropped_global,
             )

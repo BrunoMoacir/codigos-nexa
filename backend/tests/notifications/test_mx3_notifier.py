@@ -544,8 +544,14 @@ def test_filter_waiver_impossible_daily_dropped():
 
 
 def test_filter_waiver_achievable_passes():
-    n = _make("WAIVER_ALERT", "INFO", {"amount_needed": 200.0, "daily_spend_needed": 50.0})
+    n = _make("WAIVER_ALERT", "INFO", {"amount_needed": 500.0, "daily_spend_needed": 50.0})
     assert len(_rf.filter([n])) == 1
+
+
+def test_filter_waiver_large_amount_dropped():
+    # R$12.000 restante com R$400/dia: teoricamente alcançável mas inviável na prática
+    n = _make("WAIVER_ALERT", "INFO", {"amount_needed": 12_000.0, "daily_spend_needed": 400.0})
+    assert _rf.filter([n]) == []
 
 
 def test_filter_transfer_promo_low_bonus_dropped():
@@ -627,40 +633,91 @@ def test_filter_critical_exempt_from_type_cap():
         _make("BURN_RATE_HIGH", "CRITICAL", {"pct_consumed": 105.0}),
     ]
     result = _rf.filter(notes)
-    # Todos 3 CRITICAL devem passar (limite de tipo não se aplica a CRITICAL)
-    # Mas cap global de 5 os limita
+    # Todos 3 CRITICAL devem passar (cap por tipo e cap global não se aplicam)
     assert len(result) == 3
 
 
-# — cap global —
+# — cap global (CRITICAL ilimitado) —
 
-def test_filter_global_cap_5():
+def test_filter_non_critical_capped_at_4():
     notes = [
         _make("BURN_RATE_HIGH", "WARNING", {"pct_consumed": 80.0}),
         _make("ANOMALY_DETECTED", "WARNING", {"factor": 3.0, "amount": 200.0}),
         _make("SUBSCRIPTION_INCREASE", "WARNING", {"pct_change": 25.0, "old_amount": 30.0, "new_amount": 37.5}),
         _make("CARD_OPPORTUNITY", "INFO", {"monthly_gain_missed": 40.0}),
-        _make("WAIVER_ALERT", "INFO", {"amount_needed": 100.0, "daily_spend_needed": 10.0}),
+        _make("WAIVER_ALERT", "INFO", {"amount_needed": 500.0, "daily_spend_needed": 10.0}),
         _make("TRANSFER_PROMO", "INFO", {"bonus_pct": 30, "user_points": 2000}),
         _make("SCORE_IMPROVED", "INFO", {"delta": 8.0}),
     ]
     result = _rf.filter(notes)
-    assert len(result) <= 5
+    non_critical = [n for n in result if n.priority != "CRITICAL"]
+    assert len(non_critical) <= 4
 
 
-def test_filter_critical_prioritized_in_global_cap():
-    # Com 6 notificações mas 1 CRITICAL, o CRITICAL deve sobreviver ao cap
+def test_filter_critical_not_capped_by_global():
+    # 6 CRITICAL + 2 WARNING: todos os CRITICAL devem passar, WARNING limitado a 4 slots
     notes = [
-        _make("BURN_RATE_HIGH", "CRITICAL", {"pct_consumed": 110.0}),
-        _make("ANOMALY_DETECTED", "WARNING", {"factor": 3.0, "amount": 200.0}),
-        _make("SUBSCRIPTION_INCREASE", "WARNING", {"pct_change": 25.0, "old_amount": 30.0, "new_amount": 37.5}),
-        _make("CARD_OPPORTUNITY", "INFO", {"monthly_gain_missed": 40.0}),
-        _make("WAIVER_ALERT", "INFO", {"amount_needed": 100.0, "daily_spend_needed": 10.0}),
-        _make("TRANSFER_PROMO", "INFO", {"bonus_pct": 30, "user_points": 2000}),
+        _make("BURN_RATE_HIGH",        "CRITICAL", {"pct_consumed": 110.0}),
+        _make("ANOMALY_DETECTED",      "CRITICAL", {"factor": 5.0, "amount": 500.0}),
+        _make("SAFE_TO_SPEND_LOW",     "CRITICAL", {"daily_safe": 10.0, "monthly_safe": 300.0}),
+        _make("LIFE_EVENT",            "CRITICAL", {"confidence": 0.9, "event": "income_drop"}),
+        _make("BURN_RATE_HIGH",        "CRITICAL", {"pct_consumed": 105.0}),
+        _make("ANOMALY_DETECTED",      "CRITICAL", {"factor": 4.0, "amount": 300.0}),
+        _make("SUBSCRIPTION_INCREASE", "WARNING",  {"pct_change": 25.0, "old_amount": 30.0, "new_amount": 37.5}),
+        _make("CARD_OPPORTUNITY",      "WARNING",  {"monthly_gain_missed": 40.0}),
     ]
     result = _rf.filter(notes)
-    assert len(result) <= 5
+    critical_count = sum(1 for n in result if n.priority == "CRITICAL")
+    # Todos 6 CRITICAL passam (sem cap)
+    assert critical_count == 6
+    # WARNING limitado a 4 slots, mas com 6 CRITICAL os 4 slots não-críticos ficam 2
+    non_critical_count = sum(1 for n in result if n.priority != "CRITICAL")
+    assert non_critical_count <= 4
+
+
+def test_filter_critical_prioritized_over_warning_in_global():
+    # 1 CRITICAL + 5 WARNING/INFO: CRITICAL sempre passa, WARNING/INFO limitado
+    notes = [
+        _make("BURN_RATE_HIGH",        "CRITICAL", {"pct_consumed": 110.0}),
+        _make("ANOMALY_DETECTED",      "WARNING",  {"factor": 3.0, "amount": 200.0}),
+        _make("SUBSCRIPTION_INCREASE", "WARNING",  {"pct_change": 25.0, "old_amount": 30.0, "new_amount": 37.5}),
+        _make("CARD_OPPORTUNITY",      "INFO",     {"monthly_gain_missed": 40.0}),
+        _make("WAIVER_ALERT",          "INFO",     {"amount_needed": 500.0, "daily_spend_needed": 10.0}),
+        _make("TRANSFER_PROMO",        "INFO",     {"bonus_pct": 30, "user_points": 2000}),
+    ]
+    result = _rf.filter(notes)
     assert any(n.priority == "CRITICAL" for n in result)
+    assert len([n for n in result if n.priority != "CRITICAL"]) <= 4
+
+
+# — deduplicação de GOAL_PROGRESS —
+
+def test_filter_goal_duplicate_milestone_deduplicated():
+    # Dois alertas do mesmo marco para a mesma meta (tolerância ±5 p.p.)
+    notes = [
+        _make("GOAL_PROGRESS", "INFO", {"goal_id": "g1", "milestone": 50.0, "pct_complete": 48.0}),
+        _make("GOAL_PROGRESS", "INFO", {"goal_id": "g1", "milestone": 50.0, "pct_complete": 52.0}),
+    ]
+    result = _rf.filter(notes)
+    assert len(result) == 1
+
+
+def test_filter_goal_different_milestones_both_pass():
+    notes = [
+        _make("GOAL_PROGRESS", "INFO", {"goal_id": "g1", "milestone": 50.0}),
+        _make("GOAL_PROGRESS", "INFO", {"goal_id": "g1", "milestone": 75.0}),
+    ]
+    result = _rf.filter(notes)
+    assert len(result) == 2
+
+
+def test_filter_goal_same_milestone_different_goals_both_pass():
+    notes = [
+        _make("GOAL_PROGRESS", "INFO", {"goal_id": "g1", "milestone": 50.0}),
+        _make("GOAL_PROGRESS", "INFO", {"goal_id": "g2", "milestone": 50.0}),
+    ]
+    result = _rf.filter(notes)
+    assert len(result) == 2
 
 
 def test_filter_empty_input():
@@ -671,35 +728,43 @@ def test_filter_empty_input():
 
 def test_filter_integrated_with_notifier():
     """
-    Gera 9 tipos via ProactiveNotifier e valida que o filtro reduz para ≤ 5
-    e preserva a ordem CRITICAL → WARNING → INFO.
+    Gera notificações via ProactiveNotifier e valida:
+    - CRITICAL passam todos
+    - WARNING+INFO limitados a _MAX_NON_CRITICAL (4)
+    - Ordem CRITICAL → WARNING → INFO preservada
     """
     ctx = NotificationContext(
         burn_rate_categories=[
-            BurnRateCategoryInput("alimentacao", 920.0, 1000.0, 0.92, 20),   # CRITICAL ✓
-            BurnRateCategoryInput("lazer",        760.0, 1000.0, 0.76, 20),   # WARNING  ✓
-            BurnRateCategoryInput("transporte",   750.0, 1000.0, 0.75, 20),   # WARNING  ✓ (type cap: 2)
+            BurnRateCategoryInput("alimentacao", 920.0, 1000.0, 0.92, 20),  # CRITICAL ✓
+            BurnRateCategoryInput("lazer",        760.0, 1000.0, 0.76, 20),  # WARNING  ✓
+            BurnRateCategoryInput("transporte",   750.0, 1000.0, 0.75, 20),  # WARNING  ✓ (type cap: 2)
         ],
         anomalies=[
-            AnomalyInput("Amazon",   800.0, 4.0, "UNUSUAL_AMOUNT", "Alto"),   # CRITICAL ✓
-            AnomalyInput("iFood",    150.0, 2.3, "UNUSUAL_AMOUNT", "Baixo"),  # descartado (factor<2.5)
+            AnomalyInput("Amazon",  800.0, 4.0, "UNUSUAL_AMOUNT", "Alto"),   # CRITICAL ✓
+            AnomalyInput("iFood",   150.0, 2.3, "UNUSUAL_AMOUNT", "Baixo"),  # descartado (factor<2.5)
         ],
         card_opportunities=[
-            CardOpportunityInput("Nubank", 20.0, "reason"),   # descartado (gain<30)
+            CardOpportunityInput("Nubank", 20.0, "reason"),  # descartado (gain<30)
         ],
-        score_change=ScoreChangeInput(60.0, 63.0, 3.0),       # descartado (delta<5)
-        safe_to_spend=SafeToSpendInput(30.0, 900.0),           # CRITICAL ✓
+        score_change=ScoreChangeInput(60.0, 63.0, 3.0),      # descartado (delta<5)
+        safe_to_spend=SafeToSpendInput(30.0, 900.0),          # CRITICAL ✓
         goal_progress=[
-            GoalProgressInput("Casa", "g1", 25.0, 100000.0),  # descartado (25% milestone)
-            GoalProgressInput("Viagem", "g2", 75.0, 5000.0),  # INFO ✓
+            GoalProgressInput("Casa",   "g1", 25.0, 100000.0),  # descartado (25% milestone)
+            GoalProgressInput("Viagem", "g2", 75.0,   5000.0),  # INFO ✓
         ],
     )
 
     raw = ProactiveNotifier().generate(ctx)
     filtered = _rf.filter(raw)
 
-    assert len(filtered) <= 5
     priorities = [n.priority for n in filtered]
-    # Deve estar ordenado CRITICAL→WARNING→INFO
+
+    # CRITICAL passa tudo (3 neste contexto)
+    assert sum(1 for p in priorities if p == "CRITICAL") == 3
+
+    # Não-CRITICAL ≤ 4
+    assert sum(1 for p in priorities if p != "CRITICAL") <= 4
+
+    # Ordem CRITICAL → WARNING → INFO preservada
     order = {"CRITICAL": 0, "WARNING": 1, "INFO": 2}
     assert priorities == sorted(priorities, key=lambda p: order[p])
