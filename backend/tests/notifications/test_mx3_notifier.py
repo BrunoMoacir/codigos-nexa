@@ -497,13 +497,15 @@ def test_filter_anomaly_weak_factor_dropped():
 
 
 def test_filter_anomaly_low_amount_dropped():
+    # Renda R$5k: min_amount = 2% × 5k = R$100 → R$50 descartado
     n = _make("ANOMALY_DETECTED", "WARNING", {"factor": 3.0, "amount": 50.0})
-    assert _rf.filter([n]) == []
+    assert _rf.filter([n], monthly_income=5_000.0) == []
 
 
 def test_filter_anomaly_strong_passes():
+    # Renda R$5k: min_amount = R$100 → R$100 passa exato no threshold
     n = _make("ANOMALY_DETECTED", "WARNING", {"factor": 2.5, "amount": 100.0})
-    assert len(_rf.filter([n])) == 1
+    assert len(_rf.filter([n], monthly_income=5_000.0)) == 1
 
 
 def test_filter_subscription_small_increase_dropped():
@@ -529,13 +531,15 @@ def test_filter_subscription_big_absolute_passes():
 
 
 def test_filter_card_opportunity_low_gain_dropped():
+    # Renda R$6k: min_gain = 0.5% × 6k = R$30 → R$25 descartado
     n = _make("CARD_OPPORTUNITY", "INFO", {"monthly_gain_missed": 25.0})
-    assert _rf.filter([n]) == []
+    assert _rf.filter([n], monthly_income=6_000.0) == []
 
 
 def test_filter_card_opportunity_passes():
+    # Renda R$6k: min_gain = R$30 → R$30 passa
     n = _make("CARD_OPPORTUNITY", "INFO", {"monthly_gain_missed": 30.0})
-    assert len(_rf.filter([n])) == 1
+    assert len(_rf.filter([n], monthly_income=6_000.0)) == 1
 
 
 def test_filter_waiver_impossible_daily_dropped():
@@ -722,6 +726,192 @@ def test_filter_goal_same_milestone_different_goals_both_pass():
 
 def test_filter_empty_input():
     assert _rf.filter([]) == []
+
+
+# — thresholds relativos à renda —
+
+def test_filter_income_scales_anomaly_threshold():
+    """Renda baixa aceita anomalia menor; renda alta exige mais."""
+    n_small = _make("ANOMALY_DETECTED", "WARNING", {"factor": 2.5, "amount": 50.0})
+    # Renda R$2k: min_amount = max(30, 2000×0.02) = max(30,40) = 40 → R$50 passa
+    assert len(_rf.filter([n_small], monthly_income=2_000.0)) == 1
+    # Renda R$10k: min_amount = max(30, 10000×0.02) = 200 → R$50 descartado
+    assert _rf.filter([n_small], monthly_income=10_000.0) == []
+
+
+def test_filter_income_scales_card_opportunity():
+    """Ganho de R$20/mês é relevante para renda baixa, ruído para renda alta."""
+    n = _make("CARD_OPPORTUNITY", "INFO", {"monthly_gain_missed": 20.0})
+    # Renda R$2k: min_gain = max(15, 10) = 15 → R$20 passa
+    assert len(_rf.filter([n], monthly_income=2_000.0)) == 1
+    # Renda R$8k: min_gain = max(15, 40) = 40 → R$20 descartado
+    assert _rf.filter([n], monthly_income=8_000.0) == []
+
+
+def test_filter_income_scales_waiver_daily():
+    """R$150/dia é aceitável para renda alta, muito alto para renda baixa."""
+    n = _make("WAIVER_ALERT", "INFO", {"amount_needed": 500.0, "daily_spend_needed": 150.0})
+    # Renda R$2k: max_daily = max(100, 100) = 100 → R$150 > 100 → descartado
+    assert _rf.filter([n], monthly_income=2_000.0) == []
+    # Renda R$5k: max_daily = max(100, 250) = 250 → R$150 <= 250 → passa
+    assert len(_rf.filter([n], monthly_income=5_000.0)) == 1
+
+
+def test_filter_income_zero_uses_floor():
+    """Income desconhecido (0) usa floor conservador — não bloqueia alertas razoáveis."""
+    n = _make("ANOMALY_DETECTED", "WARNING", {"factor": 2.5, "amount": 35.0})
+    # Income=0: min_amount=30 (floor) → R$35 passa
+    assert len(_rf.filter([n], monthly_income=0.0)) == 1
+
+
+# — NotificationStateStore —
+
+from app.notifications.state_store import NotificationStateStore, compute_fingerprint
+import tempfile, os
+
+
+def _store_with_temp_db() -> NotificationStateStore:
+    """Cria um store apontando para um DuckDB temporário."""
+    store = NotificationStateStore()
+    tmp = tempfile.mktemp(suffix=".duckdb")
+
+    def _temp_conn():
+        import duckdb
+        return duckdb.connect(tmp)
+
+    store._conn = _temp_conn
+    return store, tmp
+
+
+def test_compute_fingerprint_stable():
+    """Mesmo user_id + notificação = mesmo fingerprint."""
+    n = _make("GOAL_PROGRESS", "INFO", {"goal_id": "g1", "milestone": 50.0})
+    fp1 = compute_fingerprint("user_a", n)
+    fp2 = compute_fingerprint("user_a", n)
+    assert fp1 == fp2
+
+
+def test_compute_fingerprint_user_isolation():
+    """Usuários diferentes → fingerprints diferentes."""
+    n = _make("GOAL_PROGRESS", "INFO", {"goal_id": "g1", "milestone": 50.0})
+    assert compute_fingerprint("user_a", n) != compute_fingerprint("user_b", n)
+
+
+def test_compute_fingerprint_type_isolation():
+    """Tipos diferentes → fingerprints diferentes."""
+    n1 = _make("BURN_RATE_HIGH",   "WARNING", {"category": "lazer"})
+    n2 = _make("ANOMALY_DETECTED", "WARNING", {"category": "lazer"})
+    assert compute_fingerprint("u", n1) != compute_fingerprint("u", n2)
+
+
+def test_state_store_filter_unseen_first_time():
+    """Notificação vista pela primeira vez não é suprimida."""
+    store, tmp = _store_with_temp_db()
+    try:
+        n = _make("GOAL_PROGRESS", "INFO", {"goal_id": "g1", "milestone": 50.0})
+        result = store.filter_unseen("user_x", [n])
+        assert len(result) == 1
+    finally:
+        os.unlink(tmp)
+
+
+def test_state_store_suppresses_after_mark_shown():
+    """Notificação marcada como vista é suprimida na próxima consulta."""
+    store, tmp = _store_with_temp_db()
+    try:
+        n = _make("GOAL_PROGRESS", "INFO", {"goal_id": "g1", "milestone": 50.0})
+        store.mark_shown("user_x", [n])
+        result = store.filter_unseen("user_x", [n])
+        assert result == []
+    finally:
+        os.unlink(tmp)
+
+
+def test_state_store_critical_never_suppressed():
+    """CRITICAL passa mesmo após mark_shown."""
+    store, tmp = _store_with_temp_db()
+    try:
+        n = _make("SAFE_TO_SPEND_LOW", "CRITICAL", {"daily_safe": 10.0})
+        store.mark_shown("user_x", [n])
+        result = store.filter_unseen("user_x", [n])
+        assert len(result) == 1
+    finally:
+        os.unlink(tmp)
+
+
+def test_state_store_different_users_isolated():
+    """Mark shown para user_a não suprime para user_b."""
+    store, tmp = _store_with_temp_db()
+    try:
+        n = _make("GOAL_PROGRESS", "INFO", {"goal_id": "g1", "milestone": 50.0})
+        store.mark_shown("user_a", [n])
+        result = store.filter_unseen("user_b", [n])
+        assert len(result) == 1
+    finally:
+        os.unlink(tmp)
+
+
+def test_state_store_log_event_and_analytics():
+    """log_event registra evento; get_analytics_summary retorna contagem."""
+    store, tmp = _store_with_temp_db()
+    try:
+        n = _make("CARD_OPPORTUNITY", "INFO", {"monthly_gain_missed": 50.0})
+        fp = compute_fingerprint("u", n)
+        store.mark_shown("u", [n])
+        store.log_event("u", fp, "CARD_OPPORTUNITY", "dismissed")
+        summary = store.get_analytics_summary("u", days=30)
+        assert "CARD_OPPORTUNITY" in summary
+        assert summary["CARD_OPPORTUNITY"].get("dismissed", 0) >= 1
+    finally:
+        os.unlink(tmp)
+
+
+def test_state_store_invalid_event_type_ignored():
+    """Evento inválido não lança exceção (log + ignora); DB pode não ser criado."""
+    store, tmp = _store_with_temp_db()
+    try:
+        store.log_event("u", "fp123", "BURN_RATE_HIGH", "INVALID_EVENT")
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+# — endpoint de eventos —
+
+def test_api_events_endpoint_tapped():
+    resp = _client.post("/notifications/test_user/events", json={
+        "fingerprint": "abc12345",
+        "notification_type": "CARD_OPPORTUNITY",
+        "event_type": "tapped",
+    })
+    assert resp.status_code == 200
+
+
+def test_api_events_endpoint_dismissed():
+    resp = _client.post("/notifications/test_user/events", json={
+        "fingerprint": "abc12345",
+        "notification_type": "BURN_RATE_HIGH",
+        "event_type": "dismissed",
+    })
+    assert resp.status_code == 200
+
+
+def test_api_events_endpoint_invalid_event_type():
+    resp = _client.post("/notifications/test_user/events", json={
+        "fingerprint": "abc12345",
+        "notification_type": "BURN_RATE_HIGH",
+        "event_type": "ignored",
+    })
+    assert resp.status_code == 422
+
+
+def test_api_response_includes_fingerprint():
+    """Cada notificação na resposta deve ter um campo fingerprint."""
+    resp = _client.get("/notifications/test_user?monthly_income=5000")
+    assert resp.status_code == 200
+    for n in resp.json()["notifications"]:
+        assert "fingerprint" in n
+        assert isinstance(n["fingerprint"], str)
 
 
 # — integração com ProactiveNotifier —

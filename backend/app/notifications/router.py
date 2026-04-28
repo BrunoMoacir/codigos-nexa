@@ -5,6 +5,17 @@ Endpoint: GET /notifications/{user_id}
 
 Orquestra todas as fontes de dados e retorna notificações proativas
 ordenadas por prioridade (CRITICAL → WARNING → INFO).
+
+Pipeline de filtragem:
+    1. ProactiveNotifier.generate()     — gera candidatos brutos
+    2. NotificationRelevanceFilter      — quality + caps (income-relative)
+    3. NotificationStateStore.filter_unseen — remove já-vistos (TTL por tipo)
+    4. NotificationStateStore.mark_shown    — persiste estado + evento 'shown'
+    5. Resposta inclui fingerprint por notificação para o cliente enviar eventos
+
+Endpoint de eventos: POST /notifications/{user_id}/events
+    Recebe {fingerprint, notification_type, event_type} e persiste no DuckDB.
+    Alimenta o feedback loop de calibração dos thresholds.
 """
 
 from __future__ import annotations
@@ -13,9 +24,10 @@ import logging
 from datetime import date, timedelta
 
 import polars as pl
-from fastapi import APIRouter, HTTPException, Query, status, Depends
-from app.core.security import require_owner
+from fastapi import APIRouter, HTTPException, Query, status, Depends, Response
+from pydantic import BaseModel
 
+from app.core.security import require_owner
 from app.notifications.notifier import (
     ProactiveNotifier,
     NotificationContext,
@@ -28,13 +40,15 @@ from app.notifications.notifier import (
     LifeEventInput,
 )
 from app.notifications.relevance_filter import NotificationRelevanceFilter
+from app.notifications.state_store import NotificationStateStore
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/notifications", tags=["Notifications (MX.3)"])
 
-_notifier = ProactiveNotifier()
-_relevance_filter = NotificationRelevanceFilter()
+_notifier          = ProactiveNotifier()
+_relevance_filter  = NotificationRelevanceFilter()
+_state_store       = NotificationStateStore()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -46,11 +60,11 @@ _relevance_filter = NotificationRelevanceFilter()
     status_code=status.HTTP_200_OK,
     summary="MX.3 — Notificações Proativas Inteligentes",
     description=(
-        "Gera notificações proativas baseadas em eventos financeiros detectados: "
-        "burn rate alto, anomalias de gasto, assinaturas com preço aumentado, "
-        "oportunidade de cartão, isenção de anuidade próxima, promoção de pontos, "
-        "variação do score financeiro, marco de meta atingido, e margem segura baixa. "
-        "Retorna lista ordenada por prioridade (CRITICAL → WARNING → INFO)."
+        "Gera notificações proativas baseadas em eventos financeiros detectados. "
+        "Pipeline: geração → filtro de relevância (income-relative) → "
+        "deduplicação por estado (TTL) → persiste eventos 'shown'. "
+        "Cada notificação inclui um fingerprint estável para o cliente "
+        "enviar eventos de interação (tapped/dismissed)."
     ),
 )
 def get_notifications(
@@ -58,43 +72,13 @@ def get_notifications(
     monthly_income: float = Query(
         default=0.0,
         ge=0,
-        description="Renda mensal líquida para contextualizar alertas de orçamento (opcional).",
+        description="Renda mensal líquida — calibra thresholds de relevância.",
     ),
     include_info: bool = Query(
         default=True,
         description="Se False, retorna apenas CRITICAL e WARNING.",
     ),
 ) -> dict:
-    """
-    Retorna notificações proativas baseadas no histórico real do usuário.
-
-    **Fontes de dados consultadas:**
-    - Transações dos últimos 90 dias (DuckDB/NexaRunner)
-    - BurnRateAnalyzer (velocidade de gasto por categoria)
-    - SpendingAnomalyDetector (gastos incomuns)
-    - SubscriptionDetector (mudanças de assinatura)
-    - CashflowEngine (safe-to-spend)
-    - GoalTracker (progresso de metas ativas)
-
-    **Exemplo de resposta:**
-    ```json
-    {
-        "user_id": "user_123",
-        "total": 3,
-        "by_priority": {"CRITICAL": 1, "WARNING": 1, "INFO": 1},
-        "notifications": [
-            {
-                "type": "BURN_RATE_HIGH",
-                "priority": "CRITICAL",
-                "title": "⛔ Orçamento de Alimentação estourado",
-                "message": "Você gastou R$1.200 em Alimentação — R$200 acima do orçamento.",
-                "action_hint": "Evite gastos em Alimentação pelo resto do mês.",
-                ...
-            }
-        ]
-    }
-    ```
-    """
     logger.info("GET /notifications/%s | income=R$%.0f", user_id, monthly_income)
 
     ctx = NotificationContext()
@@ -114,7 +98,7 @@ def get_notifications(
         if mode == "prod" and (not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET):
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
+                detail="Pluggy não configurada.",
             )
 
         runner_result = get_runner(mode).run(horizon_days=30)
@@ -166,31 +150,26 @@ def get_notifications(
                         description=a.description,
                     ))
 
-        # ── 5. Eventos de vida (LifeEventsDetector) ───────────────────
+        # ── 5. Eventos de vida ─────────────────────────────────────
         try:
             from app.optimizer.detectors.life_events_detector import LifeEventsDetector
 
             if transactions_df is not None and not transactions_df.is_empty():
                 date_col = "date" if "date" in transactions_df.columns else "transaction_date"
                 today = date.today()
-
-                txns_recent = transactions_df.filter(
+                txns_recent  = transactions_df.filter(
                     pl.col(date_col).cast(pl.Date) >= today - timedelta(days=60)
                 )
                 txns_history = transactions_df.filter(
                     pl.col(date_col).cast(pl.Date) < today - timedelta(days=180)
                 )
-
-                income_recent     = income_profile.monthly_net_income if income_profile else 0.0
-                income_historical = income_recent
-
-                life_events = LifeEventsDetector().detect_all(
+                income_recent = income_profile.monthly_net_income if income_profile else 0.0
+                for evt in LifeEventsDetector().detect_all(
                     txns_recent=txns_recent,
                     txns_history=txns_history,
                     income_recent=income_recent,
-                    income_historical=income_historical,
-                )
-                for evt in life_events:
+                    income_historical=income_recent,
+                ):
                     ctx.life_events.append(LifeEventInput(
                         event=evt.event,
                         confidence=evt.confidence,
@@ -199,7 +178,7 @@ def get_notifications(
         except Exception as le_exc:
             logger.debug("LifeEventsDetector indisponível: %s", le_exc)
 
-        # ── 7. Assinaturas com preço aumentado ─────────────────────
+        # ── 6. Assinaturas com preço aumentado ─────────────────────
         try:
             from app.subscriptions.subscription_detector import SubscriptionDetector
             if transactions_df is not None and not transactions_df.is_empty():
@@ -218,24 +197,22 @@ def get_notifications(
         except Exception as sub_exc:
             logger.debug("SubscriptionDetector indisponível: %s", sub_exc)
 
-        # ── 8. Safe-to-spend ───────────────────────────────────────
+        # ── 7. Safe-to-spend ───────────────────────────────────────
         projections = runner_result.get("projections", {})
         sts_obj = projections.get("safe_to_spend")
         if sts_obj is not None:
-            daily = getattr(sts_obj, "safe_to_spend_daily", 0.0)
+            daily   = getattr(sts_obj, "safe_to_spend_daily", 0.0)
             monthly = getattr(sts_obj, "safe_to_spend_total", daily * 30)
             ctx.safe_to_spend = SafeToSpendInput(
                 daily_safe_amount=daily,
                 monthly_safe_amount=monthly,
             )
 
-        # ── 9. Metas ativas ────────────────────────────────────────
+        # ── 8. Metas ativas ────────────────────────────────────────
         try:
             tracker = GoalTracker()
-            active_goals = tracker.list_goals(user_id=user_id, status="ACTIVE")
-            for goal in active_goals:
-                proj = tracker.get_projection(goal)
-                pct = (goal.current_amount / goal.target_amount * 100) if goal.target_amount > 0 else 0
+            for goal in tracker.list_goals(user_id=user_id, status="ACTIVE"):
+                pct       = (goal.current_amount / goal.target_amount * 100) if goal.target_amount > 0 else 0
                 remaining = max(0.0, goal.target_amount - goal.current_amount)
                 ctx.goal_progress.append(GoalProgressInput(
                     goal_name=goal.name,
@@ -249,29 +226,92 @@ def get_notifications(
 
     except Exception as exc:
         logger.warning("NexaRunner indisponível para /notifications/%s: %s", user_id, exc)
-        # Retorna notificações vazias em caso de falha — não lança 500
 
-    # ── 8. Gerar e filtrar notificações ───────────────────────────
-    all_notes = _notifier.generate(ctx)
-    all_notes = _relevance_filter.filter(all_notes)
+    # ── Pipeline de filtragem ──────────────────────────────────────
 
+    # Etapa A: geração bruta
+    raw_notes = _notifier.generate(ctx)
+
+    # Etapa B: relevância e confiança (quality + caps, income-relative)
+    relevant = _relevance_filter.filter(raw_notes, monthly_income=monthly_income)
+
+    # Etapa C: deduplicação por estado (TTL por tipo — CRITICAL imune)
+    unseen = _state_store.filter_unseen(user_id, relevant)
+
+    # Etapa D: filtro de prioridade solicitado pelo cliente
     if not include_info:
-        all_notes = [n for n in all_notes if n.priority != "INFO"]
+        unseen = [n for n in unseen if n.priority != "INFO"]
+
+    # Etapa E: persiste estado e eventos 'shown'
+    _state_store.mark_shown(user_id, unseen)
+
+    # Fingerprints para o cliente enviar eventos de interação
+    fingerprints = _state_store.annotate_fingerprints(user_id, unseen)
 
     by_priority = {
-        "CRITICAL": sum(1 for n in all_notes if n.priority == "CRITICAL"),
-        "WARNING":  sum(1 for n in all_notes if n.priority == "WARNING"),
-        "INFO":     sum(1 for n in all_notes if n.priority == "INFO"),
+        "CRITICAL": sum(1 for n in unseen if n.priority == "CRITICAL"),
+        "WARNING":  sum(1 for n in unseen if n.priority == "WARNING"),
+        "INFO":     sum(1 for n in unseen if n.priority == "INFO"),
     }
 
     logger.info(
-        "GET /notifications/%s | total=%d CRITICAL=%d WARNING=%d INFO=%d",
-        user_id, len(all_notes), by_priority["CRITICAL"], by_priority["WARNING"], by_priority["INFO"],
+        "GET /notifications/%s | raw=%d relevant=%d unseen=%d "
+        "CRITICAL=%d WARNING=%d INFO=%d income=R$%.0f",
+        user_id, len(raw_notes), len(relevant), len(unseen),
+        by_priority["CRITICAL"], by_priority["WARNING"], by_priority["INFO"],
+        monthly_income,
     )
 
     return {
-        "user_id":      user_id,
-        "total":        len(all_notes),
-        "by_priority":  by_priority,
-        "notifications": [n.to_dict() for n in all_notes],
+        "user_id":       user_id,
+        "total":         len(unseen),
+        "by_priority":   by_priority,
+        "notifications": [
+            {**n.to_dict(), "fingerprint": fingerprints.get(n.id, "")}
+            for n in unseen
+        ],
     }
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ENDPOINT: POST /notifications/{user_id}/events
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class NotificationEventRequest(BaseModel):
+    fingerprint:       str
+    notification_type: str
+    event_type:        str   # "tapped" | "dismissed"
+
+
+@router.post(
+    "/{user_id}/events",
+    status_code=status.HTTP_200_OK,
+    summary="MX.3 — Registrar evento de interação com notificação",
+    description=(
+        "Registra que o usuário tocou ou dispensou uma notificação. "
+        "Alimenta o feedback loop de calibração dos thresholds de relevância. "
+        "event_type aceita: 'tapped' | 'dismissed'."
+    ),
+)
+def post_notification_event(
+    body: NotificationEventRequest,
+    user_id: str = Depends(require_owner),
+) -> dict:
+    if body.event_type not in {"tapped", "dismissed"}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"event_type inválido: '{body.event_type}'. Use 'tapped' ou 'dismissed'.",
+        )
+
+    _state_store.log_event(
+        user_id=user_id,
+        fingerprint=body.fingerprint,
+        notification_type=body.notification_type,
+        event_type=body.event_type,
+    )
+
+    logger.info(
+        "POST /notifications/%s/events | type=%s event=%s fp=%s",
+        user_id, body.notification_type, body.event_type, body.fingerprint,
+    )
+    return {"ok": True}
