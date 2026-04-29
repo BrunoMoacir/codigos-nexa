@@ -6,8 +6,8 @@
 
 *O advogado financeiro que os bancos não querem que você tenha.*
 
-[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.128-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://postgresql.org)
 [![Tests](https://img.shields.io/badge/Tests-414%20passing-success?style=flat-square)](tests/)
@@ -94,7 +94,7 @@ Com **base legal**, **carta gerada automaticamente** e **probabilidade de sucess
 
 | Requisito | Versão |
 |:---|:---|
-| Python | 3.11+ |
+| Python | 3.12+ |
 | PostgreSQL | 16 |
 | Redis | 5.0+ (opcional) |
 | Node.js | 20+ (frontend) |
@@ -231,6 +231,7 @@ A Nexa opera em **quatro dimensões**, cada uma atacando um ponto onde o sistema
 | F3 | Nexa Architect — Financiamento vs Consórcio vs Investimento, Monte Carlo | ✅ |
 | F4 | PF/PJ Classifier — Random Forest + regras, relatório fiscal MEI | ✅ |
 | F5 | Raio-X de Custos — Análise de tarifas, benchmark 16 bancos | ✅ |
+| F7 | Modo Compra Inteligente — qual cartão usar, parcelar ou não | ✅ |
 
 #### Experiência e Engajamento
 
@@ -238,11 +239,20 @@ A Nexa opera em **quatro dimensões**, cada uma atacando um ponto onde o sistema
 |:---|:---|:---:|
 | MX.1 | Health Score com tendência e histórico temporal | ✅ |
 | MX.2 | Metas Financeiras — CRUD, projeção de prazo, progresso | ✅ |
-| MX.3 | Notificações Proativas — burn rate, anomalias, oportunidades | ✅ |
+| MX.3 | Notificações Proativas — 10 tipos, filtro de relevância por renda, Life Events | ✅ |
 | MX.4 | Peer Comparison — benchmarks IBGE/POF por faixa de renda | ✅ |
-| F7 | Modo Compra Inteligente — qual cartão usar, parcelar ou não | ✅ |
-| F11 | Agente Conversacional — ReAct com 13 ferramentas financeiras | ✅ |
+| MX.5 | Budget Advisor — plano 50/30/20 personalizado por perfil comportamental | ✅ |
+| MX.6 | Shadow Invoices — parcelas e assinaturas futuras comprometendo o caixa | ✅ |
+| F11 | Agente Conversacional — ReAct com 14 ferramentas financeiras | ✅ |
 | F13 | Negociador — scripts gerados por Claude para negociar com banco | ✅ |
+
+#### Inteligência Comportamental
+
+| Módulo | Funcionalidade | Status |
+|:---|:---|:---:|
+| ConsumptionProfiler | 8 clusters de estilo de vida integrados em 6+ módulos | ✅ |
+| LifeEventsDetector | Detecção de eventos de vida via padrão de gastos | ✅ |
+| NotificationRelevanceFilter | Filtro de qualidade com thresholds escalados por renda | ✅ |
 
 <details>
 <summary><strong>📅 Roadmap: Funcionalidades Futuras</strong></summary>
@@ -289,8 +299,9 @@ A Nexa opera em **quatro dimensões**, cada uma atacando um ponto onde o sistema
 | **Ação automática** | ✅ Contesta, negocia | ❌ | ❌ Só visualiza | ❌ Só compara |
 | **Open Finance nativo** | ✅ Multi-banco | ⚠️ Só o próprio | ⚠️ Manual | ⚠️ Parcial |
 | **Base legal integrada** | ✅ CDC, BACEN, STJ | ❌ | ❌ | ❌ |
-| **IA conversacional** | ✅ 13 ferramentas | ❌ | ❌ | ❌ |
+| **IA conversacional** | ✅ 14 ferramentas | ❌ | ❌ | ❌ |
 | **Score alternativo** | ✅ Fluxo de caixa real | ⚠️ Score próprio | ❌ | ❌ |
+| **Perfil comportamental** | ✅ 8 clusters adaptativos | ❌ | ❌ | ❌ |
 
 ### Por que não é copiável
 
@@ -298,7 +309,7 @@ A Nexa opera em **quatro dimensões**, cada uma atacando um ponto onde o sistema
 
 > **2. Flywheel de dados** — Cada novo usuário melhora o benchmark de tarifas e o detector de venda casada. Meses de dados históricos que nenhum concorrente pode replicar retroativamente.
 
-> **3. Complexidade técnica** — 14 módulos de análise, ETL de 8 estágios, 2.000+ cartões, simulador Monte Carlo, agente ReAct com 13 ferramentas. Não é um wrapper de API.
+> **3. Complexidade técnica** — 16 módulos de análise, ETL de 8 estágios, 2.000+ cartões, simulador Monte Carlo, agente ReAct com 14 ferramentas, 8 clusters comportamentais e detecção de eventos de vida. Não é um wrapper de API.
 
 > **4. Confiança do usuário** — Uma vez que o usuário confia na Nexa como seu advogado, o custo de troca é altíssimo.
 
@@ -387,27 +398,33 @@ A Nexa calcula e monitora **40+ indicadores financeiros** individuais.
 └────────────────────────────┬─────────────────────────────────────┘
                              │ HTTPS / JWT
 ┌────────────────────────────▼─────────────────────────────────────┐
-│                  FastAPI 0.109 — app/main.py                     │
+│                  FastAPI 0.128 — app/main.py                     │
 │         Rate Limiting (SlowAPI) · CORS · Correlation IDs         │
 │              JWT Auth · Audit Log · Health/Readiness             │
 └──────┬──────────┬──────────┬──────────┬──────────────────────────┘
        │          │          │          │
 ┌──────▼───┐ ┌───▼──────┐ ┌─▼────────┐ ┌▼──────────────────────┐
-│   ETL    │ │ Cashflow │ │Architect │ │  Agent (LangGraph)   │
-│ Pipeline │ │  Engine  │ │   F3     │ │  ReAct + Claude 4.6  │
-│ 8 stages │ │Safe2Spend│ │MonteCarlo│ │  13 Financial Tools  │
+│   ETL    │ │ Cashflow │ │Architect │ │  Agent (LangGraph)    │
+│ Pipeline │ │  Engine  │ │   F3     │ │  ReAct + Claude 4.6   │
+│ 8 stages │ │Safe2Spend│ │MonteCarlo│ │  14 Financial Tools   │
 └──────┬───┘ └───┬──────┘ └──────────┘ └───────────────────────┘
        │         │
 ┌──────▼─────────▼──────────────────────────────────────────────┐
 │                    MÓDULOS ANALÍTICOS                          │
 │  F2 Card Optimizer  ·  F5 Cost Analysis  ·  F7 Smart Purchase │
-│  F13 Negotiator  ·  MX.1-4  ·  Budget  ·  Goals  ·  Fiscal    │
+│  F13 Negotiator  ·  MX.1-6  ·  Budget  ·  Goals  ·  Fiscal    │
+└──────────────────────────┬────────────────────────────────────┘
+                           │
+┌──────────────────────────▼────────────────────────────────────┐
+│               INTELIGÊNCIA COMPORTAMENTAL                      │
+│  ConsumptionProfiler (8 clusters) · LifeEventsDetector         │
+│  NotificationRelevanceFilter · IncomeProfiler                  │
 └──────────────────────────┬────────────────────────────────────┘
                            │
 ┌──────────────────────────▼────────────────────────────────────┐
 │                      DATA LAYER                                │
 │          PostgreSQL 16 + SQLAlchemy 2.0 + Alembic              │
-│          Polars DataFrames  ·  Redis (cache + rate limit)      │
+│     Polars 1.0 DataFrames  ·  DuckDB  ·  Redis (cache)         │
 └──────────────────────────┬────────────────────────────────────┘
                            │
 ┌──────────────────────────▼────────────────────────────────────┐
@@ -427,6 +444,7 @@ A Nexa calcula e monitora **40+ indicadores financeiros** individuais.
 | **ReAct Agent** | LangGraph: pensa → chama ferramenta → observa → repete |
 | **Multi-layer Fallback** | ML → Regras → Defaults em classificadores |
 | **Repository Pattern** | Abstração de dados via SQLAlchemy + DI |
+| **Behavioral Clustering** | 8 clusters adaptativos personalizam todas as recomendações |
 
 ---
 
@@ -440,14 +458,15 @@ A Nexa calcula e monitora **40+ indicadores financeiros** individuais.
 
 | Camada | Tecnologia |
 |:---|:---|
-| API | FastAPI 0.109 + Uvicorn |
+| API | FastAPI 0.128 + Uvicorn |
 | Database | PostgreSQL 16 + SQLAlchemy 2.0 |
 | Cache | Redis 5.0 + SlowAPI |
-| DataFrames | Polars 0.20 |
-| ML | Scikit-learn, CatBoost |
+| DataFrames | Polars 1.0+ |
+| Analytics | DuckDB 1.0+ |
+| ML | Scikit-learn 1.3+ |
 | Open Finance | Pluggy API |
 | Taxas | BACEN API + ANBIMA |
-| IA | LangGraph + Claude 4.6 |
+| IA | LangGraph + Claude Sonnet 4.6 |
 | Auth | JWT + bcrypt + Redis |
 | Logging | structlog 24.1 |
 
@@ -458,12 +477,13 @@ A Nexa calcula e monitora **40+ indicadores financeiros** individuais.
 
 | Camada | Tecnologia |
 |:---|:---|
-| Framework | React 19 + TypeScript |
-| Build | Vite |
+| Framework | React 19 + TypeScript 5 |
+| Build | Vite 8 |
 | Styling | TailwindCSS 4 |
 | State | Zustand 5 + React Query 5 |
 | Charts | Recharts 3 |
 | Animation | Framer Motion 12 |
+| HTTP | Axios 1.13 |
 | Testing | Vitest + Playwright |
 
 ### DevOps
@@ -473,7 +493,7 @@ A Nexa calcula e monitora **40+ indicadores financeiros** individuais.
 | Container | Docker |
 | CI/CD | GitHub Actions |
 | Deploy | Railway |
-| Tests | pytest 7.4 |
+| Tests | pytest 7.4+ |
 
 </td>
 </tr>
@@ -500,11 +520,15 @@ nexa/
 │   │   │   │   ├── ingestor.py
 │   │   │   │   ├── classifier.py
 │   │   │   │   ├── recurring_detector.py
+│   │   │   │   ├── profiles.py        # Income profiling
 │   │   │   │   └── bank_strategy/
 │   │   │   └── cashflow/
 │   │   │       ├── engine.py
 │   │   │       └── safe_to_spend.py
 │   │   ├── optimizer/                 # F2: Card Optimizer
+│   │   │   ├── profiler.py            # ConsumptionProfiler (8 clusters)
+│   │   │   └── detectors/
+│   │   │       └── life_events_detector.py
 │   │   ├── architect/                 # F3: Monte Carlo + VPL
 │   │   ├── divider/                   # F4: PF/PJ Classifier
 │   │   ├── costs/                     # F5: Raio-X de Tarifas
@@ -512,11 +536,16 @@ nexa/
 │   │   ├── negotiator/                # F13: Scripts Claude
 │   │   ├── goals/                     # MX.2: Metas
 │   │   ├── health_score/              # MX.1: Score
-│   │   ├── notifications/             # MX.3: Alertas
-│   │   ├── peers/                     # MX.4: Benchmark
+│   │   ├── notifications/             # MX.3: Alertas Proativos
+│   │   │   ├── notifier.py            # 10 tipos de notificação
+│   │   │   ├── relevance_filter.py    # Filtro de qualidade por renda
+│   │   │   └── state_store.py
+│   │   ├── peers/                     # MX.4: Benchmark IBGE/POF
+│   │   ├── budget/                    # MX.5: Budget Advisor 50/30/20
+│   │   ├── subscriptions/             # MX.6: Shadow Invoices
 │   │   └── agent/                     # LangGraph ReAct
 │   │       ├── graph.py
-│   │       └── tools/                 # 13 ferramentas
+│   │       └── tools/                 # 14 ferramentas
 │   ├── alembic/versions/              # Migrations
 │   ├── models/                        # Modelos ML (.pkl)
 │   └── tests/                         # 414 testes
@@ -525,6 +554,7 @@ nexa/
 │       ├── components/
 │       ├── pages/
 │       ├── api/
+│       ├── store/                     # Zustand (authStore, uiStore)
 │       └── hooks/
 ├── docs/                              # 13 arquivos de documentação
 ├── data/
@@ -611,6 +641,7 @@ nexa/
 | `GET` | `/api/v1/health-score/history/{user_id}` | Score com tendência |
 | `POST` | `/api/v1/goals/{user_id}` | Criar meta |
 | `GET` | `/api/v1/goals/{user_id}` | Listar metas |
+| `GET` | `/api/v1/notifications/{user_id}` | Notificações filtradas por relevância |
 | `GET` | `/api/v1/peers/compare/{user_id}` | Benchmark IBGE/POF |
 | `GET` | `/api/v1/budget/{user_id}` | Plano 50/30/20 |
 
@@ -618,7 +649,7 @@ nexa/
 
 | Método | Rota | Descrição |
 |:---:|:---|:---|
-| `POST` | `/api/v1/chat/` | Chat com agente (13 ferramentas) |
+| `POST` | `/api/v1/chat/` | Chat com agente (14 ferramentas) |
 
 </details>
 
@@ -628,12 +659,13 @@ nexa/
 
 ## 🤖 Agente de IA
 
-O agente usa o padrão **ReAct**: o LLM decide qual ferramenta chamar, observa o resultado e responde em linguagem natural.
+O agente usa o padrão **ReAct**: o LLM decide qual ferramenta chamar, observa o resultado e responde em linguagem natural. A primeira ferramenta chamada em cada sessão é sempre `get_user_profile_context`, que carrega o cluster comportamental do usuário e adapta o tom de toda a conversa.
 
-### 13 Ferramentas Financeiras
+### 14 Ferramentas Financeiras
 
 | Ferramenta | Quando é acionada |
 |:---|:---|
+| `get_user_profile_context` | **Primeira chamada de toda sessão** — carrega cluster, FSS e eventos de vida |
 | `get_financial_forecast` | Saúde financeira, safe-to-spend, projeção de caixa |
 | `get_budget_advice` | Orçamento, regra 50/30/20, revisão de gastos |
 | `get_card_optimization` | Qual cartão usar, pontos, cashback |
@@ -647,6 +679,65 @@ O agente usa o padrão **ReAct**: o LLM decide qual ferramenta chamar, observa o
 | `get_purchase_recommendation` | Melhor forma de pagamento |
 | `get_bank_cost_analysis` | Tarifas, benchmark de bancos |
 | `get_negotiation_script` | Script para negociar com o banco |
+
+### Perfil Comportamental — 8 Clusters
+
+O `ConsumptionProfiler` classifica o usuário em um dos 8 clusters a partir dos últimos 90 dias de transações. Cada cluster adapta o tom, as prioridades e os produtos recomendados pelo agente e por todos os módulos analíticos.
+
+| Cluster | Perfil | Adaptação |
+|:---|:---|:---|
+| `EXPLORADOR_GLOBAL` | Viajante frequente | Prioriza milhas, lounge e benefícios internacionais |
+| `URBANO_FOODIE` | Apreciador gastronômico | Destaque cashback em alimentação e restaurantes |
+| `INVESTIDOR_CAUTELOSO` | Orientado a retorno | Precisão em números, custo de oportunidade, anuidade |
+| `FAMILIA_ESTRUTURADA` | Perfil família | Segurança, educação e saúde financeira |
+| `DIGITAL_NATIVO` | Usuário digital | PIX, cashback, fintechs — linguagem direta |
+| `ESTRESSE_FINANCEIRO` | Em pressão financeira | Empatia, cortes urgentes, sem sugestões de gasto |
+| `MICROEMPREENDEDOR` | MEI / autônomo | Fluxo PJ vs PF, DAS, separação de contas |
+| `NAO_CLASSIFICADO` | Perfil neutro | Linguagem equilibrada com contexto antes de recomendar |
+
+---
+
+## 🔔 Sistema de Notificações (MX.3)
+
+O `ProactiveNotifier` gera alertas em 10 tipos diferentes, combinando dados de burn rate, anomalias, saúde do score, metas, assinaturas e **eventos de vida**. O `NotificationRelevanceFilter` aplica um pipeline de 3 etapas para eliminar ruído antes de entregar ao usuário.
+
+### 10 Tipos de Notificação
+
+| Tipo | Gatilho | Prioridade |
+|:---|:---|:---:|
+| `BURN_RATE_HIGH` | Categoria consumiu >70% do orçamento | WARNING / CRITICAL |
+| `ANOMALY_DETECTED` | Gasto ≥2.5× acima do padrão histórico | WARNING / CRITICAL |
+| `SUBSCRIPTION_INCREASE` | Assinatura ficou mais cara (≥15%) | WARNING |
+| `CARD_OPPORTUNITY` | Cashback perdido por usar cartão errado | INFO |
+| `WAIVER_ALERT` | Faltam R$ X para isentar anuidade | INFO |
+| `TRANSFER_PROMO` | Transferência de pontos com bônus ≥20% | INFO |
+| `SCORE_IMPROVED` | Health Score variou ≥5 pontos | INFO / WARNING |
+| `GOAL_PROGRESS` | Meta atingiu marco de 50%, 75% ou 100% | INFO |
+| `SAFE_TO_SPEND_LOW` | Margem diária caiu abaixo de R$100/dia | WARNING / CRITICAL |
+| `LIFE_EVENT` | Evento de vida detectado via padrão de gastos | INFO / WARNING / CRITICAL |
+
+### Life Events Detection
+
+O `LifeEventsDetector` analisa transações dos últimos 60 dias e compara com o histórico de 6–18 meses para identificar eventos de alta relevância financeira:
+
+| Evento | Sinal detectado | Ação sugerida |
+|:---|:---|:---|
+| `new_baby` | Gastos com fraldas, maternidade, enxoval | Revisar metas, reservas e seguro de vida |
+| `home_change` | Gastos com mudança, reforma ou moveleiros | Revisar custos fixos e seguro residencial |
+| `wedding` | Gastos com buffet, cerimonial, noivas | Planejar finanças a dois, metas conjuntas |
+| `new_education` | Mensalidades de faculdade ou EAD | Meta para cobrir próximos 12 meses |
+| `income_increase` | Renda recente >20% acima do histórico | Investir o incremento antes de virar gasto fixo |
+| `income_drop` | Renda recente >20% abaixo do histórico | Cortar gastos, garantir reserva de emergência |
+
+### Filtro de Relevância (3 etapas)
+
+```
+Bruto → [Etapa 1: Threshold por tipo] → [Etapa 2: Cap ≤2/tipo] → [Etapa 3: Cap global ≤4 não-críticos]
+                                                   ↑
+                    Thresholds escalam com renda mensal do usuário
+                    (mesmo evento é ruído p/ R$15k e relevante p/ R$2k)
+                    CRITICAL nunca é descartado em nenhuma etapa
+```
 
 ---
 
@@ -701,6 +792,7 @@ pytest tests/test_optimizer/ -v
 | F3 — Architect | 18 |
 | F1 — Cashflow / ETL | 6 |
 | MX.1–MX.4 | 4 |
+| Notificações (filtro + life events) | 3 |
 | Agente / Tools | 1 |
 | E2E | 2 |
 
@@ -723,7 +815,7 @@ curl -X POST http://localhost:8000/api/v1/chat/ \
   }'
 ```
 
-O agente chama automaticamente `get_financial_forecast` + `get_financing_simulation` e responde com análise completa.
+O agente chama automaticamente `get_user_profile_context` + `get_financial_forecast` + `get_financing_simulation` e responde com análise completa adaptada ao perfil comportamental do usuário.
 
 ### Simulação de Compra (F3)
 
@@ -758,6 +850,15 @@ curl -X POST http://localhost:8000/api/v1/optimizer/recommend \
     }
   }'
 ```
+
+### Notificações Filtradas (MX.3)
+
+```bash
+curl -X GET http://localhost:8000/api/v1/notifications/{user_id} \
+  -H "Authorization: Bearer <token>"
+```
+
+**Retorna:** Lista de notificações priorizadas (CRITICAL → WARNING → INFO), já filtradas por relevância, deduplicadas e com cap por tipo — incluindo alertas de Life Events quando detectados.
 
 ---
 
@@ -874,8 +975,13 @@ O México tem sistema bancário tão concentrado e custoso quanto o Brasil, mas 
 - [x] Classificador PF/PJ (89% acurácia)
 - [x] Raio-X de Custos
 - [x] Modo Compra Inteligente
-- [x] Score Nexa, Metas, Notificações
-- [x] Agente conversacional (13 ferramentas)
+- [x] Score Nexa, Metas, Notificações (10 tipos)
+- [x] Budget Advisor 50/30/20 (MX.5)
+- [x] Shadow Invoices (MX.6)
+- [x] Agente conversacional (14 ferramentas)
+- [x] ConsumptionProfiler — 8 clusters comportamentais
+- [x] LifeEventsDetector — 6 eventos de vida
+- [x] NotificationRelevanceFilter — filtro de qualidade por renda
 - [x] Auth JWT, rate limiting, audit log
 - [x] 414 testes passando
 
@@ -937,11 +1043,16 @@ O México tem sistema bancário tão concentrado e custoso quanto o Brasil, mas 
 | Card Optimizer | ✅ Produção |
 | Nexa Architect (F3) | ✅ Produção |
 | PF/PJ Classifier | ✅ Produção |
-| Agente IA (Claude 4.6) | ✅ Produção |
+| Agente IA (Claude Sonnet 4.6) | ✅ Produção |
+| Memória do Agente (Redis + LangGraph) | ✅ Produção |
+| ConsumptionProfiler (8 clusters) | ✅ Produção |
+| LifeEventsDetector | ✅ Produção |
+| Notificações + Filtro de Relevância | ✅ Produção |
+| Budget Advisor (MX.5) | ✅ Produção |
+| Shadow Invoices (MX.6) | ✅ Produção |
 | Frontend React | ✅ Produção |
 | CI/CD GitHub Actions | ✅ Ativo |
 | Deploy Railway | ✅ Configurado |
-| Memória do agente | 🔧 Em desenvolvimento |
 | B2B2C corporativo | 📅 Fase 3 |
 | Nexa Score (bureau) | 📅 Fase 2–3 |
 | Expansão México | 📅 Fase 4 |
@@ -952,12 +1063,12 @@ O México tem sistema bancário tão concentrado e custoso quanto o Brasil, mas 
 
 ### Nexa AI
 
-**14 funcionalidades implementadas. 30 no roadmap. 4 vetores de escala. 1 missão.**
+**16 módulos implementados. 30 no roadmap. 4 vetores de escala. 1 missão.**
 
 *Trabalhar para você, não para o banco.*
 
 ---
 
-**Março 2026 · Confidencial**
+**Abril 2026 · Confidencial**
 
 </div>
