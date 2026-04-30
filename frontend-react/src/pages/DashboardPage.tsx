@@ -319,14 +319,33 @@ export const DashboardPage: React.FC = () => {
     displaySubscriptions = shadowSubscriptions;
   }
 
+  const shadowMonthlyCommitted = Number(
+    shadowSummary.total_monthly_committed ??
+    shadowSummary.total_monthly_impact ??
+    shadow.total_monthly_impact ??
+    0
+  );
+  const shadowTotalCount = Number(shadowSummary.total_count ?? shadow.total_count ?? 0);
+  const shadowSubscriptionsCount = Number(
+    shadowSummary.subscriptions ?? shadowSummary.subscriptions_count ?? shadow.subscriptions_count ?? 0
+  );
+  const shadowInstallmentsCount = Number(
+    shadowSummary.installments ?? shadowSummary.installments_count ?? shadow.installments_count ?? 0
+  );
+
   // Determine counts and costs with priority: shadow summary (server) > simple table totals > detector totals > derived shadowSubscriptions
   const tableTotalCost = Number(subscriptionsSimpleQuery.data?.total_monthly_cost ?? 0);
   const tableTotalCount = Number(subscriptionsSimpleQuery.data?.total_subscriptions ?? subscriptionsTable.length ?? 0);
   const detectorTotalCost = Number(subscriptionsQuery.data?.total_monthly_cost ?? 0);
   const detectorTotalCount = Number(subscriptionsQuery.data?.total_subscriptions ?? subscriptions.length ?? 0);
 
-  const finalSubscriptionCount = Number(shadowSummary.total_count ?? tableTotalCount ?? detectorTotalCount ?? shadowSubscriptions.length);
-  const finalSubscriptionCost = Math.abs(Number(shadowSummary.total_monthly_committed ?? tableTotalCost ?? detectorTotalCost ?? shadowSubscriptions.reduce((sum: number, s: any) => sum + Number(s.monthly_amount || 0), 0)));
+  const finalSubscriptionCount = Number(shadowTotalCount ?? tableTotalCount ?? detectorTotalCount ?? shadowSubscriptions.length);
+  const finalSubscriptionCost = Math.abs(Number(
+    shadowMonthlyCommitted ||
+    tableTotalCost ||
+    detectorTotalCost ||
+    shadowSubscriptions.reduce((sum: number, s: any) => sum + Number(s.monthly_amount || 0), 0)
+  ));
 
   const showSkeleton = isLoading && !forecastQuery.data && !budgetQuery.data && !txQuery.data;
 
@@ -439,11 +458,11 @@ export const DashboardPage: React.FC = () => {
           <div style={titleStyle}>Obrigações Futuras</div>
           <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>{currency(finalSubscriptionCost)}/mês</div>
           <div style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.6 }}>
-            {Number(shadowSummary.total_count ?? shadow.total_count ?? 0)} itens detectados
+            {shadowTotalCount} itens detectados
             <br />
-            {Number(shadowSummary.subscriptions ?? shadow.subscriptions_count ?? shadowSummary.subscriptions ?? 0)} assinaturas
+            {shadowSubscriptionsCount} assinaturas
             <br />
-            {Number(shadowSummary.installments ?? shadow.installments_count ?? 0)} parcelas
+            {shadowInstallmentsCount} parcelas
           </div>
         </div>
       </div>
