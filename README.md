@@ -54,7 +54,7 @@
 
 ---
 
-## 🎯 Visão Geral
+## 🎯 Visao Geral
 
 A **Nexa AI** é uma plataforma de inteligência financeira pessoal que combina **Open Finance**, **Machine Learning** e **IA conversacional** para revelar quanto os bancos lucram com você — e transformar essa informação em ações concretas de economia, recuperação e otimização.
 
