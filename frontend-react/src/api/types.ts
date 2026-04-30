@@ -24,47 +24,77 @@ export interface RegisterResponse {
 
 // ==================== FORECAST ====================
 export interface ForecastResponse {
-  cashflow: CashflowData;
-  safe_to_spend: SafeToSpendData;
-  shadow_invoices: ShadowInvoice[];
-  health_score: HealthScoreData;
+  user_id?: string;
+  generated_at?: string;
+  period_analyzed_days?: number;
+  financial_health?: FinancialHealthData;
+  cashflow?: CashflowData;
+  safe_to_spend?: SafeToSpendData;
+  shadow_invoices?: ShadowInvoiceList;
+  monthly_forecasts?: MonthlyForecast[];
+}
+
+export interface FinancialHealthData {
+  profile_type?: string;
+  health_score?: number;
+  savings_rate?: number;
+  total_income?: number;
+  total_expenses?: number;
+  monthly_avg_expenses?: number;
+  top_categories?: string[];
+  trend?: string;
 }
 
 export interface CashflowData {
-  next_30_days: CashflowDay[];
-  summary: {
-    total_income: number;
-    total_expenses: number;
-    net_balance: number;
-  };
-}
-
-export interface CashflowDay {
-  date: string;
-  income: number;
-  expenses: number;
-  balance: number;
+  horizon_days?: number;
+  starting_balance?: number;
+  ending_balance?: number;
+  worst_balance?: number;
+  negative_day?: string | null;
+  risk_level?: string;
+  total_shadow_impact?: number;
+  days_at_risk?: number;
 }
 
 export interface SafeToSpendData {
-  safe_amount: number;
-  spent_today: number;
-  remaining: number;
-  monthly_budget: number;
+  safe_to_spend_total?: number;
+  safe_to_spend_daily?: number;
+  days?: number;
+  risk_level?: string;
+  current_balance?: number;
+  min_projected_balance?: number;
+  total_shadow_invoices?: number;
+  safety_buffer?: number;
 }
 
-export interface ShadowInvoice {
-  id: string;
-  description: string;
-  amount: number;
-  due_date: string;
-  status: 'pending' | 'paid' | 'overdue';
+export interface ShadowInvoiceItem {
+  type?: 'SUBSCRIPTION' | 'INSTALLMENT';
+  description?: string;
+  amount?: number;
+  next_due_date?: string;
+  confidence?: number;
+  occurrences?: number | null;
+  installment_info?: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
-export interface HealthScoreData {
-  score: number;
-  trend: 'up' | 'down' | 'stable';
-  last_updated: string;
+export interface ShadowInvoiceList {
+  invoices?: ShadowInvoiceItem[];
+  total_count?: number;
+  total_monthly_impact?: number;
+  subscriptions_count?: number;
+  installments_count?: number;
+  total_monthly_committed?: number;
+}
+
+export interface MonthlyForecast {
+  month: number;
+  year: number;
+  expected_income: number;
+  expected_expenses: number;
+  expected_savings: number;
+  confidence: number;
+  risk_level: string;
 }
 
 // ==================== TRANSACTIONS ====================
@@ -96,15 +126,19 @@ export interface GoalProjection {
 }
 
 export interface Goal {
-  id: string;
+  goal_id: string;
+  id?: string;
   user_id: string;
   name: string;
   goal_type: GoalType;
   target_amount: number;
   current_amount: number;
+  progress_pct?: number;
+  remaining?: number;
   target_date: string | null;
   status: GoalStatus;
-  monthly_contribution: number;
+  monthly_contribution_needed?: number | null;
+  monthly_contribution_actual?: number | null;
   created_at: string;
   updated_at: string;
   projection?: GoalProjection;
@@ -130,21 +164,47 @@ export interface GoalsListResponse {
   offset: number;
   total: number;
   goals: Goal[];
+  profile_context?: Record<string, unknown>;
 }
 
 // ==================== BUDGET ====================
 export interface BudgetResponse {
-  monthly_income: number;
-  suggested_budget: {
-    essentials: number;     // 50%
-    lifestyle: number;      // 30%
-    savings: number;        // 20%
-  };
-  current_spending: {
-    essentials: number;
-    lifestyle: number;
-    savings: number;
-  };
+  income: number;
+  history_months: number;
+  total_expenses_avg: number;
+  expenses_pct_income: number;
+  savings_gap: number;
+  group_summary: {
+    group: string;
+    current_amount: number;
+    current_pct: number;
+    target_pct: number;
+    suggested_amount: number;
+    status: string;
+    delta_pct: number;
+  }[];
+  allocations: {
+    category: string;
+    group: string;
+    current_amount: number;
+    current_pct: number;
+    suggested_amount: number;
+    suggested_pct: number;
+    status: string;
+  }[];
+  actionable_cuts: {
+    category: string;
+    group: string;
+    current: number;
+    suggested: number;
+    saving: number;
+    reasoning: string;
+  }[];
+  rule_applied: string;
+  summary_text: string;
+  confidence: number;
+  lifestyle_cluster?: string;
+  cluster_note?: string;
 }
 
 // ==================== CHAT ====================
@@ -274,10 +334,29 @@ export interface ArchitectSimulationResponse {
 
 // ==================== PEERS ====================
 export interface PeersComparisonResponse {
-  user_spending: number;
-  peer_average: number;
-  percentile: number;
-  insights: string[];
+  income_bracket: string;
+  bracket_label: string;
+  monthly_income: number;
+  user_savings_rate: number;
+  benchmark_savings_rate: number;
+  savings_percentile_label: string;
+  lifestyle_cluster?: string;
+  cluster_label?: string;
+  benchmark_source?: string;
+  categories: {
+    category: string;
+    label: string;
+    user_pct: number;
+    benchmark_pct: number;
+    user_amount_brl: number;
+    benchmark_amount_brl: number;
+    delta_pct: number;
+    status: string;
+    insight: string;
+  }[];
+  highlights_above: string[];
+  highlights_below: string[];
+  summary_text: string;
 }
 
 // ==================== API ERROR ====================

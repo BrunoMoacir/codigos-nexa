@@ -374,9 +374,15 @@ export const StrategiesPage: React.FC = () => {
   }, [transactionCards]);
 
   const topPeerInsights = useMemo(() => {
-    const rawInsights = peerData?.insights || peerData?.highlights || [];
-    if (Array.isArray(rawInsights) && rawInsights.length > 0) {
-      return rawInsights.slice(0, 4).map((v: any) => String(v));
+    const highlightsAbove = Array.isArray(peerData?.highlights_above) ? peerData.highlights_above : [];
+    const highlightsBelow = Array.isArray(peerData?.highlights_below) ? peerData.highlights_below : [];
+    const rawHighlights = [...highlightsAbove, ...highlightsBelow].filter(Boolean);
+    if (rawHighlights.length > 0) {
+      return rawHighlights.slice(0, 4).map((v: any) => String(v));
+    }
+
+    if (peerData?.summary_text) {
+      return [String(peerData.summary_text)];
     }
 
     const expensePosition = peerData?.expense_percentile;
