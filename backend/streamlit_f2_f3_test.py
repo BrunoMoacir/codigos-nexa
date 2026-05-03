@@ -604,6 +604,17 @@ def tool_otimizar_cartao(
             "risco": c.liquidity_risk.value,
         })
     result["top5_ranking"] = ranking
+    result["_instrucao"] = (
+        "TODOS os cartões acima já passaram pelo filtro anti-falsos-positivos: "
+        "cartões com ROI líquido negativo foram REMOVIDOS antes deste ranking. "
+        "Use APENAS estes cartões ao fazer recomendações. "
+        "Não cite cartões que não aparecem nesta lista."
+    )
+    if not report.best_card and not ranking:
+        result["_instrucao"] += (
+            " Nenhum cartão tem ROI positivo para este perfil — informe ao usuário "
+            "que não há troca vantajosa no momento."
+        )
     return result
 
 
@@ -622,31 +633,19 @@ def tool_roi_cartao_atual(
         return {"erro": f"Cartão '{card_id}' não encontrado. IDs disponíveis: " +
                 ", ".join(c.card_id for c in kb._cards)}
     sim = CardSimulator()
-    result = sim.simulate(card=card, profile=profile, safe_to_spend=safe_to_spend)
-    net_roi = result.points_value_expected - card.base_annuity
-    if net_roi > 0:
-        verdict = "VALE_A_PENA"
-        explicacao = f"A anuidade de R$ {card.base_annuity:,.2f} é compensada pelos R$ {result.points_value_expected:,.2f} em recompensas."
-    elif net_roi > -200:
-        verdict = "MARGINAL"
-        explicacao = f"Prejuízo de R$ {abs(net_roi):,.2f}/ano. Avalie se os benefícios extras justificam."
-    else:
-        verdict = "NAO_VALE"
-        explicacao = f"Prejuízo líquido de R$ {abs(net_roi):,.2f}/ano. Considere trocar de cartão."
-    spend_for_waiver = None
-    if card.waiver_rules.type == "spend_threshold" and card.waiver_rules.threshold:
-        if profile.monthly_avg_spend < card.waiver_rules.threshold / 12:
-            spend_for_waiver = round(card.waiver_rules.threshold / 12 - profile.monthly_avg_spend, 2)
+    roi = sim.calculate_current_card_roi(card=card, profile=profile)
     return {
         "cartao": card.name,
         "emissor": card.issuer,
-        "anuidade_paga": card.base_annuity,
-        "recompensas_geradas_anual": round(result.points_value_expected, 2),
-        "roi_liquido_anual": round(net_roi, 2),
-        "anuidade_isenta": result.annuity_waived,
-        "gasto_adicional_para_isentar": spend_for_waiver,
-        "veredicto": verdict,
-        "explicacao": explicacao,
+        "anuidade_paga": roi.annuity_paid,
+        "recompensas_geradas_anual": roi.reward_value_generated,
+        "roi_liquido_anual": roi.net_roi,
+        "anuidade_isenta": roi.annuity_waived,
+        "gasto_adicional_para_isentar": roi.spend_needed_for_waiver,
+        "veredicto": roi.verdict.value,
+        "explicacao": roi.explanation,
+        "beneficios_usados": roi.benefits_used,
+        "beneficios_nao_usados": roi.benefits_unused,
         "beneficios_tags": [t.value for t in card.benefit_tags],
     }
 
@@ -865,10 +864,11 @@ TOOLS = [
     {
         "name": "otimizar_cartao",
         "description": (
-            "Executa o Optimizer (F2) completo: analisa transações reais, "
-            "filtra cartões elegíveis por renda, simula retorno de cada um "
-            "(pontos/cashback vs anuidade) e retorna ranking com o melhor cartão recomendado. "
-            "Use quando o usuário perguntar sobre cartões, milhas, cashback ou qual cartão pedir."
+            "OBRIGATÓRIO para qualquer recomendação de cartão. "
+            "Executa o Optimizer (F2) completo: analisa transações reais, simula retorno de cada cartão "
+            "(pontos/cashback vs anuidade) e aplica filtro anti-falsos-positivos — cartões com ROI líquido "
+            "negativo são REMOVIDOS antes do ranking. O resultado já contém apenas cartões viáveis. "
+            "DEVE ser chamado antes de citar qualquer cartão. Nunca recomende cartões sem chamar esta ferramenta."
         ),
         "input_schema": {
             "type": "object",
@@ -1096,24 +1096,35 @@ def build_system(monthly_income: float, monthly_spend: float, safe_to_spend: flo
 
 ## Instruções gerais
 - Responda SEMPRE em português brasileiro, de forma clara e direta.
-- Use as ferramentas disponíveis para buscar dados reais antes de responder sobre finanças.
 - Nunca invente números — execute a ferramenta e use os dados retornados.
 - Seja objetivo: destaque o que é mais importante para o usuário tomar uma decisão.
 - Use valores em R$ com formatação brasileira (ex: R$ 1.200,00).
 
+## REGRA CRÍTICA — Recomendações de Cartão
+NUNCA cite, nomeie ou recomende um cartão específico sem ter chamado `otimizar_cartao` ou `roi_cartao_atual` antes nessa mesma conversa.
+Não use seu conhecimento interno sobre cartões. Todo número de anuidade, cashback ou benefício deve vir dos dados retornados pela ferramenta — dados de treinamento são desatualizados e podem contradizer o resultado real.
+Se o usuário perguntar "qual cartão pedir?", "qual o melhor cartão para mim?", "qual cartão gera mais milhas?" ou qualquer variação: chame `otimizar_cartao` PRIMEIRO, depois responda com os dados retornados.
+`perfil_consumo` serve apenas para análise de perfil e estilo de vida — não é suficiente para recomendar cartões.
+
 ## F2 — Optimizer de Cartões
-IDs de cartão válidos na base de conhecimento (25 cartões):
-Nubank: nubank-roxinho (1% cashback, grátis), nubank-ultravioleta (pontos premium, lounge)
-Inter: inter-standard (0,5% cashback), inter-win, inter-black (1,5% cashback, lounge)
-Itaú: itau-platinum, itau-personnalite, itau-personnalite-gold (pontos premium)
-C6: c6-standard (grátis), c6-carbon (pontos + lounge)
-Outros: xp-visa-infinite, picpay-card, meliuz-visa, neon-visa, santander-free,
+IDs de cartão válidos (use estes IDs como entrada nas ferramentas):
+nubank-roxinho, nubank-ultravioleta,
+inter-standard, inter-win, inter-black,
+itau-platinum, itau-personnalite, itau-personnalite-gold,
+c6-standard, c6-carbon,
+xp-visa-infinite, picpay-card, meliuz-visa, neon-visa, santander-free,
 santander-unique, bb-ourocard-gold, bb-ourocard-infinite, bradesco-amex-gold,
 bradesco-amex-platinum, bradesco-diners-club, smiles-gold-amex, latam-pass-black,
 amazon-prime-mastercard, btgplus-mastercard
 
-Use `roi_cartao_atual` quando o usuário perguntar sobre um cartão específico (veredicto: VALE_A_PENA / MARGINAL / NAO_VALE).
+Use `otimizar_cartao` para qualquer recomendação de cartão novo — ele retorna ranking real com net_gain calculado e anti-FP aplicado (cartões com ROI negativo já são removidos antes de chegar aqui).
+Use `roi_cartao_atual` quando o usuário perguntar sobre um cartão específico que já possui (veredicto: VALE_A_PENA / MARGINAL / NAO_VALE).
 Use `carteira_ideal` para montar combinação multi-cartão que maximize retorno por categoria.
+
+## Diferença entre `otimizar_cartao` e `roi_cartao_atual`
+`otimizar_cartao` pondera 4 dimensões: relevância ao perfil de estilo de vida (40%), retorno financeiro líquido (30%), propensão de aprovação (20%) e timing (10%). Só retorna cartões com ROI líquido positivo — cartões inviáveis são filtrados antes do ranking.
+`roi_cartao_atual` mede o ROI financeiro puro de um cartão que o usuário já tem: recompensas geradas − anuidade efetiva.
+Os dois podem apontar cartões diferentes — `otimizar_cartao` considera estilo de vida além do retorno financeiro bruto. Explique isso ao usuário se houver diferença.
 
 ## F3 — Architect de Aquisições
 Tipos de bem suportados (campo `tipo` em `simular_aquisicao`):
