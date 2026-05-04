@@ -116,12 +116,18 @@ class CardRanking:
                 # Adiciona 25% do bonus já computado — NÃO recalcula o score do zero
                 # para preservar o desconto de dominância (regra 40%) já aplicado acima.
                 score += benefits_bonus * 0.25
+            # Viajantes intensos ganham bônus adicional em seguro e milhas
+            if getattr(profile, "travel_profile", "OCASIONAL") in ("FREQUENTE", "INTENSO"):
+                if BenefitTag.INSURANCE in result.benefit_tags or BenefitTag.TRAVEL in result.benefit_tags:
+                    score += benefits_bonus * 0.10
 
         elif cluster == "URBANO_FOODIE":
             if BenefitTag.CASHBACK in result.benefit_tags:
                 food_spend = profile.spend_by_category.get("Alimentação", 0)
                 if food_spend > 500:
-                    score += food_spend * 0.005
+                    # Foodies GOURMET/ENTUSIASTA valorizam mais o cashback em alimentação
+                    foodie_mult = 1.5 if getattr(profile, "foodie_profile", "BASICO") in ("GOURMET", "ENTUSIASTA") else 1.0
+                    score += food_spend * 0.005 * foodie_mult
 
         elif cluster == "INVESTIDOR_CAUTELOSO":
             if result.annuity_effective > 500:
@@ -147,6 +153,25 @@ class CardRanking:
             # Penaliza cartões com anuidade alta: custo de oportunidade digital
             if result.annuity_effective > 500:
                 score *= 0.85
+
+        elif cluster == "MICROEMPREENDEDOR":
+            # MEI precisa de cartão sem anuidade ou com isenção fácil — renda PJ irregular
+            if result.annuity_effective == 0:
+                score += 100
+            elif result.annuity_effective <= 200:
+                score += 40
+            elif result.annuity_effective > 400:
+                score *= 0.80
+            # Cashback plano é mais previsível para fluxo de caixa irregular
+            if BenefitTag.CASHBACK in result.benefit_tags:
+                score += 50
+
+        elif cluster == "ESTRESSE_FINANCEIRO":
+            # Usuário em estresse só deve ser direcionado a cartões sem anuidade
+            if result.annuity_effective == 0:
+                score += 60
+            elif result.annuity_effective > 200:
+                score *= 0.70
 
         # 3. Penalidade de confiança (multiplicativa após bônus)
         if result.confidence_score < 0.4:
@@ -280,10 +305,30 @@ class CardRanking:
         if cluster == "EXPLORADOR_GLOBAL":
             travel_tags = {BenefitTag.LOUNGE, BenefitTag.TRAVEL, BenefitTag.INSURANCE}
             tag_overlap = len(travel_tags & set(result.benefit_tags)) / len(travel_tags)
-            relevance = 0.3 + tag_overlap * 0.7
+            base_relevance = 0.3 + tag_overlap * 0.7
+            # Viajantes INTENSO/FREQUENTE têm relevância elevada em travel tags
+            travel_profile = getattr(profile, "travel_profile", "OCASIONAL")
+            if travel_profile == "INTENSO":
+                relevance = min(base_relevance * 1.15, 1.0)
+            elif travel_profile == "FREQUENTE":
+                relevance = min(base_relevance * 1.08, 1.0)
+            else:
+                relevance = base_relevance
 
         elif cluster == "URBANO_FOODIE":
-            relevance = 0.8 if BenefitTag.CASHBACK in result.benefit_tags else 0.3
+            if BenefitTag.CASHBACK in result.benefit_tags:
+                # Foodies mais intensos têm relevância maior em cashback
+                foodie_profile = getattr(profile, "foodie_profile", "BASICO")
+                if foodie_profile == "ENTUSIASTA":
+                    relevance = 0.95
+                elif foodie_profile == "GOURMET":
+                    relevance = 0.88
+                elif foodie_profile == "APRECIADOR":
+                    relevance = 0.80
+                else:
+                    relevance = 0.72
+            else:
+                relevance = 0.3
 
         elif cluster == "INVESTIDOR_CAUTELOSO":
             if result.annuity_effective == 0:
@@ -312,6 +357,19 @@ class CardRanking:
             else:
                 relevance = 0.30
 
+        elif cluster == "MICROEMPREENDEDOR":
+            # MEI prioriza: sem anuidade > cashback plano > anuidade baixa
+            if result.annuity_effective == 0 and BenefitTag.CASHBACK in result.benefit_tags:
+                relevance = 0.95
+            elif result.annuity_effective == 0:
+                relevance = 0.85
+            elif result.annuity_effective <= 200 and BenefitTag.CASHBACK in result.benefit_tags:
+                relevance = 0.65
+            elif result.annuity_effective <= 200:
+                relevance = 0.50
+            else:
+                relevance = 0.20
+
         return relevance
 
     def _estimate_propensity(
@@ -325,6 +383,19 @@ class CardRanking:
             propensity += 0.1
         if result.net_gain_expected > 1200:
             propensity += 0.15
+        # Quem poupa mais tem mais folga para pagar anuidade — maior propensão
+        savings_rate = getattr(profile, "savings_rate", 0.0)
+        if savings_rate >= 20:
+            propensity += 0.10
+        elif savings_rate >= 10:
+            propensity += 0.05
+        elif savings_rate < 0:
+            propensity -= 0.10
+        # Alto gasto em assinaturas sinaliza cartão com muitos benefícios mensais cobrados —
+        # usuário já tem bastante comprometimento fixo, menor propensão a mais anuidade
+        sub_burn = getattr(profile, "subscription_burn_monthly", 0.0)
+        if sub_burn > 150 and result.annuity_effective > 300:
+            propensity -= 0.08
         return round(min(max(propensity, 0.0), 1.0), 3)
 
     def _calc_timing_score(
@@ -336,4 +407,10 @@ class CardRanking:
         fss_level = getattr(profile, "fss_level", "SAUDAVEL")
         if fss_level in ("ALERTA", "CRITICO"):
             timing = 0.1 if result.annuity_effective > 300 else 0.6
-        return timing
+        # Usuários mais resilientes têm timing melhor para cartões com anuidade
+        resilience = getattr(profile, "resilience_score", 50.0)
+        if resilience >= 70 and result.annuity_effective > 0:
+            timing = min(timing + 0.15, 1.0)
+        elif resilience < 30 and result.annuity_effective > 200:
+            timing = max(timing - 0.20, 0.0)
+        return round(timing, 3)
