@@ -72,6 +72,7 @@ class UserProfile:
     investor_type: str = "NONE"                  # NONE | CASUAL | ATIVO | DIVERSIFICADO
     is_likely_mei: bool = False                  # sinal de microempreendedor
     lifestyle_cluster: str = "NAO_CLASSIFICADO"  # ver T1.7
+    cluster_scores: dict = field(default_factory=dict)  # afinidade 0–1 por cluster (T1.7)
     merchant_diversity_score: float = 0.0        # 0–100: diversidade de merchants únicos
 
     # subscription_burn_monthly: R$/mês em assinaturas de streaming (STREAMING L2).
@@ -261,6 +262,7 @@ class ConsumptionProfiler:
         from app.optimizer.detectors.lifestyle_classifier import LifestyleClassifier
         cluster_result = LifestyleClassifier().classify(profile)
         profile.lifestyle_cluster = cluster_result["lifestyle_cluster"]
+        profile.cluster_scores = cluster_result["cluster_scores"]
 
         logger.info(
             f"ConsumptionProfiler: avg_spend={profile.monthly_avg_spend:.2f}, "
