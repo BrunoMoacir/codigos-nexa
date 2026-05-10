@@ -315,7 +315,7 @@ def build_financial_agent():
 
     # 3. Memória (checkpointer) e Agente ReAct
     checkpointer = _build_checkpointer()
-    app = create_react_agent(llm, tools=tools, prompt=SYSTEM_PROMPT, checkpointer=checkpointer)
+    app = create_react_agent(llm, tools=tools, state_modifier=SYSTEM_PROMPT, checkpointer=checkpointer)
 
     logger.info(
         f"[Agent] Agente Nexa construído com {len(tools)} ferramentas: "
