@@ -418,15 +418,22 @@ def seed_rich_account(config: SeedConfig) -> None:
     if rows <= 0:
         raise RuntimeError("Falha ao salvar transações no banco (rows=0)")
 
+    db = SessionLocal()
+    try:
+        n_goals = _clear_and_create_goals(db, user_id)
+        n_scores = _clear_and_create_health_scores(db, user_id, config.months_back)
+    finally:
+        db.close()
+
     debit_rows = int(df.filter(pl.col("amount") < 0).height)
     credit_rows = int(df.filter(pl.col("amount") >= 0).height)
     recurrent_rows = int(df.filter(pl.col("is_recurring") == True).height)
     installment_rows = int(df.filter(pl.col("is_installment") == True).height)
 
     print("\nSeed concluído com sucesso.")
-    print(f"Total inserido: {rows}")
-    print(f"Débitos: {debit_rows} | Créditos: {credit_rows}")
-    print(f"Recorrentes: {recurrent_rows} | Parceladas: {installment_rows}")
+    print(f"Transações inseridas: {rows} (débitos={debit_rows}, créditos={credit_rows}, recorrentes={recurrent_rows}, parceladas={installment_rows})")
+    print(f"Metas financeiras: {n_goals} (emergência, viagem, imóvel, carro)")
+    print(f"Health score history: {n_scores} meses")
     print("Dica de login no frontend: use email e senha acima em /login")
 
 
