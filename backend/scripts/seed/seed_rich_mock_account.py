@@ -44,16 +44,27 @@ def _month_days(year: int, month: int) -> int:
 
 def _generate_monthly_recurring(user_id: str, current_month: date, tx_id_prefix: str) -> list[dict[str, Any]]:
     y, m = current_month.year, current_month.month
+    # Salário com pequena variação sazonal (bônus em dez/jan, menor em jul)
+    salary_multiplier = 1.0
+    if m in (12, 1):
+        salary_multiplier = 2.0   # 13º salário
+    elif m == 7:
+        salary_multiplier = 0.85  # mês fraco
+
     recurring = [
-        ("SALARIO EMPRESA NEXA", 12500.0, "renda", "credit", True, False, "PF", None),
+        ("SALARIO EMPRESA NEXA", round(12500.0 * salary_multiplier, 2), "renda", "credit", True, False, "PF", None),
         ("FATURA CLIENTE PJ", 9200.0, "receita", "credit", False, False, "PJ", "receita_servicos"),
         ("ALUGUEL APARTAMENTO", -2800.0, "moradia", "debit", True, False, "PF", None),
         ("CONTA ENERGIA", -360.0, "moradia", "debit", True, False, "PF", None),
         ("CONTA INTERNET", -140.0, "servicos", "debit", True, False, "PF", None),
         ("NETFLIX", -55.9, "assinaturas", "debit", True, False, "PF", None),
         ("SPOTIFY", -21.9, "assinaturas", "debit", True, False, "PF", None),
+        ("PRIME VIDEO", -19.9, "assinaturas", "debit", True, False, "PF", None),   # assinatura extra para auditoria
         ("NOTION BUSINESS", -79.0, "despesa_pj", "debit", True, False, "PJ", "software e assinaturas"),
         ("GOOGLE WORKSPACE", -120.0, "despesa_pj", "debit", True, False, "PJ", "software e assinaturas"),
+        ("TARIFA MANUTENCAO CONTA", -15.0, "taxa", "debit", True, False, "PF", None),
+        ("ANUIDADE CARTAO PLATINUM", -83.25, "taxa", "debit", True, False, "PF", None),  # R$999/ano em 12x
+        ("SEGURO CARTAO CREDITO", -29.9, "taxa", "debit", True, False, "PF", None),
     ]
 
     rows: list[dict[str, Any]] = []
@@ -145,6 +156,8 @@ def _generate_daily_activity(user_id: str, current_month: date, tx_id_prefix: st
         ("META ADS", -40, -420, "despesa_pj", "marketing"),
         ("CONTABILIDADE MENSAL", -300, -550, "despesa_pj", "impostos"),
         ("SUPRIMENTOS ESCRITORIO", -35, -180, "despesa_pj", "material de escritorio"),
+        ("GOOGLE ADS", -80, -350, "despesa_pj", "marketing"),
+        ("IMPOSTO DAS MEI", -70, -72, "despesa_pj", "impostos"),
     ]
 
     credits = [
@@ -153,9 +166,44 @@ def _generate_daily_activity(user_id: str, current_month: date, tx_id_prefix: st
         ("CASHBACK CARTAO", 10, 120, "renda", "PF", None),
     ]
 
+    # Anomalias pontuais — 1 por mês em dias fixos para serem detectáveis
+    anomalies = []
+    if m % 3 == 0:  # a cada trimestre: gasto médico alto
+        anomalies.append((14, -1350.0, "CLINICA DENTARIA URGENTE", "saude", "PF"))
+    if m % 4 == 0:  # a cada 4 meses: viagem/lazer atípico
+        anomalies.append((20, -1800.0, "PASSAGEM AEREA GOL", "viagem", "PF"))
+    if m % 6 == 0:  # semestralmente: juros rotativos do cartão
+        anomalies.append((5, -420.0, "JUROS CARTAO ROTATIVO ITAU", "taxa", "PF"))
+
     rows: list[dict[str, Any]] = []
     tx_idx = 0
+
+    # Injeta anomalias nos dias correspondentes
+    anomaly_by_day: dict[int, list] = {}
+    for (aday, aamt, adesc, acat, actx) in anomalies:
+        anomaly_by_day.setdefault(aday, []).append((aamt, adesc, acat, actx))
+
     for day in range(1, days + 1):
+        # Anomalias do dia
+        for aamt, adesc, acat, actx in anomaly_by_day.get(day, []):
+            tx_idx += 1
+            rows.append({
+                "transaction_id": f"{tx_id_prefix}-an-{y}{m:02d}{day:02d}-{tx_idx}",
+                "user_id": user_id,
+                "account_id": "acc_mock_main",
+                "description": adesc,
+                "amount": aamt,
+                "date": date(y, m, day),
+                "transaction_type": "debit",
+                "category": acat,
+                "is_recurring": False,
+                "is_installment": False,
+                "context_type": actx,
+                "context_confidence": 0.91,
+                "context_override_by_user": False,
+                "pj_subcategory": None,
+            })
+
         tx_count = max(2, int(random.gauss(avg_daily_transactions, 2)))
         for _ in range(tx_count):
             chooser = random.random()
@@ -303,15 +351,28 @@ def _clear_and_create_health_scores(db, user_id: str, months_back: int) -> int:
     end_month = date.today().replace(day=1)
     start_month = end_month - relativedelta(months=months_back - 1)
 
-    # Score começa em 44 (perfil gastador) e melhora gradualmente até ~72 (equilibrado)
+    # Score com ciclo realista: começa baixo, melhora, sofre choque, se recupera
+    # Fase 1 (meses 0-4):   gastador (44-54) — período de gastos altos
+    # Fase 2 (meses 5-9):   equilibrado (58-68) — controle melhorou
+    # Fase 3 (meses 10-12): choque (50-55) — anomalias/emergências
+    # Fase 4 (meses 13-15): recuperação (60-72) — volta ao trilho
+    import math
     scores = []
     current = start_month
     i = 0
     while current <= end_month:
-        score = min(72, 44 + round(i * 1.8))
-        savings_rate = round(0.09 + i * 0.009, 3)
+        if i < 5:
+            score = 44 + i * 2
+        elif i < 10:
+            score = 54 + (i - 4) * 2
+        elif i < 13:
+            score = 64 - (i - 9) * 5
+        else:
+            score = 50 + (i - 12) * 7
+        score = max(40, min(78, score))
+        savings_rate = round(max(0.05, 0.08 + (score - 44) * 0.003), 3)
         profile = "GASTADOR" if score < 55 else ("EQUILIBRADO" if score < 68 else "CONSERVADOR")
-        safe_to_spend = round(3200 + i * 280, 2)
+        safe_to_spend = round(2800 + (score - 44) * 120, 2)
         scores.append(HealthScoreHistory(
             user_id=user_id,
             date=current.strftime("%Y-%m"),
