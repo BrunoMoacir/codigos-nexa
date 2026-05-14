@@ -277,67 +277,26 @@ def _generate_daily_activity(user_id: str, current_month: date, tx_id_prefix: st
 
 
 def _clear_and_create_goals(db, user_id: str) -> int:
-    db.query(FinancialGoal).filter(FinancialGoal.user_id == user_id).delete(synchronize_session=False)
+    from sqlalchemy import text
+    db.execute(text("DELETE FROM financial_goals WHERE user_id = :uid"), {"uid": user_id})
     now = datetime.now().isoformat()
     goals = [
-        FinancialGoal(
-            goal_id=f"goal_mock_{user_id}_emergencia",
-            user_id=user_id,
-            name="Reserva de Emergência",
-            goal_type="emergencia",
-            target_amount=20000.0,
-            current_amount=8500.0,
-            target_date="2026-12-31",
-            monthly_contribution_needed=960.0,
-            monthly_contribution_actual=800.0,
-            status="ACTIVE",
-            created_at=now,
-            updated_at=now,
-        ),
-        FinancialGoal(
-            goal_id=f"goal_mock_{user_id}_viagem",
-            user_id=user_id,
-            name="Viagem Internacional",
-            goal_type="viagem",
-            target_amount=15000.0,
-            current_amount=4200.0,
-            target_date="2026-07-31",
-            monthly_contribution_needed=1767.0,
-            monthly_contribution_actual=1200.0,
-            status="ACTIVE",
-            created_at=now,
-            updated_at=now,
-        ),
-        FinancialGoal(
-            goal_id=f"goal_mock_{user_id}_imovel",
-            user_id=user_id,
-            name="Entrada do Imóvel",
-            goal_type="imovel",
-            target_amount=120000.0,
-            current_amount=27000.0,
-            target_date="2028-06-30",
-            monthly_contribution_needed=3375.0,
-            monthly_contribution_actual=2500.0,
-            status="ACTIVE",
-            created_at=now,
-            updated_at=now,
-        ),
-        FinancialGoal(
-            goal_id=f"goal_mock_{user_id}_carro",
-            user_id=user_id,
-            name="Troca do Carro",
-            goal_type="veiculo",
-            target_amount=45000.0,
-            current_amount=12000.0,
-            target_date="2027-03-31",
-            monthly_contribution_needed=1833.0,
-            monthly_contribution_actual=1500.0,
-            status="ACTIVE",
-            created_at=now,
-            updated_at=now,
-        ),
+        {"goal_id": f"goal_mock_{user_id}_emergencia", "name": "Reserva de Emergência",   "goal_type": "emergencia", "target_amount": 20000.0,  "current_amount": 8500.0,  "target_date": "2026-12-31", "monthly_contribution_needed": 960.0,  "monthly_contribution_actual": 800.0,  "status": "ACTIVE"},
+        {"goal_id": f"goal_mock_{user_id}_viagem",     "name": "Viagem Internacional",      "goal_type": "viagem",     "target_amount": 15000.0,  "current_amount": 4200.0,  "target_date": "2026-07-31", "monthly_contribution_needed": 1767.0, "monthly_contribution_actual": 1200.0, "status": "ACTIVE"},
+        {"goal_id": f"goal_mock_{user_id}_imovel",     "name": "Entrada do Imóvel",         "goal_type": "imovel",     "target_amount": 120000.0, "current_amount": 27000.0, "target_date": "2028-06-30", "monthly_contribution_needed": 3375.0, "monthly_contribution_actual": 2500.0, "status": "ACTIVE"},
+        {"goal_id": f"goal_mock_{user_id}_carro",      "name": "Troca do Carro",            "goal_type": "veiculo",    "target_amount": 45000.0,  "current_amount": 12000.0, "target_date": "2027-03-31", "monthly_contribution_needed": 1833.0, "monthly_contribution_actual": 1500.0, "status": "ACTIVE"},
     ]
-    db.add_all(goals)
+    for g in goals:
+        db.execute(text("""
+            INSERT INTO financial_goals
+                (goal_id, user_id, name, goal_type, target_amount, current_amount,
+                 target_date, monthly_contribution_needed, monthly_contribution_actual,
+                 status, created_at, updated_at)
+            VALUES
+                (:goal_id, :user_id, :name, :goal_type, :target_amount, :current_amount,
+                 :target_date, :monthly_contribution_needed, :monthly_contribution_actual,
+                 :status, :now, :now)
+        """), {**g, "user_id": user_id, "now": now})
     db.commit()
     return len(goals)
 
