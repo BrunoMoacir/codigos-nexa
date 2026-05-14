@@ -127,8 +127,8 @@ with st.sidebar:
                     if st.button(label, key=f"q_{p}"):
                         st.session_state["_pending"] = p
     else:
-        DEMO_EMAIL = "demo@nexa.com"
-        DEMO_SENHA = "demo123"
+        DEMO_EMAIL = "mock.teste@nexa.com"
+        DEMO_SENHA = "Mock@12345"
 
         def _do_login(email: str, senha: str):
             try:
