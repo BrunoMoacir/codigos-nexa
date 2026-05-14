@@ -19,6 +19,8 @@ from app.core.db.users import create_user, get_user_by_email
 from app.core.db.queries import save_transactions_clean, get_connection
 from app.core.models.transaction import Transaction
 from app.core.security import get_password_hash
+from app.goals.models import FinancialGoal
+from app.health_score.models import HealthScoreHistory
 
 
 @dataclass
@@ -224,6 +226,106 @@ def _generate_daily_activity(user_id: str, current_month: date, tx_id_prefix: st
                 )
 
     return rows
+
+
+def _clear_and_create_goals(db, user_id: str) -> int:
+    db.query(FinancialGoal).filter(FinancialGoal.user_id == user_id).delete(synchronize_session=False)
+    now = datetime.now().isoformat()
+    goals = [
+        FinancialGoal(
+            goal_id=f"goal_mock_{user_id}_emergencia",
+            user_id=user_id,
+            name="Reserva de Emergência",
+            goal_type="emergencia",
+            target_amount=20000.0,
+            current_amount=8500.0,
+            target_date="2026-12-31",
+            monthly_contribution_needed=960.0,
+            monthly_contribution_actual=800.0,
+            status="ACTIVE",
+            version=1,
+            created_at=now,
+            updated_at=now,
+        ),
+        FinancialGoal(
+            goal_id=f"goal_mock_{user_id}_viagem",
+            user_id=user_id,
+            name="Viagem Internacional",
+            goal_type="viagem",
+            target_amount=15000.0,
+            current_amount=4200.0,
+            target_date="2026-07-31",
+            monthly_contribution_needed=1767.0,
+            monthly_contribution_actual=1200.0,
+            status="ACTIVE",
+            version=1,
+            created_at=now,
+            updated_at=now,
+        ),
+        FinancialGoal(
+            goal_id=f"goal_mock_{user_id}_imovel",
+            user_id=user_id,
+            name="Entrada do Imóvel",
+            goal_type="imovel",
+            target_amount=120000.0,
+            current_amount=27000.0,
+            target_date="2028-06-30",
+            monthly_contribution_needed=3375.0,
+            monthly_contribution_actual=2500.0,
+            status="ACTIVE",
+            version=1,
+            created_at=now,
+            updated_at=now,
+        ),
+        FinancialGoal(
+            goal_id=f"goal_mock_{user_id}_carro",
+            user_id=user_id,
+            name="Troca do Carro",
+            goal_type="veiculo",
+            target_amount=45000.0,
+            current_amount=12000.0,
+            target_date="2027-03-31",
+            monthly_contribution_needed=1833.0,
+            monthly_contribution_actual=1500.0,
+            status="ACTIVE",
+            version=1,
+            created_at=now,
+            updated_at=now,
+        ),
+    ]
+    db.add_all(goals)
+    db.commit()
+    return len(goals)
+
+
+def _clear_and_create_health_scores(db, user_id: str, months_back: int) -> int:
+    db.query(HealthScoreHistory).filter(HealthScoreHistory.user_id == user_id).delete(synchronize_session=False)
+    end_month = date.today().replace(day=1)
+    start_month = end_month - relativedelta(months=months_back - 1)
+
+    # Score começa em 44 (perfil gastador) e melhora gradualmente até ~72 (equilibrado)
+    scores = []
+    current = start_month
+    i = 0
+    while current <= end_month:
+        score = min(72, 44 + round(i * 1.8))
+        savings_rate = round(0.09 + i * 0.009, 3)
+        profile = "GASTADOR" if score < 55 else ("EQUILIBRADO" if score < 68 else "CONSERVADOR")
+        safe_to_spend = round(3200 + i * 280, 2)
+        scores.append(HealthScoreHistory(
+            user_id=user_id,
+            date=current.strftime("%Y-%m"),
+            health_score=score,
+            savings_rate=savings_rate,
+            profile_type=profile,
+            safe_to_spend=safe_to_spend,
+        ))
+        current += relativedelta(months=1)
+        i += 1
+
+    db.add_all(scores)
+    db.commit()
+    return len(scores)
 
 
 def _ensure_user(config: SeedConfig) -> tuple[str, bool]:
