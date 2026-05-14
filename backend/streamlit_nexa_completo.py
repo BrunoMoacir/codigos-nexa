@@ -127,32 +127,44 @@ with st.sidebar:
                     if st.button(label, key=f"q_{p}"):
                         st.session_state["_pending"] = p
     else:
-        with st.form("login"):
-            st.subheader("Login")
-            email = st.text_input("E-mail")
-            senha = st.text_input("Senha", type="password")
-            if st.form_submit_button("Entrar", use_container_width=True):
-                try:
-                    r = requests.post(
-                        f"{_base()}/api/v1/auth/token",
-                        data={"username": email, "password": senha},
-                        timeout=10,
-                    )
-                    if r.status_code == 200:
-                        d = r.json()
-                        st.session_state.token = d["access_token"]
-                        st.session_state.user_id = d["user_id"]
-                        st.session_state.user_email = email
-                        st.rerun()
-                    else:
-                        st.error(r.json().get("detail", "Credenciais invalidas"))
-                except Exception as exc:
-                    st.error(str(exc))
+        DEMO_EMAIL = "demo@nexa.com"
+        DEMO_SENHA = "demo123"
+
+        def _do_login(email: str, senha: str):
+            try:
+                r = requests.post(
+                    f"{_base()}/api/v1/auth/token",
+                    data={"username": email, "password": senha},
+                    timeout=10,
+                )
+                if r.status_code == 200:
+                    d = r.json()
+                    st.session_state.token = d["access_token"]
+                    st.session_state.user_id = d["user_id"]
+                    st.session_state.user_email = email
+                    st.rerun()
+                else:
+                    st.error(r.json().get("detail", "Credenciais invalidas"))
+            except Exception as exc:
+                st.error(str(exc))
+
+        if st.button("Entrar como demo", use_container_width=True, type="primary"):
+            _do_login(DEMO_EMAIL, DEMO_SENHA)
+
+        st.caption(f"`{DEMO_EMAIL}` / `{DEMO_SENHA}`")
+        st.divider()
+
+        with st.expander("Outra conta"):
+            with st.form("login"):
+                email = st.text_input("E-mail")
+                senha = st.text_input("Senha", type="password")
+                if st.form_submit_button("Entrar", use_container_width=True):
+                    _do_login(email, senha)
 
 # ─── Area principal ───────────────────────────────────────────────────────────
 if not st.session_state.token:
     st.markdown("## Nexa — Testador de Inteligencia")
-    st.info("Faca login na barra lateral para comecar.")
+    st.info("Clique em **Entrar como demo** na barra lateral para comecar.")
     st.stop()
 
 col1, col2 = st.columns([5, 1])
