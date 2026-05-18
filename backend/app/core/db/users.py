@@ -26,9 +26,37 @@ def _get_user_by_email_duckdb(email: str) -> Optional[Dict[str, Any]]:
             "email": row[1],
             "hashed_password": row[2],
             "full_name": row[3],
+            "is_active": True,
         }
     except Exception as e:
         logger.error("DuckDB fallback get_user_by_email falhou: %s", e)
+        return None
+
+
+def _get_user_by_id_duckdb(user_id: str) -> Optional[Dict[str, Any]]:
+    try:
+        from app.core.db.queries import get_connection
+
+        con = get_connection()
+        try:
+            row = con.execute(
+                "SELECT user_id, email, hashed_password, full_name FROM users WHERE user_id = ? LIMIT 1",
+                [user_id],
+            ).fetchone()
+        finally:
+            con.close()
+
+        if not row:
+            return None
+        return {
+            "user_id": row[0],
+            "email": row[1],
+            "hashed_password": row[2],
+            "full_name": row[3],
+            "is_active": True,
+        }
+    except Exception as e:
+        logger.error("DuckDB fallback get_user_by_id falhou: %s", e)
         return None
 
 
@@ -47,6 +75,23 @@ def get_user_by_email(db: Session, email: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.error("Postgres indisponível, caindo para DuckDB (get_user_by_email): %s", e)
         return _get_user_by_email_duckdb(email)
+
+
+def get_user_by_id(db: Session, user_id: str) -> Optional[Dict[str, Any]]:
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if user:
+            return {
+                "user_id": user.user_id,
+                "email": user.email,
+                "hashed_password": user.hashed_password,
+                "full_name": user.full_name,
+                "is_active": bool(getattr(user, "is_active", True)),
+            }
+        return _get_user_by_id_duckdb(user_id)
+    except Exception as e:
+        logger.error("Postgres indisponível, caindo para DuckDB (get_user_by_id): %s", e)
+        return _get_user_by_id_duckdb(user_id)
 
 def _create_user_duckdb(email: str, hashed_password: str, full_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
     try:
