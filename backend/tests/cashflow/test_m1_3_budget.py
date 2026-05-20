@@ -319,9 +319,11 @@ def test_suggest_budget_convenience():
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from app.budget.router import router as budget_router
+from app.core.security import require_owner
 
 _app = FastAPI()
 _app.include_router(budget_router)
+_app.dependency_overrides[require_owner] = lambda user_id: user_id
 _client = TestClient(_app)
 
 
