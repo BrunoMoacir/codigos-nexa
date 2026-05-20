@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.db.users import get_user_by_id
 
 # Configurações do JWT
 SECRET_KEY = settings.SECRET_KEY
@@ -132,10 +133,9 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Verificar existência e status ativo no banco
-    from app.core.models.user import User
-    user = db.query(User).filter(User.user_id == token_data.user_id).first()
-    if user is None or not user.is_active:
+    # Verificar existência e status ativo no banco (Postgres com fallback DuckDB)
+    user = get_user_by_id(db, token_data.user_id)
+    if user is None or not user.get("is_active", True):
         raise credentials_exception
 
     return token_data.user_id
