@@ -105,6 +105,10 @@ def _get_change(history: list[dict], months_back: int) -> Optional[int]:
     return current - reference
 
 
+def _fetch_transactions_sync(user_id: str, db: Session = None) -> pl.DataFrame:
+    """Wrapper testável sobre get_transactions_for_user."""
+    return get_transactions_for_user(user_id, db=db)
+
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -145,9 +149,8 @@ def get_health_score_history_endpoint(
     """
     logger.info("[health-score] Solicitado histórico para user=%s months=%d", user_id, months)
 
-    # ── 1. Buscar transações — usa get_transactions_for_user centralizado ─
-    # Passa a session atual para evitar abrir uma nova conexão redundante.
-    transactions_df = get_transactions_for_user(user_id, db=db)
+    # ── 1. Buscar transações ────────────────────────────────────────────
+    transactions_df = _fetch_transactions_sync(user_id, db=db)
 
     data_quality = "OK"
     current_score: Optional[int] = None
