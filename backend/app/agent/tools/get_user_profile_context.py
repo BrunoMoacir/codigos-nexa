@@ -75,11 +75,14 @@ def get_user_profile_context(user_id: str) -> str:
             return _no_data_response(user_id)
 
         txns_raw = result.get("transactions", {})
-        transactions_df: pl.DataFrame = (
-            txns_raw.get("pf_pj_classified_df")
-            or txns_raw.get("clean_df")
-            or pl.DataFrame()
-        )
+        _pf = txns_raw.get("pf_pj_classified_df")
+        _clean = txns_raw.get("clean_df")
+        if _pf is not None:
+            transactions_df: pl.DataFrame = _pf
+        elif _clean is not None:
+            transactions_df = _clean
+        else:
+            transactions_df = pl.DataFrame()
 
         if transactions_df.is_empty():
             return _no_data_response(user_id)

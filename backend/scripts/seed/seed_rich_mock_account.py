@@ -434,10 +434,14 @@ def seed_rich_account(config: SeedConfig) -> None:
     if rows <= 0:
         raise RuntimeError("Falha ao salvar transações no banco (rows=0)")
 
+    n_goals = 0
+    n_scores = 0
     db = SessionLocal()
     try:
         n_goals = _clear_and_create_goals(db, user_id)
         n_scores = _clear_and_create_health_scores(db, user_id, config.months_back)
+    except Exception as e:
+        print(f"[Aviso] Metas/health scores não salvos (Postgres indisponível): {e}")
     finally:
         db.close()
 

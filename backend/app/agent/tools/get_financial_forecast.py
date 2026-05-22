@@ -62,12 +62,10 @@ def get_financial_forecast(
         income_profile = analysis.get("income_profile")
 
         # Extrai transactions_df do resultado — já está em memória, sem I/O extra
-        txns_data      = result.get("transactions", {})
-        transactions_df: pl.DataFrame = (
-            txns_data.get("pf_pj_classified_df")
-            or txns_data.get("clean_df")
-            or pl.DataFrame()
-        )
+        txns_data = result.get("transactions", {})
+        _pf = txns_data.get("pf_pj_classified_df")
+        _cl = txns_data.get("clean_df")
+        transactions_df: pl.DataFrame = _pf if _pf is not None else (_cl if _cl is not None else pl.DataFrame())
 
         lines = ["📊 **Diagnóstico Financeiro Nexa**", ""]
 

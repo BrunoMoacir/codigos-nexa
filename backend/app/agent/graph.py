@@ -19,7 +19,6 @@ Ferramentas disponíveis:
  13. get_negotiation_script      → Detecta oportunidades e gera roteiro de negociação bancária (F13)
 """
 import logging
-from langchain_core.messages import BaseMessage
 from langgraph.prebuilt import create_react_agent
 from app.core.config import settings
 
@@ -314,8 +313,25 @@ def build_financial_agent():
     llm = _build_llm()
 
     # 3. Memória (checkpointer) e Agente ReAct
+    # pre_model_hook garante exatamente 1 SystemMessage na posição 0 antes de cada
+    # chamada ao modelo, filtrando qualquer SystemMessage acumulada no histórico do
+    # MemorySaver (o Anthropic rejeita múltiplos SystemMessages não-consecutivos).
+    from langchain_core.messages import SystemMessage
+
+    def _inject_system_prompt(state: dict) -> dict:
+        msgs = state.get("messages", [])
+        non_system = [m for m in msgs if not isinstance(m, SystemMessage)]
+        # llm_input_messages é passado ao modelo sem persistir no estado,
+        # garantindo exatamente 1 SystemMessage no início sem alterar o histórico.
+        return {"llm_input_messages": [SystemMessage(content=SYSTEM_PROMPT)] + non_system}
+
     checkpointer = _build_checkpointer()
-    app = create_react_agent(llm, tools=tools, state_modifier=SYSTEM_PROMPT, checkpointer=checkpointer)
+    app = create_react_agent(
+        llm,
+        tools=tools,
+        pre_model_hook=_inject_system_prompt,
+        checkpointer=checkpointer,
+    )
 
     logger.info(
         f"[Agent] Agente Nexa construído com {len(tools)} ferramentas: "

@@ -44,24 +44,19 @@ logger.info("LLM_PROVIDER: %s", os.getenv("LLM_PROVIDER", "not set"))
 
 def _create_db_tables() -> None:
     """
-    Garante que o schema mínimo existe no Postgres. Backoff exponencial.
-
-    ATENÇÃO: `create_all` é adequado apenas para desenvolvimento e ambientes
-    de teste. Em produção, use migrações Alembic (`alembic upgrade head`) para
-    controlar mudanças de schema de forma incremental e rastreável.
+    Garante que o schema mínimo existe no Postgres.
+    Em dev sem Postgres, falha rápido e continua com DuckDB.
     """
-    last_err: Exception | None = None
-    for attempt in range(20):
+    for attempt in range(3):
         try:
             Base.metadata.create_all(bind=engine)
             logger.info("DB schema ready (attempt %d)", attempt + 1)
             return
         except Exception as e:
-            last_err = e
-            wait = min(2 ** attempt, 30)
-            logger.warning("DB connection attempt %d/20 failed: %s — retry in %ds", attempt + 1, e, wait)
+            wait = 1
+            logger.warning("DB connection attempt %d/3 failed: %s — retry in %ds", attempt + 1, e, wait)
             time.sleep(wait)
-    logger.error("Failed to connect to database after 20 attempts: %s", last_err)
+    logger.warning("Postgres indisponível — continuando sem Postgres (modo DuckDB)")
 
 
 @asynccontextmanager

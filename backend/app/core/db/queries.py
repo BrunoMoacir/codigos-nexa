@@ -260,7 +260,76 @@ def save_transactions_clean(
     except Exception as e:
         logger.error("Erro ao salvar transactions_clean: %s", e)
         db.rollback()
+
+    # Fallback: salva no DuckDB quando Postgres está indisponível
+    return _save_transactions_duckdb(df, user_id, account_id)
+
+
+def _save_transactions_duckdb(df, user_id: str, account_id: Optional[str] = None) -> int:
+    import polars as pl
+    try:
+        if "user_id" not in df.columns:
+            df = df.with_columns(pl.lit(user_id).alias("user_id"))
+        if "account_id" not in df.columns:
+            df = df.with_columns(pl.lit(account_id).alias("account_id"))
+
+        rename_map = {
+            "predicted_category": "category",
+            "pf_pj_label": "context_type",
+            "pf_pj_confidence": "context_confidence",
+            "transaction_date": "date",
+        }
+        for old_name, new_name in rename_map.items():
+            if old_name in df.columns and new_name not in df.columns:
+                df = df.rename({old_name: new_name})
+
+        schema_cols = [
+            "transaction_id", "user_id", "account_id", "description",
+            "amount", "date", "transaction_type", "category",
+            "is_recurring", "is_installment", "context_type",
+            "context_confidence", "context_override_by_user", "pj_subcategory",
+        ]
+        cols_to_save = [c for c in schema_cols if c in df.columns]
+        df_to_save = df.select(cols_to_save)
+
+        con = get_connection()
+        try:
+            existing_ids = {
+                row[0]
+                for row in con.execute(
+                    "SELECT transaction_id FROM transactions_clean WHERE user_id = ?", [user_id]
+                ).fetchall()
+            }
+            records = df_to_save.to_dicts()
+            to_insert = [r for r in records if r["transaction_id"] not in existing_ids]
+            to_update = [r for r in records if r["transaction_id"] in existing_ids]
+
+            col_str = ", ".join(cols_to_save)
+            placeholders = ", ".join(["?" for _ in cols_to_save])
+
+            if to_insert:
+                con.executemany(
+                    f"INSERT INTO transactions_clean ({col_str}) VALUES ({placeholders})",
+                    [[r[c] for c in cols_to_save] for r in to_insert],
+                )
+
+            if to_update:
+                set_cols = [c for c in cols_to_save if c != "transaction_id"]
+                set_clause = ", ".join(f"{c} = ?" for c in set_cols)
+                con.executemany(
+                    f"UPDATE transactions_clean SET {set_clause} WHERE transaction_id = ?",
+                    [[r[c] for c in set_cols] + [r["transaction_id"]] for r in to_update],
+                )
+
+            rows = len(records)
+            logger.info("transactions_clean (DuckDB): %s linhas salvas para user %s", rows, user_id)
+            return rows
+        finally:
+            con.close()
+    except Exception as e:
+        logger.error("Erro ao salvar transactions_clean no DuckDB: %s", e)
         return 0
+
 
 def save_health_score_snapshot(
     db: Session,
