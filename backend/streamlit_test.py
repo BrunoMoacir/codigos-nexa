@@ -88,13 +88,42 @@ with aba_chat:
     with col_info:
         st.info("O agente tem acesso aos seus dados financeiros reais do DuckDB.", icon="ℹ️")
 
+    # Perguntas rápidas
+    PERGUNTAS_RAPIDAS = [
+        ("📊 Situação financeira",   "Como estão minhas finanças este mês?"),
+        ("💰 Quanto posso gastar",   "Quanto posso gastar com segurança este mês?"),
+        ("💳 Melhor cartão",         "Qual cartão de crédito vale mais a pena para o meu perfil?"),
+        ("📋 Orçamento 50/30/20",    "Como está meu orçamento? Analise meus gastos pelo método 50/30/20."),
+        ("🚨 Alertas",              "Tem algum alerta ou gasto suspeito nas minhas finanças?"),
+        ("🏠 Comprar imóvel",        "Vale a pena financiar um imóvel de R$ 350.000 com R$ 70.000 de entrada?"),
+        ("🚗 Comprar carro",         "Quero comprar um carro de R$ 60.000. Vale mais a pena financiar, poupar ou consórcio?"),
+        ("⏳ Esperar ou comprar",    "Se eu esperar 6 meses juntando R$ 2.000/mês, quanto economizo na compra de um carro de R$ 60.000?"),
+        ("🏦 Custos bancários",      "Quanto estou pagando de tarifas e taxas bancárias? Vale a pena trocar de banco?"),
+        ("🤝 Negociar anuidade",     "Como posso negociar a anuidade do meu cartão com o banco?"),
+        ("📈 Metas financeiras",     "Como estão minhas metas financeiras? Quanto falta para cada uma?"),
+        ("👥 Comparação com pares",  "Como meus gastos se comparam com pessoas da minha faixa de renda?"),
+        ("🧾 Relatório fiscal",      "Gera um relatório fiscal do meu negócio para 2025."),
+        ("📱 Compra parcelada",      "Vale a pena comprar uma TV de R$ 3.000 em 12 parcelas ou pagar à vista?"),
+    ]
+
+    if not st.session_state.chat_history:
+        st.markdown("**Sugestões de perguntas:**")
+        cols = st.columns(2)
+        for i, (label, pergunta) in enumerate(PERGUNTAS_RAPIDAS):
+            if cols[i % 2].button(label, key=f"quick_{i}", use_container_width=True):
+                st.session_state["_quick_prompt"] = pergunta
+                st.rerun()
+
+    # Captura pergunta rápida
+    quick = st.session_state.pop("_quick_prompt", None)
+
     # Exibe histórico
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
     # Input do usuário
-    prompt = st.chat_input("Pergunte sobre suas finanças...")
+    prompt = quick or st.chat_input("Pergunte sobre suas finanças...")
     if prompt:
         # Mostra mensagem do usuário
         st.session_state.chat_history.append({"role": "user", "content": prompt})
