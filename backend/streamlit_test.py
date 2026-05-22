@@ -21,7 +21,7 @@ SENHA          = "Mock@12345"
 
 st.set_page_config(page_title="Nexa — Painel de Testes", page_icon="🧪", layout="wide")
 st.title("🧪 Nexa — Painel de Testes Completo")
-st.caption("Sem API de banco · Sem LLM · Dados mock DuckDB")
+st.caption("Dados mock DuckDB · Chat com IA Haiku")
 
 # ─── helpers ──────────────────────────────────────────────────────
 def tool_invoke(import_path, fn_name, args):
@@ -54,11 +54,82 @@ def mostrar(nome, ok, detalhe, ms):
 
 
 # ─── abas ─────────────────────────────────────────────────────────
-aba_tools, aba_http, aba_negocio = st.tabs([
+aba_chat, aba_tools, aba_http, aba_negocio = st.tabs([
+    "💬 Chat Nexa",
     "🔧 Agent Tools",
     "🌐 Endpoints HTTP",
     "⚙️ Funções de Negócio",
 ])
+
+
+# ══════════════════════════════════════════════════════════════════
+# ABA 0 — CHAT INTERATIVO
+# ══════════════════════════════════════════════════════════════════
+with aba_chat:
+    st.subheader("💬 Chat com a Inteligência Nexa")
+    st.caption(f"Usuário: `{USER_ID}` · modelo: Claude Haiku")
+
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+    if "agent_instance" not in st.session_state:
+        st.session_state.agent_instance = None
+    if "chat_thread_id" not in st.session_state:
+        import uuid
+        st.session_state.chat_thread_id = str(uuid.uuid4())
+
+    col_reset, col_info = st.columns([1, 4])
+    with col_reset:
+        if st.button("🗑️ Limpar conversa"):
+            st.session_state.chat_history = []
+            import uuid
+            st.session_state.chat_thread_id = str(uuid.uuid4())
+            st.session_state.agent_instance = None
+            st.rerun()
+    with col_info:
+        st.info("O agente tem acesso aos seus dados financeiros reais do DuckDB.", icon="ℹ️")
+
+    # Exibe histórico
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # Input do usuário
+    prompt = st.chat_input("Pergunte sobre suas finanças...")
+    if prompt:
+        # Mostra mensagem do usuário
+        st.session_state.chat_history.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Chama o agente
+        with st.chat_message("assistant"):
+            with st.spinner("Nexa está pensando..."):
+                try:
+                    from langchain_core.messages import HumanMessage
+
+                    if st.session_state.agent_instance is None:
+                        from app.agent.graph import build_financial_agent
+                        st.session_state.agent_instance = build_financial_agent()
+
+                    agent = st.session_state.agent_instance
+                    inputs = {
+                        "messages": [
+                            HumanMessage(content=(
+                                f"[user_id autenticado: {USER_ID}] "
+                                f"Use SOMENTE este user_id em todas as ferramentas.\n\n"
+                                f"{prompt}"
+                            ))
+                        ]
+                    }
+                    config = {"configurable": {"thread_id": st.session_state.chat_thread_id}}
+                    result = agent.invoke(inputs, config=config)
+                    msgs = result.get("messages", [])
+                    resposta = msgs[-1].content if msgs else "Sem resposta."
+                except Exception as e:
+                    resposta = f"❌ Erro: {e}"
+
+            st.markdown(resposta)
+            st.session_state.chat_history.append({"role": "assistant", "content": resposta})
 
 
 # ══════════════════════════════════════════════════════════════════
