@@ -112,16 +112,17 @@ with aba_chat:
             if cols[i % 2].button(label, key=f"quick_{i}", use_container_width=True):
                 st.session_state["_quick_prompt"] = pergunta
 
-    # Captura pergunta rápida (sem rerun — Streamlit já reroda ao clicar botão)
-    quick = st.session_state.pop("_quick_prompt", None)
-
     # Exibe histórico
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # Input do usuário — sempre visível
-    prompt = quick or st.chat_input("Pergunte sobre suas finanças...")
+    # Input sempre visível — renderizado antes de verificar quick prompt
+    typed = st.chat_input("Pergunte sobre suas finanças...")
+
+    # Captura pergunta rápida
+    quick = st.session_state.pop("_quick_prompt", None)
+    prompt = typed or quick
     if prompt:
         # Mostra mensagem do usuário
         st.session_state.chat_history.append({"role": "user", "content": prompt})
@@ -157,6 +158,7 @@ with aba_chat:
 
             st.markdown(resposta)
             st.session_state.chat_history.append({"role": "assistant", "content": resposta})
+            st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════
