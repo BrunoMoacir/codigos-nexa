@@ -96,6 +96,133 @@ class AssetType(str, Enum):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# OPEN FINANCE — FEATURES EXTRAÍDAS DOS ENDPOINTS
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class OpenFinanceFeatures(BaseModel):
+    """
+    Features personalizadas extraídas dos endpoints do Open Finance Brasil.
+
+    Todos os campos são Optional — a simulação degrada graciosamente quando
+    um endpoint não retorna dados ou a permissão não foi concedida.
+
+    Impacto direto no motor:
+        rendimento_real_atual    → substitui CDI teórico como taxa de desconto NPV
+                                   e benchmark do SAVE_INVEST (elimina a maior suposição)
+        cet_historico_real       → substitui CET genérico de mercado pelo CET real
+                                   que o banco cobra neste usuário específico
+        comprometimento_renda_pct → limita margem disponível; gera aviso de risco
+        adimplencia_pct          → desconto no CET estimado (bom pagador = taxa menor)
+        meses_consecutivos_poupanca → valida capacidade de poupança declarada
+        sazonalidade_receita     → detecta meses de baixa renda onde a parcela pesa
+
+    Fonte por endpoint:
+        /investments → rendimento_real_atual, composicao_rf_pct, composicao_rv_pct,
+                       duration_media_anos
+        /loans       → cet_medio_historico, adimplencia_pct, comprometimento_renda_pct
+        /accounts    → sazonalidade_receita, meses_consecutivos_poupanca
+        /financings  → experiencia_financiamento, cet_historico_real
+    """
+
+    # ── /investments ──────────────────────────────────────────────────
+
+    rendimento_real_atual: Optional[float] = Field(
+        default=None,
+        description=(
+            "Taxa de retorno anual real (líquida de IR) dos investimentos do usuário (decimal). "
+            "Ex: 0.12 = 12% a.a. Substitui CDI teórico como benchmark do SAVE_INVEST "
+            "e como taxa de desconto do NPV — elimina a principal suposição do modelo."
+        ),
+        ge=0.0,
+        le=1.0,
+    )
+    composicao_rf_pct: Optional[float] = Field(
+        default=None,
+        description="Percentual da carteira em renda fixa [0-1].",
+        ge=0.0, le=1.0,
+    )
+    composicao_rv_pct: Optional[float] = Field(
+        default=None,
+        description="Percentual da carteira em renda variável [0-1].",
+        ge=0.0, le=1.0,
+    )
+    duration_media_anos: Optional[float] = Field(
+        default=None,
+        description="Duration média ponderada da carteira de renda fixa (anos). "
+                    "Alta duration → maior sensibilidade a variações de Selic.",
+        ge=0.0,
+    )
+
+    # ── /loans ────────────────────────────────────────────────────────
+
+    cet_medio_historico: Optional[float] = Field(
+        default=None,
+        description=(
+            "CET médio anual ponderado pago historicamente em contratos de crédito (decimal). "
+            "Inclui crédito pessoal, consignado, etc. Proxy do relacionamento bancário."
+        ),
+        ge=0.0, le=2.0,
+    )
+    adimplencia_pct: Optional[float] = Field(
+        default=None,
+        description=(
+            "Percentual de parcelas pagas em dia sobre o total de parcelas [0-1]. "
+            "1.0 = adimplência perfeita → CET menor estimado. "
+            "< 0.90 → aviso de risco de não-aprovação."
+        ),
+        ge=0.0, le=1.0,
+    )
+    comprometimento_renda_pct: Optional[float] = Field(
+        default=None,
+        description=(
+            "Percentual da renda mensal já comprometida com parcelas de dívidas ativas [0-1]. "
+            "Acima de 30% → aviso de margem insuficiente para novos compromissos."
+        ),
+        ge=0.0, le=1.0,
+    )
+
+    # ── /accounts ─────────────────────────────────────────────────────
+
+    sazonalidade_receita: Optional[list[float]] = Field(
+        default=None,
+        description=(
+            "Multiplicadores mensais de receita (12 valores, índice 0 = Janeiro). "
+            "1.0 = mês médio. Ex: 1.4 em Dezembro (13º salário). "
+            "Usado para identificar meses de baixa renda onde a parcela pode ser crítica."
+        ),
+        min_length=12,
+        max_length=12,
+    )
+    meses_consecutivos_poupanca: Optional[int] = Field(
+        default=None,
+        description=(
+            "Número de meses consecutivos com saldo positivo (receita > despesa). "
+            "< 3 meses → aviso se o orçamento declarado for alto."
+        ),
+        ge=0,
+    )
+
+    # ── /financings ───────────────────────────────────────────────────
+
+    experiencia_financiamento: Optional[bool] = Field(
+        default=None,
+        description=(
+            "True se o usuário já tem ou teve financiamentos. "
+            "Reduz incerteza sobre aprovação bancária e CET praticado."
+        ),
+    )
+    cet_historico_real: Optional[float] = Field(
+        default=None,
+        description=(
+            "CET anual médio real cobrado em financiamentos anteriores (decimal). "
+            "Mais preciso que cet_medio_historico para estimar o custo de um novo "
+            "financiamento — exclui crédito pessoal e consignado."
+        ),
+        ge=0.0, le=2.0,
+    )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # REQUEST — INPUT DO USUÁRIO
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -256,6 +383,19 @@ class SimulationRequest(BaseModel):
         default=None,
         description="Renda mensal bruta do usuário (R$). Melhora a precisão do card_optimization_bonus.",
         gt=0,
+    )
+
+    # ── Open Finance — fonte primária de dados personalizados ─────────
+
+    open_finance_features: Optional[OpenFinanceFeatures] = Field(
+        default=None,
+        description=(
+            "Features extraídas dos endpoints do Open Finance Brasil (/investments, "
+            "/loans, /accounts, /financings). Quando presentes, substituem os valores "
+            "genéricos de mercado por dados reais do usuário: rendimento_real_atual "
+            "substitui CDI teórico, cet_historico_real substitui CET médio de mercado. "
+            "confidence_score base sobe para 0.95 (dados reais eliminam suposições)."
+        ),
     )
 
     # ── Validações de negócio ────────────────────────────────────────
@@ -873,6 +1013,15 @@ class MacroSimulationResult(BaseModel):
         ),
     )
 
+    ssd_matrix: Optional[Dict[str, Dict[str, str]]] = Field(
+        default=None,
+        description=(
+            "Dominância Estocástica de Segunda Ordem par a par. "
+            "ssd_matrix[A][B] = 'dominates' | 'dominated' | 'inconclusive'. "
+            "'dominates': A é preferível a B para qualquer agente avesso a risco."
+        ),
+    )
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # RESPONSE — OUTPUT DA SIMULAÇÃO
@@ -1251,6 +1400,8 @@ __all__ = [
     "AmortizationMethod",
     "RiskProfile",
     "AssetType",
+    # Open Finance
+    "OpenFinanceFeatures",
     # Request
     "SimulationRequest",
     # Termos das estratégias

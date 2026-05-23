@@ -93,10 +93,14 @@ class StrategyEngine:
         selic_monthly = (1 + selic_annual) ** (1 / 12) - 1
         cdi_annual    = market_rates.get("cdi_annual", 0.1465)
 
-        # Custo de oportunidade do usuário: taxa de retorno ajustada ao perfil de risco.
-        # Usada como taxa de desconto no NPV de todas as estratégias — substitui a
-        # Selic genérica por um r personalizado ao perfil declarado ou inferido.
-        disc_rate_annual  = self._get_investment_rate(cdi_annual, request.risk_profile, request.risk_score)
+        # Custo de oportunidade: prioridade → rendimento_real_atual do Open Finance
+        # (retorno que o usuário JÁ consegue, dado real) → fallback: taxa estimada
+        # por perfil de risco sobre o CDI de mercado.
+        of = request.open_finance_features
+        if of is not None and of.rendimento_real_atual is not None:
+            disc_rate_annual = of.rendimento_real_atual
+        else:
+            disc_rate_annual = self._get_investment_rate(cdi_annual, request.risk_profile, request.risk_score)
         disc_rate_monthly = (1 + disc_rate_annual) ** (1 / 12) - 1
         market_rates      = {**market_rates, "disc_rate_monthly": disc_rate_monthly}
 
@@ -782,10 +786,15 @@ class StrategyEngine:
         cdi_annual    = rates.get("cdi_annual",    0.1465)
         ipca_annual   = rates.get("ipca_annual",   0.045)   # M3.1
 
-        # Benchmark de retorno ajustado pelo perfil de risco do usuário
-        investment_rate = self._get_investment_rate(
-            cdi_annual, req.risk_profile, req.risk_score
-        )
+        # Benchmark: prioridade → rendimento real do Open Finance (taxa real do usuário)
+        # → fallback: estimativa por perfil sobre CDI de mercado.
+        of = req.open_finance_features
+        if of is not None and of.rendimento_real_atual is not None:
+            investment_rate = of.rendimento_real_atual
+        else:
+            investment_rate = self._get_investment_rate(
+                cdi_annual, req.risk_profile, req.risk_score
+            )
         selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
         disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
 
@@ -1559,7 +1568,7 @@ class StrategyEngine:
                 if prob is not None:
                     consortium_expected = int(prob.expected_months)
 
-            distributions, prob_best = run_macro_simulation(
+            distributions, prob_best, ssd_matrix = run_macro_simulation(
                 n_sims                            = n_sims,
                 initial_selic_annual              = selic_annual,
                 financing_cashflows               = fin_result.get("cashflows"),
@@ -1585,7 +1594,8 @@ class StrategyEngine:
                     )
                     for k, v in distributions.items()
                 },
-                prob_best = prob_best,
+                prob_best  = prob_best,
+                ssd_matrix = ssd_matrix,
             )
 
         except Exception as exc:
@@ -1623,6 +1633,7 @@ class StrategyEngine:
             scenarios = [0, 3, 6, 12]
 
         selic_monthly = (1 + market_rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
+        disc_monthly  = market_rates.get("disc_rate_monthly", selic_monthly)
         cet_annual    = market_rates.get("best_cet_annual", 0.20)
         ipca_annual   = market_rates.get("ipca_annual", 0.045)
 
@@ -1642,7 +1653,7 @@ class StrategyEngine:
             opp_cashflows  = [-monthly_savings] * wait
             fin_cashflows  = [-new_down] + [-row["payment"] for row in sim.schedule]
             all_cashflows  = opp_cashflows + fin_cashflows
-            npv_val = npv_calc.calculate_npv(all_cashflows, selic_monthly)
+            npv_val = npv_calc.calculate_npv(all_cashflows, disc_monthly)
 
             # ── 3. Base (comprar agora) para comparação ────────────────
             if base_npv is None:

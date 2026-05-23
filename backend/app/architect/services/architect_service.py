@@ -39,7 +39,9 @@ from app.architect.connectors.consortium_rate_provider import ConsortiumRateProv
 from app.architect.connectors.ipca import IPCAConnector
 from app.architect.connectors.market_rates import MarketRatesConnector
 from app.architect.models import (
+    AmortizationMethod,
     CardOptimizationBonus,
+    OpenFinanceFeatures,
     SimulationRequest,
     SimulationResponse,
     StrategyType,
@@ -137,13 +139,22 @@ class ArchitectService:
         market_rates, rate_warnings = self._fetch_market_rates(request)
         accumulated_warnings.extend(rate_warnings)
 
+        # ── 2.5. Open Finance: personalizar taxas com dados reais ────
+        has_open_finance_data = False
+        if request.open_finance_features is not None:
+            market_rates, of_warnings = self._apply_open_finance_overrides(
+                market_rates, request.open_finance_features, request
+            )
+            accumulated_warnings.extend(of_warnings)
+            has_open_finance_data = True
+
         # ── 3. Simular estratégias ───────────────────────────────────
         base_response = self._engine.simulate(request, market_rates)
         # Preserva warnings gerados pelo engine (perfil de risco, depreciação, etc.)
         accumulated_warnings.extend(base_response.warnings)
 
         # ── 4. Recalcular liquidez com safe_to_spend real ────────────
-        monthly_payment = self._estimate_monthly_payment(base_response, request)
+        monthly_payment = self._estimate_monthly_payment(base_response, request, market_rates)
         liquidity = LiquidityValidator.calculate(
             monthly_payment=monthly_payment,
             safe_to_spend=safe_to_spend,
@@ -157,12 +168,15 @@ class ArchitectService:
             has_f1_data=(safe_to_spend is not None),
             used_fallback_rates=bool(rate_warnings),
             warning_count=len(accumulated_warnings),
+            has_open_finance_data=has_open_finance_data,
         )
 
         # ── 6. Consolidar data_sources ───────────────────────────────
         data_sources = list(base_response.data_sources)
         if safe_to_spend is not None:
             data_sources.append("f1_safe_to_spend")
+        if has_open_finance_data:
+            data_sources.append("open_finance")
         # ABAC sempre consultado para simulações de consórcio (Fase 2)
         if request.include_consortium and "abac" not in data_sources:
             data_sources.append("abac")
@@ -346,6 +360,7 @@ class ArchitectService:
     def _estimate_monthly_payment(
         response: SimulationResponse,
         request: SimulationRequest,
+        market_rates: dict,
     ) -> float:
         """
         Estima a parcela mensal efetiva da estratégia recomendada.
@@ -353,14 +368,10 @@ class ArchitectService:
         Usado como entrada do LiquidityValidator. Cada estratégia tem
         uma lógica diferente para chegar ao compromisso mensal de caixa.
 
-        - FINANCING:   custo total / prazo do financiamento (parcela fixa PRICE)
-        - SAVE_INVEST: custo total / meses de acumulação (aporte mensal)
-        - CONSORTIUM:  custo total / meses de acumulação (parcela mensal)
-
-        Limitação (MVP): para SAC, retorna a parcela média (custo_total / n_meses),
-        não a parcela inicial (a mais alta). O LiquidityValidator pode subestimar
-        o impacto real no mês 1 quando amortization_method=SAC. Aceitável enquanto
-        PRICE for o default, pois para PRICE custo_total / n_meses == parcela fixa.
+        - FINANCING (PRICE): parcela fixa = custo total / prazo
+        - FINANCING (SAC):   primeira parcela (mais alta) = amort + juros sobre principal cheio
+        - SAVE_INVEST:       custo total / meses de acumulação (aporte mensal)
+        - CONSORTIUM:        custo total / meses de acumulação (parcela mensal)
         """
         # Estratégias compostas: usar custo líquido (após aluguel/SELIC)
         if response.recommended_strategy in (
@@ -378,7 +389,16 @@ class ArchitectService:
         months_to_achieve = max(response.months_to_achieve, 1)
 
         if response.recommended_strategy == StrategyType.FINANCING:
-            # months_to_achieve = 1 (aquisição imediata) — usar prazo real do contrato
+            if request.amortization_method == AmortizationMethod.SAC:
+                # SAC: primeira parcela (mais alta) = amortização + juros sobre principal inteiro.
+                # Conservador para o LiquidityValidator — garante que mês 1 é coberto.
+                principal    = max(request.target_amount - request.down_payment, 0.0)
+                cet_annual   = market_rates.get("best_cet_annual", 0.20)
+                monthly_rate = (1 + cet_annual) ** (1 / 12) - 1
+                n            = max(request.financing_months, 1)
+                first_payment = principal / n + principal * monthly_rate
+                return round(first_payment, 2)
+            # PRICE: parcela fixa = custo_total / prazo
             denominator = max(request.financing_months, 1)
         else:
             # SAVE_INVEST e CONSORTIUM: meses até ter o bem
@@ -414,11 +434,54 @@ class ArchitectService:
             income_profile = IncomeProfiler().build(transactions_df)
             fin_profile = UserProfileAnalyzer().analyze(transactions_df, income_profile)
 
+            committed_pct        = 0.0
+            committed_available  = False
+            investment_ratio     = None
+            reserve_depth_of     = None
+            of = request.open_finance_features
+
+            if of is not None:
+                if of.comprometimento_renda_pct is not None:
+                    committed_pct       = of.comprometimento_renda_pct
+                    committed_available = True
+                investment_ratio = of.composicao_rv_pct
+
+                # C4 proxy: reserva estimada / (6 × despesa mensal).
+                # savings_rate decresce com dívida — quem tem MENOS comprometimento poupa MAIS.
+                # Requer renda + comprometimento + streak; sem qualquer um cai para user_profile.
+                if (
+                    of.meses_consecutivos_poupanca is not None
+                    and request.monthly_income is not None
+                    and request.monthly_income > 0
+                    and of.comprometimento_renda_pct is not None
+                ):
+                    income    = request.monthly_income
+                    committed = of.comprometimento_renda_pct
+                    streak    = of.meses_consecutivos_poupanca
+
+                    # Despesa total: intercepto 0.80 + slope 0.20 (cap 0.97).
+                    # Slope 2× mais agressivo que 0.85+0.10: captura que comprometimento
+                    # alto deixa pouca margem e o expense_rate sobe mais rápido.
+                    expense_rate    = min(0.80 + committed * 0.20, 0.97)
+                    monthly_expense = income * expense_rate
+
+                    # Capacidade de poupança: monotônica inversa ao comprometimento
+                    savings_rate    = max(0.0, (1.0 - committed) * 0.20)
+                    monthly_saving  = income * savings_rate
+
+                    estimated_reserve = monthly_saving * streak
+                    months_covered    = estimated_reserve / monthly_expense if monthly_expense > 0 else 0.0
+                    reserve_depth_of  = round(min(months_covered / 6.0, 1.0), 4)
+
             risk_result = RiskScorer.score(
                 request=request,
                 income_profile=income_profile,
                 user_profile=fin_profile,
                 transactions_df=transactions_df,
+                committed_pct=committed_pct,
+                committed_available=committed_available,
+                investment_ratio=investment_ratio,
+                reserve_depth_override=reserve_depth_of,
             )
 
             tier = getattr(fin_profile, "behavior_tier", fin_profile.profile_type)
@@ -626,21 +689,26 @@ class ArchitectService:
         has_f1_data: bool,
         used_fallback_rates: bool,
         warning_count: int,
+        has_open_finance_data: bool = False,
     ) -> float:
         """
         Ajusta o score de confiança baseado na qualidade dos dados disponíveis.
 
-        Base (do engine):       0.85
-        + dados reais da F1:   +0.10
-        - taxas de fallback:   -0.05
-        - por aviso gerado:    -0.02 (máx: -0.10)
+        Base (do engine):           0.75–0.85 (risk_score_confidence ou fallback)
+        + Open Finance presente:   +0.10 → base sobe para ~0.95 (dados reais eliminam suposições)
+        + dados reais da F1:       +0.05
+        - taxas de fallback:       -0.05
+        - por aviso gerado:        -0.02 (máx: -0.10)
 
         Clamped em [0.30, 1.00].
         """
         score = base_confidence
 
+        if has_open_finance_data:
+            score += 0.10   # rendimento real + CET personalizado eliminam as maiores suposições
+
         if has_f1_data:
-            score += 0.10
+            score += 0.10   # safe_to_spend real valida capacidade de pagamento
 
         if used_fallback_rates:
             score -= 0.05
@@ -648,6 +716,101 @@ class ArchitectService:
         score -= min(warning_count * 0.02, 0.10)
 
         return max(0.30, min(1.00, score))
+
+    @staticmethod
+    def _apply_open_finance_overrides(
+        market_rates: dict,
+        features: OpenFinanceFeatures,
+        request: SimulationRequest,
+    ) -> tuple[dict, list[str]]:
+        """
+        Personaliza market_rates com dados reais do Open Finance do usuário.
+
+        Overrides aplicados:
+          best_cet_annual → CET real do usuário (cet_historico_real ou cet_medio_historico)
+                            quando menor que o CET de mercado. Bom pagador (adimplência ≥ 95%)
+                            recebe desconto adicional de 0.5 p.p.
+
+        Warnings gerados (não-bloqueantes):
+          - CET personalizado informado (com diferença em p.p.)
+          - Adimplência baixa (< 90%) → risco de não-aprovação
+          - Comprometimento de renda > 30% → margem insuficiente
+          - Poupança inconsistente (< 3 meses) vs orçamento declarado alto
+          - Meses de baixa receita (sazonalidade < 85%) onde a parcela pode pesar
+
+        Returns:
+            (updated_market_rates, warnings)
+        """
+        overrides: dict = {}
+        warnings: list[str] = []
+
+        # ── CET personalizado ─────────────────────────────────────────
+        personalized_cet = features.cet_historico_real or features.cet_medio_historico
+        if personalized_cet is not None:
+            market_cet = market_rates.get("best_cet_annual", float("inf"))
+            adimpl_discount = 0.005 if (features.adimplencia_pct or 0.0) >= 0.95 else 0.0
+            effective_cet = max(0.05, personalized_cet - adimpl_discount)
+            if effective_cet < market_cet:
+                overrides["best_cet_annual"] = round(effective_cet, 4)
+                diff_pp = (market_cet - effective_cet) * 100
+                source = "financiamentos anteriores" if features.cet_historico_real else "histórico de crédito"
+                warnings.append(
+                    f"CET personalizado ({source}): {effective_cet:.1%} a.a. "
+                    f"({diff_pp:.1f} p.p. abaixo do mercado)."
+                )
+
+        # ── Adimplência baixa ─────────────────────────────────────────
+        if features.adimplencia_pct is not None and features.adimplencia_pct < 0.90:
+            warnings.append(
+                f"Histórico bancário: {features.adimplencia_pct:.0%} de adimplência — "
+                "bancos podem exigir maior entrada ou CET mais alto. "
+                "Consulte seu gerente antes de formalizar a proposta."
+            )
+
+        # ── Comprometimento de renda ──────────────────────────────────
+        if (
+            features.comprometimento_renda_pct is not None
+            and features.comprometimento_renda_pct > 0.30
+        ):
+            pct = features.comprometimento_renda_pct
+            warnings.append(
+                f"Renda já comprometida com dívidas: {pct:.0%} "
+                f"(limite recomendado: 30%). "
+                "Considere quitar contratos existentes antes de assumir novos compromissos."
+            )
+
+        # ── Padrão de poupança inconsistente ─────────────────────────
+        if (
+            features.meses_consecutivos_poupanca is not None
+            and features.meses_consecutivos_poupanca < 3
+            and request.max_monthly_budget is not None
+        ):
+            meses = features.meses_consecutivos_poupanca
+            warnings.append(
+                f"Dados bancários: apenas {meses} "
+                f"{'mês' if meses == 1 else 'meses'} consecutivo{'s' if meses != 1 else ''} "
+                f"com sobra mensal — verifique se o orçamento de "
+                f"R$ {request.max_monthly_budget:,.0f}/mês é sustentável."
+            )
+
+        # ── Sazonalidade: meses de baixa receita ─────────────────────
+        if features.sazonalidade_receita is not None and request.max_monthly_budget is not None:
+            month_labels = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+                            "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+            lean = [
+                month_labels[i]
+                for i, m in enumerate(features.sazonalidade_receita)
+                if m < 0.85
+            ]
+            if lean:
+                min_mult = min(features.sazonalidade_receita)
+                warnings.append(
+                    f"Meses de receita reduzida: {', '.join(lean)} "
+                    f"(até {(1 - min_mult):.0%} abaixo da média) — "
+                    "confirme que a parcela caberá no orçamento nesses meses."
+                )
+
+        return {**market_rates, **overrides}, warnings
 
 
 __all__ = ["ArchitectService"]

@@ -196,23 +196,34 @@ class RiskScorer:
         user_profile:   Optional["UserProfile"]   = None,
         transactions_df=None,
         committed_pct: float = 0.0,
+        committed_available: bool = False,
+        investment_ratio: Optional[float] = None,
+        reserve_depth_override: Optional[float] = None,
     ) -> RiskScore:
         """
         Computa o score de tolerância ao risco.
 
         Args:
-            request:        SimulationRequest (asset_type + financing_months para C6).
-            income_profile: IncomeProfile da F1 (income_stability para C1).
-            user_profile:   UserProfile do UserProfileAnalyzer (C4 + fallback C1/C5).
-            transactions_df: DataFrame polars de transações (C5 preciso).
-            committed_pct:  Fração da renda comprometida com obrigações fixas (C3).
-                            0.0 é o sentinel de "dado ausente" no fluxo atual.
+            request:                SimulationRequest (asset_type + financing_months para C6).
+            income_profile:         IncomeProfile da F1 (income_stability para C1).
+            user_profile:           UserProfile do UserProfileAnalyzer (C4 + fallback C1/C5).
+            transactions_df:        DataFrame polars de transações (C5 preciso).
+            committed_pct:          Fração da renda comprometida com obrigações fixas (C3).
+            committed_available:    True quando committed_pct vem de dado real (não sentinel).
+            investment_ratio:       Fração da carteira em renda variável (C2).
+                                    None mantém o comportamento anterior (peso redistribuído).
+            reserve_depth_override: C4 estimado externamente (ex: OF pipeline).
+                                    Substitui _c4_reserve_depth(user_profile) quando não None.
 
         Returns:
             RiskScore com score, profile discretizado, confidence e componentes.
         """
         components = RiskScorer._build_components(
-            request, income_profile, user_profile, transactions_df, committed_pct
+            request, income_profile, user_profile, transactions_df,
+            committed_pct=committed_pct,
+            committed_available=committed_available,
+            investment_ratio=investment_ratio,
+            reserve_depth_override=reserve_depth_override,
         )
         missing: list[str] = []
         score_val, weights = RiskScorer._compute_score(
@@ -254,14 +265,22 @@ class RiskScorer:
         user_profile:   Optional["UserProfile"],
         transactions_df,
         committed_pct: float,
+        committed_available: bool = False,
+        investment_ratio: Optional[float] = None,
+        reserve_depth_override: Optional[float] = None,
     ) -> RiskComponents:
+        reserve_depth = (
+            reserve_depth_override
+            if reserve_depth_override is not None
+            else RiskScorer._c4_reserve_depth(user_profile)
+        )
         return RiskComponents(
             income_volatility  = RiskScorer._c1_income_volatility(income_profile, user_profile),
-            income_commitment  = RiskScorer._c3_income_commitment(committed_pct),
-            reserve_depth      = RiskScorer._c4_reserve_depth(user_profile),
+            income_commitment  = RiskScorer._c3_income_commitment(committed_pct, committed_available),
+            reserve_depth      = reserve_depth,
             savings_regularity = RiskScorer._c5_savings_regularity(transactions_df, user_profile),
             time_horizon_fit   = RiskScorer._c6_time_horizon(request),
-            investment_ratio   = None,  # C2: requer API de portfólio (indisponível)
+            investment_ratio   = investment_ratio,
         )
 
     @staticmethod
@@ -283,21 +302,25 @@ class RiskScorer:
         return 0.50
 
     @staticmethod
-    def _c3_income_commitment(committed_pct: float) -> float:
+    def _c3_income_commitment(
+        committed_pct: float,
+        data_available: bool = False,
+    ) -> float:
         """
         C3: Liberdade orçamentária [0-1]. 1=livre, 0=totalmente comprometido.
 
-        committed_pct é a fração da renda comprometida com obrigações fixas
-        (parcelas existentes, assinaturas recorrentes).
+        Fórmula não-linear: exp(-3 × committed_pct). Penaliza comprometimento
+        alto de forma desproporcional — reflete que cada % extra de renda comprometida
+        reduz a margem de segurança de forma superlinear.
 
-        No fluxo atual do architect, committed_pct=0.0 é sentinel de "dado ausente"
-        porque o ConsumptionProfiler não é chamado. Retornamos 0.5 neutro nesse caso.
-        Quando CommittedProfiler for integrado, valores > 0 serão reais e calculados.
+        Se data_available=False (dado ausente), retorna 0.5 neutro para não
+        inflar nem penalizar o score por ausência de informação.
         """
-        if committed_pct <= 0.0:
-            return 0.50  # sentinel: dados ausentes → neutro
+        if not data_available:
+            return 0.50
 
-        return round(1.0 - min(1.0, committed_pct), 4)
+        clamped = max(0.0, min(1.0, committed_pct))
+        return round(math.exp(-3.0 * clamped), 4)
 
     @staticmethod
     def _c4_reserve_depth(user_profile: Optional["UserProfile"]) -> Optional[float]:

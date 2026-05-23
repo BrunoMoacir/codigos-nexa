@@ -150,11 +150,12 @@ def run_macro_simulation(
     consortium_expected_contemplation: Optional[int] = None,
     invest_factor: float                          = 0.85,
     seed: Optional[int]                           = None,
-) -> Tuple[Dict[str, StrategyDistribution], Dict[str, float]]:
+) -> Tuple[Dict[str, StrategyDistribution], Dict[str, float], Dict[str, Dict[str, str]]]:
     """
     Simula N cenários macroeconômicos correlacionados e retorna:
       - distributions: estatísticas de NPV (P10/P50/P90 + CVaR95) por estratégia
       - prob_best: P(esta estratégia tem o melhor NPV) — soma 1.0
+      - ssd_matrix: dominância SSD par a par ("dominates"/"dominated"/"inconclusive")
 
     Args:
         n_sims:                            número de trajetórias simuladas
@@ -170,7 +171,7 @@ def run_macro_simulation(
         seed:                              semente para reprodutibilidade
 
     Returns:
-        (distributions, prob_best)
+        (distributions, prob_best, ssd_matrix)
     """
     n_months = max(
         financing_months,
@@ -197,7 +198,8 @@ def run_macro_simulation(
 
     distributions = {k: _stats(v) for k, v in raw.items()}
     prob_best     = _compute_prob_best(raw)
-    return distributions, prob_best
+    ssd_matrix    = _compute_ssd_matrix(raw)
+    return distributions, prob_best, ssd_matrix
 
 
 # ─── Cálculo de NPVs por trajetória (vetorizado) ─────────────────────────────
@@ -354,9 +356,59 @@ def _compute_prob_best(npv_arrays: Dict[str, np.ndarray]) -> Dict[str, float]:
     return {k: round(float(np.sum(best == i) / n), 4) for i, k in enumerate(keys)}
 
 
+def _compute_ssd_matrix(
+    npv_arrays: Dict[str, np.ndarray],
+) -> Dict[str, Dict[str, str]]:
+    """
+    Dominância Estocástica de Segunda Ordem (SSD) par a par.
+
+    ssd[A][B] = "dominates" | "dominated" | "inconclusive"
+
+    A domina B em SSD quando ∫F_B(t)dt ≥ ∫F_A(t)dt para todo x — ou seja,
+    A é preferível para QUALQUER agente avesso a risco, independente do grau
+    de aversão. Isso captura o pior caso, não apenas a frequência de vitória.
+
+    Implementação: grade comum de 500 pontos entre min e max dos dois arrays;
+    integral acumulada de (F_B − F_A) deve ser ≥ 0 em todos os pontos (TOL=1e-4).
+    """
+    if not npv_arrays:
+        return {}
+    keys = list(npv_arrays.keys())
+    TOL  = 1e-4
+    sorted_arrays = {k: np.sort(v) for k, v in npv_arrays.items()}
+    result: Dict[str, Dict[str, str]] = {}
+
+    for ki in keys:
+        row: Dict[str, str] = {}
+        dist_a = sorted_arrays[ki]
+        for kj in keys:
+            if ki == kj:
+                continue
+            dist_b = sorted_arrays[kj]
+            grid   = np.linspace(
+                min(dist_a[0], dist_b[0]),
+                max(dist_a[-1], dist_b[-1]),
+                num=500,
+            )
+            cdf_a    = np.searchsorted(dist_a, grid, side="right") / len(dist_a)
+            cdf_b    = np.searchsorted(dist_b, grid, side="right") / len(dist_b)
+            step     = grid[1] - grid[0]
+            integral = np.cumsum((cdf_b - cdf_a) * step)
+
+            if np.all(integral >= -TOL):
+                row[kj] = "dominates"
+            elif np.all(integral <= TOL):
+                row[kj] = "dominated"
+            else:
+                row[kj] = "inconclusive"
+        result[ki] = row
+    return result
+
+
 __all__ = [
     "MacroPaths",
     "StrategyDistribution",
     "generate_macro_paths",
     "run_macro_simulation",
+    "_compute_ssd_matrix",
 ]
