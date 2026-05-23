@@ -424,7 +424,10 @@ class ArchitectService:
             tier = getattr(fin_profile, "behavior_tier", fin_profile.profile_type)
             resilience = getattr(fin_profile, "resilience_score", fin_profile.financial_health_score)
 
-            updates: dict = {"risk_score": risk_result.score}
+            updates: dict = {
+                "risk_score":            risk_result.score,
+                "risk_score_confidence": risk_result.confidence,
+            }
 
             if request.risk_profile is None:
                 updates["risk_profile"] = risk_result.profile

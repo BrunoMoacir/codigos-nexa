@@ -35,6 +35,8 @@ from app.architect.models import (
     RentalLeveragePlan,
     CompoundStrategyLeg,
     EfficiencyAnalysis,
+    MacroSimulationResult,
+    StrategyMacroStats,
     TimingScenario,
 )
 from app.architect.calculators import financing as fin_calc
@@ -87,8 +89,16 @@ class StrategyEngine:
             request.target_amount,
         )
 
-        selic_annual = market_rates.get("selic_annual", 0.1475)
+        selic_annual  = market_rates.get("selic_annual", 0.1475)
         selic_monthly = (1 + selic_annual) ** (1 / 12) - 1
+        cdi_annual    = market_rates.get("cdi_annual", 0.1465)
+
+        # Custo de oportunidade do usuário: taxa de retorno ajustada ao perfil de risco.
+        # Usada como taxa de desconto no NPV de todas as estratégias — substitui a
+        # Selic genérica por um r personalizado ao perfil declarado ou inferido.
+        disc_rate_annual  = self._get_investment_rate(cdi_annual, request.risk_profile, request.risk_score)
+        disc_rate_monthly = (1 + disc_rate_annual) ** (1 / 12) - 1
+        market_rates      = {**market_rates, "disc_rate_monthly": disc_rate_monthly}
 
         # ── 1. Simular Estratégias ──────────────────────────────────
         fin_result = self._simulate_financing(request, market_rates)
@@ -394,6 +404,17 @@ class StrategyEngine:
         if leverage_analysis:
             data_sources.append("leverage_optimizer")
 
+        # ── 5. Simulação macroeconômica correlacionada (VAR-1) ───────────
+        macro_sim = self._run_macro_simulation(
+            request=request,
+            market_rates=market_rates,
+            fin_result=fin_result,
+            inv_result=inv_result,
+            cons_result=cons_result,
+        )
+        if macro_sim is not None:
+            data_sources.append("macro_var1")
+
         return SimulationResponse(
             recommended_strategy=final_strategy,
             costs=CostScenario(
@@ -405,7 +426,7 @@ class StrategyEngine:
                 financing=float(npv_fin),
                 consortium=float(npv_cons) if npv_cons is not None else None,
                 save_invest=float(npv_inv),
-                discount_rate_used=selic_monthly,
+                discount_rate_used=disc_rate_monthly,
                 financing_rental=float(comp4_result["npv"]) if comp4_result else None,
                 consortium_selic_rental=float(comp5_result["npv"]) if comp5_result else None,
                 break_even_cet=break_even_cet,
@@ -416,7 +437,7 @@ class StrategyEngine:
             liquidity_impact=round(float(liquidity_impact), 4),
             months_to_achieve=months_to_achieve,
             action_plan=action_plan,
-            confidence_score=0.85,
+            confidence_score=request.risk_score_confidence or 0.75,
             data_sources=data_sources,
             rental_leverage_plan=rental_leverage_plan,
             compound_strategies=compound_strategies_list,
@@ -424,6 +445,7 @@ class StrategyEngine:
             transaction_costs_applied=transaction_costs_applied,
             maintenance_cost_annual=maintenance_cost_annual,
             efficient_strategy=efficient_strategy,
+            macro_simulation=macro_sim,
             warnings=profile_warnings,
         )
 
@@ -437,6 +459,7 @@ class StrategyEngine:
         """Simula cenário de financiamento (PRICE ou SAC)."""
         cet_annual = rates.get("best_cet_annual", 0.15)
         selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
+        disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
 
         # Calcular pelo método escolhido
         if req.amortization_method.value == "SAC":
@@ -453,7 +476,7 @@ class StrategyEngine:
         for row in sim.schedule:
             cashflows.append(-row["payment"])
 
-        npv_val = npv_calc.calculate_npv(cashflows, selic_monthly)
+        npv_val = npv_calc.calculate_npv(cashflows, disc_monthly)
 
         return {
             "type": "FINANCING",
@@ -764,6 +787,7 @@ class StrategyEngine:
             cdi_annual, req.risk_profile, req.risk_score
         )
         selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
+        disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
 
         if req.max_monthly_budget:
             monthly_dep = req.max_monthly_budget
@@ -788,7 +812,7 @@ class StrategyEngine:
         cashflows = [-req.down_payment]
         cashflows.extend([-monthly_dep] * months)
 
-        npv_val = npv_calc.calculate_npv(cashflows, selic_monthly)
+        npv_val = npv_calc.calculate_npv(cashflows, disc_monthly)
 
         # M3.1 — Valor futuro nominal vs. real (poder de compra de hoje)
         fv_nominal = req.target_amount
@@ -824,6 +848,7 @@ class StrategyEngine:
         as chaves novas.
         """
         selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
+        disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
 
         # Parâmetros do grupo — injetados pelo ConsortiumRateProvider via ArchitectService
         admin_rate            = rates.get("consortium_admin_rate",             0.17)
@@ -856,7 +881,7 @@ class StrategyEngine:
         if expected_month < len(cashflows) and req.down_payment > 0:
             cashflows[expected_month] -= req.down_payment
 
-        npv_val = npv_calc.calculate_npv(cashflows, selic_monthly)
+        npv_val = npv_calc.calculate_npv(cashflows, disc_monthly)
 
         # Montar ConsortiumProbability
         prob_dict = sim.contemplation_probability
@@ -894,6 +919,7 @@ class StrategyEngine:
         """
         rental = req.expected_rental_income  # já garantido > 0 pelo gate has_rental
         selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
+        disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
         gross_cashflows = fin_result["cashflows"]  # [-entrada, -p1, -p2, ...]
         months = req.financing_months
 
@@ -902,7 +928,7 @@ class StrategyEngine:
         for cf in gross_cashflows[1:]:
             net_cashflows.append(cf + rental)  # cf < 0; rental > 0 → reduz custo
 
-        npv_val = npv_calc.calculate_npv(net_cashflows, selic_monthly)
+        npv_val = npv_calc.calculate_npv(net_cashflows, disc_monthly)
 
         gross_payment = fin_result["monthly_payment"]
         net_monthly = max(gross_payment - rental, 0.0)
@@ -963,6 +989,7 @@ class StrategyEngine:
         rental = req.expected_rental_income
         selic_annual = rates.get("selic_annual", 0.1475)
         selic_monthly = (1 + selic_annual) ** (1 / 12) - 1
+        disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
 
         cons_months = int(rates.get("consortium_months", 72))
         admin_rate = rates.get("consortium_admin_rate", 0.17)
@@ -1000,7 +1027,7 @@ class StrategyEngine:
 
         # NPV: mês 0 = saída da entrada (investida mas comprometida); meses 1..N = fluxos líquidos
         npv_cashflows = [-req.down_payment] + net_cashflows
-        npv_val = npv_calc.calculate_npv(npv_cashflows, selic_monthly)
+        npv_val = npv_calc.calculate_npv(npv_cashflows, disc_monthly)
 
         is_self_sustaining = months_negative == 0
 
@@ -1304,13 +1331,42 @@ class StrategyEngine:
         if not is_conservative:
             return best_strategy, []
 
-        if best_strategy not in (StrategyType.FINANCING, StrategyType.FINANCING_RENTAL):
+        if best_strategy not in (
+            StrategyType.FINANCING,
+            StrategyType.FINANCING_RENTAL,
+            StrategyType.CONSORTIUM,
+        ):
             return best_strategy, []
 
         warnings: list[str] = []
         npv_fin  = strategies.get(StrategyType.FINANCING, 0.0)
         npv_inv  = strategies.get(StrategyType.SAVE_INVEST, float("-inf"))
         npv_cons = strategies.get(StrategyType.CONSORTIUM)
+
+        # Consórcio: só bloquear para perfis muito conservadores (rs < 0.25).
+        # Entre 0.25 e 0.35 (conservador moderado), consórcio é aceito — sem juros bancários.
+        if best_strategy == StrategyType.CONSORTIUM:
+            is_very_conservative = (
+                rs < 0.25 if rs is not None
+                else request.risk_profile == RiskProfile.CONSERVADOR
+            )
+            if (
+                is_very_conservative
+                and npv_cons is not None
+                and npv_inv != float("-inf")
+            ):
+                abs_diff = abs(npv_inv) - abs(npv_cons)   # positivo = consórcio mais barato
+                ref = abs(npv_inv) if npv_inv != 0 else 1.0
+                advantage_pct = abs_diff / ref
+                if advantage_pct < 0.10:
+                    profile_label = f"score={rs:.2f}" if rs is not None else request.risk_profile.value
+                    warnings.append(
+                        f"Perfil muito conservador ({profile_label}): vantagem do consórcio "
+                        f"sobre Poupar/Investir é de {advantage_pct:.0%} (mínimo: 10%) "
+                        "— preferindo Poupar/Investir para evitar compromisso de longo prazo."
+                    )
+                    return StrategyType.SAVE_INVEST, warnings
+            return best_strategy, warnings
 
         # Veículo + conservador → nunca financia (bem depreciativo)
         if request.asset_type == AssetType.VEICULO:
@@ -1460,6 +1516,81 @@ class StrategyEngine:
             months_covered=months_covered,
             narrative=narrative,
         )
+
+    def _run_macro_simulation(
+        self,
+        request: SimulationRequest,
+        market_rates: Dict[str, float],
+        fin_result: Dict[str, Any],
+        inv_result: Dict[str, Any],
+        cons_result: Optional[Dict[str, Any]],
+        n_sims: int = 2000,
+    ) -> Optional[MacroSimulationResult]:
+        """
+        Executa a simulação de cenários macroeconômicos correlacionados (VAR-1).
+
+        Gera n_sims trajetórias de (Selic, IPCA, valorização) com correlações
+        históricas e calcula a distribuição de NPV de cada estratégia base.
+
+        Returns MacroSimulationResult ou None se a simulação falhar.
+        """
+        try:
+            from app.architect.simulators.macro_scenario import run_macro_simulation
+
+            selic_annual = market_rates.get("selic_annual", 0.1475)
+            cdi_annual   = market_rates.get("cdi_annual", 0.1465)
+
+            # invest_factor: razão entre retorno real do usuário e Selic — garante
+            # consistência entre a simulação macro e _simulate_investment.
+            disc_rate_annual = self._get_investment_rate(
+                cdi_annual, request.risk_profile, request.risk_score
+            )
+            invest_factor = disc_rate_annual / selic_annual if selic_annual > 0 else 0.85
+
+            consortium_months: Optional[int] = None
+            consortium_admin_reserve: float  = 0.19
+            consortium_expected: Optional[int] = None
+            if cons_result is not None:
+                consortium_months  = int(market_rates.get("consortium_months", 72))
+                admin_rate         = market_rates.get("consortium_admin_rate", 0.17)
+                reserve_rate       = market_rates.get("consortium_reserve_fund_rate", 0.02)
+                consortium_admin_reserve = admin_rate + reserve_rate
+                prob = cons_result.get("probability")
+                if prob is not None:
+                    consortium_expected = int(prob.expected_months)
+
+            distributions, prob_best = run_macro_simulation(
+                n_sims                            = n_sims,
+                initial_selic_annual              = selic_annual,
+                financing_cashflows               = fin_result.get("cashflows"),
+                financing_months                  = request.financing_months,
+                save_monthly                      = float(inv_result["monthly_payment"]),
+                target_amount                     = request.target_amount,
+                down_payment                      = request.down_payment,
+                consortium_months                 = consortium_months,
+                consortium_admin_reserve          = consortium_admin_reserve,
+                consortium_expected_contemplation = consortium_expected,
+                invest_factor                     = invest_factor,
+                seed                              = None,
+            )
+
+            return MacroSimulationResult(
+                n_simulations = n_sims,
+                distributions = {
+                    k: StrategyMacroStats(
+                        npv_p10 = round(v.npv_p10, 2),
+                        npv_p50 = round(v.npv_p50, 2),
+                        npv_p90 = round(v.npv_p90, 2),
+                        cvar_95 = round(v.cvar_95, 2),
+                    )
+                    for k, v in distributions.items()
+                },
+                prob_best = prob_best,
+            )
+
+        except Exception as exc:
+            logger.warning("StrategyEngine | macro_simulation falhou: %s", exc)
+            return None
 
     def simulate_timing_scenarios(
         self,

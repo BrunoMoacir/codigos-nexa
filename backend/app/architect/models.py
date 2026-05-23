@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from enum import Enum
-from typing import Optional
+from typing import Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -184,6 +184,17 @@ class SimulationRequest(BaseModel):
             "a partir do histórico. None quando calculado por declaração direta do usuário "
             "ou quando transactions_df não está disponível. "
             "Alimenta thresholds interpolados no StrategyEngine."
+        ),
+        ge=0.0,
+        le=1.0,
+    )
+
+    risk_score_confidence: Optional[float] = Field(
+        default=None,
+        description=(
+            "Confiança do RiskScore [0-1]. "
+            "Propagada pelo ArchitectService a partir do RiskScorer.confidence. "
+            "Alimenta o confidence_score base do StrategyEngine em vez do valor fixo 0.85."
         ),
         ge=0.0,
         le=1.0,
@@ -805,6 +816,65 @@ class EfficiencyAnalysis(BaseModel):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# SIMULAÇÃO MACROECONÔMICA CORRELACIONADA
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class StrategyMacroStats(BaseModel):
+    """
+    Distribuição de NPV de uma estratégia sob N cenários macroeconômicos.
+
+    P10/P50/P90: percentis da distribuição de NPVs.
+    cvar_95: CVaR ao nível 95% — NPV médio nos 5% piores cenários.
+             Quanto mais negativo, maior o risco de cauda.
+    """
+
+    npv_p10: float = Field(..., description="Percentil 10 do NPV (R$) — cenário pessimista")
+    npv_p50: float = Field(..., description="Mediana do NPV (R$) — caso central estocástico")
+    npv_p90: float = Field(..., description="Percentil 90 do NPV (R$) — cenário otimista")
+    cvar_95: float = Field(
+        ...,
+        description=(
+            "CVaR ao nível 95% (R$): NPV esperado nos 5% piores cenários macroeconômicos. "
+            "Mais negativo = maior risco de cauda para esta estratégia."
+        ),
+    )
+
+
+class MacroSimulationResult(BaseModel):
+    """
+    Resultado da simulação de cenários macroeconômicos correlacionados.
+
+    Gerado via VAR(1) com Cholesky: modela a correlação histórica entre Selic,
+    IPCA e valorização de ativos. Cada trajetória usa taxas variando mês a mês,
+    capturando riscos que o NPV determinístico ignora.
+
+    Attributes:
+        n_simulations:  Número de trajetórias simuladas.
+        distributions:  Estatísticas de NPV por estratégia (P10/P50/P90 + CVaR95).
+        prob_best:      P(esta estratégia tem o melhor NPV) — dicionário que soma 1.0.
+                        Estratégia com maior prob_best é a mais robusta a cenários macro.
+    """
+
+    n_simulations: int = Field(..., description="Número de trajetórias macroeconômicas simuladas", ge=1)
+
+    distributions: Dict[str, StrategyMacroStats] = Field(
+        ...,
+        description=(
+            "Distribuição de NPVs por estratégia. "
+            "Chaves: 'FINANCING', 'SAVE_INVEST', 'CONSORTIUM' (quando aplicável)."
+        ),
+    )
+
+    prob_best: Dict[str, float] = Field(
+        ...,
+        description=(
+            "Probabilidade de cada estratégia ter o melhor NPV no conjunto de cenários. "
+            "Soma 1.0. Ex: {'FINANCING': 0.23, 'SAVE_INVEST': 0.61, 'CONSORTIUM': 0.16}."
+        ),
+    )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # RESPONSE — OUTPUT DA SIMULAÇÃO
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1033,6 +1103,19 @@ class SimulationResponse(BaseModel):
         ),
     )
 
+    # ── Simulação macroeconômica correlacionada ───────────────────────
+
+    macro_simulation: Optional["MacroSimulationResult"] = Field(
+        default=None,
+        description=(
+            "Resultado da simulação de cenários macroeconômicos correlacionados (VAR-1). "
+            "Modela Selic, IPCA e valorização do ativo com correlações históricas. "
+            "Fornece distribuição de NPVs (P10/P50/P90), CVaR95 e probabilidade de cada "
+            "estratégia ser a melhor sob incerteza macro. None quando n_simulations=0 "
+            "ou ocorreu erro na simulação."
+        ),
+    )
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # M3.4 — TIMING SCENARIO: "E SE EU ESPERAR?"
@@ -1183,6 +1266,9 @@ __all__ = [
     "RentalLeveragePlan",
     "CompoundStrategyLeg",
     "EfficiencyAnalysis",
+    # Simulação macroeconômica
+    "StrategyMacroStats",
+    "MacroSimulationResult",
     # Response
     "SimulationResponse",
     # M3.4 — Timing
