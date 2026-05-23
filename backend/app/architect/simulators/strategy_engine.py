@@ -468,27 +468,39 @@ class StrategyEngine:
         }
 
     @staticmethod
-    def _get_investment_rate(cdi_annual: float, risk_profile: RiskProfile) -> float:
+    def _get_investment_rate(
+        cdi_annual: float,
+        risk_profile: RiskProfile,
+        risk_score: Optional[float] = None,
+    ) -> float:
         """
         Retorna taxa de retorno esperada de investimentos por perfil de risco.
 
-        Não é garantia — é o benchmark de comparação para o SAVE_INVEST.
-        Impacta o NPV do cenário investir: perfis mais arrojados têm retorno
-        esperado maior, o que pode tornar o SAVE_INVEST mais atrativo frente
-        ao financiamento.
+        Quando risk_score está disponível, interpola continuamente entre o
+        retorno conservador (CDI líquido) e o arrojado (min(CDI×1.60, 18%)),
+        eliminando os saltos discretos entre perfis.
 
-        Critérios:
-          CONSERVADOR → CDI líquido (IR 15%): renda fixa pós-fixada
-          MODERADO    → CDI líquido + 10% upside (crédito privado / FII)
-          AGRESSIVO   → min(CDI × 1.60, 18% a.a.): exposição a renda variável
+        Sem risk_score (score=None): fallback para mapeamento por enum.
+
+        Critérios do fallback por enum:
+          CONSERVADOR → CDI × 0.85 (IR 15%): renda fixa pós-fixada
+          MODERADO    → CDI × 0.85 × 1.10:   crédito privado / FII
+          AGRESSIVO   → min(CDI × 1.60, 18%): exposição a renda variável
         """
         cdi_net = cdi_annual * 0.85  # IR 15% (prazo ≥ 720 dias)
+        aggressive_rate = min(cdi_annual * 1.60, 0.18)
+
+        if risk_score is not None:
+            # Interpolação linear: score=0 → cdi_net; score=1 → aggressive_rate
+            return cdi_net + (aggressive_rate - cdi_net) * risk_score
+
+        # Fallback: mapeamento discreto por enum
         if risk_profile == RiskProfile.CONSERVADOR:
             return cdi_net
         elif risk_profile == RiskProfile.MODERADO:
             return cdi_net * 1.10
         else:  # AGRESSIVO
-            return min(cdi_annual * 1.60, 0.18)
+            return aggressive_rate
 
     def _pick_efficient_strategy(
         self,
@@ -585,17 +597,28 @@ class StrategyEngine:
         capital_loss_pct = round(max(0.0, (total_out_of_pocket - target) / target) * 100, 1)
         budget_commitment_pct = round((monthly / budget * 100) if budget > 0 else 0.0, 1)
 
-        # ── Readiness: limiares ajustados por perfil de risco ──
+        # ── Readiness: limiares interpolados pelo risk_score (ou fallback por enum) ──
         rp = request.risk_profile
-        if rp == RiskProfile.CONSERVADOR:
-            ready_budget, warn_budget = 25.0, 40.0
-            ready_loss, warn_loss = 50.0, 80.0
-        elif rp == RiskProfile.AGRESSIVO:
-            ready_budget, warn_budget = 50.0, 75.0
-            ready_loss, warn_loss = 100.0, 150.0
-        else:  # MODERADO
-            ready_budget, warn_budget = 35.0, 60.0
-            ready_loss, warn_loss = 80.0, 120.0
+        rs = request.risk_score
+        if rs is not None:
+            # Interpolação linear contínua entre extremos conservador (rs=0) e arrojado (rs=1).
+            # Elimina o salto discreto CONSERVADOR→MODERADO→AGRESSIVO.
+            ready_budget = 25.0 + rs * 25.0   # 25% (rs=0) → 50% (rs=1)
+            warn_budget  = 40.0 + rs * 35.0   # 40%        → 75%
+            ready_loss   = 50.0 + rs * 50.0   # 50%        → 100%
+            warn_loss    = 80.0 + rs * 70.0   # 80%        → 150%
+            profile_label = f"score {rs:.2f}"
+        else:
+            if rp == RiskProfile.CONSERVADOR:
+                ready_budget, warn_budget = 25.0, 40.0
+                ready_loss, warn_loss = 50.0, 80.0
+            elif rp == RiskProfile.AGRESSIVO:
+                ready_budget, warn_budget = 50.0, 75.0
+                ready_loss, warn_loss = 100.0, 150.0
+            else:  # MODERADO
+                ready_budget, warn_budget = 35.0, 60.0
+                ready_loss, warn_loss = 80.0, 120.0
+            profile_label = rp.value
 
         if budget_commitment_pct > warn_budget or capital_loss_pct > warn_loss:
             readiness_flag = "AGUARDAR"
@@ -621,7 +644,7 @@ class StrategyEngine:
                 f"Ainda não é a hora ideal: a parcela de {fmt(monthly)}/mês representa "
                 f"{budget_commitment_pct:.0f}% do seu orçamento"
                 + (f" e o custo extra é de {capital_loss_pct:.0f}%" if capital_loss_pct > warn_loss else "")
-                + f" — acima do confortável para o perfil {rp.value}. "
+                + f" — acima do confortável para o perfil {profile_label}. "
                 f"Considere aumentar a entrada ou aguardar mais capacidade de poupança. "
             )
         elif readiness_flag == "ATENCAO":
@@ -737,7 +760,9 @@ class StrategyEngine:
         ipca_annual   = rates.get("ipca_annual",   0.045)   # M3.1
 
         # Benchmark de retorno ajustado pelo perfil de risco do usuário
-        investment_rate = self._get_investment_rate(cdi_annual, req.risk_profile)
+        investment_rate = self._get_investment_rate(
+            cdi_annual, req.risk_profile, req.risk_score
+        )
         selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
 
         if req.max_monthly_budget:
@@ -1259,29 +1284,32 @@ class StrategyEngine:
         strategies: Dict[StrategyType, float],
     ) -> tuple[StrategyType, list[str]]:
         """
-        Ajusta a estratégia recomendada com base no perfil de risco declarado.
+        Ajusta a estratégia recomendada com base no perfil/score de risco.
 
-        Regras:
-        - CONSERVADOR:
-            · Veículo (ativo depreciativo): nunca recomenda FINANCING —
-              substitui por CONSORTIUM (se disponível e melhor NPV) ou SAVE_INVEST.
-            · Outros bens: só mantém FINANCING se a vantagem de NPV sobre
-              SAVE_INVEST for >= 20%; abaixo disso prefere SAVE_INVEST.
-        - MODERADO: sem ajuste — NPV puro decide.
-        - AGRESSIVO: sem ajuste — NPV puro decide (aceita risco maior).
+        Quando risk_score está disponível, usa limiares contínuos:
+          - Perfil "conservador" (score < 0.35):
+              · Veículo: evita FINANCING (bem depreciativo).
+              · Outros: requer vantagem de NPV ≥ min_advantage_pct sobre SAVE_INVEST.
+                min_advantage_pct = 25% × (1 − score/0.35) → suaviza a fronteira.
+          - Perfil "moderado/arrojado" (score ≥ 0.35): sem ajuste, NPV decide.
 
-        Returns:
-            (estratégia_ajustada, lista_de_warnings)
+        Sem risk_score: comportamento legado por enum CONSERVADOR/MODERADO/AGRESSIVO.
         """
-        if request.risk_profile != RiskProfile.CONSERVADOR:
+        rs = request.risk_score
+        is_conservative = (
+            rs < 0.35 if rs is not None
+            else request.risk_profile == RiskProfile.CONSERVADOR
+        )
+
+        if not is_conservative:
             return best_strategy, []
 
         if best_strategy not in (StrategyType.FINANCING, StrategyType.FINANCING_RENTAL):
             return best_strategy, []
 
         warnings: list[str] = []
-        npv_fin = strategies.get(StrategyType.FINANCING, 0.0)
-        npv_inv = strategies.get(StrategyType.SAVE_INVEST, float("-inf"))
+        npv_fin  = strategies.get(StrategyType.FINANCING, 0.0)
+        npv_inv  = strategies.get(StrategyType.SAVE_INVEST, float("-inf"))
         npv_cons = strategies.get(StrategyType.CONSORTIUM)
 
         # Veículo + conservador → nunca financia (bem depreciativo)
@@ -1292,26 +1320,35 @@ class StrategyEngine:
             else:
                 adjusted = StrategyType.SAVE_INVEST
                 reason = "Poupar/Investir (sem endividamento)"
+            profile_label = f"score={rs:.2f}" if rs is not None else request.risk_profile.value
             warnings.append(
-                f"Perfil conservador: financiamento de veículo evitado "
+                f"Perfil conservador ({profile_label}): financiamento de veículo evitado "
                 f"(bem depreciativo — perde ~15-20% ao ano). Recomendado: {reason}."
             )
             return adjusted, warnings
 
-        # Outros bens: substitui se vantagem do financiamento for < 20%
+        # Outros bens: requer vantagem mínima de NPV sobre SAVE_INVEST.
+        # Com risk_score: limiar suavizado entre 25% (score=0) e 15% (score=0.35).
+        # Sem risk_score: limiar fixo de 20% (comportamento legado).
         if npv_inv == float("-inf"):
             return best_strategy, warnings
 
-        # NPVs são negativos (custos). Financing é melhor quando mais próximo de 0.
+        if rs is not None:
+            # score=0 → exige 25%; score=0.35 → exige ~15%; interpolação linear
+            min_advantage_pct = 0.25 - rs * (0.10 / 0.35)
+        else:
+            min_advantage_pct = 0.20
+
         abs_diff = abs(npv_inv) - abs(npv_fin)   # positivo = financing mais barato
         ref = abs(npv_inv) if npv_inv != 0 else 1.0
         advantage_pct = abs_diff / ref
 
-        if advantage_pct < 0.20:
+        if advantage_pct < min_advantage_pct:
+            profile_label = f"score={rs:.2f}" if rs is not None else request.risk_profile.value
             warnings.append(
-                f"Perfil conservador: vantagem do financiamento sobre Poupar/Investir "
-                f"é de apenas {advantage_pct:.0%} — preferindo Poupar/Investir "
-                "para evitar endividamento."
+                f"Perfil conservador ({profile_label}): vantagem do financiamento sobre "
+                f"Poupar/Investir é de {advantage_pct:.0%} (mínimo: {min_advantage_pct:.0%}) "
+                "— preferindo Poupar/Investir para evitar endividamento."
             )
             return StrategyType.SAVE_INVEST, warnings
 

@@ -177,6 +177,18 @@ class SimulationRequest(BaseModel):
         description="Perfil de risco do usuário",
     )
 
+    risk_score: Optional[float] = Field(
+        default=None,
+        description=(
+            "Score contínuo de tolerância ao risco [0-1], computado pelo RiskScorer "
+            "a partir do histórico. None quando calculado por declaração direta do usuário "
+            "ou quando transactions_df não está disponível. "
+            "Alimenta thresholds interpolados no StrategyEngine."
+        ),
+        ge=0.0,
+        le=1.0,
+    )
+
     asset_type: AssetType = Field(
         default=AssetType.OUTRO,
         description="Tipo de bem a ser adquirido",

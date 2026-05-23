@@ -393,18 +393,16 @@ class ArchitectService:
         warnings: list[str],
     ) -> "SimulationRequest":
         """
-        Se risk_profile não foi informado na request, infere do histórico de transações
-        usando UserProfileAnalyzer + IncomeProfiler.
+        Infere risk_profile e risk_score do histórico de transações via RiskScorer.
 
-        Mapeamento spending → risk (doc seção 13.1):
-          CONSERVADOR → CONSERVADOR  (poupa ≥ 20% — disciplinado, avesso a dívida)
-          EQUILIBRADO → MODERADO     (poupa 10–20%)
-          GASTADOR    → MODERADO     (< 10% — sem dados suficientes para inferir agressivo)
+        Usa scoring multidimensional (4 componentes) em vez do mapeamento binário
+        savings_rate → {CONSERVADOR, EQUILIBRADO, GASTADOR} → {CONSERVADOR, MODERADO}.
+
+        Se risk_profile foi declarado explicitamente pelo usuário, ainda computa
+        risk_score para alimentar os thresholds interpolados do engine — mas não
+        sobrescreve o risk_profile declarado.
         """
-        from app.architect.models import RiskProfile
-
-        if request.risk_profile is not None:
-            return request
+        from app.architect.validators.risk_scorer import RiskScorer
 
         if transactions_df is None:
             return request
@@ -416,28 +414,33 @@ class ArchitectService:
             income_profile = IncomeProfiler().build(transactions_df)
             fin_profile = UserProfileAnalyzer().analyze(transactions_df, income_profile)
 
-            # Usa risk_appetite_inferred (v2) — mais preciso que o mapeamento manual
-            # profile_type → risk_profile que tratava GASTADOR 9% = GASTADOR -30%.
-            inferred_str = getattr(fin_profile, "risk_appetite_inferred", None)
-            if inferred_str:
-                inferred = RiskProfile(inferred_str)
-            else:
-                # fallback para retrocompatibilidade
-                mapping = {
-                    "CONSERVADOR": RiskProfile.CONSERVADOR,
-                    "EQUILIBRADO": RiskProfile.MODERADO,
-                    "GASTADOR":    RiskProfile.MODERADO,
-                }
-                inferred = mapping.get(fin_profile.profile_type, RiskProfile.MODERADO)
+            risk_result = RiskScorer.score(
+                request=request,
+                income_profile=income_profile,
+                user_profile=fin_profile,
+                transactions_df=transactions_df,
+            )
 
             tier = getattr(fin_profile, "behavior_tier", fin_profile.profile_type)
             resilience = getattr(fin_profile, "resilience_score", fin_profile.financial_health_score)
-            warnings.append(
-                f"Perfil de risco inferido do histórico: {inferred.value} "
-                f"(tier={tier}, savings={fin_profile.savings_rate:.0f}%, "
-                f"resilience={resilience})."
-            )
-            return request.model_copy(update={"risk_profile": inferred})
+
+            updates: dict = {"risk_score": risk_result.score}
+
+            if request.risk_profile is None:
+                updates["risk_profile"] = risk_result.profile
+                warnings.append(
+                    f"Perfil de risco inferido: {risk_result.profile.value} "
+                    f"(score={risk_result.score:.2f}, tier={tier}, "
+                    f"savings={fin_profile.savings_rate:.0f}%, "
+                    f"resilience={resilience})."
+                )
+            else:
+                warnings.append(
+                    f"Risk score calculado: {risk_result.score:.2f} "
+                    f"(perfil declarado: {request.risk_profile.value})."
+                )
+
+            return request.model_copy(update=updates)
 
         except Exception as exc:
             logger.warning("ArchitectService | inferência de risk_profile falhou: %s", exc)
