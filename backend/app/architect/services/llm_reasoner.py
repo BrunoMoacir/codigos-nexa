@@ -310,7 +310,10 @@ class LLMReasoner:
             "npv_consortium": f"R${npv.consortium:,.0f}" if npv.consortium is not None else None,
             "recomendado":    response.recommended_strategy.value,
             "ssd_guarantee":  response.ssd_guarantee,
-            "warnings_motor": response.warnings[:5],
+            "warnings_motor": [
+                w[:150] for w in response.warnings[:5]
+                if isinstance(w, str)
+            ],
             "descartadas":    discarded,
         }
 

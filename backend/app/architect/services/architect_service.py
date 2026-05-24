@@ -167,9 +167,12 @@ class ArchitectService:
             market_rates=market_rates,
             rerun_fn=lambda req: self._engine.simulate(req, market_rates),
         )
+        _MAX_FLAG_LEN = 200
         if llm_result is not None and llm_result.consistency.flags:
             accumulated_warnings.extend(
-                f"[LLM] {flag}" for flag in llm_result.consistency.flags
+                f"[LLM] {str(flag)[:_MAX_FLAG_LEN]}"
+                for flag in llm_result.consistency.flags
+                if flag
             )
 
         # ── 4. Recalcular liquidez com safe_to_spend real ────────────

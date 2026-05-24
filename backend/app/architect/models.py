@@ -1545,6 +1545,11 @@ __all__ = [
     "RentalLeveragePlan",
     "CompoundStrategyLeg",
     "EfficiencyAnalysis",
+    # Break-even e LLM reasoning
+    "BreakevenDistribution",
+    "LLMConsistencyResult",
+    "LLMNarrative",
+    "LLMReasoningResult",
     # Simulação macroeconômica
     "StrategyMacroStats",
     "MacroSimulationResult",
