@@ -1265,6 +1265,17 @@ class SimulationResponse(BaseModel):
         ),
     )
 
+    ssd_guarantee: Optional[str] = Field(
+        default=None,
+        description=(
+            "Garantia matemática da recomendação via dominância estocástica de 2ª ordem. "
+            "Presente quando a estratégia recomendada domina todas as outras para qualquer "
+            "agente avesso a risco, independente do grau de aversão. "
+            "Ex: 'FINANCING domina SAVE_INVEST e CONSORTIUM em SSD'. "
+            "None quando o resultado é inconclusivo entre estratégias."
+        ),
+    )
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # M3.4 — TIMING SCENARIO: "E SE EU ESPERAR?"

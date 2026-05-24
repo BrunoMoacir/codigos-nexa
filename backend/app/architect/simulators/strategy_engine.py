@@ -60,6 +60,39 @@ def _safe_float(value: Any) -> float:
     return fval
 
 
+def _pick_ssd_winner(
+    ssd_matrix: Dict[str, Dict[str, str]],
+    candidates: Dict["StrategyType", float],
+) -> tuple[Optional["StrategyType"], Optional[str]]:
+    """
+    Retorna a estratégia que domina todas as outras em SSD, e o texto da garantia.
+
+    Dominância SSD garante preferibilidade para qualquer agente avesso a risco,
+    independente do grau de aversão — mais forte que comparar NPV mediano:
+    captura a forma completa da distribuição, não apenas o ponto central.
+
+    Returns:
+        (winner, guarantee_text) quando existe um dominador único.
+        (None, None) quando o resultado é inconclusivo.
+    """
+    name_to_type = {s.value: s for s in candidates}
+    for name, rel_map in ssd_matrix.items():
+        if name not in name_to_type:
+            continue
+        others = [k for k in candidates if k.value != name]
+        if not others:
+            continue
+        if all(rel_map.get(o.value) == "dominates" for o in others):
+            labels = " e ".join(o.value for o in others)
+            guarantee = (
+                f"{name} domina {labels} em dominância estocástica de segunda ordem "
+                f"— preferível para qualquer agente avesso a risco, "
+                f"independente do grau de aversão."
+            )
+            return name_to_type[name], guarantee
+    return None, None
+
+
 class StrategyEngine:
     """
     Motor central de decisão do Nexa Architect.
@@ -127,6 +160,17 @@ class StrategyEngine:
                     request, market_rates, cons_result
                 )
 
+        # ── 1.7. Simulação macroeconômica (VAR-1) antecipada para SSD ────
+        # Rodamos antes da comparação para que a dominância estocástica
+        # possa influenciar a escolha, em vez de apenas enriquecer o output.
+        macro_sim = self._run_macro_simulation(
+            request=request,
+            market_rates=market_rates,
+            fin_result=fin_result,
+            inv_result=inv_result,
+            cons_result=cons_result,
+        )
+
         # ── 2. Comparar NPVs ────────────────────────────────────────
         npv_fin = _safe_float(fin_result["npv"])
         npv_inv = _safe_float(inv_result["npv"])
@@ -173,10 +217,40 @@ class StrategyEngine:
         ranked = sorted(strategies.items(), key=lambda x: x[1], reverse=True)
         best_strategy = ranked[0][0]
 
+        # ── 3.2. SSD override: dominância estocástica supera NPV mediano ──
+        # Quando macro_sim disponível, verifica se alguma estratégia domina
+        # todas as outras em segunda ordem — garantia válida para qualquer
+        # agente avesso a risco, independente do grau de aversão.
+        ssd_winner:    Optional[StrategyType] = None
+        ssd_guarantee: Optional[str]         = None
+        if macro_sim is not None and macro_sim.ssd_matrix:
+            ssd_winner, ssd_guarantee = _pick_ssd_winner(macro_sim.ssd_matrix, strategies)
+            if ssd_winner is not None:
+                logger.info(
+                    "SSD override: %s → %s | %s",
+                    best_strategy.value,
+                    ssd_winner.value,
+                    ssd_guarantee,
+                )
+                best_strategy = ssd_winner
+
         # ── 3.5. Ajuste por perfil de risco ─────────────────────────
         best_strategy, profile_warnings = self._apply_risk_profile_adjustment(
             request, best_strategy, strategies
         )
+
+        # ── 3.6. Conflito SSD × perfil de risco ─────────────────────
+        # Se o ajuste de perfil reverteu a escolha do SSD, a garantia matemática
+        # já não vale para a estratégia efetivamente recomendada. Registra o
+        # conflito em warnings e zera ssd_guarantee para evitar output enganoso.
+        if ssd_winner is not None and best_strategy != ssd_winner:
+            profile_warnings.append(
+                f"Nota: {ssd_winner.value} domina matematicamente em dominância "
+                f"estocástica de 2ª ordem, mas foi substituído por {best_strategy.value} "
+                f"pelo perfil de risco do usuário — garantia SSD descartada em favor "
+                f"da adequação ao perfil."
+            )
+            ssd_guarantee = None
 
         # ── 4. Validação de Restrições (Liquidez) ────────────────────
         budget_limit = request.max_monthly_budget or float("inf")
@@ -408,14 +482,6 @@ class StrategyEngine:
         if leverage_analysis:
             data_sources.append("leverage_optimizer")
 
-        # ── 5. Simulação macroeconômica correlacionada (VAR-1) ───────────
-        macro_sim = self._run_macro_simulation(
-            request=request,
-            market_rates=market_rates,
-            fin_result=fin_result,
-            inv_result=inv_result,
-            cons_result=cons_result,
-        )
         if macro_sim is not None:
             data_sources.append("macro_var1")
 
@@ -450,6 +516,7 @@ class StrategyEngine:
             maintenance_cost_annual=maintenance_cost_annual,
             efficient_strategy=efficient_strategy,
             macro_simulation=macro_sim,
+            ssd_guarantee=ssd_guarantee,
             warnings=profile_warnings,
         )
 
