@@ -1066,6 +1066,71 @@ class MacroSimulationResult(BaseModel):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# LLM REASONING LAYER — CO-RACIOCÍNIO ESTRUTURADO
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class LLMConsistencyResult(BaseModel):
+    """
+    Resultado da verificação de consistência pelo LLM (Passo 1 do raciocínio).
+
+    O LLM age como analista sênior: verifica se a recomendação matemática
+    é coerente com o perfil do usuário, detecta riscos não modelados e
+    sugere ajustes de parâmetros quando necessário.
+
+    Attributes:
+        consistent:          True se recomendação e perfil são coerentes.
+        flags:               Lista de inconsistências ou alertas detectados.
+        override_suggestion: Texto explicando o ajuste sugerido (se houver).
+        override_params:     Parâmetros ajustáveis para novo rerun do motor.
+                             Chaves válidas: "risk_profile", "financing_months".
+    """
+    consistent: bool
+    flags: list[str] = Field(default_factory=list)
+    override_suggestion: Optional[str] = None
+    override_params: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Parâmetros a ajustar no request para reprocessamento. "
+                    "Chaves válidas: 'risk_profile' (conservador|moderado|agressivo), "
+                    "'financing_months' (int como string).",
+    )
+
+
+class LLMNarrative(BaseModel):
+    """
+    Narrativa contextualizada gerada pelo LLM (Passo 3 do raciocínio).
+
+    Três parágrafos adaptados ao perfil de comunicação do usuário:
+    1. Por que esta estratégia vence — intuição financeira, sem fórmulas.
+    2. O que pode dar errado — riscos honestos e específicos.
+    3. Próximos 3 passos concretos com prazo estimado.
+    """
+    why_this_strategy: str = Field(description="Parágrafo 1: intuição de por que essa estratégia vence.")
+    risks:             str = Field(description="Parágrafo 2: riscos honestos e não-óbvios.")
+    next_steps:        str = Field(description="Parágrafo 3: 3 ações concretas com prazo.")
+
+
+class LLMReasoningResult(BaseModel):
+    """
+    Resultado completo do raciocínio LLM sobre a simulação.
+
+    Combina verificação de consistência (Passo 1) com narrativa final (Passo 3).
+    Se override_params causou reprocessamento, narrative reflete a resposta ajustada.
+
+    Attributes:
+        consistency:       Resultado do check de consistência.
+        narrative:         Narrativa contextualizada final.
+        engine_rerun:      True se o motor foi reexecutado após ajuste de parâmetros.
+        provider_used:     Provedor LLM utilizado ("openai" | "anthropic").
+        model_used:        Modelo específico utilizado.
+    """
+    consistency:   LLMConsistencyResult
+    narrative:     LLMNarrative
+    engine_rerun:  bool = False
+    provider_used: Optional[str] = None
+    model_used:    Optional[str] = None
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # RESPONSE — OUTPUT DA SIMULAÇÃO
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1315,6 +1380,16 @@ class SimulationResponse(BaseModel):
             "agente avesso a risco, independente do grau de aversão. "
             "Ex: 'FINANCING domina SAVE_INVEST e CONSORTIUM em SSD'. "
             "None quando o resultado é inconclusivo entre estratégias."
+        ),
+    )
+
+    llm_reasoning: Optional["LLMReasoningResult"] = Field(
+        default=None,
+        description=(
+            "Raciocínio estruturado do LLM sobre a recomendação. "
+            "Inclui verificação de consistência (flags, override aplicado) e "
+            "narrativa contextualizada em 3 parágrafos (por quê, riscos, próximos passos). "
+            "None quando LLM_PROVIDER não está configurado ou a chamada falha."
         ),
     )
 

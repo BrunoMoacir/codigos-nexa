@@ -46,6 +46,7 @@ from app.architect.models import (
     SimulationResponse,
     StrategyType,
 )
+from app.architect.services.llm_reasoner import LLMReasoner
 from app.architect.simulators.strategy_engine import StrategyEngine
 from app.architect.validators.input_validator import InputValidator
 from app.architect.validators.liquidity_validator import LiquidityValidator, RiskLevel
@@ -82,6 +83,7 @@ class ArchitectService:
         ipca: Optional[IPCAConnector] = None,
         consortium_provider: Optional[ConsortiumRateProvider] = None,
         engine: Optional[StrategyEngine] = None,
+        llm_reasoner: Optional[LLMReasoner] = None,
     ) -> None:
         self._bacen        = bacen        or BacenConnector()
         self._anbima       = anbima       or AnbimaConnector()
@@ -94,7 +96,8 @@ class ArchitectService:
             abac=self._abac,
             ipca=self._ipca,
         )
-        self._engine       = engine       or StrategyEngine()
+        self._engine        = engine       or StrategyEngine()
+        self._llm_reasoner  = llm_reasoner or LLMReasoner()
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # PONTO DE ENTRADA PRINCIPAL
@@ -152,6 +155,22 @@ class ArchitectService:
         base_response = self._engine.simulate(request, market_rates)
         # Preserva warnings gerados pelo engine (perfil de risco, depreciação, etc.)
         accumulated_warnings.extend(base_response.warnings)
+
+        # ── 3.5. LLM co-raciocínio (consistência + rerun + narrativa) ──
+        # LLMReasoner age como analista sênior: verifica inconsistências entre
+        # perfil e recomendação, sugere ajuste de parâmetros (override_params)
+        # e gera narrativa contextualizada em 3 parágrafos.
+        # Retorna (None, base_response) quando LLM não está configurado ou falha.
+        llm_result, base_response = self._llm_reasoner.reason(
+            request=request,
+            base_response=base_response,
+            market_rates=market_rates,
+            rerun_fn=lambda req: self._engine.simulate(req, market_rates),
+        )
+        if llm_result is not None and llm_result.consistency.flags:
+            accumulated_warnings.extend(
+                f"[LLM] {flag}" for flag in llm_result.consistency.flags
+            )
 
         # ── 4. Recalcular liquidez com safe_to_spend real ────────────
         monthly_payment = self._estimate_monthly_payment(base_response, request, market_rates)
@@ -229,11 +248,12 @@ class ArchitectService:
         # ── 8. Montar resposta final ─────────────────────────────────
         return base_response.model_copy(
             update={
-                "liquidity_impact": liquidity.impact,
-                "warnings": accumulated_warnings,
-                "confidence_score": round(confidence, 2),
-                "data_sources": data_sources,
+                "liquidity_impact":      liquidity.impact,
+                "warnings":              accumulated_warnings,
+                "confidence_score":      round(confidence, 2),
+                "data_sources":          data_sources,
                 "card_optimization_bonus": card_bonus,
+                "llm_reasoning":         llm_result,
             }
         )
 
