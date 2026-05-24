@@ -636,12 +636,16 @@ class SensitivityAnalyzer:
             cons_months = int(market_rates.get("consortium_months", 72))
             reserve_fund_rate = market_rates.get("consortium_reserve_fund_rate", 0.02)
 
+            # num_simulations=1 + seed fixo: estimativa pontual determinística.
+            # Análise de sensibilidade não precisa de precisão estatística do Monte Carlo.
             sim = cons_calc.calculate_consortium_metrics(
                 letter_value=request.target_amount,
                 months=cons_months,
                 admin_rate=admin_rate,
                 reserve_fund_rate=reserve_fund_rate,
                 bid_amount=bid_amount,
+                num_simulations=1,
+                seed=42,
             )
             cashflows = [-sim.monthly_payment] * cons_months
             expected_month = sim.contemplation_month_expected
@@ -731,6 +735,16 @@ class SensitivityAnalyzer:
 
         X = sobol_sample.sample(problem, N=n_samples, calc_second_order=False)
 
+        # Consórcio: apenas `entrada` (dp_v) varia o NPV do consórcio entre as 6
+        # variáveis amostradas. Calculamos uma vez para validar que é computável;
+        # dentro de _eval recalculamos só com dp_v variando. Com num_simulations=1
+        # o custo é ~0.29ms/call × 4096 calls ≈ 1.2s adicional (aceitável).
+        npv_cons_base: Optional[float] = None
+        if request.include_consortium:
+            npv_cons_base = self._npv_consortium_custom(
+                request, market_rates, disc_monthly, float(request.down_payment)
+            )
+
         def _eval(x: np.ndarray) -> float:
             cet_v, prazo_v, dp_v, cdi_v, ipca_v, aprec_v = x
             months_v = max(6, int(round(prazo_v)))
@@ -759,11 +773,10 @@ class SensitivityAnalyzer:
                 request, eff_cdi, disc_monthly, dp_v, inflated_target, months_v
             )
             npv_cons: Optional[float] = None
-            if request.include_consortium:
+            if npv_cons_base is not None:
                 npv_cons = self._npv_consortium_custom(
                     request, market_rates, disc_monthly, dp_v
                 )
-
             candidates: Dict[str, float] = {"FIN": npv_fin, "INV": npv_inv}
             if npv_cons is not None:
                 candidates["CONS"] = npv_cons
