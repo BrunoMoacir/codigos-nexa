@@ -30,6 +30,7 @@ from app.architect.models import (
     RiskProfile,
     CostScenario,
     NPVComparison,
+    BreakevenDistribution,
     ConsortiumProbability,
     ActionStep,
     RentalLeveragePlan,
@@ -200,7 +201,8 @@ class StrategyEngine:
         npv_inv_for_comparison = npv_inv - foregone_rental_pv
 
         # ── 2.8. Break-even rate: CET onde FINANCING == SAVE_INVEST ────
-        break_even_cet = self._find_break_even_cet(request, market_rates, npv_inv)
+        break_even_cet   = self._find_break_even_cet(request, market_rates, npv_inv)
+        breakeven_dist   = self._compute_breakeven_surface(request, market_rates)
 
         # ── 3. Decisão: maior NPV = menor custo presente ────────────
         strategies: Dict[StrategyType, float] = {
@@ -500,6 +502,7 @@ class StrategyEngine:
                 financing_rental=float(comp4_result["npv"]) if comp4_result else None,
                 consortium_selic_rental=float(comp5_result["npv"]) if comp5_result else None,
                 break_even_cet=break_even_cet,
+                breakeven_distribution=breakeven_dist,
             ),
             consortium_probability=(
                 cons_result["probability"] if cons_result else None
@@ -845,6 +848,143 @@ class StrategyEngine:
             if hi - lo < 1e-5:
                 break
         return round((lo + hi) / 2, 4)
+
+    def _compute_breakeven_surface(
+        self,
+        request: SimulationRequest,
+        market_rates: Dict[str, float],
+        n_simulations: int = 5_000,
+        seed: Optional[int] = None,
+    ) -> Optional[BreakevenDistribution]:
+        """
+        Distribuição probabilística do CET de break-even sob incerteza macroeconômica.
+
+        Amostra N cenários de (selic, ipca) com correlação histórica, calcula o
+        retorno real do SAVE_INVEST por perfil e encontra via bisecção vetorizada
+        o CET onde NPV(FINANCING) = NPV(SAVE_INVEST).
+
+        Chave analítica (PRICE, sem orçamento máximo):
+          pva cancela → break-even ocorre quando pmt_fin(cet*) = pmt_inv(inv_real_s)
+
+        O break-even em CET > 0 exige retornos reais negativos (IPCA supera CDI×perfil).
+        Isso acontece em cenários de alta inflação amostrados via normal bivariada —
+        com ~2-3% dos cenários tipicamente solventes em ambientes de juros altos.
+        Quando solventes são < 10% do total, retorna None.
+
+        Não suporta SAC nem max_monthly_budget (ambos retornam None).
+        """
+        try:
+            import numpy as np
+        except ImportError:
+            return None
+
+        if request.amortization_method.value == "SAC":
+            return None
+
+        principal = _safe_float(request.principal)
+        if principal <= 0:
+            return None
+
+        N   = int(request.financing_months)
+        dp  = float(request.down_payment)
+        tgt = float(request.target_amount)
+
+        current_selic = float(market_rates.get("selic_annual", 0.1475))
+        current_cdi   = float(market_rates.get("cdi_annual",   0.1465))
+        current_cet   = float(market_rates.get("best_cet_annual", 0.15))
+        current_ipca  = float(market_rates.get("ipca_annual", 0.045))
+
+        # ── 1. Amostrar cenários (selic, ipca) com correlação histórica ─────
+        # σ_selic=2.5 p.p., σ_ipca=2.0 p.p., corr=0.40 (BCB 2015-2025)
+        rng   = np.random.default_rng(seed)
+        s_sel, s_ipc, corr = 0.025, 0.020, 0.40
+        cov   = np.array([[s_sel**2, corr*s_sel*s_ipc], [corr*s_sel*s_ipc, s_ipc**2]])
+        L     = np.linalg.cholesky(cov)
+        z     = rng.standard_normal((n_simulations, 2))
+        draws = np.array([current_selic, current_ipca]) + z @ L.T
+
+        selic_s = np.clip(draws[:, 0], 0.02, 0.50)
+        ipca_s  = np.clip(draws[:, 1], 0.01, 0.40)
+
+        # CDI mantém spread histórico fixo em relação à SELIC
+        spread = max(0.0, current_selic - current_cdi)
+        cdi_s  = np.maximum(selic_s - spread, 0.01)
+
+        # ── 2. Retorno REAL do investimento por perfil (vetorizado) ─────────
+        # Break-even existe quando retorno real < 0 (IPCA > CDI×perfil).
+        # Com retorno real negativo, pmt_inv > P/N → pmt_fin(cet*) tem solução positiva.
+        cdi_net    = cdi_s * 0.85
+        aggressive = np.minimum(cdi_s * 1.60, 0.18)
+        rs = request.risk_score
+        rp = request.risk_profile
+        if rs is not None:
+            inv_nom_s = cdi_net + (aggressive - cdi_net) * float(rs)
+        elif rp == RiskProfile.AGRESSIVO:
+            inv_nom_s = aggressive
+        elif rp == RiskProfile.CONSERVADOR:
+            inv_nom_s = cdi_net
+        else:  # MODERADO
+            inv_nom_s = cdi_net * 1.10
+
+        # Retorno real deflacionado pelo IPCA do cenário
+        inv_real_s = (1.0 + inv_nom_s) / (1.0 + ipca_s) - 1.0
+
+        # ── 3. PMT do SAVE_INVEST no retorno real de cada cenário ───────────
+        inv_m   = (1.0 + inv_real_s) ** (1.0 / 12.0) - 1.0  # mensal (n_sims,)
+        fv_dp_s = dp * (1.0 + inv_m) ** N
+        growth  = (1.0 + inv_m) ** N - 1.0
+
+        safe_m = np.where(np.abs(growth) > 1e-10, inv_m,   1e-10)
+        safe_g = np.where(np.abs(growth) > 1e-10, growth, float(N))
+        pmt_inv = np.where(
+            np.abs(growth) > 1e-10,
+            (tgt - fv_dp_s) * safe_m / safe_g,
+            (tgt - dp) / max(N, 1),
+        )
+
+        # ── 4. prob_financing_wins: direto, sem precisar do break-even ──────
+        # Financiar vence quando a parcela atual < aporte mensal necessário para poupar
+        cet_m_cur = (1.0 + current_cet) ** (1.0 / 12.0) - 1.0
+        if cet_m_cur > 1e-10:
+            q_cur = (1.0 + cet_m_cur) ** (-N)
+            pmt_fin_cur = principal * cet_m_cur / (1.0 - q_cur)
+        else:
+            pmt_fin_cur = principal / N
+
+        prob = float(np.mean(pmt_fin_cur < pmt_inv))
+
+        # ── 5. Solvabilidade: break-even em CET>0 existe apenas quando ──────
+        # pmt_inv > P/N (retorno real negativo → investimento piora vs. sem juros)
+        pmt_fin_floor = principal / N
+        solvable      = pmt_inv > pmt_fin_floor
+        n_solvable    = int(np.sum(solvable))
+
+        if n_solvable < int(n_simulations * 0.10):
+            return None  # sem cenários com break-even positivo (SAVE_INVEST domina)
+
+        pmt_target = pmt_inv[solvable]
+
+        # ── 6. Bisecção vetorizada: pmt_fin(cet*) = pmt_target ──────────────
+        lo = np.full(n_solvable, 0.0001 / 12.0)
+        hi = np.full(n_solvable, 2.0    / 12.0)
+
+        for _ in range(32):  # 32 iterações → precisão < 1e-8 no CET mensal
+            mid = (lo + hi) / 2.0
+            q   = (1.0 + mid) ** (-N)
+            pmt_mid = principal * mid / (1.0 - q)
+            hi = np.where(pmt_mid > pmt_target, mid, hi)
+            lo = np.where(pmt_mid > pmt_target, lo,  mid)
+
+        cet_m_star = (lo + hi) / 2.0
+        be_cet     = (1.0 + cet_m_star) ** 12 - 1.0  # anualizar
+
+        return BreakevenDistribution(
+            cet_p10=round(float(np.percentile(be_cet, 10)), 4),
+            cet_p50=round(float(np.percentile(be_cet, 50)), 4),
+            cet_p90=round(float(np.percentile(be_cet, 90)), 4),
+            prob_financing_wins=round(prob, 4),
+            n_simulations=n_solvable,
+        )
 
     def _simulate_investment(
         self, req: SimulationRequest, rates: Dict[str, float]

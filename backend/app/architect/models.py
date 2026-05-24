@@ -564,6 +564,40 @@ class CostScenario(BaseModel):
         return self
 
 
+class BreakevenDistribution(BaseModel):
+    """
+    Distribuição do CET de break-even sob incerteza macroeconômica.
+
+    O break-even não é um ponto fixo: quando as taxas de juros variam (SELIC/CDI),
+    o custo de oportunidade do SAVE_INVEST muda, deslocando o CET de equilíbrio.
+    Esta classe quantifica essa incerteza via N cenários amostrados.
+
+    Attributes:
+        cet_p10:              10% dos cenários têm break-even abaixo deste CET.
+                              O financiamento é vantajoso em quase todos os cenários
+                              se o CET atual estiver abaixo deste valor.
+        cet_p50:              Break-even mediano (cenário central).
+        cet_p90:              90% dos cenários têm break-even abaixo deste CET.
+        prob_financing_wins:  P(break-even > CET atual) — probabilidade de que
+                              financiar seja melhor que poupar/investir dado o CET corrente.
+        n_simulations:        Cenários válidos (descartados: target já coberto pela entrada).
+    """
+
+    cet_p10: float = Field(..., description="Percentil 10 do CET de break-even (decimal anual)")
+    cet_p50: float = Field(..., description="Mediana do CET de break-even (decimal anual)")
+    cet_p90: float = Field(..., description="Percentil 90 do CET de break-even (decimal anual)")
+    prob_financing_wins: float = Field(
+        ...,
+        description=(
+            "Fração dos cenários em que financiar supera poupar/investir ao CET atual. "
+            "Ex: 0.73 → 'Em 73%% dos cenários projetados, financiar é mais vantajoso.'"
+        ),
+        ge=0.0,
+        le=1.0,
+    )
+    n_simulations: int = Field(..., description="Número de cenários macroeconômicos simulados", ge=1)
+
+
 class NPVComparison(BaseModel):
     """
     Valor Presente Líquido (NPV/VPL) de cada estratégia.
@@ -603,6 +637,14 @@ class NPVComparison(BaseModel):
             "Taxa CET anual (decimal) a partir da qual SAVE_INVEST supera FINANCING. "
             "Ex: 0.1320 = acima de 13,2% a.a. o financiamento fica mais caro que investir. "
             "None quando não foi possível calcular (ex: SAVE_INVEST já é sempre melhor)."
+        ),
+    )
+    breakeven_distribution: Optional[BreakevenDistribution] = Field(
+        default=None,
+        description=(
+            "Distribuição probabilística do break-even CET sob incerteza macroeconômica. "
+            "Captura como a variação de SELIC/CDI desloca o ponto de equilíbrio. "
+            "None para método SAC ou quando o cálculo falha."
         ),
     )
 
