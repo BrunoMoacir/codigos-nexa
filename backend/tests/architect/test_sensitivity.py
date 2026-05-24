@@ -495,28 +495,40 @@ class TestPickStrategy:
 
 
 class TestComputeRiskProfile:
-    """Testa o helper _compute_risk_profile."""
+    """Testa o helper _compute_risk_profile (elasticidade normalizada pelo target)."""
 
-    def test_zero_flips_baixa_elasticity_retorna_baixo(self):
-        assert _compute_risk_profile(0, 5_000) == "baixo"
+    TARGET = 100_000.0
 
-    def test_zero_flips_elasticity_limite_baixo(self):
-        assert _compute_risk_profile(0, 199_999) == "baixo"
+    def test_zero_flips_baixa_elasticity_pct_retorna_baixo(self):
+        # 5k / 100k = 5% < 20% → baixo
+        assert _compute_risk_profile(0, 5_000, self.TARGET) == "baixo"
 
-    def test_zero_flips_elasticity_acima_limite_retorna_moderado(self):
-        assert _compute_risk_profile(0, 200_001) == "moderado"
+    def test_zero_flips_elasticity_pct_limite_baixo(self):
+        # 19.999k / 100k = ~20% → baixo (abaixo do limiar)
+        assert _compute_risk_profile(0, 19_999, self.TARGET) == "baixo"
 
-    def test_dois_flips_elasticity_moderada_retorna_moderado(self):
-        assert _compute_risk_profile(2, 50_000) == "moderado"
+    def test_zero_flips_elasticity_pct_acima_limite_retorna_moderado(self):
+        # 20.001k / 100k = ~20% → moderado (acima do limiar)
+        assert _compute_risk_profile(0, 20_001, self.TARGET) == "moderado"
+
+    def test_dois_flips_elasticity_pct_moderada_retorna_moderado(self):
+        # 2 flips, 50k / 100k = 50% < 100% → moderado
+        assert _compute_risk_profile(2, 50_000, self.TARGET) == "moderado"
 
     def test_tres_flips_retorna_alto(self):
-        assert _compute_risk_profile(3, 50_000) == "alto"
+        # 3 flips > 2 → alto independente de elasticidade
+        assert _compute_risk_profile(3, 50_000, self.TARGET) == "alto"
 
     def test_muitos_flips_retorna_alto(self):
-        assert _compute_risk_profile(8, 500_000) == "alto"
+        assert _compute_risk_profile(8, 500_000, self.TARGET) == "alto"
 
-    def test_elasticity_acima_limite_retorna_alto(self):
-        assert _compute_risk_profile(0, 1_000_001) == "alto"
+    def test_elasticity_pct_acima_de_cem_pct_retorna_alto(self):
+        # 100.001k / 100k = 100% ≥ 100% → alto
+        assert _compute_risk_profile(0, 100_001, self.TARGET) == "alto"
+
+    def test_normaliza_por_target_grande(self):
+        # mesma elasticidade absoluta, target 10× maior → "baixo" em vez de "alto"
+        assert _compute_risk_profile(0, 100_001, 1_000_000.0) == "baixo"
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

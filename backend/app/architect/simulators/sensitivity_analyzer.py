@@ -18,9 +18,11 @@ Variáveis analisadas:
 Decisões de design:
     - Sem chamadas de rede/banco — trabalha com os dados já coletados pelo
       ArchitectService (request + market_rates + baseline_response).
-    - Reutiliza os mesmos calculadores do StrategyEngine para garantir
-      consistência matemática.
-    - Usa apenas stdlib (math, logging, dataclasses, datetime) — sem numpy.
+    - Reutiliza os mesmos calculadores do StrategyEngine para consistência.
+    - numpy: usado no Sobol (amostrador quasi-aleatório e cálculo de CDF).
+    - SALib>=1.4.7: opcional; se ausente, sobol_indices retorna None.
+    - _get_investment_rate copiado localmente de StrategyEngine para evitar
+      acoplamento circular — deve permanecer sincronizado com o original.
 
 Uso:
     from app.architect.simulators.sensitivity_analyzer import SensitivityAnalyzer
@@ -33,17 +35,40 @@ Uso:
 
 import math
 import logging
+import numpy as np
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
-from app.architect.models import SimulationRequest, SimulationResponse, StrategyType
+from app.architect.models import SimulationRequest, SimulationResponse, StrategyType, RiskProfile
 from app.architect.calculators import financing as fin_calc
 from app.architect.calculators import investment as inv_calc
 from app.architect.calculators import npv as npv_calc
 from app.architect.calculators import consortium as cons_calc
 
 logger = logging.getLogger(__name__)
+
+
+def _get_investment_rate(
+    cdi_annual: float,
+    risk_profile: Optional[RiskProfile],
+    risk_score: Optional[float] = None,
+) -> float:
+    """
+    Retorna taxa de retorno esperada por perfil — espelho de StrategyEngine._get_investment_rate.
+
+    Mantido localmente para evitar acoplamento circular com strategy_engine.py.
+    Deve permanecer em sincronia com a implementação original.
+    """
+    cdi_net    = cdi_annual * 0.85
+    aggressive = min(cdi_annual * 1.60, 0.18)
+    if risk_score is not None:
+        return cdi_net + (aggressive - cdi_net) * risk_score
+    if risk_profile == RiskProfile.CONSERVADOR:
+        return cdi_net
+    if risk_profile == RiskProfile.AGRESSIVO:
+        return aggressive
+    return cdi_net * 1.10  # MODERADO
 
 
 def _safe_float(value: Any) -> float:
@@ -120,6 +145,30 @@ class VariableSensitivity:
 
 
 @dataclass
+class SobolIndices:
+    """
+    Índices de sensibilidade de Sobol para uma variável.
+
+    S1 (primeira ordem): fração da variância do output explicada por esta variável
+    sozinha, mantendo todas as outras fixas.
+
+    ST (total): fração da variância total incluindo todas as interações com outras
+    variáveis. Sempre ST ≥ S1; a diferença (ST − S1) quantifica o peso das interações.
+
+    interaction_share: (ST − S1) / ST — quanto da influência total vem de interações.
+    Ex: S1[cet]=0.15, ST[cet]=0.48 → 69% do efeito do CET é via interação com prazo.
+    """
+
+    variable: str
+    description: str
+    s1: float
+    s1_conf: float
+    st: float
+    st_conf: float
+    interaction_share: float
+
+
+@dataclass
 class SensitivityReport:
     """
     Relatório completo de análise de sensibilidade.
@@ -142,10 +191,11 @@ class SensitivityReport:
     risk_profile: str
     baseline_strategy: str
     generated_at: datetime = field(default_factory=datetime.now)
+    sobol_indices: Optional[List[SobolIndices]] = field(default=None)
 
     def to_dict(self) -> Dict:
         """Serializa para dict (uso em API responses e logs)."""
-        return {
+        result: Dict = {
             "variables": [
                 {
                     "variable": v.variable,
@@ -179,11 +229,34 @@ class SensitivityReport:
             "baseline_strategy": self.baseline_strategy,
             "generated_at": self.generated_at.isoformat(),
         }
+        if self.sobol_indices is not None:
+            result["sobol_indices"] = [
+                {
+                    "variable": s.variable,
+                    "description": s.description,
+                    "s1": s.s1,
+                    "s1_conf": s.s1_conf,
+                    "st": s.st,
+                    "st_conf": s.st_conf,
+                    "interaction_share": s.interaction_share,
+                }
+                for s in self.sobol_indices
+            ]
+        return result
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ANALISADOR PRINCIPAL
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SOBOL_DESCRIPTIONS: Dict[str, str] = {
+    "cet":              "Taxa de Juros do Financiamento (CET)",
+    "prazo":            "Prazo do Financiamento",
+    "entrada":          "Valor da Entrada",
+    "cdi":              "Taxa CDI (Rendimento do Investimento)",
+    "ipca":             "Taxa de Inflação (IPCA)",
+    "apreciacao_ativo": "Apreciação Anual do Bem",
+}
 
 
 class SensitivityAnalyzer:
@@ -252,14 +325,16 @@ class SensitivityAnalyzer:
             request.target_amount,
         )
 
-        selic_monthly = (1 + market_rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
+        selic_annual  = market_rates.get("selic_annual", 0.1475)
+        selic_monthly = (1 + selic_annual) ** (1 / 12) - 1
+        disc_monthly  = market_rates.get("disc_rate_monthly", selic_monthly)
         baseline_strategy = baseline_response.recommended_strategy.value
 
         variables = [
-            self._analyze_interest_rate(request, market_rates, selic_monthly),
-            self._analyze_months(request, market_rates, selic_monthly),
-            self._analyze_down_payment(request, market_rates, selic_monthly),
-            self._analyze_cdi_rate(request, market_rates, selic_monthly),
+            self._analyze_interest_rate(request, market_rates, disc_monthly),
+            self._analyze_months(request, market_rates, disc_monthly),
+            self._analyze_down_payment(request, market_rates, disc_monthly),
+            self._analyze_cdi_rate(request, market_rates, disc_monthly),
         ]
 
         # Ordena por impacto decrescente (maior npv_range = mais sensível)
@@ -278,7 +353,7 @@ class SensitivityAnalyzer:
         # Perfil de risco baseado em flips e elasticidade
         total_flips = sum(v.strategy_flips for v in variables)
         avg_elasticity = sum(v.elasticity for v in variables) / len(variables)
-        risk_profile = _compute_risk_profile(total_flips, avg_elasticity)
+        risk_profile = _compute_risk_profile(total_flips, avg_elasticity, request.target_amount)
 
         logger.info(
             "Sensibilidade concluída: variável_crítica=%s, estabilidade=%.2f, risco=%s",
@@ -287,12 +362,15 @@ class SensitivityAnalyzer:
             risk_profile,
         )
 
+        sobol_indices = self._compute_sobol(request, market_rates, disc_monthly)
+
         return SensitivityReport(
             variables=variables,
             most_sensitive_variable=most_sensitive,
             strategy_stability=strategy_stability,
             risk_profile=risk_profile,
             baseline_strategy=baseline_strategy,
+            sobol_indices=sobol_indices,
         )
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -303,7 +381,7 @@ class SensitivityAnalyzer:
         self,
         request: SimulationRequest,
         market_rates: Dict[str, float],
-        selic_monthly: float,
+        disc_monthly: float,
     ) -> VariableSensitivity:
         """Varia o CET do financiamento em ±2 p.p. e mede impacto no NPV."""
         base_cet = market_rates.get("best_cet_annual", 0.15)
@@ -312,10 +390,10 @@ class SensitivityAnalyzer:
 
         for delta in _linspace(d_min, d_max, n):
             cet = max(0.001, base_cet + delta)
-            npv_fin = self._npv_financing(request, cet, request.financing_months, selic_monthly)
-            npv_inv = self._npv_investment(request, market_rates, selic_monthly)
+            npv_fin = self._npv_financing(request, cet, request.financing_months, disc_monthly)
+            npv_inv = self._npv_investment(request, market_rates, disc_monthly)
             npv_cons = (
-                self._npv_consortium(request, market_rates, selic_monthly)
+                self._npv_consortium(request, market_rates, disc_monthly)
                 if request.include_consortium
                 else None
             )
@@ -334,7 +412,7 @@ class SensitivityAnalyzer:
         self,
         request: SimulationRequest,
         market_rates: Dict[str, float],
-        selic_monthly: float,
+        disc_monthly: float,
     ) -> VariableSensitivity:
         """Varia o prazo do financiamento em ±6 meses."""
         base_months = request.financing_months
@@ -344,10 +422,10 @@ class SensitivityAnalyzer:
 
         for delta in _linspace(d_min, d_max, n):
             months = max(6, int(base_months + round(delta)))
-            npv_fin = self._npv_financing(request, cet, months, selic_monthly)
-            npv_inv = self._npv_investment(request, market_rates, selic_monthly)
+            npv_fin = self._npv_financing(request, cet, months, disc_monthly)
+            npv_inv = self._npv_investment(request, market_rates, disc_monthly)
             npv_cons = (
-                self._npv_consortium(request, market_rates, selic_monthly)
+                self._npv_consortium(request, market_rates, disc_monthly)
                 if request.include_consortium
                 else None
             )
@@ -366,7 +444,7 @@ class SensitivityAnalyzer:
         self,
         request: SimulationRequest,
         market_rates: Dict[str, float],
-        selic_monthly: float,
+        disc_monthly: float,
     ) -> VariableSensitivity:
         """
         Varia a entrada em ±10% do valor original.
@@ -385,11 +463,11 @@ class SensitivityAnalyzer:
             principal = max(1.0, request.target_amount - dp)
 
             npv_fin = self._npv_financing_custom(
-                request, market_rates, selic_monthly, dp, principal
+                request, market_rates, disc_monthly, dp, principal
             )
-            npv_inv = self._npv_investment_custom(request, market_rates, selic_monthly, dp)
+            npv_inv = self._npv_investment_custom(request, market_rates, disc_monthly, dp)
             npv_cons = (
-                self._npv_consortium_custom(request, market_rates, selic_monthly, dp)
+                self._npv_consortium_custom(request, market_rates, disc_monthly, dp)
                 if request.include_consortium
                 else None
             )
@@ -408,22 +486,45 @@ class SensitivityAnalyzer:
         self,
         request: SimulationRequest,
         market_rates: Dict[str, float],
-        selic_monthly: float,
+        disc_monthly: float,
     ) -> VariableSensitivity:
-        """Varia o CDI em ±2 p.p. — impacta o NPV do investimento."""
+        """
+        Varia o CDI em ±2 p.p. — impacta o NPV do investimento.
+
+        Quando disc_monthly foi derivado do CDI de mercado (sem OF), atualiza também
+        o desconto para cada ponto, de forma que o custo de oportunidade e o retorno
+        do investimento se movam juntos — condição necessária para a curva refletir
+        a realidade do usuário sem Open Finance.
+
+        Quando disc_monthly veio de rendimento_real_atual do Open Finance, esse valor
+        é independente do CDI de mercado e permanece fixo.
+        """
         base_cdi = market_rates.get("cdi_annual", 0.1465)
         cet = market_rates.get("best_cet_annual", 0.15)
         d_min, d_max, n = self._RANGES["cdi_rate"]
-        points = []
 
+        # Taxa de desconto fixada pelo OF (independente do CDI de mercado)?
+        of = getattr(request, "open_finance_features", None)
+        disc_from_of = (
+            of is not None
+            and getattr(of, "rendimento_real_atual", None) is not None
+        )
+
+        points = []
         for delta in _linspace(d_min, d_max, n):
             cdi = max(0.001, base_cdi + delta)
             rates_variant = {**market_rates, "cdi_annual": cdi}
 
-            npv_fin = self._npv_financing(request, cet, request.financing_months, selic_monthly)
-            npv_inv = self._npv_investment(request, rates_variant, selic_monthly)
+            if disc_from_of:
+                disc_variant = disc_monthly
+            else:
+                adj_rate     = _get_investment_rate(cdi, request.risk_profile, request.risk_score)
+                disc_variant = (1 + adj_rate) ** (1 / 12) - 1
+
+            npv_fin = self._npv_financing(request, cet, request.financing_months, disc_variant)
+            npv_inv = self._npv_investment(request, rates_variant, disc_variant)
             npv_cons = (
-                self._npv_consortium(request, market_rates, selic_monthly)
+                self._npv_consortium(request, market_rates, disc_variant)
                 if request.include_consortium
                 else None
             )
@@ -447,7 +548,7 @@ class SensitivityAnalyzer:
         request: SimulationRequest,
         cet_annual: float,
         months: int,
-        selic_monthly: float,
+        disc_monthly: float,
     ) -> float:
         try:
             if request.amortization_method.value == "SAC":
@@ -455,7 +556,7 @@ class SensitivityAnalyzer:
             else:
                 sim = fin_calc.calculate_price(request.principal, cet_annual, months)
             cashflows = [-request.down_payment] + [-row["payment"] for row in sim.schedule]
-            return _safe_float(npv_calc.calculate_npv(cashflows, selic_monthly))
+            return _safe_float(npv_calc.calculate_npv(cashflows, disc_monthly))
         except Exception:
             return 0.0
 
@@ -463,7 +564,7 @@ class SensitivityAnalyzer:
         self,
         request: SimulationRequest,
         market_rates: Dict[str, float],
-        selic_monthly: float,
+        disc_monthly: float,
         down_payment: float,
         principal: float,
     ) -> float:
@@ -474,7 +575,7 @@ class SensitivityAnalyzer:
             else:
                 sim = fin_calc.calculate_price(principal, cet, request.financing_months)
             cashflows = [-down_payment] + [-row["payment"] for row in sim.schedule]
-            return _safe_float(npv_calc.calculate_npv(cashflows, selic_monthly))
+            return _safe_float(npv_calc.calculate_npv(cashflows, disc_monthly))
         except Exception:
             return 0.0
 
@@ -482,19 +583,22 @@ class SensitivityAnalyzer:
         self,
         request: SimulationRequest,
         market_rates: Dict[str, float],
-        selic_monthly: float,
+        disc_monthly: float,
     ) -> float:
-        return self._npv_investment_custom(request, market_rates, selic_monthly, request.down_payment)
+        return self._npv_investment_custom(request, market_rates, disc_monthly, request.down_payment)
 
     def _npv_investment_custom(
         self,
         request: SimulationRequest,
         market_rates: Dict[str, float],
-        selic_monthly: float,
+        disc_monthly: float,
         down_payment: float,
     ) -> float:
         try:
-            cdi_annual = market_rates.get("cdi_annual", 0.1465)
+            raw_cdi    = market_rates.get("cdi_annual", 0.1465)
+            cdi_annual = _get_investment_rate(
+                raw_cdi, request.risk_profile, request.risk_score
+            )
             if request.max_monthly_budget:
                 monthly_dep = request.max_monthly_budget
                 months = inv_calc.calculate_months_needed(
@@ -508,7 +612,7 @@ class SensitivityAnalyzer:
                     request.target_amount, cdi_annual, months, down_payment
                 )
             cashflows = [-down_payment] + [-monthly_dep] * months
-            return _safe_float(npv_calc.calculate_npv(cashflows, selic_monthly))
+            return _safe_float(npv_calc.calculate_npv(cashflows, disc_monthly))
         except Exception:
             return 0.0
 
@@ -516,15 +620,15 @@ class SensitivityAnalyzer:
         self,
         request: SimulationRequest,
         market_rates: Dict[str, float],
-        selic_monthly: float,
+        disc_monthly: float,
     ) -> Optional[float]:
-        return self._npv_consortium_custom(request, market_rates, selic_monthly, request.down_payment)
+        return self._npv_consortium_custom(request, market_rates, disc_monthly, request.down_payment)
 
     def _npv_consortium_custom(
         self,
         request: SimulationRequest,
         market_rates: Dict[str, float],
-        selic_monthly: float,
+        disc_monthly: float,
         bid_amount: float,
     ) -> Optional[float]:
         try:
@@ -544,9 +648,163 @@ class SensitivityAnalyzer:
             if expected_month < len(cashflows) and bid_amount > 0:
                 cashflows[expected_month] -= bid_amount
 
-            return _safe_float(npv_calc.calculate_npv(cashflows, selic_monthly))
+            return _safe_float(npv_calc.calculate_npv(cashflows, disc_monthly))
         except Exception:
             return None
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ANÁLISE DE SENSIBILIDADE GLOBAL — ÍNDICES DE SOBOL
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _npv_investment_sobol(
+        self,
+        request: SimulationRequest,
+        cdi_annual: float,
+        disc_monthly: float,
+        down_payment: float,
+        target_amount: float,
+        n_months: int,
+    ) -> float:
+        """NPV do SAVE_INVEST com target e CDI parametrizados (para Sobol)."""
+        try:
+            if request.max_monthly_budget:
+                monthly_dep = request.max_monthly_budget
+                months = inv_calc.calculate_months_needed(
+                    target_amount, monthly_dep, cdi_annual, down_payment
+                )
+                if months is None:
+                    months = n_months
+            else:
+                months = n_months
+                monthly_dep = inv_calc.calculate_pmt_needed(
+                    target_amount, cdi_annual, months, down_payment
+                )
+            cashflows = [-down_payment] + [-monthly_dep] * months
+            return _safe_float(npv_calc.calculate_npv(cashflows, disc_monthly))
+        except Exception:
+            return 0.0
+
+    def _compute_sobol(
+        self,
+        request: SimulationRequest,
+        market_rates: Dict[str, float],
+        disc_monthly: float,
+        n_samples: int = 512,
+    ) -> Optional[List[SobolIndices]]:
+        """
+        Calcula índices de Sobol de primeira ordem (S1) e total (ST) para 6 variáveis.
+
+        S1[i]: efeito direto da variável i sozinha.
+        ST[i]: efeito total incluindo interações cruzadas.
+        ST >> S1 revela que a variável i importa principalmente via interação.
+
+        ipca    → reduz o retorno real do CDI via (1+cdi)/(1+ipca)-1.
+        aprec   → inflaciona o target do SAVE_INVEST ao longo do prazo.
+        """
+        try:
+            from SALib.sample import sobol as sobol_sample
+            from SALib.analyze import sobol as sobol_analyze
+        except ImportError:
+            logger.warning("SALib não instalado — índices de Sobol não calculados")
+            return None
+
+        base_cet    = market_rates.get("best_cet_annual", 0.15)
+        base_cdi    = market_rates.get("cdi_annual", 0.1465)
+        base_ipca   = market_rates.get("ipca_annual", 0.045)
+        base_months = float(request.financing_months)
+        base_dp     = float(request.down_payment)
+
+        dp_ref = base_dp if base_dp > 0 else request.target_amount * 0.10
+
+        problem = {
+            "num_vars": 6,
+            "names": ["cet", "prazo", "entrada", "cdi", "ipca", "apreciacao_ativo"],
+            "bounds": [
+                [max(0.001, base_cet  * 0.7),  base_cet  * 1.3],
+                [max(6.0,  base_months - 12.0), base_months + 12.0],
+                [max(0.0,  dp_ref     * 0.7),   dp_ref    * 1.3],
+                [max(0.001, base_cdi  * 0.7),   base_cdi  * 1.3],
+                [max(0.01,  base_ipca * 0.5),   min(0.20, base_ipca * 2.0)],
+                [0.0, 0.12],
+            ],
+        }
+
+        X = sobol_sample.sample(problem, N=n_samples, calc_second_order=False)
+
+        def _eval(x: np.ndarray) -> float:
+            cet_v, prazo_v, dp_v, cdi_v, ipca_v, aprec_v = x
+            months_v = max(6, int(round(prazo_v)))
+            dp_v     = float(np.clip(dp_v, 0.0, request.target_amount * 0.95))
+
+            # SAVE_INVEST: target sobe com apreciação do bem durante o prazo
+            inflated_target = request.target_amount * ((1.0 + aprec_v) ** (months_v / 12.0))
+
+            # Retorno real: aplica multiplicador de perfil ao CDI amostrado, depois deflaciona
+            adj_cdi = _get_investment_rate(
+                cdi_v, request.risk_profile, request.risk_score
+            )
+            ipca_m  = (1.0 + ipca_v)  ** (1.0 / 12.0) - 1.0
+            adj_m   = (1.0 + adj_cdi) ** (1.0 / 12.0) - 1.0
+            real_m  = (1.0 + adj_m) / (1.0 + ipca_m) - 1.0
+            eff_cdi = max(0.001, (1.0 + real_m) ** 12 - 1.0)
+
+            npv_fin = self._npv_financing_custom(
+                request,
+                {**market_rates, "best_cet_annual": cet_v},
+                disc_monthly,
+                dp_v,
+                max(1.0, request.target_amount - dp_v),
+            )
+            npv_inv = self._npv_investment_sobol(
+                request, eff_cdi, disc_monthly, dp_v, inflated_target, months_v
+            )
+            npv_cons: Optional[float] = None
+            if request.include_consortium:
+                npv_cons = self._npv_consortium_custom(
+                    request, market_rates, disc_monthly, dp_v
+                )
+
+            candidates: Dict[str, float] = {"FIN": npv_fin, "INV": npv_inv}
+            if npv_cons is not None:
+                candidates["CONS"] = npv_cons
+            return max(candidates.values())
+
+        Y = np.array([_eval(row) for row in X])
+
+        if float(np.std(Y)) < 1e-6:
+            logger.warning("Saída Sobol degenerada (std ≈ 0) — índices zerados")
+            return [
+                SobolIndices(
+                    variable=name,
+                    description=_SOBOL_DESCRIPTIONS.get(name, name),
+                    s1=0.0, s1_conf=0.0, st=0.0, st_conf=0.0, interaction_share=0.0,
+                )
+                for name in problem["names"]
+            ]
+
+        Si = sobol_analyze.analyze(
+            problem, Y, calc_second_order=False, print_to_console=False
+        )
+
+        indices: List[SobolIndices] = []
+        for i, name in enumerate(problem["names"]):
+            s1   = max(0.0, float(Si["S1"][i]))
+            st   = max(0.0, float(Si["ST"][i]))
+            s1c  = float(Si["S1_conf"][i])
+            stc  = float(Si["ST_conf"][i])
+            inter = max(0.0, (st - s1) / st) if st > 1e-6 else 0.0
+            indices.append(SobolIndices(
+                variable=name,
+                description=_SOBOL_DESCRIPTIONS.get(name, name),
+                s1=round(s1, 4),
+                s1_conf=round(s1c, 4),
+                st=round(st, 4),
+                st_conf=round(stc, 4),
+                interaction_share=round(inter, 4),
+            ))
+
+        indices.sort(key=lambda x: x.st, reverse=True)
+        return indices
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -623,22 +881,31 @@ def _build_sensitivity(
     )
 
 
-def _compute_risk_profile(total_flips: int, avg_elasticity: float) -> str:
+def _compute_risk_profile(
+    total_flips: int,
+    avg_elasticity: float,
+    target_amount: float,
+) -> str:
     """
     Classifica o perfil de risco da simulação base com base em:
         - total_flips:      quantas vezes a estratégia muda ao variar os parâmetros
         - avg_elasticity:   variação média do NPV vencedor por unidade de delta
+        - target_amount:    valor-alvo da simulação (normaliza a elasticidade)
 
     Retorna:
         "baixo"    → recomendação estável e pouco sensível a variações
         "moderado" → alguma sensibilidade, mas sem mudanças frequentes
         "alto"     → recomendação muda com frequência ou NPV muito volátil
+
+    Limiares relativos ao target (escala-invariante):
+        elasticity_pct < 0.20  (< 20% do target por unidade de delta) → baixo
+        elasticity_pct < 1.00  (< 100% do target)                     → moderado
+        else                                                            → alto
     """
-    # Elasticidade é em R$/unidade de delta (ex: R$/p.p. ou R$/mês).
-    # Limiares calibrados para simulações típicas de R$50k–R$1M.
-    if total_flips == 0 and avg_elasticity < 200_000:
+    elasticity_pct = avg_elasticity / target_amount if target_amount > 0 else 0.0
+    if total_flips == 0 and elasticity_pct < 0.20:
         return "baixo"
-    if total_flips <= 2 and avg_elasticity < 1_000_000:
+    if total_flips <= 2 and elasticity_pct < 1.00:
         return "moderado"
     return "alto"
 
@@ -646,6 +913,7 @@ def _compute_risk_profile(total_flips: int, avg_elasticity: float) -> str:
 __all__ = [
     "SensitivityAnalyzer",
     "SensitivityReport",
+    "SobolIndices",
     "VariableSensitivity",
     "SensitivityPoint",
 ]
