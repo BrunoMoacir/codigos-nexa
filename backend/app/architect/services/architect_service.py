@@ -30,6 +30,7 @@ Usage:
 """
 
 import logging
+import time
 from typing import Optional
 
 from app.architect.connectors.abac import AbacConnector
@@ -52,6 +53,8 @@ from app.architect.validators.input_validator import InputValidator
 from app.architect.validators.liquidity_validator import LiquidityValidator, RiskLevel
 
 logger = logging.getLogger(__name__)
+
+_CALIBRATION_CACHE_TTL = 300  # 5 minutos
 
 
 class ArchitectService:
@@ -98,6 +101,27 @@ class ArchitectService:
         )
         self._engine        = engine       or StrategyEngine()
         self._llm_reasoner  = llm_reasoner or LLMReasoner()
+        self._calibration_state: Optional[dict] = None
+        self._cache_loaded_at: float = 0.0
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # CALIBRAÇÃO — TTL CACHE
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _get_calibration_state(self) -> dict:
+        """
+        Retorna o estado de calibração com cache de 5 minutos.
+
+        Evita hit ao banco em cada simulação; invalida automaticamente
+        após _CALIBRATION_CACHE_TTL segundos (nova calibração é detectada
+        na próxima janela mesmo sem reiniciar o processo).
+        """
+        if time.time() - self._cache_loaded_at > _CALIBRATION_CACHE_TTL:
+            from app.architect.feedback_queries import load_calibration_state
+            loaded = load_calibration_state()
+            self._calibration_state = loaded or {}
+            self._cache_loaded_at = time.time()
+        return self._calibration_state or {}
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # PONTO DE ENTRADA PRINCIPAL
@@ -136,11 +160,25 @@ class ArchitectService:
         self._validate_or_raise(request, accumulated_warnings)
 
         # ── 1.5 Inferir risk_profile do histórico se não informado ───
-        request = self._infer_risk_profile(request, transactions_df, accumulated_warnings)
+        cal = self._get_calibration_state()
+        request = self._infer_risk_profile(
+            request,
+            transactions_df,
+            accumulated_warnings,
+            threshold_conservative=cal.get("threshold_conservative", 0.35),
+            threshold_aggressive=cal.get("threshold_aggressive", 0.65),
+        )
 
         # ── 2. Buscar taxas de mercado ───────────────────────────────
         market_rates, rate_warnings = self._fetch_market_rates(request)
         accumulated_warnings.extend(rate_warnings)
+
+        # Injeta parâmetros de lance calibrados para o MC de consórcio
+        cal_bid = cal.get("bid_params", {}).get("global", {})
+        if cal_bid.get("bid_mean_initial") is not None:
+            market_rates["bid_mean_initial"] = cal_bid["bid_mean_initial"]
+        if cal_bid.get("bid_std") is not None:
+            market_rates["bid_std"] = cal_bid["bid_std"]
 
         # ── 2.5. Open Finance: personalizar taxas com dados reais ────
         has_open_finance_data = False
@@ -249,6 +287,9 @@ class ArchitectService:
         )
 
         # ── 8. Montar resposta final ─────────────────────────────────
+        # Aplica teto de confidence calibrado (rebaixado quando modelo estava superconfiante)
+        confidence = min(confidence, cal.get("confidence_threshold_upper", 1.0))
+
         return base_response.model_copy(
             update={
                 "liquidity_impact":      liquidity.impact,
@@ -434,6 +475,8 @@ class ArchitectService:
         request: "SimulationRequest",
         transactions_df,
         warnings: list[str],
+        threshold_conservative: float = 0.35,
+        threshold_aggressive: float = 0.65,
     ) -> "SimulationRequest":
         """
         Infere risk_profile e risk_score do histórico de transações via RiskScorer.
@@ -505,6 +548,8 @@ class ArchitectService:
                 committed_available=committed_available,
                 investment_ratio=investment_ratio,
                 reserve_depth_override=reserve_depth_of,
+                threshold_conservative=threshold_conservative,
+                threshold_aggressive=threshold_aggressive,
             )
 
             tier = getattr(fin_profile, "behavior_tier", fin_profile.profile_type)

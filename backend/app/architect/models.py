@@ -1519,6 +1519,116 @@ class SimulationReport(BaseModel):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# FEEDBACK & CALIBRAÇÃO
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class FeedbackRequest(BaseModel):
+    """
+    Feedback do usuário ~6 meses após a simulação.
+
+    Usado para alimentar o CalibrationPipeline, que recalibra os limiares do
+    RiskScorer, os parâmetros do Monte Carlo de consórcio e o teto do
+    confidence_score com base em comportamento real observado.
+    """
+
+    feedback_followed: bool = Field(
+        ...,
+        description="True se o usuário seguiu a estratégia recomendada.",
+    )
+    strategy_used: StrategyType = Field(
+        ...,
+        description="Estratégia efetivamente adotada pelo usuário.",
+    )
+    npv_deviation: Optional[float] = Field(
+        default=None,
+        description=(
+            "Desvio do NPV real em relação ao projetado: "
+            "(npv_real − npv_projetado) / |npv_projetado|. "
+            "Positivo = custou mais do que projetado. Opcional."
+        ),
+    )
+    rate_deviation: Optional[float] = Field(
+        default=None,
+        description=(
+            "Diferença entre a taxa real obtida e a taxa projetada em pontos "
+            "percentuais. Positivo = taxa real maior que projetada. Opcional."
+        ),
+    )
+    actual_contemplation_month: Optional[int] = Field(
+        default=None,
+        description="Mês real em que ocorreu a contemplação (CONSORTIUM). Opcional.",
+        ge=1,
+        le=360,
+    )
+    actual_rate_obtained: Optional[float] = Field(
+        default=None,
+        description="CET real obtido no financiamento (decimal). Opcional.",
+        ge=0.0,
+        le=5.0,
+    )
+
+
+class CalibrationResult(BaseModel):
+    """Resumo do que a CalibrationPipeline fez (ou não fez) nesta rodada."""
+
+    thresholds_updated: bool = Field(
+        ...,
+        description="True se os limiares de discretização do RiskScorer foram recalibrados.",
+    )
+    bid_params_updated: bool = Field(
+        ...,
+        description="True se os parâmetros do Monte Carlo de consórcio foram ajustados.",
+    )
+    confidence_threshold_updated: bool = Field(
+        ...,
+        description="True se o teto do confidence_score foi ajustado.",
+    )
+    n_feedbacks_used: int = Field(
+        ...,
+        description="Total de feedbacks disponíveis no momento da calibração.",
+        ge=0,
+    )
+    changes: list[str] = Field(
+        default_factory=list,
+        description="Descrições legíveis do que foi e do que não foi calibrado.",
+    )
+
+
+class FeedbackResponse(BaseModel):
+    """Resposta ao POST /architect/simulations/{id}/feedback."""
+
+    feedback_id: str = Field(..., description="UUID do feedback gravado.")
+    calibration_triggered: bool = Field(
+        ...,
+        description="True se a CalibrationPipeline foi executada após este feedback.",
+    )
+    calibration_result: Optional[CalibrationResult] = Field(
+        default=None,
+        description="Resultado da calibração. Presente apenas quando calibration_triggered=True.",
+    )
+
+
+class PendingFeedbackItem(BaseModel):
+    """
+    Simulação aguardando feedback do usuário.
+
+    Retornado pelo GET /architect/simulations/pending-feedback para que o
+    frontend exiba o prompt de avaliação pós-uso.
+    """
+
+    simulation_id: str = Field(..., description="UUID da simulação.")
+    created_at: datetime = Field(..., description="Timestamp de criação da simulação.")
+    recommended_strategy: StrategyType = Field(
+        ..., description="Estratégia recomendada na época."
+    )
+    target_amount: float = Field(..., description="Valor do bem simulado (R$).", ge=0)
+    asset_type: AssetType = Field(..., description="Tipo do bem.")
+    months_since_simulation: int = Field(
+        ..., description="Meses decorridos desde a simulação.", ge=0
+    )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # EXPORTS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1559,6 +1669,11 @@ __all__ = [
     "TimingScenario",
     # Persistência
     "SimulationReport",
+    # Feedback & Calibração
+    "FeedbackRequest",
+    "FeedbackResponse",
+    "PendingFeedbackItem",
+    "CalibrationResult",
 ]
 
 # Resolver forward references (EfficiencyAnalysis referenciado em SimulationResponse)

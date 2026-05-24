@@ -44,7 +44,14 @@ from fastapi import APIRouter, HTTPException, Query, status, Depends
 from app.core.security import get_current_user, require_owner
 from pydantic import BaseModel, Field
 
-from app.architect.models import SimulationRequest, SimulationResponse, TimingScenario
+from app.architect.models import (
+    FeedbackRequest,
+    FeedbackResponse,
+    PendingFeedbackItem,
+    SimulationRequest,
+    SimulationResponse,
+    TimingScenario,
+)
 from app.architect.services.architect_service import ArchitectService
 from app.architect.simulators.sensitivity_analyzer import SensitivityAnalyzer
 from app.architect.queries import (
@@ -408,6 +415,42 @@ async def list_simulations(
         })
 
     return result
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ENDPOINT: GET /architect/simulations/pending-feedback
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@router.get(
+    "/simulations/pending-feedback",
+    response_model=List[PendingFeedbackItem],
+    status_code=status.HTTP_200_OK,
+    summary="Simulações aguardando feedback (~6 meses)",
+    description=(
+        "Retorna simulações do usuário com ≥ 6 meses de idade que ainda "
+        "não receberam feedback. Exibido pelo frontend ao abrir o app."
+    ),
+)
+async def get_pending_feedback_endpoint(
+    current_user: str = Depends(get_current_user),
+    window_days: int = Query(default=180, ge=1, le=730, description="Meses mínimos desde a simulação"),
+    limit: int = Query(default=10, ge=1, le=50),
+) -> List[Dict[str, Any]]:
+    from app.architect.feedback_queries import get_pending_feedback
+
+    try:
+        items = get_pending_feedback(
+            user_id=current_user,
+            window_days=window_days,
+            limit=limit,
+        )
+    except Exception as exc:
+        logger.error("GET /simulations/pending-feedback | user=%s | erro: %s", current_user, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao buscar simulações pendentes.",
+        )
+    return items
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -826,3 +869,128 @@ async def timing_scenarios(
         len(timing_results),
     )
     return timing_results
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ENDPOINT: POST /architect/simulations/{simulation_id}/feedback
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@router.post(
+    "/simulations/{simulation_id}/feedback",
+    response_model=FeedbackResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Registrar feedback pós-simulação",
+    description=(
+        "Registra se o usuário seguiu a recomendação e qual foi o resultado real. "
+        "Quando há dados suficientes (≥ 20 feedbacks, ≥ 7 dias desde a última calibração), "
+        "dispara automaticamente a recalibração dos modelos."
+    ),
+)
+async def submit_feedback(
+    simulation_id: str,
+    feedback_request: FeedbackRequest,
+    current_user: str = Depends(get_current_user),
+) -> FeedbackResponse:
+    from app.architect.feedback_queries import save_feedback_and_check_trigger
+
+    # Busca simulação para validar propriedade e extrair snapshot
+    try:
+        sim = get_simulation(simulation_id)
+    except Exception as exc:
+        logger.error("POST /feedback | sim=%s | erro ao buscar: %s", simulation_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao buscar simulação.",
+        )
+
+    if sim is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Simulação '{simulation_id}' não encontrada.",
+        )
+
+    if sim.get("user_id") != current_user:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+
+    req_snap = sim.get("request") or {}
+    resp_snap = sim.get("response") or {}
+    simulation_snapshot = {
+        "risk_score":     req_snap.get("risk_score"),
+        "risk_profile":   req_snap.get("risk_profile"),
+        "confidence_score": resp_snap.get("confidence_score"),
+        "asset_type":     req_snap.get("asset_type", "OUTRO"),
+    }
+
+    feedback_id, should_calibrate = save_feedback_and_check_trigger(
+        simulation_id=simulation_id,
+        user_id=current_user,
+        feedback_request=feedback_request,
+        simulation_snapshot=simulation_snapshot,
+    )
+
+    if feedback_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao salvar feedback.",
+        )
+
+    calibration_result = None
+    if should_calibrate:
+        try:
+            from app.core.database import SessionLocal
+            from app.architect.services.calibration_pipeline import CalibrationPipeline
+            with SessionLocal() as db:
+                calibration_result = CalibrationPipeline().run(db)
+            # Invalida o cache do service para a próxima simulação usar os novos thresholds
+            _service._calibration_state = None
+            _service._cache_loaded_at = 0.0
+            logger.info(
+                "POST /feedback | sim=%s | calibração concluída: %s",
+                simulation_id,
+                calibration_result.changes,
+            )
+        except Exception as exc:
+            logger.warning(
+                "POST /feedback | sim=%s | calibração falhou (não-crítico): %s",
+                simulation_id,
+                exc,
+            )
+
+    return FeedbackResponse(
+        feedback_id=feedback_id,
+        calibration_triggered=should_calibrate,
+        calibration_result=calibration_result,
+    )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ENDPOINT: POST /architect/calibration/rollback
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@router.post(
+    "/calibration/rollback",
+    status_code=status.HTTP_200_OK,
+    summary="Reverter última calibração",
+    description=(
+        "Troca os parâmetros calibrados atuais pelos anteriores (previous_*). "
+        "Use quando uma calibração automática produzir resultados piores que o esperado."
+    ),
+)
+async def rollback_calibration(
+    _: str = Depends(get_current_user),
+) -> Dict[str, Any]:
+    from app.architect.feedback_queries import rollback_calibration_state
+
+    ok = rollback_calibration_state()
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Nenhum estado anterior encontrado para rollback.",
+        )
+
+    # Invalida cache do service para refletir imediatamente
+    _service._calibration_state = None
+    _service._cache_loaded_at = 0.0
+
+    logger.info("POST /calibration/rollback | rollback efetuado")
+    return {"status": "ok", "message": "Calibração revertida com sucesso."}

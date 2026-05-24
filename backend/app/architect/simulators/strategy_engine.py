@@ -1073,6 +1073,9 @@ class StrategyEngine:
         group_size            = int(rates.get("consortium_group_size",         100))
         contemplated_per_m    = int(rates.get("consortium_contemplated_per_month", 2))
         annual_adj_rate       = rates.get("consortium_annual_adjustment_rate", 0.045)
+        # Parâmetros do MC de consórcio — injetados pelo CalibrationPipeline quando disponíveis
+        bid_mean_initial      = rates.get("bid_mean_initial", 0.35)
+        bid_std               = rates.get("bid_std",          0.12)
 
         # Mapeamento de tipo de bem: AssetType enum → formato consortium.py
         calc_asset_type = ConsortiumRateProvider.map_asset_type(req.asset_type.value)
@@ -1087,6 +1090,8 @@ class StrategyEngine:
             annual_adjustment_rate=annual_adj_rate,
             group_size=group_size,
             contemplated_per_month=contemplated_per_m,
+            bid_mean_initial=bid_mean_initial,
+            bid_std=bid_std,
         )
 
         # Fluxo: -Parcelas por N meses

@@ -199,6 +199,8 @@ class RiskScorer:
         committed_available: bool = False,
         investment_ratio: Optional[float] = None,
         reserve_depth_override: Optional[float] = None,
+        threshold_conservative: float = _THRESHOLD_CONSERVATIVE,
+        threshold_aggressive:   float = _THRESHOLD_AGGRESSIVE,
     ) -> RiskScore:
         """
         Computa o score de tolerância ao risco.
@@ -229,7 +231,11 @@ class RiskScorer:
         score_val, weights = RiskScorer._compute_score(
             components, missing, request.asset_type
         )
-        profile    = RiskScorer._discretize(score_val)
+        profile    = RiskScorer._discretize(
+            score_val,
+            threshold_conservative=threshold_conservative,
+            threshold_aggressive=threshold_aggressive,
+        )
         confidence = RiskScorer._compute_confidence(
             income_profile, user_profile, transactions_df, missing
         )
@@ -545,11 +551,15 @@ class RiskScorer:
             return 0
 
     @staticmethod
-    def _discretize(score: float) -> RiskProfile:
-        """Mapeia score contínuo para RiskProfile (retrocompatibilidade API/DB)."""
-        if score < _THRESHOLD_CONSERVATIVE:
+    def _discretize(
+        score: float,
+        threshold_conservative: float = _THRESHOLD_CONSERVATIVE,
+        threshold_aggressive:   float = _THRESHOLD_AGGRESSIVE,
+    ) -> RiskProfile:
+        """Mapeia score contínuo para RiskProfile usando limiares calibráveis."""
+        if score < threshold_conservative:
             return RiskProfile.CONSERVADOR
-        if score > _THRESHOLD_AGGRESSIVE:
+        if score > threshold_aggressive:
             return RiskProfile.AGRESSIVO
         return RiskProfile.MODERADO
 
