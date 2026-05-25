@@ -25,6 +25,70 @@ _DEFAULT_MONTHS = {
     "OUTRO":    48,
 }
 
+_MAX_MONTHS = {
+    "IMOVEL":  420,
+    "VEICULO":  84,
+    "REFORMA": 120,
+    "VIAGEM":   60,
+    "OUTRO":   120,
+}
+
+
+def _infer_financing_months(
+    asset_type_upper: str,
+    risk_profile: str,
+    target_amount: float,
+    down_payment: float,
+    safe_to_spend: Optional[float],
+) -> tuple[int, str]:
+    """
+    Infere o prazo ideal baseado em perfil de risco e capacidade financeira.
+    Retorna (months, note) — note vai para o output para o agente transmitir
+    ao usuário com oferta de recalcular caso queira prazo diferente.
+    """
+    import math
+
+    base    = _DEFAULT_MONTHS.get(asset_type_upper, 48)
+    max_m   = _MAX_MONTHS.get(asset_type_upper, 120)
+    months  = base
+    notes   = []
+
+    # 1. Ajuste por perfil: conservador evita dívida longa em bem não-imóvel
+    if risk_profile == "conservador" and asset_type_upper != "IMOVEL":
+        months = max(base * 7 // 10, 12)
+        notes.append(f"reduzido para {months}m (perfil conservador evita dívida longa em bem não-imóvel)")
+
+    # 2. Ajuste por pressão orçamentária: se parcela estimada > 40% do disponível, estende
+    principal = max(target_amount - down_payment, 0.0)
+    if safe_to_spend and safe_to_spend > 0 and principal > 0:
+        rough_rate  = 0.0153  # ~20% a.a. → referência de mercado
+        budget_cap  = safe_to_spend * 0.40
+        try:
+            pmt_with_current = principal * rough_rate / (1 - (1 + rough_rate) ** (-months))
+            if pmt_with_current > budget_cap:
+                if budget_cap > principal * rough_rate:
+                    n_needed = math.ceil(
+                        -math.log(1 - principal * rough_rate / budget_cap) / math.log(1 + rough_rate)
+                    )
+                    n_needed = min(n_needed, max_m)
+                    if n_needed > months:
+                        notes.append(
+                            f"estendido para {n_needed}m para manter parcela ≤ 40% do disponível mensal "
+                            f"(R$ {budget_cap:,.0f}/mês)"
+                        )
+                        months = n_needed
+                else:
+                    months = max_m
+                    notes.append(
+                        f"mesmo em {max_m}m a parcela estimada supera o orçamento disponível — "
+                        "revise entrada ou valor alvo"
+                    )
+        except (ValueError, ZeroDivisionError):
+            pass
+
+    reason = "; ".join(notes) if notes else f"padrão para {asset_type_upper.lower()}"
+    return months, reason
+
 
 def _build_request(
     user_id: str,
@@ -35,8 +99,12 @@ def _build_request(
     financing_months: Optional[int],
     risk_profile: str,
     expected_rental_income: Optional[float],
-):
-    """Monta o SimulationRequest com os enums corretos e defaults inteligentes por tipo de bem."""
+    safe_to_spend: Optional[float] = None,
+) -> tuple:
+    """
+    Monta o SimulationRequest. Retorna (request, months_note) para o output.
+    months_note é vazio quando o usuário informou o prazo explicitamente.
+    """
     from app.architect.models import SimulationRequest, AssetType, RiskProfile
 
     asset_map = {
@@ -53,8 +121,13 @@ def _build_request(
     }
     risk_enum = risk_map.get(risk_profile.lower(), RiskProfile.MODERADO)
 
-    # Usa prazo informado ou default sensato por tipo de bem
-    months = financing_months or _DEFAULT_MONTHS.get(asset_type.upper(), 48)
+    if financing_months:
+        months      = financing_months
+        months_note = ""
+    else:
+        months, months_note = _infer_financing_months(
+            asset_type.upper(), risk_profile, target_amount, down_payment, safe_to_spend
+        )
 
     req_kwargs = dict(
         user_id=user_id,
@@ -69,7 +142,7 @@ def _build_request(
     if expected_rental_income and expected_rental_income > 0 and asset_enum == AssetType.IMOVEL:
         req_kwargs["expected_rental_income"] = expected_rental_income
 
-    return SimulationRequest(**req_kwargs)
+    return SimulationRequest(**req_kwargs), months, months_note
 
 
 def _fetch_user_safe_to_spend(user_id: str) -> Optional[float]:
@@ -97,7 +170,14 @@ def _fetch_transactions(user_id: str):
     return None
 
 
-def _format_output(response, target_amount: float, asset_type: str, down_payment: float) -> str:
+def _format_output(
+    response,
+    target_amount: float,
+    asset_type: str,
+    down_payment: float,
+    months: Optional[int] = None,
+    months_note: str = "",
+) -> str:
     """Formata a SimulationResponse como texto para o LLM."""
     from app.architect.models import StrategyType
 
@@ -116,6 +196,12 @@ def _format_output(response, target_amount: float, asset_type: str, down_payment
         f"Confianca da Analise: {response.confidence_score:.0%}",
         "-" * 40,
     ]
+    if months:
+        term_note = f"Prazo utilizado: {months} meses ({months_note})"
+        if not months_note:
+            term_note = f"Prazo utilizado: {months} meses"
+        lines.append(term_note + " — mencione outro prazo se quiser recalcular.")
+        lines.append("")
 
     npv = response.npv
     lines.append("Custos Comparados (NPV — valor presente):")
@@ -307,19 +393,24 @@ def get_financing_simulation(
         user_id, target_amount, asset_type,
     )
     try:
-        request = _build_request(
-            user_id, target_amount, down_payment, max_monthly_budget,
-            asset_type, financing_months, risk_profile, expected_rental_income,
-        )
         safe_to_spend_value = _fetch_user_safe_to_spend(user_id)
         transactions_df = _fetch_transactions(user_id)
+
+        request, months, months_note = _build_request(
+            user_id, target_amount, down_payment, max_monthly_budget,
+            asset_type, financing_months, risk_profile, expected_rental_income,
+            safe_to_spend=safe_to_spend_value,
+        )
 
         response = _get_service().simulate(
             request,
             safe_to_spend=safe_to_spend_value,
             transactions_df=transactions_df,
         )
-        return _format_output(response, target_amount, asset_type, down_payment)
+        return _format_output(
+            response, target_amount, asset_type, down_payment,
+            months=months, months_note=months_note,
+        )
 
     except ValueError as ve:
         return f"Dados insuficientes para simular: {ve}"
