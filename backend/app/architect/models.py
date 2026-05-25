@@ -365,6 +365,17 @@ class SimulationRequest(BaseModel):
         gt=0,
     )
 
+    current_monthly_rent: Optional[float] = Field(
+        default=None,
+        description=(
+            "Aluguel mensal atual pago pelo usuário (R$). "
+            "Quando informado, é somado ao custo do SAVE_INVEST no período de acumulação, "
+            "pois quem poupa para comprar continua pagando aluguel até a aquisição. "
+            "Sem esse campo, SAVE_INVEST fica sistematicamente favorecido para IMOVEL."
+        ),
+        gt=0,
+    )
+
     transaction_costs_pct: Optional[float] = Field(
         default=None,
         description=(

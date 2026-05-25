@@ -1021,9 +1021,12 @@ class StrategyEngine:
                 req.down_payment,
             )
 
-        # Fluxo: -Entrada -Aportes mensais
+        # Fluxo: -Entrada -Aportes mensais [-Aluguel mensal durante acumulação]
+        # current_monthly_rent: custo real de quem poupa para comprar enquanto ainda aluga.
+        # Sem esse campo, SAVE_INVEST é sistematicamente sub-custoso para IMOVEL.
+        rent_monthly = req.current_monthly_rent or 0.0
         cashflows = [-req.down_payment]
-        cashflows.extend([-monthly_dep] * months)
+        cashflows.extend([-(monthly_dep + rent_monthly)] * months)
 
         npv_val = npv_calc.calculate_npv(cashflows, disc_monthly)
 
@@ -1777,12 +1780,16 @@ class StrategyEngine:
                 if prob is not None:
                     consortium_expected = int(prob.expected_months)
 
+            # current_monthly_rent somado ao depósito mensal: quem poupa ainda paga
+            # aluguel durante a acumulação — esse custo deve entrar na distribuição SSD
+            # para comparação justa contra FINANCING (que substitui o aluguel).
+            rent_for_macro = request.current_monthly_rent or 0.0
             distributions, prob_best, ssd_matrix = run_macro_simulation(
                 n_sims                            = n_sims,
                 initial_selic_annual              = selic_annual,
                 financing_cashflows               = fin_result.get("cashflows"),
                 financing_months                  = request.financing_months,
-                save_monthly                      = float(inv_result["monthly_payment"]),
+                save_monthly                      = float(inv_result["monthly_payment"]) + rent_for_macro,
                 target_amount                     = request.target_amount,
                 down_payment                      = request.down_payment,
                 consortium_months                 = consortium_months,
