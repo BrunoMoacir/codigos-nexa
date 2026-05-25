@@ -300,8 +300,10 @@ class CalibrationPipeline:
         Analisa a precisão real por decil de confidence_score.
 
         Se recomendações com confidence > teto_atual erraram frequentemente,
-        rebaixa o teto para o menor limiar com precision ≥ PRECISION_TARGET.
-        O teto nunca sobe acima de 1.0 nem cai abaixo de CONFIDENCE_MIN.
+        rebaixa o teto para o limite superior do último decil com
+        precision ≥ PRECISION_TARGET (ponto acima do qual o modelo se torna
+        superconfiante). O teto nunca sobe acima de 1.0 nem cai abaixo de
+        CONFIDENCE_MIN.
         """
         changes: List[str] = []
         current_teto = current_state.get("confidence_threshold_upper", 1.0)
@@ -335,11 +337,13 @@ class CalibrationPipeline:
             changes.append("Nenhum decil com amostras suficientes para calibrar confidence")
             return None, changes
 
-        # Menor threshold onde precision ≥ PRECISION_TARGET
+        # Limite superior do último bucket com precision ≥ PRECISION_TARGET.
+        # Iterando em ordem decrescente encontramos o ponto acima do qual
+        # a precisão cai — é aí que o modelo se torna superconfiante.
         c_star: Optional[float] = None
-        for lo, prec, _ in bucket_stats:
+        for lo, prec, _ in reversed(bucket_stats):
             if prec >= PRECISION_TARGET:
-                c_star = lo
+                c_star = round(lo + 0.1, 2)
                 break
 
         if c_star is None:
