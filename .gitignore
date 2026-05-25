@@ -11,12 +11,6 @@ dist/
 build/
 .eggs/
 
-# Env files (never commit secrets)
-.env
-**/.env
-!.env.example
-!**/.env.example
-
 # DuckDB (gerados em runtime, não versionar)
 *.duckdb
 # Exceção: fixture de testes (pequena, gerada pelo seed, pode ser commitada)

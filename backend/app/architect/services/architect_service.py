@@ -30,6 +30,7 @@ Usage:
 """
 
 import logging
+import time
 from typing import Optional
 
 from app.architect.connectors.abac import AbacConnector
@@ -39,16 +40,21 @@ from app.architect.connectors.consortium_rate_provider import ConsortiumRateProv
 from app.architect.connectors.ipca import IPCAConnector
 from app.architect.connectors.market_rates import MarketRatesConnector
 from app.architect.models import (
+    AmortizationMethod,
     CardOptimizationBonus,
+    OpenFinanceFeatures,
     SimulationRequest,
     SimulationResponse,
     StrategyType,
 )
+from app.architect.services.llm_reasoner import LLMReasoner
 from app.architect.simulators.strategy_engine import StrategyEngine
 from app.architect.validators.input_validator import InputValidator
 from app.architect.validators.liquidity_validator import LiquidityValidator, RiskLevel
 
 logger = logging.getLogger(__name__)
+
+_CALIBRATION_CACHE_TTL = 300  # 5 minutos
 
 
 class ArchitectService:
@@ -80,6 +86,7 @@ class ArchitectService:
         ipca: Optional[IPCAConnector] = None,
         consortium_provider: Optional[ConsortiumRateProvider] = None,
         engine: Optional[StrategyEngine] = None,
+        llm_reasoner: Optional[LLMReasoner] = None,
     ) -> None:
         self._bacen        = bacen        or BacenConnector()
         self._anbima       = anbima       or AnbimaConnector()
@@ -92,7 +99,29 @@ class ArchitectService:
             abac=self._abac,
             ipca=self._ipca,
         )
-        self._engine       = engine       or StrategyEngine()
+        self._engine        = engine       or StrategyEngine()
+        self._llm_reasoner  = llm_reasoner or LLMReasoner()
+        self._calibration_state: Optional[dict] = None
+        self._cache_loaded_at: float = 0.0
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # CALIBRAÇÃO — TTL CACHE
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _get_calibration_state(self) -> dict:
+        """
+        Retorna o estado de calibração com cache de 5 minutos.
+
+        Evita hit ao banco em cada simulação; invalida automaticamente
+        após _CALIBRATION_CACHE_TTL segundos (nova calibração é detectada
+        na próxima janela mesmo sem reiniciar o processo).
+        """
+        if time.time() - self._cache_loaded_at > _CALIBRATION_CACHE_TTL:
+            from app.architect.feedback_queries import load_calibration_state
+            loaded = load_calibration_state()
+            self._calibration_state = loaded or {}
+            self._cache_loaded_at = time.time()
+        return self._calibration_state or {}
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # PONTO DE ENTRADA PRINCIPAL
@@ -131,19 +160,61 @@ class ArchitectService:
         self._validate_or_raise(request, accumulated_warnings)
 
         # ── 1.5 Inferir risk_profile do histórico se não informado ───
-        request = self._infer_risk_profile(request, transactions_df, accumulated_warnings)
+        cal = self._get_calibration_state()
+        request = self._infer_risk_profile(
+            request,
+            transactions_df,
+            accumulated_warnings,
+            threshold_conservative=cal.get("threshold_conservative", 0.35),
+            threshold_aggressive=cal.get("threshold_aggressive", 0.65),
+        )
 
         # ── 2. Buscar taxas de mercado ───────────────────────────────
         market_rates, rate_warnings = self._fetch_market_rates(request)
         accumulated_warnings.extend(rate_warnings)
+
+        # Injeta parâmetros de lance calibrados para o MC de consórcio
+        cal_bid = cal.get("bid_params", {}).get("global", {})
+        if cal_bid.get("bid_mean_initial") is not None:
+            market_rates["bid_mean_initial"] = cal_bid["bid_mean_initial"]
+        if cal_bid.get("bid_std") is not None:
+            market_rates["bid_std"] = cal_bid["bid_std"]
+
+        # ── 2.5. Open Finance: personalizar taxas com dados reais ────
+        has_open_finance_data = False
+        if request.open_finance_features is not None:
+            market_rates, of_warnings = self._apply_open_finance_overrides(
+                market_rates, request.open_finance_features, request
+            )
+            accumulated_warnings.extend(of_warnings)
+            has_open_finance_data = True
 
         # ── 3. Simular estratégias ───────────────────────────────────
         base_response = self._engine.simulate(request, market_rates)
         # Preserva warnings gerados pelo engine (perfil de risco, depreciação, etc.)
         accumulated_warnings.extend(base_response.warnings)
 
+        # ── 3.5. LLM co-raciocínio (consistência + rerun + narrativa) ──
+        # LLMReasoner age como analista sênior: verifica inconsistências entre
+        # perfil e recomendação, sugere ajuste de parâmetros (override_params)
+        # e gera narrativa contextualizada em 3 parágrafos.
+        # Retorna (None, base_response) quando LLM não está configurado ou falha.
+        llm_result, base_response = self._llm_reasoner.reason(
+            request=request,
+            base_response=base_response,
+            market_rates=market_rates,
+            rerun_fn=lambda req: self._engine.simulate(req, market_rates),
+        )
+        _MAX_FLAG_LEN = 200
+        if llm_result is not None and llm_result.consistency.flags:
+            accumulated_warnings.extend(
+                f"[LLM] {str(flag)[:_MAX_FLAG_LEN]}"
+                for flag in llm_result.consistency.flags
+                if flag
+            )
+
         # ── 4. Recalcular liquidez com safe_to_spend real ────────────
-        monthly_payment = self._estimate_monthly_payment(base_response, request)
+        monthly_payment = self._estimate_monthly_payment(base_response, request, market_rates)
         liquidity = LiquidityValidator.calculate(
             monthly_payment=monthly_payment,
             safe_to_spend=safe_to_spend,
@@ -157,12 +228,15 @@ class ArchitectService:
             has_f1_data=(safe_to_spend is not None),
             used_fallback_rates=bool(rate_warnings),
             warning_count=len(accumulated_warnings),
+            has_open_finance_data=has_open_finance_data,
         )
 
         # ── 6. Consolidar data_sources ───────────────────────────────
         data_sources = list(base_response.data_sources)
         if safe_to_spend is not None:
             data_sources.append("f1_safe_to_spend")
+        if has_open_finance_data:
+            data_sources.append("open_finance")
         # ABAC sempre consultado para simulações de consórcio (Fase 2)
         if request.include_consortium and "abac" not in data_sources:
             data_sources.append("abac")
@@ -213,13 +287,17 @@ class ArchitectService:
         )
 
         # ── 8. Montar resposta final ─────────────────────────────────
+        # Aplica teto de confidence calibrado (rebaixado quando modelo estava superconfiante)
+        confidence = min(confidence, cal.get("confidence_threshold_upper", 1.0))
+
         return base_response.model_copy(
             update={
-                "liquidity_impact": liquidity.impact,
-                "warnings": accumulated_warnings,
-                "confidence_score": round(confidence, 2),
-                "data_sources": data_sources,
+                "liquidity_impact":      liquidity.impact,
+                "warnings":              accumulated_warnings,
+                "confidence_score":      round(confidence, 2),
+                "data_sources":          data_sources,
                 "card_optimization_bonus": card_bonus,
+                "llm_reasoning":         llm_result,
             }
         )
 
@@ -346,6 +424,7 @@ class ArchitectService:
     def _estimate_monthly_payment(
         response: SimulationResponse,
         request: SimulationRequest,
+        market_rates: dict,
     ) -> float:
         """
         Estima a parcela mensal efetiva da estratégia recomendada.
@@ -353,14 +432,10 @@ class ArchitectService:
         Usado como entrada do LiquidityValidator. Cada estratégia tem
         uma lógica diferente para chegar ao compromisso mensal de caixa.
 
-        - FINANCING:   custo total / prazo do financiamento (parcela fixa PRICE)
-        - SAVE_INVEST: custo total / meses de acumulação (aporte mensal)
-        - CONSORTIUM:  custo total / meses de acumulação (parcela mensal)
-
-        Limitação (MVP): para SAC, retorna a parcela média (custo_total / n_meses),
-        não a parcela inicial (a mais alta). O LiquidityValidator pode subestimar
-        o impacto real no mês 1 quando amortization_method=SAC. Aceitável enquanto
-        PRICE for o default, pois para PRICE custo_total / n_meses == parcela fixa.
+        - FINANCING (PRICE): parcela fixa = custo total / prazo
+        - FINANCING (SAC):   primeira parcela (mais alta) = amort + juros sobre principal cheio
+        - SAVE_INVEST:       custo total / meses de acumulação (aporte mensal)
+        - CONSORTIUM:        custo total / meses de acumulação (parcela mensal)
         """
         # Estratégias compostas: usar custo líquido (após aluguel/SELIC)
         if response.recommended_strategy in (
@@ -378,7 +453,16 @@ class ArchitectService:
         months_to_achieve = max(response.months_to_achieve, 1)
 
         if response.recommended_strategy == StrategyType.FINANCING:
-            # months_to_achieve = 1 (aquisição imediata) — usar prazo real do contrato
+            if request.amortization_method == AmortizationMethod.SAC:
+                # SAC: primeira parcela (mais alta) = amortização + juros sobre principal inteiro.
+                # Conservador para o LiquidityValidator — garante que mês 1 é coberto.
+                principal    = max(request.target_amount - request.down_payment, 0.0)
+                cet_annual   = market_rates.get("best_cet_annual", 0.20)
+                monthly_rate = (1 + cet_annual) ** (1 / 12) - 1
+                n            = max(request.financing_months, 1)
+                first_payment = principal / n + principal * monthly_rate
+                return round(first_payment, 2)
+            # PRICE: parcela fixa = custo_total / prazo
             denominator = max(request.financing_months, 1)
         else:
             # SAVE_INVEST e CONSORTIUM: meses até ter o bem
@@ -391,20 +475,20 @@ class ArchitectService:
         request: "SimulationRequest",
         transactions_df,
         warnings: list[str],
+        threshold_conservative: float = 0.35,
+        threshold_aggressive: float = 0.65,
     ) -> "SimulationRequest":
         """
-        Se risk_profile não foi informado na request, infere do histórico de transações
-        usando UserProfileAnalyzer + IncomeProfiler.
+        Infere risk_profile e risk_score do histórico de transações via RiskScorer.
 
-        Mapeamento spending → risk (doc seção 13.1):
-          CONSERVADOR → CONSERVADOR  (poupa ≥ 20% — disciplinado, avesso a dívida)
-          EQUILIBRADO → MODERADO     (poupa 10–20%)
-          GASTADOR    → MODERADO     (< 10% — sem dados suficientes para inferir agressivo)
+        Usa scoring multidimensional (4 componentes) em vez do mapeamento binário
+        savings_rate → {CONSERVADOR, EQUILIBRADO, GASTADOR} → {CONSERVADOR, MODERADO}.
+
+        Se risk_profile foi declarado explicitamente pelo usuário, ainda computa
+        risk_score para alimentar os thresholds interpolados do engine — mas não
+        sobrescreve o risk_profile declarado.
         """
-        from app.architect.models import RiskProfile
-
-        if request.risk_profile is not None:
-            return request
+        from app.architect.validators.risk_scorer import RiskScorer
 
         if transactions_df is None:
             return request
@@ -416,28 +500,81 @@ class ArchitectService:
             income_profile = IncomeProfiler().build(transactions_df)
             fin_profile = UserProfileAnalyzer().analyze(transactions_df, income_profile)
 
-            # Usa risk_appetite_inferred (v2) — mais preciso que o mapeamento manual
-            # profile_type → risk_profile que tratava GASTADOR 9% = GASTADOR -30%.
-            inferred_str = getattr(fin_profile, "risk_appetite_inferred", None)
-            if inferred_str:
-                inferred = RiskProfile(inferred_str)
-            else:
-                # fallback para retrocompatibilidade
-                mapping = {
-                    "CONSERVADOR": RiskProfile.CONSERVADOR,
-                    "EQUILIBRADO": RiskProfile.MODERADO,
-                    "GASTADOR":    RiskProfile.MODERADO,
-                }
-                inferred = mapping.get(fin_profile.profile_type, RiskProfile.MODERADO)
+            committed_pct        = 0.0
+            committed_available  = False
+            investment_ratio     = None
+            reserve_depth_of     = None
+            of = request.open_finance_features
+
+            if of is not None:
+                if of.comprometimento_renda_pct is not None:
+                    committed_pct       = of.comprometimento_renda_pct
+                    committed_available = True
+                investment_ratio = of.composicao_rv_pct
+
+                # C4 proxy: reserva estimada / (6 × despesa mensal).
+                # savings_rate decresce com dívida — quem tem MENOS comprometimento poupa MAIS.
+                # Requer renda + comprometimento + streak; sem qualquer um cai para user_profile.
+                if (
+                    of.meses_consecutivos_poupanca is not None
+                    and request.monthly_income is not None
+                    and request.monthly_income > 0
+                    and of.comprometimento_renda_pct is not None
+                ):
+                    income    = request.monthly_income
+                    committed = of.comprometimento_renda_pct
+                    streak    = of.meses_consecutivos_poupanca
+
+                    # Despesa total: intercepto 0.80 + slope 0.20 (cap 0.97).
+                    # Slope 2× mais agressivo que 0.85+0.10: captura que comprometimento
+                    # alto deixa pouca margem e o expense_rate sobe mais rápido.
+                    expense_rate    = min(0.80 + committed * 0.20, 0.97)
+                    monthly_expense = income * expense_rate
+
+                    # Capacidade de poupança: monotônica inversa ao comprometimento
+                    savings_rate    = max(0.0, (1.0 - committed) * 0.20)
+                    monthly_saving  = income * savings_rate
+
+                    estimated_reserve = monthly_saving * streak
+                    months_covered    = estimated_reserve / monthly_expense if monthly_expense > 0 else 0.0
+                    reserve_depth_of  = round(min(months_covered / 6.0, 1.0), 4)
+
+            risk_result = RiskScorer.score(
+                request=request,
+                income_profile=income_profile,
+                user_profile=fin_profile,
+                transactions_df=transactions_df,
+                committed_pct=committed_pct,
+                committed_available=committed_available,
+                investment_ratio=investment_ratio,
+                reserve_depth_override=reserve_depth_of,
+                threshold_conservative=threshold_conservative,
+                threshold_aggressive=threshold_aggressive,
+            )
 
             tier = getattr(fin_profile, "behavior_tier", fin_profile.profile_type)
             resilience = getattr(fin_profile, "resilience_score", fin_profile.financial_health_score)
-            warnings.append(
-                f"Perfil de risco inferido do histórico: {inferred.value} "
-                f"(tier={tier}, savings={fin_profile.savings_rate:.0f}%, "
-                f"resilience={resilience})."
-            )
-            return request.model_copy(update={"risk_profile": inferred})
+
+            updates: dict = {
+                "risk_score":            risk_result.score,
+                "risk_score_confidence": risk_result.confidence,
+            }
+
+            if request.risk_profile is None:
+                updates["risk_profile"] = risk_result.profile
+                warnings.append(
+                    f"Perfil de risco inferido: {risk_result.profile.value} "
+                    f"(score={risk_result.score:.2f}, tier={tier}, "
+                    f"savings={fin_profile.savings_rate:.0f}%, "
+                    f"resilience={resilience})."
+                )
+            else:
+                warnings.append(
+                    f"Risk score calculado: {risk_result.score:.2f} "
+                    f"(perfil declarado: {request.risk_profile.value})."
+                )
+
+            return request.model_copy(update=updates)
 
         except Exception as exc:
             logger.warning("ArchitectService | inferência de risk_profile falhou: %s", exc)
@@ -584,10 +721,10 @@ class ArchitectService:
             return confidence
         try:
             from app.goals.tracker import GoalTracker
-            from app.core.db.session import get_db_session
+            from app.core.database import SessionLocal
             from app.architect.models import StrategyType
 
-            with get_db_session() as db:
+            with SessionLocal() as db:
                 goals = GoalTracker(db).list_goals(user_id, status="ACTIVE")
 
             if not goals:
@@ -620,21 +757,26 @@ class ArchitectService:
         has_f1_data: bool,
         used_fallback_rates: bool,
         warning_count: int,
+        has_open_finance_data: bool = False,
     ) -> float:
         """
         Ajusta o score de confiança baseado na qualidade dos dados disponíveis.
 
-        Base (do engine):       0.85
-        + dados reais da F1:   +0.10
-        - taxas de fallback:   -0.05
-        - por aviso gerado:    -0.02 (máx: -0.10)
+        Base (do engine):           0.75–0.85 (risk_score_confidence ou fallback)
+        + Open Finance presente:   +0.10 → base sobe para ~0.95 (dados reais eliminam suposições)
+        + dados reais da F1:       +0.05
+        - taxas de fallback:       -0.05
+        - por aviso gerado:        -0.02 (máx: -0.10)
 
         Clamped em [0.30, 1.00].
         """
         score = base_confidence
 
+        if has_open_finance_data:
+            score += 0.10   # rendimento real + CET personalizado eliminam as maiores suposições
+
         if has_f1_data:
-            score += 0.10
+            score += 0.10   # safe_to_spend real valida capacidade de pagamento
 
         if used_fallback_rates:
             score -= 0.05
@@ -642,6 +784,101 @@ class ArchitectService:
         score -= min(warning_count * 0.02, 0.10)
 
         return max(0.30, min(1.00, score))
+
+    @staticmethod
+    def _apply_open_finance_overrides(
+        market_rates: dict,
+        features: OpenFinanceFeatures,
+        request: SimulationRequest,
+    ) -> tuple[dict, list[str]]:
+        """
+        Personaliza market_rates com dados reais do Open Finance do usuário.
+
+        Overrides aplicados:
+          best_cet_annual → CET real do usuário (cet_historico_real ou cet_medio_historico)
+                            quando menor que o CET de mercado. Bom pagador (adimplência ≥ 95%)
+                            recebe desconto adicional de 0.5 p.p.
+
+        Warnings gerados (não-bloqueantes):
+          - CET personalizado informado (com diferença em p.p.)
+          - Adimplência baixa (< 90%) → risco de não-aprovação
+          - Comprometimento de renda > 30% → margem insuficiente
+          - Poupança inconsistente (< 3 meses) vs orçamento declarado alto
+          - Meses de baixa receita (sazonalidade < 85%) onde a parcela pode pesar
+
+        Returns:
+            (updated_market_rates, warnings)
+        """
+        overrides: dict = {}
+        warnings: list[str] = []
+
+        # ── CET personalizado ─────────────────────────────────────────
+        personalized_cet = features.cet_historico_real or features.cet_medio_historico
+        if personalized_cet is not None:
+            market_cet = market_rates.get("best_cet_annual", float("inf"))
+            adimpl_discount = 0.005 if (features.adimplencia_pct or 0.0) >= 0.95 else 0.0
+            effective_cet = max(0.05, personalized_cet - adimpl_discount)
+            if effective_cet < market_cet:
+                overrides["best_cet_annual"] = round(effective_cet, 4)
+                diff_pp = (market_cet - effective_cet) * 100
+                source = "financiamentos anteriores" if features.cet_historico_real else "histórico de crédito"
+                warnings.append(
+                    f"CET personalizado ({source}): {effective_cet:.1%} a.a. "
+                    f"({diff_pp:.1f} p.p. abaixo do mercado)."
+                )
+
+        # ── Adimplência baixa ─────────────────────────────────────────
+        if features.adimplencia_pct is not None and features.adimplencia_pct < 0.90:
+            warnings.append(
+                f"Histórico bancário: {features.adimplencia_pct:.0%} de adimplência — "
+                "bancos podem exigir maior entrada ou CET mais alto. "
+                "Consulte seu gerente antes de formalizar a proposta."
+            )
+
+        # ── Comprometimento de renda ──────────────────────────────────
+        if (
+            features.comprometimento_renda_pct is not None
+            and features.comprometimento_renda_pct > 0.30
+        ):
+            pct = features.comprometimento_renda_pct
+            warnings.append(
+                f"Renda já comprometida com dívidas: {pct:.0%} "
+                f"(limite recomendado: 30%). "
+                "Considere quitar contratos existentes antes de assumir novos compromissos."
+            )
+
+        # ── Padrão de poupança inconsistente ─────────────────────────
+        if (
+            features.meses_consecutivos_poupanca is not None
+            and features.meses_consecutivos_poupanca < 3
+            and request.max_monthly_budget is not None
+        ):
+            meses = features.meses_consecutivos_poupanca
+            warnings.append(
+                f"Dados bancários: apenas {meses} "
+                f"{'mês' if meses == 1 else 'meses'} consecutivo{'s' if meses != 1 else ''} "
+                f"com sobra mensal — verifique se o orçamento de "
+                f"R$ {request.max_monthly_budget:,.0f}/mês é sustentável."
+            )
+
+        # ── Sazonalidade: meses de baixa receita ─────────────────────
+        if features.sazonalidade_receita is not None and request.max_monthly_budget is not None:
+            month_labels = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+                            "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+            lean = [
+                month_labels[i]
+                for i, m in enumerate(features.sazonalidade_receita)
+                if m < 0.85
+            ]
+            if lean:
+                min_mult = min(features.sazonalidade_receita)
+                warnings.append(
+                    f"Meses de receita reduzida: {', '.join(lean)} "
+                    f"(até {(1 - min_mult):.0%} abaixo da média) — "
+                    "confirme que a parcela caberá no orçamento nesses meses."
+                )
+
+        return {**market_rates, **overrides}, warnings
 
 
 __all__ = ["ArchitectService"]

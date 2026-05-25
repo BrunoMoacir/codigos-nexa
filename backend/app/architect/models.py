@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from enum import Enum
-from typing import Optional
+from typing import Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -93,6 +93,133 @@ class AssetType(str, Enum):
     REFORMA = "REFORMA"
     VIAGEM  = "VIAGEM"
     OUTRO   = "OUTRO"
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# OPEN FINANCE — FEATURES EXTRAÍDAS DOS ENDPOINTS
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class OpenFinanceFeatures(BaseModel):
+    """
+    Features personalizadas extraídas dos endpoints do Open Finance Brasil.
+
+    Todos os campos são Optional — a simulação degrada graciosamente quando
+    um endpoint não retorna dados ou a permissão não foi concedida.
+
+    Impacto direto no motor:
+        rendimento_real_atual    → substitui CDI teórico como taxa de desconto NPV
+                                   e benchmark do SAVE_INVEST (elimina a maior suposição)
+        cet_historico_real       → substitui CET genérico de mercado pelo CET real
+                                   que o banco cobra neste usuário específico
+        comprometimento_renda_pct → limita margem disponível; gera aviso de risco
+        adimplencia_pct          → desconto no CET estimado (bom pagador = taxa menor)
+        meses_consecutivos_poupanca → valida capacidade de poupança declarada
+        sazonalidade_receita     → detecta meses de baixa renda onde a parcela pesa
+
+    Fonte por endpoint:
+        /investments → rendimento_real_atual, composicao_rf_pct, composicao_rv_pct,
+                       duration_media_anos
+        /loans       → cet_medio_historico, adimplencia_pct, comprometimento_renda_pct
+        /accounts    → sazonalidade_receita, meses_consecutivos_poupanca
+        /financings  → experiencia_financiamento, cet_historico_real
+    """
+
+    # ── /investments ──────────────────────────────────────────────────
+
+    rendimento_real_atual: Optional[float] = Field(
+        default=None,
+        description=(
+            "Taxa de retorno anual real (líquida de IR) dos investimentos do usuário (decimal). "
+            "Ex: 0.12 = 12% a.a. Substitui CDI teórico como benchmark do SAVE_INVEST "
+            "e como taxa de desconto do NPV — elimina a principal suposição do modelo."
+        ),
+        ge=0.0,
+        le=1.0,
+    )
+    composicao_rf_pct: Optional[float] = Field(
+        default=None,
+        description="Percentual da carteira em renda fixa [0-1].",
+        ge=0.0, le=1.0,
+    )
+    composicao_rv_pct: Optional[float] = Field(
+        default=None,
+        description="Percentual da carteira em renda variável [0-1].",
+        ge=0.0, le=1.0,
+    )
+    duration_media_anos: Optional[float] = Field(
+        default=None,
+        description="Duration média ponderada da carteira de renda fixa (anos). "
+                    "Alta duration → maior sensibilidade a variações de Selic.",
+        ge=0.0,
+    )
+
+    # ── /loans ────────────────────────────────────────────────────────
+
+    cet_medio_historico: Optional[float] = Field(
+        default=None,
+        description=(
+            "CET médio anual ponderado pago historicamente em contratos de crédito (decimal). "
+            "Inclui crédito pessoal, consignado, etc. Proxy do relacionamento bancário."
+        ),
+        ge=0.0, le=2.0,
+    )
+    adimplencia_pct: Optional[float] = Field(
+        default=None,
+        description=(
+            "Percentual de parcelas pagas em dia sobre o total de parcelas [0-1]. "
+            "1.0 = adimplência perfeita → CET menor estimado. "
+            "< 0.90 → aviso de risco de não-aprovação."
+        ),
+        ge=0.0, le=1.0,
+    )
+    comprometimento_renda_pct: Optional[float] = Field(
+        default=None,
+        description=(
+            "Percentual da renda mensal já comprometida com parcelas de dívidas ativas [0-1]. "
+            "Acima de 30% → aviso de margem insuficiente para novos compromissos."
+        ),
+        ge=0.0, le=1.0,
+    )
+
+    # ── /accounts ─────────────────────────────────────────────────────
+
+    sazonalidade_receita: Optional[list[float]] = Field(
+        default=None,
+        description=(
+            "Multiplicadores mensais de receita (12 valores, índice 0 = Janeiro). "
+            "1.0 = mês médio. Ex: 1.4 em Dezembro (13º salário). "
+            "Usado para identificar meses de baixa renda onde a parcela pode ser crítica."
+        ),
+        min_length=12,
+        max_length=12,
+    )
+    meses_consecutivos_poupanca: Optional[int] = Field(
+        default=None,
+        description=(
+            "Número de meses consecutivos com saldo positivo (receita > despesa). "
+            "< 3 meses → aviso se o orçamento declarado for alto."
+        ),
+        ge=0,
+    )
+
+    # ── /financings ───────────────────────────────────────────────────
+
+    experiencia_financiamento: Optional[bool] = Field(
+        default=None,
+        description=(
+            "True se o usuário já tem ou teve financiamentos. "
+            "Reduz incerteza sobre aprovação bancária e CET praticado."
+        ),
+    )
+    cet_historico_real: Optional[float] = Field(
+        default=None,
+        description=(
+            "CET anual médio real cobrado em financiamentos anteriores (decimal). "
+            "Mais preciso que cet_medio_historico para estimar o custo de um novo "
+            "financiamento — exclui crédito pessoal e consignado."
+        ),
+        ge=0.0, le=2.0,
+    )
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -177,6 +304,29 @@ class SimulationRequest(BaseModel):
         description="Perfil de risco do usuário",
     )
 
+    risk_score: Optional[float] = Field(
+        default=None,
+        description=(
+            "Score contínuo de tolerância ao risco [0-1], computado pelo RiskScorer "
+            "a partir do histórico. None quando calculado por declaração direta do usuário "
+            "ou quando transactions_df não está disponível. "
+            "Alimenta thresholds interpolados no StrategyEngine."
+        ),
+        ge=0.0,
+        le=1.0,
+    )
+
+    risk_score_confidence: Optional[float] = Field(
+        default=None,
+        description=(
+            "Confiança do RiskScore [0-1]. "
+            "Propagada pelo ArchitectService a partir do RiskScorer.confidence. "
+            "Alimenta o confidence_score base do StrategyEngine em vez do valor fixo 0.85."
+        ),
+        ge=0.0,
+        le=1.0,
+    )
+
     asset_type: AssetType = Field(
         default=AssetType.OUTRO,
         description="Tipo de bem a ser adquirido",
@@ -233,6 +383,19 @@ class SimulationRequest(BaseModel):
         default=None,
         description="Renda mensal bruta do usuário (R$). Melhora a precisão do card_optimization_bonus.",
         gt=0,
+    )
+
+    # ── Open Finance — fonte primária de dados personalizados ─────────
+
+    open_finance_features: Optional[OpenFinanceFeatures] = Field(
+        default=None,
+        description=(
+            "Features extraídas dos endpoints do Open Finance Brasil (/investments, "
+            "/loans, /accounts, /financings). Quando presentes, substituem os valores "
+            "genéricos de mercado por dados reais do usuário: rendimento_real_atual "
+            "substitui CDI teórico, cet_historico_real substitui CET médio de mercado. "
+            "confidence_score base sobe para 0.95 (dados reais eliminam suposições)."
+        ),
     )
 
     # ── Validações de negócio ────────────────────────────────────────
@@ -401,6 +564,40 @@ class CostScenario(BaseModel):
         return self
 
 
+class BreakevenDistribution(BaseModel):
+    """
+    Distribuição do CET de break-even sob incerteza macroeconômica.
+
+    O break-even não é um ponto fixo: quando as taxas de juros variam (SELIC/CDI),
+    o custo de oportunidade do SAVE_INVEST muda, deslocando o CET de equilíbrio.
+    Esta classe quantifica essa incerteza via N cenários amostrados.
+
+    Attributes:
+        cet_p10:              10% dos cenários têm break-even abaixo deste CET.
+                              O financiamento é vantajoso em quase todos os cenários
+                              se o CET atual estiver abaixo deste valor.
+        cet_p50:              Break-even mediano (cenário central).
+        cet_p90:              90% dos cenários têm break-even abaixo deste CET.
+        prob_financing_wins:  P(break-even > CET atual) — probabilidade de que
+                              financiar seja melhor que poupar/investir dado o CET corrente.
+        n_simulations:        Cenários válidos (descartados: target já coberto pela entrada).
+    """
+
+    cet_p10: float = Field(..., description="Percentil 10 do CET de break-even (decimal anual)")
+    cet_p50: float = Field(..., description="Mediana do CET de break-even (decimal anual)")
+    cet_p90: float = Field(..., description="Percentil 90 do CET de break-even (decimal anual)")
+    prob_financing_wins: float = Field(
+        ...,
+        description=(
+            "Fração dos cenários em que financiar supera poupar/investir ao CET atual. "
+            "Ex: 0.73 → 'Em 73%% dos cenários projetados, financiar é mais vantajoso.'"
+        ),
+        ge=0.0,
+        le=1.0,
+    )
+    n_simulations: int = Field(..., description="Número de cenários macroeconômicos simulados", ge=1)
+
+
 class NPVComparison(BaseModel):
     """
     Valor Presente Líquido (NPV/VPL) de cada estratégia.
@@ -440,6 +637,14 @@ class NPVComparison(BaseModel):
             "Taxa CET anual (decimal) a partir da qual SAVE_INVEST supera FINANCING. "
             "Ex: 0.1320 = acima de 13,2% a.a. o financiamento fica mais caro que investir. "
             "None quando não foi possível calcular (ex: SAVE_INVEST já é sempre melhor)."
+        ),
+    )
+    breakeven_distribution: Optional[BreakevenDistribution] = Field(
+        default=None,
+        description=(
+            "Distribuição probabilística do break-even CET sob incerteza macroeconômica. "
+            "Captura como a variação de SELIC/CDI desloca o ponto de equilíbrio. "
+            "None para método SAC ou quando o cálculo falha."
         ),
     )
 
@@ -793,6 +998,139 @@ class EfficiencyAnalysis(BaseModel):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# SIMULAÇÃO MACROECONÔMICA CORRELACIONADA
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class StrategyMacroStats(BaseModel):
+    """
+    Distribuição de NPV de uma estratégia sob N cenários macroeconômicos.
+
+    P10/P50/P90: percentis da distribuição de NPVs.
+    cvar_95: CVaR ao nível 95% — NPV médio nos 5% piores cenários.
+             Quanto mais negativo, maior o risco de cauda.
+    """
+
+    npv_p10: float = Field(..., description="Percentil 10 do NPV (R$) — cenário pessimista")
+    npv_p50: float = Field(..., description="Mediana do NPV (R$) — caso central estocástico")
+    npv_p90: float = Field(..., description="Percentil 90 do NPV (R$) — cenário otimista")
+    cvar_95: float = Field(
+        ...,
+        description=(
+            "CVaR ao nível 95% (R$): NPV esperado nos 5% piores cenários macroeconômicos. "
+            "Mais negativo = maior risco de cauda para esta estratégia."
+        ),
+    )
+
+
+class MacroSimulationResult(BaseModel):
+    """
+    Resultado da simulação de cenários macroeconômicos correlacionados.
+
+    Gerado via VAR(1) com Cholesky: modela a correlação histórica entre Selic,
+    IPCA e valorização de ativos. Cada trajetória usa taxas variando mês a mês,
+    capturando riscos que o NPV determinístico ignora.
+
+    Attributes:
+        n_simulations:  Número de trajetórias simuladas.
+        distributions:  Estatísticas de NPV por estratégia (P10/P50/P90 + CVaR95).
+        prob_best:      P(esta estratégia tem o melhor NPV) — dicionário que soma 1.0.
+                        Estratégia com maior prob_best é a mais robusta a cenários macro.
+    """
+
+    n_simulations: int = Field(..., description="Número de trajetórias macroeconômicas simuladas", ge=1)
+
+    distributions: Dict[str, StrategyMacroStats] = Field(
+        ...,
+        description=(
+            "Distribuição de NPVs por estratégia. "
+            "Chaves: 'FINANCING', 'SAVE_INVEST', 'CONSORTIUM' (quando aplicável)."
+        ),
+    )
+
+    prob_best: Dict[str, float] = Field(
+        ...,
+        description=(
+            "Probabilidade de cada estratégia ter o melhor NPV no conjunto de cenários. "
+            "Soma 1.0. Ex: {'FINANCING': 0.23, 'SAVE_INVEST': 0.61, 'CONSORTIUM': 0.16}."
+        ),
+    )
+
+    ssd_matrix: Optional[Dict[str, Dict[str, str]]] = Field(
+        default=None,
+        description=(
+            "Dominância Estocástica de Segunda Ordem par a par. "
+            "ssd_matrix[A][B] = 'dominates' | 'dominated' | 'inconclusive'. "
+            "'dominates': A é preferível a B para qualquer agente avesso a risco."
+        ),
+    )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# LLM REASONING LAYER — CO-RACIOCÍNIO ESTRUTURADO
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class LLMConsistencyResult(BaseModel):
+    """
+    Resultado da verificação de consistência pelo LLM (Passo 1 do raciocínio).
+
+    O LLM age como analista sênior: verifica se a recomendação matemática
+    é coerente com o perfil do usuário, detecta riscos não modelados e
+    sugere ajustes de parâmetros quando necessário.
+
+    Attributes:
+        consistent:          True se recomendação e perfil são coerentes.
+        flags:               Lista de inconsistências ou alertas detectados.
+        override_suggestion: Texto explicando o ajuste sugerido (se houver).
+        override_params:     Parâmetros ajustáveis para novo rerun do motor.
+                             Chaves válidas: "risk_profile", "financing_months".
+    """
+    consistent: bool
+    flags: list[str] = Field(default_factory=list)
+    override_suggestion: Optional[str] = None
+    override_params: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Parâmetros a ajustar no request para reprocessamento. "
+                    "Chaves válidas: 'risk_profile' (conservador|moderado|agressivo), "
+                    "'financing_months' (int como string).",
+    )
+
+
+class LLMNarrative(BaseModel):
+    """
+    Narrativa contextualizada gerada pelo LLM (Passo 3 do raciocínio).
+
+    Três parágrafos adaptados ao perfil de comunicação do usuário:
+    1. Por que esta estratégia vence — intuição financeira, sem fórmulas.
+    2. O que pode dar errado — riscos honestos e específicos.
+    3. Próximos 3 passos concretos com prazo estimado.
+    """
+    why_this_strategy: str = Field(description="Parágrafo 1: intuição de por que essa estratégia vence.")
+    risks:             str = Field(description="Parágrafo 2: riscos honestos e não-óbvios.")
+    next_steps:        str = Field(description="Parágrafo 3: 3 ações concretas com prazo.")
+
+
+class LLMReasoningResult(BaseModel):
+    """
+    Resultado completo do raciocínio LLM sobre a simulação.
+
+    Combina verificação de consistência (Passo 1) com narrativa final (Passo 3).
+    Se override_params causou reprocessamento, narrative reflete a resposta ajustada.
+
+    Attributes:
+        consistency:       Resultado do check de consistência.
+        narrative:         Narrativa contextualizada final.
+        engine_rerun:      True se o motor foi reexecutado após ajuste de parâmetros.
+        provider_used:     Provedor LLM utilizado ("openai" | "anthropic").
+        model_used:        Modelo específico utilizado.
+    """
+    consistency:   LLMConsistencyResult
+    narrative:     LLMNarrative
+    engine_rerun:  bool = False
+    provider_used: Optional[str] = None
+    model_used:    Optional[str] = None
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # RESPONSE — OUTPUT DA SIMULAÇÃO
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1021,6 +1359,40 @@ class SimulationResponse(BaseModel):
         ),
     )
 
+    # ── Simulação macroeconômica correlacionada ───────────────────────
+
+    macro_simulation: Optional["MacroSimulationResult"] = Field(
+        default=None,
+        description=(
+            "Resultado da simulação de cenários macroeconômicos correlacionados (VAR-1). "
+            "Modela Selic, IPCA e valorização do ativo com correlações históricas. "
+            "Fornece distribuição de NPVs (P10/P50/P90), CVaR95 e probabilidade de cada "
+            "estratégia ser a melhor sob incerteza macro. None quando n_simulations=0 "
+            "ou ocorreu erro na simulação."
+        ),
+    )
+
+    ssd_guarantee: Optional[str] = Field(
+        default=None,
+        description=(
+            "Garantia matemática da recomendação via dominância estocástica de 2ª ordem. "
+            "Presente quando a estratégia recomendada domina todas as outras para qualquer "
+            "agente avesso a risco, independente do grau de aversão. "
+            "Ex: 'FINANCING domina SAVE_INVEST e CONSORTIUM em SSD'. "
+            "None quando o resultado é inconclusivo entre estratégias."
+        ),
+    )
+
+    llm_reasoning: Optional["LLMReasoningResult"] = Field(
+        default=None,
+        description=(
+            "Raciocínio estruturado do LLM sobre a recomendação. "
+            "Inclui verificação de consistência (flags, override aplicado) e "
+            "narrativa contextualizada em 3 parágrafos (por quê, riscos, próximos passos). "
+            "None quando LLM_PROVIDER não está configurado ou a chamada falha."
+        ),
+    )
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # M3.4 — TIMING SCENARIO: "E SE EU ESPERAR?"
@@ -1147,6 +1519,116 @@ class SimulationReport(BaseModel):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# FEEDBACK & CALIBRAÇÃO
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class FeedbackRequest(BaseModel):
+    """
+    Feedback do usuário ~6 meses após a simulação.
+
+    Usado para alimentar o CalibrationPipeline, que recalibra os limiares do
+    RiskScorer, os parâmetros do Monte Carlo de consórcio e o teto do
+    confidence_score com base em comportamento real observado.
+    """
+
+    feedback_followed: bool = Field(
+        ...,
+        description="True se o usuário seguiu a estratégia recomendada.",
+    )
+    strategy_used: StrategyType = Field(
+        ...,
+        description="Estratégia efetivamente adotada pelo usuário.",
+    )
+    npv_deviation: Optional[float] = Field(
+        default=None,
+        description=(
+            "Desvio do NPV real em relação ao projetado: "
+            "(npv_real − npv_projetado) / |npv_projetado|. "
+            "Positivo = custou mais do que projetado. Opcional."
+        ),
+    )
+    rate_deviation: Optional[float] = Field(
+        default=None,
+        description=(
+            "Diferença entre a taxa real obtida e a taxa projetada em pontos "
+            "percentuais. Positivo = taxa real maior que projetada. Opcional."
+        ),
+    )
+    actual_contemplation_month: Optional[int] = Field(
+        default=None,
+        description="Mês real em que ocorreu a contemplação (CONSORTIUM). Opcional.",
+        ge=1,
+        le=360,
+    )
+    actual_rate_obtained: Optional[float] = Field(
+        default=None,
+        description="CET real obtido no financiamento (decimal). Opcional.",
+        ge=0.0,
+        le=5.0,
+    )
+
+
+class CalibrationResult(BaseModel):
+    """Resumo do que a CalibrationPipeline fez (ou não fez) nesta rodada."""
+
+    thresholds_updated: bool = Field(
+        ...,
+        description="True se os limiares de discretização do RiskScorer foram recalibrados.",
+    )
+    bid_params_updated: bool = Field(
+        ...,
+        description="True se os parâmetros do Monte Carlo de consórcio foram ajustados.",
+    )
+    confidence_threshold_updated: bool = Field(
+        ...,
+        description="True se o teto do confidence_score foi ajustado.",
+    )
+    n_feedbacks_used: int = Field(
+        ...,
+        description="Total de feedbacks disponíveis no momento da calibração.",
+        ge=0,
+    )
+    changes: list[str] = Field(
+        default_factory=list,
+        description="Descrições legíveis do que foi e do que não foi calibrado.",
+    )
+
+
+class FeedbackResponse(BaseModel):
+    """Resposta ao POST /architect/simulations/{id}/feedback."""
+
+    feedback_id: str = Field(..., description="UUID do feedback gravado.")
+    calibration_triggered: bool = Field(
+        ...,
+        description="True se a CalibrationPipeline foi executada após este feedback.",
+    )
+    calibration_result: Optional[CalibrationResult] = Field(
+        default=None,
+        description="Resultado da calibração. Presente apenas quando calibration_triggered=True.",
+    )
+
+
+class PendingFeedbackItem(BaseModel):
+    """
+    Simulação aguardando feedback do usuário.
+
+    Retornado pelo GET /architect/simulations/pending-feedback para que o
+    frontend exiba o prompt de avaliação pós-uso.
+    """
+
+    simulation_id: str = Field(..., description="UUID da simulação.")
+    created_at: datetime = Field(..., description="Timestamp de criação da simulação.")
+    recommended_strategy: StrategyType = Field(
+        ..., description="Estratégia recomendada na época."
+    )
+    target_amount: float = Field(..., description="Valor do bem simulado (R$).", ge=0)
+    asset_type: AssetType = Field(..., description="Tipo do bem.")
+    months_since_simulation: int = Field(
+        ..., description="Meses decorridos desde a simulação.", ge=0
+    )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # EXPORTS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1156,6 +1638,8 @@ __all__ = [
     "AmortizationMethod",
     "RiskProfile",
     "AssetType",
+    # Open Finance
+    "OpenFinanceFeatures",
     # Request
     "SimulationRequest",
     # Termos das estratégias
@@ -1171,12 +1655,25 @@ __all__ = [
     "RentalLeveragePlan",
     "CompoundStrategyLeg",
     "EfficiencyAnalysis",
+    # Break-even e LLM reasoning
+    "BreakevenDistribution",
+    "LLMConsistencyResult",
+    "LLMNarrative",
+    "LLMReasoningResult",
+    # Simulação macroeconômica
+    "StrategyMacroStats",
+    "MacroSimulationResult",
     # Response
     "SimulationResponse",
     # M3.4 — Timing
     "TimingScenario",
     # Persistência
     "SimulationReport",
+    # Feedback & Calibração
+    "FeedbackRequest",
+    "FeedbackResponse",
+    "PendingFeedbackItem",
+    "CalibrationResult",
 ]
 
 # Resolver forward references (EfficiencyAnalysis referenciado em SimulationResponse)

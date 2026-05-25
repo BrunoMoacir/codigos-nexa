@@ -30,11 +30,14 @@ from app.architect.models import (
     RiskProfile,
     CostScenario,
     NPVComparison,
+    BreakevenDistribution,
     ConsortiumProbability,
     ActionStep,
     RentalLeveragePlan,
     CompoundStrategyLeg,
     EfficiencyAnalysis,
+    MacroSimulationResult,
+    StrategyMacroStats,
     TimingScenario,
 )
 from app.architect.calculators import financing as fin_calc
@@ -56,6 +59,71 @@ def _safe_float(value: Any) -> float:
     if math.isnan(fval) or math.isinf(fval):
         return 0.0
     return fval
+
+
+def _pick_ssd_winner(
+    ssd_matrix: Dict[str, Dict[str, str]],
+    candidates: Dict["StrategyType", float],
+) -> tuple[Optional["StrategyType"], Optional[str]]:
+    """
+    Retorna a estratégia que domina todas as outras em SSD, e o texto da garantia.
+
+    Dominância SSD garante preferibilidade para qualquer agente avesso a risco,
+    independente do grau de aversão — mais forte que comparar NPV mediano:
+    captura a forma completa da distribuição, não apenas o ponto central.
+
+    Returns:
+        (winner, guarantee_text) quando existe um dominador único.
+        (None, None) quando o resultado é inconclusivo.
+    """
+    name_to_type = {s.value: s for s in candidates}
+    for name, rel_map in ssd_matrix.items():
+        if name not in name_to_type:
+            continue
+        others = [k for k in candidates if k.value != name]
+        if not others:
+            continue
+        if all(rel_map.get(o.value) == "dominates" for o in others):
+            labels = " e ".join(o.value for o in others)
+            guarantee = (
+                f"{name} domina {labels} em dominância estocástica de segunda ordem "
+                f"— preferível para qualquer agente avesso a risco, "
+                f"independente do grau de aversão."
+            )
+            return name_to_type[name], guarantee
+    return None, None
+
+
+def _get_investment_rate(
+    cdi_annual: float,
+    risk_profile: Optional[RiskProfile],
+    risk_score: Optional[float] = None,
+) -> float:
+    """
+    Retorna taxa de retorno esperada de investimentos por perfil de risco.
+
+    Quando risk_score está disponível, interpola continuamente entre o
+    retorno conservador (CDI líquido) e o arrojado (min(CDI×1.60, 18%)),
+    eliminando os saltos discretos entre perfis.
+
+    Sem risk_score (score=None): fallback para mapeamento por enum.
+
+      CONSERVADOR → CDI × 0.85 (IR 15%): renda fixa pós-fixada
+      MODERADO    → CDI × 0.85 × 1.10:   crédito privado / FII
+      AGRESSIVO   → min(CDI × 1.60, 18%): exposição a renda variável
+      None        → tratado como MODERADO
+    """
+    cdi_net = cdi_annual * 0.85  # IR 15% (prazo ≥ 720 dias)
+    aggressive_rate = min(cdi_annual * 1.60, 0.18)
+
+    if risk_score is not None:
+        return cdi_net + (aggressive_rate - cdi_net) * risk_score
+
+    if risk_profile == RiskProfile.CONSERVADOR:
+        return cdi_net
+    if risk_profile == RiskProfile.AGRESSIVO:
+        return aggressive_rate
+    return cdi_net * 1.10  # MODERADO (e None)
 
 
 class StrategyEngine:
@@ -87,8 +155,20 @@ class StrategyEngine:
             request.target_amount,
         )
 
-        selic_annual = market_rates.get("selic_annual", 0.1475)
+        selic_annual  = market_rates.get("selic_annual", 0.1475)
         selic_monthly = (1 + selic_annual) ** (1 / 12) - 1
+        cdi_annual    = market_rates.get("cdi_annual", 0.1465)
+
+        # Custo de oportunidade: prioridade → rendimento_real_atual do Open Finance
+        # (retorno que o usuário JÁ consegue, dado real) → fallback: taxa estimada
+        # por perfil de risco sobre o CDI de mercado.
+        of = request.open_finance_features
+        if of is not None and of.rendimento_real_atual is not None:
+            disc_rate_annual = of.rendimento_real_atual
+        else:
+            disc_rate_annual = _get_investment_rate(cdi_annual, request.risk_profile, request.risk_score)
+        disc_rate_monthly = (1 + disc_rate_annual) ** (1 / 12) - 1
+        market_rates      = {**market_rates, "disc_rate_monthly": disc_rate_monthly}
 
         # ── 1. Simular Estratégias ──────────────────────────────────
         fin_result = self._simulate_financing(request, market_rates)
@@ -112,6 +192,17 @@ class StrategyEngine:
                 comp5_result = self._simulate_consortium_selic_rental(
                     request, market_rates, cons_result
                 )
+
+        # ── 1.7. Simulação macroeconômica (VAR-1) antecipada para SSD ────
+        # Rodamos antes da comparação para que a dominância estocástica
+        # possa influenciar a escolha, em vez de apenas enriquecer o output.
+        macro_sim = self._run_macro_simulation(
+            request=request,
+            market_rates=market_rates,
+            fin_result=fin_result,
+            inv_result=inv_result,
+            cons_result=cons_result,
+        )
 
         # ── 2. Comparar NPVs ────────────────────────────────────────
         npv_fin = _safe_float(fin_result["npv"])
@@ -142,7 +233,8 @@ class StrategyEngine:
         npv_inv_for_comparison = npv_inv - foregone_rental_pv
 
         # ── 2.8. Break-even rate: CET onde FINANCING == SAVE_INVEST ────
-        break_even_cet = self._find_break_even_cet(request, market_rates, npv_inv)
+        break_even_cet   = self._find_break_even_cet(request, market_rates, npv_inv)
+        breakeven_dist   = self._compute_breakeven_surface(request, market_rates)
 
         # ── 3. Decisão: maior NPV = menor custo presente ────────────
         strategies: Dict[StrategyType, float] = {
@@ -159,10 +251,40 @@ class StrategyEngine:
         ranked = sorted(strategies.items(), key=lambda x: x[1], reverse=True)
         best_strategy = ranked[0][0]
 
+        # ── 3.2. SSD override: dominância estocástica supera NPV mediano ──
+        # Quando macro_sim disponível, verifica se alguma estratégia domina
+        # todas as outras em segunda ordem — garantia válida para qualquer
+        # agente avesso a risco, independente do grau de aversão.
+        ssd_winner:    Optional[StrategyType] = None
+        ssd_guarantee: Optional[str]         = None
+        if macro_sim is not None and macro_sim.ssd_matrix:
+            ssd_winner, ssd_guarantee = _pick_ssd_winner(macro_sim.ssd_matrix, strategies)
+            if ssd_winner is not None:
+                logger.info(
+                    "SSD override: %s → %s | %s",
+                    best_strategy.value,
+                    ssd_winner.value,
+                    ssd_guarantee,
+                )
+                best_strategy = ssd_winner
+
         # ── 3.5. Ajuste por perfil de risco ─────────────────────────
         best_strategy, profile_warnings = self._apply_risk_profile_adjustment(
             request, best_strategy, strategies
         )
+
+        # ── 3.6. Conflito SSD × perfil de risco ─────────────────────
+        # Se o ajuste de perfil reverteu a escolha do SSD, a garantia matemática
+        # já não vale para a estratégia efetivamente recomendada. Registra o
+        # conflito em warnings e zera ssd_guarantee para evitar output enganoso.
+        if ssd_winner is not None and best_strategy != ssd_winner:
+            profile_warnings.append(
+                f"Nota: {ssd_winner.value} domina matematicamente em dominância "
+                f"estocástica de 2ª ordem, mas foi substituído por {best_strategy.value} "
+                f"pelo perfil de risco do usuário — garantia SSD descartada em favor "
+                f"da adequação ao perfil."
+            )
+            ssd_guarantee = None
 
         # ── 4. Validação de Restrições (Liquidez) ────────────────────
         budget_limit = request.max_monthly_budget or float("inf")
@@ -394,6 +516,9 @@ class StrategyEngine:
         if leverage_analysis:
             data_sources.append("leverage_optimizer")
 
+        if macro_sim is not None:
+            data_sources.append("macro_var1")
+
         return SimulationResponse(
             recommended_strategy=final_strategy,
             costs=CostScenario(
@@ -405,10 +530,11 @@ class StrategyEngine:
                 financing=float(npv_fin),
                 consortium=float(npv_cons) if npv_cons is not None else None,
                 save_invest=float(npv_inv),
-                discount_rate_used=selic_monthly,
+                discount_rate_used=disc_rate_monthly,
                 financing_rental=float(comp4_result["npv"]) if comp4_result else None,
                 consortium_selic_rental=float(comp5_result["npv"]) if comp5_result else None,
                 break_even_cet=break_even_cet,
+                breakeven_distribution=breakeven_dist,
             ),
             consortium_probability=(
                 cons_result["probability"] if cons_result else None
@@ -416,7 +542,7 @@ class StrategyEngine:
             liquidity_impact=round(float(liquidity_impact), 4),
             months_to_achieve=months_to_achieve,
             action_plan=action_plan,
-            confidence_score=0.85,
+            confidence_score=request.risk_score_confidence or 0.75,
             data_sources=data_sources,
             rental_leverage_plan=rental_leverage_plan,
             compound_strategies=compound_strategies_list,
@@ -424,6 +550,8 @@ class StrategyEngine:
             transaction_costs_applied=transaction_costs_applied,
             maintenance_cost_annual=maintenance_cost_annual,
             efficient_strategy=efficient_strategy,
+            macro_simulation=macro_sim,
+            ssd_guarantee=ssd_guarantee,
             warnings=profile_warnings,
         )
 
@@ -437,6 +565,7 @@ class StrategyEngine:
         """Simula cenário de financiamento (PRICE ou SAC)."""
         cet_annual = rates.get("best_cet_annual", 0.15)
         selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
+        disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
 
         # Calcular pelo método escolhido
         if req.amortization_method.value == "SAC":
@@ -453,7 +582,7 @@ class StrategyEngine:
         for row in sim.schedule:
             cashflows.append(-row["payment"])
 
-        npv_val = npv_calc.calculate_npv(cashflows, selic_monthly)
+        npv_val = npv_calc.calculate_npv(cashflows, disc_monthly)
 
         return {
             "type": "FINANCING",
@@ -466,29 +595,6 @@ class StrategyEngine:
             "months": 1,  # Aquisição imediata (ge=1 no model)
             "cashflows": cashflows,  # Preservado para estratégias compostas
         }
-
-    @staticmethod
-    def _get_investment_rate(cdi_annual: float, risk_profile: RiskProfile) -> float:
-        """
-        Retorna taxa de retorno esperada de investimentos por perfil de risco.
-
-        Não é garantia — é o benchmark de comparação para o SAVE_INVEST.
-        Impacta o NPV do cenário investir: perfis mais arrojados têm retorno
-        esperado maior, o que pode tornar o SAVE_INVEST mais atrativo frente
-        ao financiamento.
-
-        Critérios:
-          CONSERVADOR → CDI líquido (IR 15%): renda fixa pós-fixada
-          MODERADO    → CDI líquido + 10% upside (crédito privado / FII)
-          AGRESSIVO   → min(CDI × 1.60, 18% a.a.): exposição a renda variável
-        """
-        cdi_net = cdi_annual * 0.85  # IR 15% (prazo ≥ 720 dias)
-        if risk_profile == RiskProfile.CONSERVADOR:
-            return cdi_net
-        elif risk_profile == RiskProfile.MODERADO:
-            return cdi_net * 1.10
-        else:  # AGRESSIVO
-            return min(cdi_annual * 1.60, 0.18)
 
     def _pick_efficient_strategy(
         self,
@@ -585,17 +691,28 @@ class StrategyEngine:
         capital_loss_pct = round(max(0.0, (total_out_of_pocket - target) / target) * 100, 1)
         budget_commitment_pct = round((monthly / budget * 100) if budget > 0 else 0.0, 1)
 
-        # ── Readiness: limiares ajustados por perfil de risco ──
+        # ── Readiness: limiares interpolados pelo risk_score (ou fallback por enum) ──
         rp = request.risk_profile
-        if rp == RiskProfile.CONSERVADOR:
-            ready_budget, warn_budget = 25.0, 40.0
-            ready_loss, warn_loss = 50.0, 80.0
-        elif rp == RiskProfile.AGRESSIVO:
-            ready_budget, warn_budget = 50.0, 75.0
-            ready_loss, warn_loss = 100.0, 150.0
-        else:  # MODERADO
-            ready_budget, warn_budget = 35.0, 60.0
-            ready_loss, warn_loss = 80.0, 120.0
+        rs = request.risk_score
+        if rs is not None:
+            # Interpolação linear contínua entre extremos conservador (rs=0) e arrojado (rs=1).
+            # Elimina o salto discreto CONSERVADOR→MODERADO→AGRESSIVO.
+            ready_budget = 25.0 + rs * 25.0   # 25% (rs=0) → 50% (rs=1)
+            warn_budget  = 40.0 + rs * 35.0   # 40%        → 75%
+            ready_loss   = 50.0 + rs * 50.0   # 50%        → 100%
+            warn_loss    = 80.0 + rs * 70.0   # 80%        → 150%
+            profile_label = f"score {rs:.2f}"
+        else:
+            if rp == RiskProfile.CONSERVADOR:
+                ready_budget, warn_budget = 25.0, 40.0
+                ready_loss, warn_loss = 50.0, 80.0
+            elif rp == RiskProfile.AGRESSIVO:
+                ready_budget, warn_budget = 50.0, 75.0
+                ready_loss, warn_loss = 100.0, 150.0
+            else:  # MODERADO
+                ready_budget, warn_budget = 35.0, 60.0
+                ready_loss, warn_loss = 80.0, 120.0
+            profile_label = rp.value
 
         if budget_commitment_pct > warn_budget or capital_loss_pct > warn_loss:
             readiness_flag = "AGUARDAR"
@@ -621,7 +738,7 @@ class StrategyEngine:
                 f"Ainda não é a hora ideal: a parcela de {fmt(monthly)}/mês representa "
                 f"{budget_commitment_pct:.0f}% do seu orçamento"
                 + (f" e o custo extra é de {capital_loss_pct:.0f}%" if capital_loss_pct > warn_loss else "")
-                + f" — acima do confortável para o perfil {rp.value}. "
+                + f" — acima do confortável para o perfil {profile_label}. "
                 f"Considere aumentar a entrada ou aguardar mais capacidade de poupança. "
             )
         elif readiness_flag == "ATENCAO":
@@ -729,6 +846,143 @@ class StrategyEngine:
                 break
         return round((lo + hi) / 2, 4)
 
+    def _compute_breakeven_surface(
+        self,
+        request: SimulationRequest,
+        market_rates: Dict[str, float],
+        n_simulations: int = 5_000,
+        seed: Optional[int] = None,
+    ) -> Optional[BreakevenDistribution]:
+        """
+        Distribuição probabilística do CET de break-even sob incerteza macroeconômica.
+
+        Amostra N cenários de (selic, ipca) com correlação histórica, calcula o
+        retorno real do SAVE_INVEST por perfil e encontra via bisecção vetorizada
+        o CET onde NPV(FINANCING) = NPV(SAVE_INVEST).
+
+        Chave analítica (PRICE, sem orçamento máximo):
+          pva cancela → break-even ocorre quando pmt_fin(cet*) = pmt_inv(inv_real_s)
+
+        O break-even em CET > 0 exige retornos reais negativos (IPCA supera CDI×perfil).
+        Isso acontece em cenários de alta inflação amostrados via normal bivariada —
+        com ~2-3% dos cenários tipicamente solventes em ambientes de juros altos.
+        Quando solventes são < 10% do total, retorna None.
+
+        Não suporta SAC nem max_monthly_budget (ambos retornam None).
+        """
+        try:
+            import numpy as np
+        except ImportError:
+            return None
+
+        if request.amortization_method.value == "SAC":
+            return None
+
+        principal = _safe_float(request.principal)
+        if principal <= 0:
+            return None
+
+        N   = int(request.financing_months)
+        dp  = float(request.down_payment)
+        tgt = float(request.target_amount)
+
+        current_selic = float(market_rates.get("selic_annual", 0.1475))
+        current_cdi   = float(market_rates.get("cdi_annual",   0.1465))
+        current_cet   = float(market_rates.get("best_cet_annual", 0.15))
+        current_ipca  = float(market_rates.get("ipca_annual", 0.045))
+
+        # ── 1. Amostrar cenários (selic, ipca) com correlação histórica ─────
+        # σ_selic=2.5 p.p., σ_ipca=2.0 p.p., corr=0.40 (BCB 2015-2025)
+        rng   = np.random.default_rng(seed)
+        s_sel, s_ipc, corr = 0.025, 0.020, 0.40
+        cov   = np.array([[s_sel**2, corr*s_sel*s_ipc], [corr*s_sel*s_ipc, s_ipc**2]])
+        L     = np.linalg.cholesky(cov)
+        z     = rng.standard_normal((n_simulations, 2))
+        draws = np.array([current_selic, current_ipca]) + z @ L.T
+
+        selic_s = np.clip(draws[:, 0], 0.02, 0.50)
+        ipca_s  = np.clip(draws[:, 1], 0.01, 0.40)
+
+        # CDI mantém spread histórico fixo em relação à SELIC
+        spread = max(0.0, current_selic - current_cdi)
+        cdi_s  = np.maximum(selic_s - spread, 0.01)
+
+        # ── 2. Retorno REAL do investimento por perfil (vetorizado) ─────────
+        # Break-even existe quando retorno real < 0 (IPCA > CDI×perfil).
+        # Com retorno real negativo, pmt_inv > P/N → pmt_fin(cet*) tem solução positiva.
+        cdi_net    = cdi_s * 0.85
+        aggressive = np.minimum(cdi_s * 1.60, 0.18)
+        rs = request.risk_score
+        rp = request.risk_profile
+        if rs is not None:
+            inv_nom_s = cdi_net + (aggressive - cdi_net) * float(rs)
+        elif rp == RiskProfile.AGRESSIVO:
+            inv_nom_s = aggressive
+        elif rp == RiskProfile.CONSERVADOR:
+            inv_nom_s = cdi_net
+        else:  # MODERADO
+            inv_nom_s = cdi_net * 1.10
+
+        # Retorno real deflacionado pelo IPCA do cenário
+        inv_real_s = (1.0 + inv_nom_s) / (1.0 + ipca_s) - 1.0
+
+        # ── 3. PMT do SAVE_INVEST no retorno real de cada cenário ───────────
+        inv_m   = (1.0 + inv_real_s) ** (1.0 / 12.0) - 1.0  # mensal (n_sims,)
+        fv_dp_s = dp * (1.0 + inv_m) ** N
+        growth  = (1.0 + inv_m) ** N - 1.0
+
+        safe_m = np.where(np.abs(growth) > 1e-10, inv_m,   1e-10)
+        safe_g = np.where(np.abs(growth) > 1e-10, growth, float(N))
+        pmt_inv = np.where(
+            np.abs(growth) > 1e-10,
+            (tgt - fv_dp_s) * safe_m / safe_g,
+            (tgt - dp) / max(N, 1),
+        )
+
+        # ── 4. prob_financing_wins: direto, sem precisar do break-even ──────
+        # Financiar vence quando a parcela atual < aporte mensal necessário para poupar
+        cet_m_cur = (1.0 + current_cet) ** (1.0 / 12.0) - 1.0
+        if cet_m_cur > 1e-10:
+            q_cur = (1.0 + cet_m_cur) ** (-N)
+            pmt_fin_cur = principal * cet_m_cur / (1.0 - q_cur)
+        else:
+            pmt_fin_cur = principal / N
+
+        prob = float(np.mean(pmt_fin_cur < pmt_inv))
+
+        # ── 5. Solvabilidade: break-even em CET>0 existe apenas quando ──────
+        # pmt_inv > P/N (retorno real negativo → investimento piora vs. sem juros)
+        pmt_fin_floor = principal / N
+        solvable      = pmt_inv > pmt_fin_floor
+        n_solvable    = int(np.sum(solvable))
+
+        if n_solvable < int(n_simulations * 0.10):
+            return None  # sem cenários com break-even positivo (SAVE_INVEST domina)
+
+        pmt_target = pmt_inv[solvable]
+
+        # ── 6. Bisecção vetorizada: pmt_fin(cet*) = pmt_target ──────────────
+        lo = np.full(n_solvable, 0.0001 / 12.0)
+        hi = np.full(n_solvable, 2.0    / 12.0)
+
+        for _ in range(32):  # 32 iterações → precisão < 1e-8 no CET mensal
+            mid = (lo + hi) / 2.0
+            q   = (1.0 + mid) ** (-N)
+            pmt_mid = principal * mid / (1.0 - q)
+            hi = np.where(pmt_mid > pmt_target, mid, hi)
+            lo = np.where(pmt_mid > pmt_target, lo,  mid)
+
+        cet_m_star = (lo + hi) / 2.0
+        be_cet     = (1.0 + cet_m_star) ** 12 - 1.0  # anualizar
+
+        return BreakevenDistribution(
+            cet_p10=round(float(np.percentile(be_cet, 10)), 4),
+            cet_p50=round(float(np.percentile(be_cet, 50)), 4),
+            cet_p90=round(float(np.percentile(be_cet, 90)), 4),
+            prob_financing_wins=round(prob, 4),
+            n_simulations=n_solvable,
+        )
+
     def _simulate_investment(
         self, req: SimulationRequest, rates: Dict[str, float]
     ) -> Dict[str, Any]:
@@ -736,9 +990,17 @@ class StrategyEngine:
         cdi_annual    = rates.get("cdi_annual",    0.1465)
         ipca_annual   = rates.get("ipca_annual",   0.045)   # M3.1
 
-        # Benchmark de retorno ajustado pelo perfil de risco do usuário
-        investment_rate = self._get_investment_rate(cdi_annual, req.risk_profile)
+        # Benchmark: prioridade → rendimento real do Open Finance (taxa real do usuário)
+        # → fallback: estimativa por perfil sobre CDI de mercado.
+        of = req.open_finance_features
+        if of is not None and of.rendimento_real_atual is not None:
+            investment_rate = of.rendimento_real_atual
+        else:
+            investment_rate = _get_investment_rate(
+                cdi_annual, req.risk_profile, req.risk_score
+            )
         selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
+        disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
 
         if req.max_monthly_budget:
             monthly_dep = req.max_monthly_budget
@@ -763,7 +1025,7 @@ class StrategyEngine:
         cashflows = [-req.down_payment]
         cashflows.extend([-monthly_dep] * months)
 
-        npv_val = npv_calc.calculate_npv(cashflows, selic_monthly)
+        npv_val = npv_calc.calculate_npv(cashflows, disc_monthly)
 
         # M3.1 — Valor futuro nominal vs. real (poder de compra de hoje)
         fv_nominal = req.target_amount
@@ -799,6 +1061,7 @@ class StrategyEngine:
         as chaves novas.
         """
         selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
+        disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
 
         # Parâmetros do grupo — injetados pelo ConsortiumRateProvider via ArchitectService
         admin_rate            = rates.get("consortium_admin_rate",             0.17)
@@ -807,6 +1070,9 @@ class StrategyEngine:
         group_size            = int(rates.get("consortium_group_size",         100))
         contemplated_per_m    = int(rates.get("consortium_contemplated_per_month", 2))
         annual_adj_rate       = rates.get("consortium_annual_adjustment_rate", 0.045)
+        # Parâmetros do MC de consórcio — injetados pelo CalibrationPipeline quando disponíveis
+        bid_mean_initial      = rates.get("bid_mean_initial", 0.35)
+        bid_std               = rates.get("bid_std",          0.12)
 
         # Mapeamento de tipo de bem: AssetType enum → formato consortium.py
         calc_asset_type = ConsortiumRateProvider.map_asset_type(req.asset_type.value)
@@ -821,6 +1087,8 @@ class StrategyEngine:
             annual_adjustment_rate=annual_adj_rate,
             group_size=group_size,
             contemplated_per_month=contemplated_per_m,
+            bid_mean_initial=bid_mean_initial,
+            bid_std=bid_std,
         )
 
         # Fluxo: -Parcelas por N meses
@@ -831,7 +1099,7 @@ class StrategyEngine:
         if expected_month < len(cashflows) and req.down_payment > 0:
             cashflows[expected_month] -= req.down_payment
 
-        npv_val = npv_calc.calculate_npv(cashflows, selic_monthly)
+        npv_val = npv_calc.calculate_npv(cashflows, disc_monthly)
 
         # Montar ConsortiumProbability
         prob_dict = sim.contemplation_probability
@@ -869,6 +1137,7 @@ class StrategyEngine:
         """
         rental = req.expected_rental_income  # já garantido > 0 pelo gate has_rental
         selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
+        disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
         gross_cashflows = fin_result["cashflows"]  # [-entrada, -p1, -p2, ...]
         months = req.financing_months
 
@@ -877,7 +1146,7 @@ class StrategyEngine:
         for cf in gross_cashflows[1:]:
             net_cashflows.append(cf + rental)  # cf < 0; rental > 0 → reduz custo
 
-        npv_val = npv_calc.calculate_npv(net_cashflows, selic_monthly)
+        npv_val = npv_calc.calculate_npv(net_cashflows, disc_monthly)
 
         gross_payment = fin_result["monthly_payment"]
         net_monthly = max(gross_payment - rental, 0.0)
@@ -938,6 +1207,7 @@ class StrategyEngine:
         rental = req.expected_rental_income
         selic_annual = rates.get("selic_annual", 0.1475)
         selic_monthly = (1 + selic_annual) ** (1 / 12) - 1
+        disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
 
         cons_months = int(rates.get("consortium_months", 72))
         admin_rate = rates.get("consortium_admin_rate", 0.17)
@@ -975,7 +1245,7 @@ class StrategyEngine:
 
         # NPV: mês 0 = saída da entrada (investida mas comprometida); meses 1..N = fluxos líquidos
         npv_cashflows = [-req.down_payment] + net_cashflows
-        npv_val = npv_calc.calculate_npv(npv_cashflows, selic_monthly)
+        npv_val = npv_calc.calculate_npv(npv_cashflows, disc_monthly)
 
         is_self_sustaining = months_negative == 0
 
@@ -1259,30 +1529,62 @@ class StrategyEngine:
         strategies: Dict[StrategyType, float],
     ) -> tuple[StrategyType, list[str]]:
         """
-        Ajusta a estratégia recomendada com base no perfil de risco declarado.
+        Ajusta a estratégia recomendada com base no perfil/score de risco.
 
-        Regras:
-        - CONSERVADOR:
-            · Veículo (ativo depreciativo): nunca recomenda FINANCING —
-              substitui por CONSORTIUM (se disponível e melhor NPV) ou SAVE_INVEST.
-            · Outros bens: só mantém FINANCING se a vantagem de NPV sobre
-              SAVE_INVEST for >= 20%; abaixo disso prefere SAVE_INVEST.
-        - MODERADO: sem ajuste — NPV puro decide.
-        - AGRESSIVO: sem ajuste — NPV puro decide (aceita risco maior).
+        Quando risk_score está disponível, usa limiares contínuos:
+          - Perfil "conservador" (score < 0.35):
+              · Veículo: evita FINANCING (bem depreciativo).
+              · Outros: requer vantagem de NPV ≥ min_advantage_pct sobre SAVE_INVEST.
+                min_advantage_pct = 25% × (1 − score/0.35) → suaviza a fronteira.
+          - Perfil "moderado/arrojado" (score ≥ 0.35): sem ajuste, NPV decide.
 
-        Returns:
-            (estratégia_ajustada, lista_de_warnings)
+        Sem risk_score: comportamento legado por enum CONSERVADOR/MODERADO/AGRESSIVO.
         """
-        if request.risk_profile != RiskProfile.CONSERVADOR:
+        rs = request.risk_score
+        is_conservative = (
+            rs < 0.35 if rs is not None
+            else request.risk_profile == RiskProfile.CONSERVADOR
+        )
+
+        if not is_conservative:
             return best_strategy, []
 
-        if best_strategy not in (StrategyType.FINANCING, StrategyType.FINANCING_RENTAL):
+        if best_strategy not in (
+            StrategyType.FINANCING,
+            StrategyType.FINANCING_RENTAL,
+            StrategyType.CONSORTIUM,
+        ):
             return best_strategy, []
 
         warnings: list[str] = []
-        npv_fin = strategies.get(StrategyType.FINANCING, 0.0)
-        npv_inv = strategies.get(StrategyType.SAVE_INVEST, float("-inf"))
+        npv_fin  = strategies.get(StrategyType.FINANCING, 0.0)
+        npv_inv  = strategies.get(StrategyType.SAVE_INVEST, float("-inf"))
         npv_cons = strategies.get(StrategyType.CONSORTIUM)
+
+        # Consórcio: só bloquear para perfis muito conservadores (rs < 0.25).
+        # Entre 0.25 e 0.35 (conservador moderado), consórcio é aceito — sem juros bancários.
+        if best_strategy == StrategyType.CONSORTIUM:
+            is_very_conservative = (
+                rs < 0.25 if rs is not None
+                else request.risk_profile == RiskProfile.CONSERVADOR
+            )
+            if (
+                is_very_conservative
+                and npv_cons is not None
+                and npv_inv != float("-inf")
+            ):
+                abs_diff = abs(npv_inv) - abs(npv_cons)   # positivo = consórcio mais barato
+                ref = abs(npv_inv) if npv_inv != 0 else 1.0
+                advantage_pct = abs_diff / ref
+                if advantage_pct < 0.10:
+                    profile_label = f"score={rs:.2f}" if rs is not None else request.risk_profile.value
+                    warnings.append(
+                        f"Perfil muito conservador ({profile_label}): vantagem do consórcio "
+                        f"sobre Poupar/Investir é de {advantage_pct:.0%} (mínimo: 10%) "
+                        "— preferindo Poupar/Investir para evitar compromisso de longo prazo."
+                    )
+                    return StrategyType.SAVE_INVEST, warnings
+            return best_strategy, warnings
 
         # Veículo + conservador → nunca financia (bem depreciativo)
         if request.asset_type == AssetType.VEICULO:
@@ -1292,26 +1594,35 @@ class StrategyEngine:
             else:
                 adjusted = StrategyType.SAVE_INVEST
                 reason = "Poupar/Investir (sem endividamento)"
+            profile_label = f"score={rs:.2f}" if rs is not None else request.risk_profile.value
             warnings.append(
-                f"Perfil conservador: financiamento de veículo evitado "
+                f"Perfil conservador ({profile_label}): financiamento de veículo evitado "
                 f"(bem depreciativo — perde ~15-20% ao ano). Recomendado: {reason}."
             )
             return adjusted, warnings
 
-        # Outros bens: substitui se vantagem do financiamento for < 20%
+        # Outros bens: requer vantagem mínima de NPV sobre SAVE_INVEST.
+        # Com risk_score: limiar suavizado entre 25% (score=0) e 15% (score=0.35).
+        # Sem risk_score: limiar fixo de 20% (comportamento legado).
         if npv_inv == float("-inf"):
             return best_strategy, warnings
 
-        # NPVs são negativos (custos). Financing é melhor quando mais próximo de 0.
+        if rs is not None:
+            # score=0 → exige 25%; score=0.35 → exige ~15%; interpolação linear
+            min_advantage_pct = 0.25 - rs * (0.10 / 0.35)
+        else:
+            min_advantage_pct = 0.20
+
         abs_diff = abs(npv_inv) - abs(npv_fin)   # positivo = financing mais barato
         ref = abs(npv_inv) if npv_inv != 0 else 1.0
         advantage_pct = abs_diff / ref
 
-        if advantage_pct < 0.20:
+        if advantage_pct < min_advantage_pct:
+            profile_label = f"score={rs:.2f}" if rs is not None else request.risk_profile.value
             warnings.append(
-                f"Perfil conservador: vantagem do financiamento sobre Poupar/Investir "
-                f"é de apenas {advantage_pct:.0%} — preferindo Poupar/Investir "
-                "para evitar endividamento."
+                f"Perfil conservador ({profile_label}): vantagem do financiamento sobre "
+                f"Poupar/Investir é de {advantage_pct:.0%} (mínimo: {min_advantage_pct:.0%}) "
+                "— preferindo Poupar/Investir para evitar endividamento."
             )
             return StrategyType.SAVE_INVEST, warnings
 
@@ -1424,6 +1735,82 @@ class StrategyEngine:
             narrative=narrative,
         )
 
+    def _run_macro_simulation(
+        self,
+        request: SimulationRequest,
+        market_rates: Dict[str, float],
+        fin_result: Dict[str, Any],
+        inv_result: Dict[str, Any],
+        cons_result: Optional[Dict[str, Any]],
+        n_sims: int = 2000,
+    ) -> Optional[MacroSimulationResult]:
+        """
+        Executa a simulação de cenários macroeconômicos correlacionados (VAR-1).
+
+        Gera n_sims trajetórias de (Selic, IPCA, valorização) com correlações
+        históricas e calcula a distribuição de NPV de cada estratégia base.
+
+        Returns MacroSimulationResult ou None se a simulação falhar.
+        """
+        try:
+            from app.architect.simulators.macro_scenario import run_macro_simulation
+
+            selic_annual = market_rates.get("selic_annual", 0.1475)
+            cdi_annual   = market_rates.get("cdi_annual", 0.1465)
+
+            # invest_factor: razão entre retorno real do usuário e Selic — garante
+            # consistência entre a simulação macro e _simulate_investment.
+            disc_rate_annual = _get_investment_rate(
+                cdi_annual, request.risk_profile, request.risk_score
+            )
+            invest_factor = disc_rate_annual / selic_annual if selic_annual > 0 else 0.85
+
+            consortium_months: Optional[int] = None
+            consortium_admin_reserve: float  = 0.19
+            consortium_expected: Optional[int] = None
+            if cons_result is not None:
+                consortium_months  = int(market_rates.get("consortium_months", 72))
+                admin_rate         = market_rates.get("consortium_admin_rate", 0.17)
+                reserve_rate       = market_rates.get("consortium_reserve_fund_rate", 0.02)
+                consortium_admin_reserve = admin_rate + reserve_rate
+                prob = cons_result.get("probability")
+                if prob is not None:
+                    consortium_expected = int(prob.expected_months)
+
+            distributions, prob_best, ssd_matrix = run_macro_simulation(
+                n_sims                            = n_sims,
+                initial_selic_annual              = selic_annual,
+                financing_cashflows               = fin_result.get("cashflows"),
+                financing_months                  = request.financing_months,
+                save_monthly                      = float(inv_result["monthly_payment"]),
+                target_amount                     = request.target_amount,
+                down_payment                      = request.down_payment,
+                consortium_months                 = consortium_months,
+                consortium_admin_reserve          = consortium_admin_reserve,
+                consortium_expected_contemplation = consortium_expected,
+                invest_factor                     = invest_factor,
+                seed                              = None,
+            )
+
+            return MacroSimulationResult(
+                n_simulations = n_sims,
+                distributions = {
+                    k: StrategyMacroStats(
+                        npv_p10 = round(v.npv_p10, 2),
+                        npv_p50 = round(v.npv_p50, 2),
+                        npv_p90 = round(v.npv_p90, 2),
+                        cvar_95 = round(v.cvar_95, 2),
+                    )
+                    for k, v in distributions.items()
+                },
+                prob_best  = prob_best,
+                ssd_matrix = ssd_matrix,
+            )
+
+        except Exception as exc:
+            logger.warning("StrategyEngine | macro_simulation falhou: %s", exc)
+            return None
+
     def simulate_timing_scenarios(
         self,
         request: SimulationRequest,
@@ -1455,6 +1842,7 @@ class StrategyEngine:
             scenarios = [0, 3, 6, 12]
 
         selic_monthly = (1 + market_rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
+        disc_monthly  = market_rates.get("disc_rate_monthly", selic_monthly)
         cet_annual    = market_rates.get("best_cet_annual", 0.20)
         ipca_annual   = market_rates.get("ipca_annual", 0.045)
 
@@ -1474,7 +1862,7 @@ class StrategyEngine:
             opp_cashflows  = [-monthly_savings] * wait
             fin_cashflows  = [-new_down] + [-row["payment"] for row in sim.schedule]
             all_cashflows  = opp_cashflows + fin_cashflows
-            npv_val = npv_calc.calculate_npv(all_cashflows, selic_monthly)
+            npv_val = npv_calc.calculate_npv(all_cashflows, disc_monthly)
 
             # ── 3. Base (comprar agora) para comparação ────────────────
             if base_npv is None:

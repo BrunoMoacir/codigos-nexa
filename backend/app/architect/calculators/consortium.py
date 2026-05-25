@@ -118,6 +118,8 @@ def calculate_consortium_metrics(
     contemplated_per_month: int = 2,
     num_simulations: int = 2000,
     seed: Optional[int] = None,
+    bid_mean_initial: float = 0.35,
+    bid_std: float = 0.12,
 ) -> ConsortiumResult:
     """
     Simula um grupo de consórcio para estimar custos e prazos.
@@ -201,6 +203,8 @@ def calculate_consortium_metrics(
             group_size=max(1, group_size),
             contemplated_per_month=contemplated_per_month,
             rng=rng,
+            bid_mean_initial=bid_mean_initial,
+            bid_std=bid_std,
         )
 
     # ── Estatísticas ──────────────────────────────────────────────────────────
@@ -316,6 +320,8 @@ def _simulate_single_run(
     group_size: int,
     contemplated_per_month: int,
     rng: np.random.Generator,
+    bid_mean_initial: float = 0.35,
+    bid_std: float = 0.12,
 ) -> int:
     """
     Executa uma única trajetória do usuário no grupo de consórcio.
@@ -342,8 +348,6 @@ def _simulate_single_run(
 
     # Decaimento exponencial: mean(t) = mean_0 * exp(-λ * t)
     # λ = ln(2) / (half_life * months)  →  λ torna a média 50% menor no half_life
-    bid_mean_initial = 0.35
-    bid_std = 0.12
     half_life_fraction = 0.30
     decay_lambda = np.log(2) / (half_life_fraction * months)
 
