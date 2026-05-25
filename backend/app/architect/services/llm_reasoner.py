@@ -174,14 +174,20 @@ class LLMReasoner:
             "Chaves válidas: 'risk_profile', 'financing_months' (valor inteiro como string)."
         )
 
-        raw = self._call_llm(system=system, user=user, json_mode=True, max_tokens=300)
+        raw = self._call_llm(system=system, user=user, json_mode=True, max_tokens=600)
         return self._parse_consistency(raw)
 
     def _parse_consistency(self, raw: str) -> "LLMConsistencyResult":
         from app.architect.models import LLMConsistencyResult
 
+        # Strip markdown code fences that some models add around JSON
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+            cleaned = cleaned.rsplit("```", 1)[0].strip()
+
         try:
-            data = json.loads(raw)
+            data = json.loads(cleaned)
         except json.JSONDecodeError:
             logger.warning("LLMReasoner | JSON inválido na consistência: %.200s", raw)
             return LLMConsistencyResult(consistent=True, flags=["LLM retornou JSON inválido"])
@@ -354,7 +360,7 @@ class LLMReasoner:
         max_tokens: int = 400,
     ) -> str:
         if self._provider == "anthropic":
-            return self._call_anthropic(system, user, max_tokens)
+            return self._call_anthropic(system, user, max_tokens, json_mode=json_mode)
         return self._call_openai(system, user, json_mode, max_tokens)
 
     def _call_openai(
@@ -386,14 +392,24 @@ class LLMReasoner:
         system: str,
         user: str,
         max_tokens: int,
+        json_mode: bool = False,
     ) -> str:
         import anthropic
 
         client = anthropic.Anthropic(api_key=self._api_key)
+        messages: list = [{"role": "user", "content": user}]
+        if json_mode:
+            # Prefill technique: force the model to start (and continue) with valid JSON
+            messages.append({"role": "assistant", "content": "{"})
+
         response = client.messages.create(
             model=self._model,
             system=system,
-            messages=[{"role": "user", "content": user}],
+            messages=messages,
             max_tokens=max_tokens,
         )
-        return response.content[0].text if response.content else ""
+        text = response.content[0].text if response.content else ""
+        if json_mode:
+            # The prefill "{" is not included in the response text — prepend it
+            return "{" + text
+        return text
