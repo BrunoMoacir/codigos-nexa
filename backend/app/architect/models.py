@@ -411,6 +411,27 @@ class SimulationRequest(BaseModel):
 
     # ── Validações de negócio ────────────────────────────────────────
 
+    @model_validator(mode="after")
+    def set_financing_months_by_asset(self) -> "SimulationRequest":
+        """
+        Ajusta financing_months para o prazo típico do tipo de bem quando o
+        valor default (48) foi aplicado. 48 meses é adequado para veículo e
+        outros, mas está completamente errado para imóvel (20–30 anos típicos)
+        e superestimado para reforma e viagem.
+
+        Só sobrescreve quando financing_months == 48 (sinal de que o campo não
+        foi informado explicitamente). Se o usuário passar 48 para IMOVEL, o
+        override ocorre — caso patológico que a validação de negócio cobre.
+        """
+        _defaults: dict = {
+            AssetType.IMOVEL:  240,  # 20 anos — padrão conservador de mercado
+            AssetType.REFORMA:  60,  # 5 anos
+            AssetType.VIAGEM:   36,  # 3 anos
+        }
+        if self.financing_months == 48 and self.asset_type in _defaults:
+            object.__setattr__(self, "financing_months", _defaults[self.asset_type])
+        return self
+
     @field_validator("down_payment")
     @classmethod
     def down_payment_menor_que_target(cls, v: float, info) -> float:

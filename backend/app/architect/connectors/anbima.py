@@ -70,7 +70,7 @@ class AnbimaConnector(BaseConnector):
         "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{series}"
         "/dados/ultimos/1?formato=json"
     )
-    _CDI_SERIES = 12  # CDI over acumulado no mês, anualizado — % a.a.
+    _CDI_SERIES = 12  # CDI over diário — série retorna % ao dia, não % a.a.
 
     # ── Interface obrigatória ─────────────────────────────────────────────
 
@@ -102,10 +102,18 @@ class AnbimaConnector(BaseConnector):
                 f"(série {self._CDI_SERIES}): {data}"
             )
 
-        cdi_pct = float(data[0]["valor"])   # ex: 13.15 (percentual)
-        cdi_annual = cdi_pct / 100          # ex: 0.1315 (decimal)
+        cdi_raw = float(data[0]["valor"])
 
-        return {"cdi_annual": cdi_annual}
+        # BCB SGS série 12 publica a taxa CDI diária em percentual ao dia.
+        # Ex: 0.0543 significa 0.0543% ao dia → (1 + 0.000543)^252 - 1 ≈ 14.65% a.a.
+        # Guarda de formato: se o valor for > 0.5 o campo provavelmente veio como
+        # taxa anual em % (formato histórico/legado) — parsear direto.
+        if cdi_raw > 0.5:
+            cdi_annual = cdi_raw / 100
+        else:
+            cdi_annual = (1 + cdi_raw / 100) ** 252 - 1
+
+        return {"cdi_annual": round(cdi_annual, 6)}
 
     def get_fallback_rates(self) -> Dict[str, float]:
         """
