@@ -174,7 +174,7 @@ class LLMReasoner:
             "Chaves válidas: 'risk_profile', 'financing_months' (valor inteiro como string)."
         )
 
-        raw = self._call_llm(system=system, user=user, json_mode=True, max_tokens=600)
+        raw = self._call_llm(system=system, user=user, json_mode=True, max_tokens=1024)
         return self._parse_consistency(raw)
 
     def _parse_consistency(self, raw: str) -> "LLMConsistencyResult":
