@@ -94,6 +94,38 @@ def _pick_ssd_winner(
     return None, None
 
 
+def _get_investment_rate(
+    cdi_annual: float,
+    risk_profile: Optional[RiskProfile],
+    risk_score: Optional[float] = None,
+) -> float:
+    """
+    Retorna taxa de retorno esperada de investimentos por perfil de risco.
+
+    Quando risk_score está disponível, interpola continuamente entre o
+    retorno conservador (CDI líquido) e o arrojado (min(CDI×1.60, 18%)),
+    eliminando os saltos discretos entre perfis.
+
+    Sem risk_score (score=None): fallback para mapeamento por enum.
+
+      CONSERVADOR → CDI × 0.85 (IR 15%): renda fixa pós-fixada
+      MODERADO    → CDI × 0.85 × 1.10:   crédito privado / FII
+      AGRESSIVO   → min(CDI × 1.60, 18%): exposição a renda variável
+      None        → tratado como MODERADO
+    """
+    cdi_net = cdi_annual * 0.85  # IR 15% (prazo ≥ 720 dias)
+    aggressive_rate = min(cdi_annual * 1.60, 0.18)
+
+    if risk_score is not None:
+        return cdi_net + (aggressive_rate - cdi_net) * risk_score
+
+    if risk_profile == RiskProfile.CONSERVADOR:
+        return cdi_net
+    if risk_profile == RiskProfile.AGRESSIVO:
+        return aggressive_rate
+    return cdi_net * 1.10  # MODERADO (e None)
+
+
 class StrategyEngine:
     """
     Motor central de decisão do Nexa Architect.
@@ -134,7 +166,7 @@ class StrategyEngine:
         if of is not None and of.rendimento_real_atual is not None:
             disc_rate_annual = of.rendimento_real_atual
         else:
-            disc_rate_annual = self._get_investment_rate(cdi_annual, request.risk_profile, request.risk_score)
+            disc_rate_annual = _get_investment_rate(cdi_annual, request.risk_profile, request.risk_score)
         disc_rate_monthly = (1 + disc_rate_annual) ** (1 / 12) - 1
         market_rates      = {**market_rates, "disc_rate_monthly": disc_rate_monthly}
 
@@ -564,41 +596,6 @@ class StrategyEngine:
             "cashflows": cashflows,  # Preservado para estratégias compostas
         }
 
-    @staticmethod
-    def _get_investment_rate(
-        cdi_annual: float,
-        risk_profile: RiskProfile,
-        risk_score: Optional[float] = None,
-    ) -> float:
-        """
-        Retorna taxa de retorno esperada de investimentos por perfil de risco.
-
-        Quando risk_score está disponível, interpola continuamente entre o
-        retorno conservador (CDI líquido) e o arrojado (min(CDI×1.60, 18%)),
-        eliminando os saltos discretos entre perfis.
-
-        Sem risk_score (score=None): fallback para mapeamento por enum.
-
-        Critérios do fallback por enum:
-          CONSERVADOR → CDI × 0.85 (IR 15%): renda fixa pós-fixada
-          MODERADO    → CDI × 0.85 × 1.10:   crédito privado / FII
-          AGRESSIVO   → min(CDI × 1.60, 18%): exposição a renda variável
-        """
-        cdi_net = cdi_annual * 0.85  # IR 15% (prazo ≥ 720 dias)
-        aggressive_rate = min(cdi_annual * 1.60, 0.18)
-
-        if risk_score is not None:
-            # Interpolação linear: score=0 → cdi_net; score=1 → aggressive_rate
-            return cdi_net + (aggressive_rate - cdi_net) * risk_score
-
-        # Fallback: mapeamento discreto por enum
-        if risk_profile == RiskProfile.CONSERVADOR:
-            return cdi_net
-        elif risk_profile == RiskProfile.MODERADO:
-            return cdi_net * 1.10
-        else:  # AGRESSIVO
-            return aggressive_rate
-
     def _pick_efficient_strategy(
         self,
         request: SimulationRequest,
@@ -999,7 +996,7 @@ class StrategyEngine:
         if of is not None and of.rendimento_real_atual is not None:
             investment_rate = of.rendimento_real_atual
         else:
-            investment_rate = self._get_investment_rate(
+            investment_rate = _get_investment_rate(
                 cdi_annual, req.risk_profile, req.risk_score
             )
         selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
@@ -1763,7 +1760,7 @@ class StrategyEngine:
 
             # invest_factor: razão entre retorno real do usuário e Selic — garante
             # consistência entre a simulação macro e _simulate_investment.
-            disc_rate_annual = self._get_investment_rate(
+            disc_rate_annual = _get_investment_rate(
                 cdi_annual, request.risk_profile, request.risk_score
             )
             invest_factor = disc_rate_annual / selic_annual if selic_annual > 0 else 0.85

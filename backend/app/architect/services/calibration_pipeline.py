@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 # ── Mínimos por sub-sistema ───────────────────────────────────────────────────
 MIN_FEEDBACKS_PER_ASSET = 15   # para calibrar limiares por asset_type
 MIN_CONSORTIUM_FEEDBACKS = 10  # para calibrar bid_params
-MIN_FEEDBACKS_CONFIDENCE = 20  # para calibrar confidence threshold
+MIN_FEEDBACKS_CONFIDENCE = 50  # para calibrar confidence threshold (≥ MIN_BUCKET_SIZE × decis populados)
 
 # ── Limites de segurança ──────────────────────────────────────────────────────
 CONSERVATIVE_MIN, CONSERVATIVE_MAX = 0.20, 0.45

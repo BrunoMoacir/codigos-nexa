@@ -21,9 +21,6 @@ Decisões de design:
     - Reutiliza os mesmos calculadores do StrategyEngine para consistência.
     - numpy: usado no Sobol (amostrador quasi-aleatório e cálculo de CDF).
     - SALib>=1.4.7: opcional; se ausente, sobol_indices retorna None.
-    - _get_investment_rate copiado localmente de StrategyEngine para evitar
-      acoplamento circular — deve permanecer sincronizado com o original.
-
 Uso:
     from app.architect.simulators.sensitivity_analyzer import SensitivityAnalyzer
 
@@ -45,30 +42,9 @@ from app.architect.calculators import financing as fin_calc
 from app.architect.calculators import investment as inv_calc
 from app.architect.calculators import npv as npv_calc
 from app.architect.calculators import consortium as cons_calc
+from app.architect.simulators.strategy_engine import _get_investment_rate
 
 logger = logging.getLogger(__name__)
-
-
-def _get_investment_rate(
-    cdi_annual: float,
-    risk_profile: Optional[RiskProfile],
-    risk_score: Optional[float] = None,
-) -> float:
-    """
-    Retorna taxa de retorno esperada por perfil — espelho de StrategyEngine._get_investment_rate.
-
-    Mantido localmente para evitar acoplamento circular com strategy_engine.py.
-    Deve permanecer em sincronia com a implementação original.
-    """
-    cdi_net    = cdi_annual * 0.85
-    aggressive = min(cdi_annual * 1.60, 0.18)
-    if risk_score is not None:
-        return cdi_net + (aggressive - cdi_net) * risk_score
-    if risk_profile == RiskProfile.CONSERVADOR:
-        return cdi_net
-    if risk_profile == RiskProfile.AGRESSIVO:
-        return aggressive
-    return cdi_net * 1.10  # MODERADO
 
 
 def _safe_float(value: Any) -> float:
