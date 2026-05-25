@@ -721,10 +721,10 @@ class ArchitectService:
             return confidence
         try:
             from app.goals.tracker import GoalTracker
-            from app.core.db.session import get_db_session
+            from app.core.database import SessionLocal
             from app.architect.models import StrategyType
 
-            with get_db_session() as db:
+            with SessionLocal() as db:
                 goals = GoalTracker(db).list_goals(user_id, status="ACTIVE")
 
             if not goals:

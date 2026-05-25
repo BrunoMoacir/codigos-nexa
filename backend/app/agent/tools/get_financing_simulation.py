@@ -17,17 +17,26 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+_DEFAULT_MONTHS = {
+    "IMOVEL":  360,
+    "VEICULO":  60,
+    "REFORMA":  72,
+    "VIAGEM":   24,
+    "OUTRO":    48,
+}
+
+
 def _build_request(
     user_id: str,
     target_amount: float,
     down_payment: float,
     max_monthly_budget: Optional[float],
     asset_type: str,
-    financing_months: int,
+    financing_months: Optional[int],
     risk_profile: str,
     expected_rental_income: Optional[float],
 ):
-    """Monta o SimulationRequest com os enums corretos."""
+    """Monta o SimulationRequest com os enums corretos e defaults inteligentes por tipo de bem."""
     from app.architect.models import SimulationRequest, AssetType, RiskProfile
 
     asset_map = {
@@ -44,13 +53,16 @@ def _build_request(
     }
     risk_enum = risk_map.get(risk_profile.lower(), RiskProfile.MODERADO)
 
+    # Usa prazo informado ou default sensato por tipo de bem
+    months = financing_months or _DEFAULT_MONTHS.get(asset_type.upper(), 48)
+
     req_kwargs = dict(
         user_id=user_id,
         target_amount=target_amount,
         down_payment=down_payment,
         max_monthly_budget=max_monthly_budget,
         asset_type=asset_enum,
-        financing_months=financing_months,
+        financing_months=months,
         risk_profile=risk_enum,
         include_consortium=True,
     )
@@ -71,6 +83,17 @@ def _fetch_user_safe_to_spend(user_id: str) -> Optional[float]:
                 return sts.safe_to_spend_total
     except Exception as err:
         logger.debug("[Tool] F1 indisponivel para get_financing_simulation: %s", err)
+    return None
+
+
+def _fetch_transactions(user_id: str):
+    """Busca DataFrame de transações para inferência de perfil de risco e CardBonus real."""
+    try:
+        from app.core.db.queries import get_transactions_for_user
+        df = get_transactions_for_user(user_id)
+        return df if not df.is_empty() else None
+    except Exception as err:
+        logger.debug("[Tool] transações indisponíveis para get_financing_simulation: %s", err)
     return None
 
 
@@ -214,31 +237,52 @@ def _format_output(response, target_amount: float, asset_type: str, down_payment
         for w in response.warnings[:4]:
             lines.append(f"  - {w}")
 
+    # Narrativa contextualizada gerada pelo LLM (3 parágrafos)
+    if response.llm_reasoning and response.llm_reasoning.narrative:
+        n = response.llm_reasoning.narrative
+        lines += [
+            "",
+            "── Análise do consultor ──",
+            n.why_this_strategy,
+            "",
+            n.risks,
+            "",
+            n.next_steps,
+        ]
+
     return "\n".join(lines)
+
+
+_architect_service = None
+
+
+def _get_service():
+    global _architect_service
+    if _architect_service is None:
+        from app.architect.services.architect_service import ArchitectService
+        _architect_service = ArchitectService()
+    return _architect_service
 
 
 @tool
 def get_financing_simulation(
     user_id: str,
     target_amount: float,
+    asset_type: str = "OUTRO",
     down_payment: float = 0.0,
     max_monthly_budget: Optional[float] = None,
-    asset_type: str = "OUTRO",
-    financing_months: int = 48,
+    financing_months: Optional[int] = None,
     risk_profile: str = "moderado",
     expected_rental_income: Optional[float] = None,
 ) -> str:
     """
-    Simula e compara 3 estratégias para adquirir um bem de alto valor:
+    Simula e compara estratégias para adquirir um bem de alto valor:
     Financiamento bancário, Poupança/Investimento e Consórcio.
 
-    Retorna custos totais, NPV (valor presente líquido), impacto de liquidez mensal,
-    estratégia recomendada, plano de ação e — se financiamento — o bônus estimado
-    de pontos ao pagar as parcelas no melhor cartão premium do mercado (M3.3).
-
-    Para imóveis, se o usuário mencionar que pretende alugar o imóvel após adquiri-lo,
-    use expected_rental_income para calcular o plano de alavancagem por aluguel:
-    quanto o aluguel cobre das parcelas e qual o custo líquido real da aquisição.
+    Usa o perfil financeiro real do usuário (renda, histórico de transações,
+    capacidade de pagamento) para personalizar a recomendação. O prazo padrão
+    é ajustado automaticamente por tipo de bem quando não informado
+    (IMOVEL: 360m, VEICULO: 60m, REFORMA: 72m, VIAGEM: 24m).
 
     Use esta ferramenta quando o usuário perguntar sobre:
     - Comprar imóvel, carro, reforma, viagem ou qualquer bem de alto valor
@@ -250,28 +294,31 @@ def get_financing_simulation(
     Args:
         user_id: ID do usuário (obrigatório).
         target_amount: Valor total do bem em R$ (obrigatório).
+        asset_type: Tipo de bem — IMOVEL, VEICULO, REFORMA, VIAGEM ou OUTRO (padrão: OUTRO).
         down_payment: Valor de entrada disponível em R$ (padrão: 0).
         max_monthly_budget: Orçamento mensal máximo para parcelas em R$ (opcional).
-        asset_type: Tipo de bem — IMOVEL, VEICULO, REFORMA, VIAGEM ou OUTRO (padrão: OUTRO).
-        financing_months: Prazo do financiamento em meses (padrão: 48).
+        financing_months: Prazo em meses (opcional — usa default inteligente por tipo de bem).
         risk_profile: Perfil de risco — conservador, moderado ou agressivo (padrão: moderado).
+            Será recalibrado automaticamente se o usuário tiver histórico de transações.
         expected_rental_income: Renda mensal estimada de aluguel em R$ (opcional, só para IMOVEL).
-            Ativa o plano de alavancagem: calcula se o aluguel cobre as parcelas.
     """
     logger.info(
-        "[Tool] get_financing_simulation user=%s target=R$%.0f asset=%s meses=%d",
-        user_id, target_amount, asset_type, financing_months,
+        "[Tool] get_financing_simulation user=%s target=R$%.0f asset=%s",
+        user_id, target_amount, asset_type,
     )
     try:
-        from app.architect.services.architect_service import ArchitectService
-
         request = _build_request(
             user_id, target_amount, down_payment, max_monthly_budget,
             asset_type, financing_months, risk_profile, expected_rental_income,
         )
         safe_to_spend_value = _fetch_user_safe_to_spend(user_id)
+        transactions_df = _fetch_transactions(user_id)
 
-        response = ArchitectService().simulate(request, safe_to_spend=safe_to_spend_value)
+        response = _get_service().simulate(
+            request,
+            safe_to_spend=safe_to_spend_value,
+            transactions_df=transactions_df,
+        )
         return _format_output(response, target_amount, asset_type, down_payment)
 
     except ValueError as ve:
