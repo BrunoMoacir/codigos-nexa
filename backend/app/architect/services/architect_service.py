@@ -223,9 +223,10 @@ class ArchitectService:
         accumulated_warnings.extend(liquidity.warnings)
 
         # ── 5. Calcular confidence_score ─────────────────────────────
+        has_f1_transactions = transactions_df is not None and not transactions_df.is_empty()
         confidence = self._compute_confidence(
             base_confidence=base_response.confidence_score,
-            has_f1_data=(safe_to_spend is not None),
+            has_f1_data=(safe_to_spend is not None or has_f1_transactions),
             used_fallback_rates=bool(rate_warnings),
             warning_count=len(accumulated_warnings),
             has_open_finance_data=has_open_finance_data,
@@ -235,6 +236,8 @@ class ArchitectService:
         data_sources = list(base_response.data_sources)
         if safe_to_spend is not None:
             data_sources.append("f1_safe_to_spend")
+        if has_f1_transactions:
+            data_sources.append("f1_transactions")
         if has_open_finance_data:
             data_sources.append("open_finance")
         # ABAC sempre consultado para simulações de consórcio (Fase 2)
@@ -506,6 +509,15 @@ class ArchitectService:
             reserve_depth_of     = None
             of = request.open_finance_features
 
+            # Renda inferida da F1 — usada como fallback quando não declarada no request.
+            # Calculada aqui para estar disponível no C4 proxy abaixo e no updates final.
+            inferred_income = (
+                income_profile.monthly_net_income
+                if income_profile.confidence >= 0.4 and income_profile.monthly_net_income > 0
+                else None
+            )
+            effective_monthly_income = request.monthly_income or inferred_income
+
             if of is not None:
                 if of.comprometimento_renda_pct is not None:
                     committed_pct       = of.comprometimento_renda_pct
@@ -517,11 +529,11 @@ class ArchitectService:
                 # Requer renda + comprometimento + streak; sem qualquer um cai para user_profile.
                 if (
                     of.meses_consecutivos_poupanca is not None
-                    and request.monthly_income is not None
-                    and request.monthly_income > 0
+                    and effective_monthly_income is not None
+                    and effective_monthly_income > 0
                     and of.comprometimento_renda_pct is not None
                 ):
-                    income    = request.monthly_income
+                    income    = effective_monthly_income
                     committed = of.comprometimento_renda_pct
                     streak    = of.meses_consecutivos_poupanca
 
@@ -538,6 +550,15 @@ class ArchitectService:
                     estimated_reserve = monthly_saving * streak
                     months_covered    = estimated_reserve / monthly_expense if monthly_expense > 0 else 0.0
                     reserve_depth_of  = round(min(months_covered / 6.0, 1.0), 4)
+
+            # C3 proxy a partir de transações recorrentes quando OF não disponível.
+            # is_recurring=True já foi marcado pelo ETL da F1 (recurring_detector).
+            # committed_pct = despesas_recorrentes_mensais / renda_líquida_mensal.
+            if not committed_available and inferred_income is not None and inferred_income > 0:
+                monthly_recurring = ArchitectService._monthly_recurring_expenses(transactions_df)
+                if monthly_recurring > 0:
+                    committed_pct       = round(min(monthly_recurring / inferred_income, 1.0), 4)
+                    committed_available = True
 
             risk_result = RiskScorer.score(
                 request=request,
@@ -559,6 +580,11 @@ class ArchitectService:
                 "risk_score":            risk_result.score,
                 "risk_score_confidence": risk_result.confidence,
             }
+
+            # Popula monthly_income da F1 quando não declarado pelo usuário.
+            # Necessário para card_optimization_bonus, BudgetAdvisor e C4 via OF.
+            if request.monthly_income is None and inferred_income is not None:
+                updates["monthly_income"] = round(inferred_income, 2)
 
             if request.risk_profile is None:
                 updates["risk_profile"] = risk_result.profile
@@ -750,6 +776,48 @@ class ArchitectService:
         except Exception as exc:
             logger.warning("ArchitectService | GoalTracker falhou: %s", exc)
         return confidence
+
+    @staticmethod
+    def _monthly_recurring_expenses(transactions_df) -> float:
+        """
+        Calcula a média mensal de despesas recorrentes a partir do DataFrame de transações.
+
+        Usa a coluna is_recurring marcada pelo ETL da F1 (recurring_detector).
+        Retorna 0.0 se o DataFrame não tiver as colunas necessárias ou estiver vazio.
+        """
+        try:
+            import polars as pl
+
+            required = {"amount", "is_recurring"}
+            if transactions_df is None or not required.issubset(set(transactions_df.columns)):
+                return 0.0
+
+            col_date = next(
+                (c for c in ("transaction_date", "date") if c in transactions_df.columns), None
+            )
+            if col_date is None:
+                return 0.0
+
+            recurring = (
+                transactions_df
+                .filter(
+                    (pl.col("is_recurring") == True) &  # noqa: E712
+                    (pl.col("amount") < 0)
+                )
+                .with_columns(
+                    (pl.col(col_date).dt.year() * 100 + pl.col(col_date).dt.month()).alias("ym")
+                )
+                .group_by("ym")
+                .agg(pl.col("amount").sum().abs().alias("monthly_recurring"))
+            )
+
+            if recurring.is_empty():
+                return 0.0
+
+            return float(recurring["monthly_recurring"].mean() or 0.0)
+
+        except Exception:
+            return 0.0
 
     @staticmethod
     def _compute_confidence(
