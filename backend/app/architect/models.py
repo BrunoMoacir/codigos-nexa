@@ -1142,6 +1142,111 @@ class LLMReasoningResult(BaseModel):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# SAVE_INVEST — ANÁLISE DE URGÊNCIA E PERGUNTAS DE ACOMPANHAMENTO
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class FollowUpQuestion(BaseModel):
+    """
+    Pergunta de acompanhamento gerada quando SAVE_INVEST é recomendado.
+
+    Indica qual campo do SimulationRequest a resposta alimenta,
+    permitindo ao frontend fazer um refinamento dinâmico da simulação.
+    """
+
+    question_id: str = Field(
+        ...,
+        description="Identificador único da pergunta (snake_case). Ex: 'deadline', 'current_rent'.",
+    )
+    question: str = Field(
+        ...,
+        description="Pergunta em linguagem natural para o usuário.",
+        min_length=10,
+        max_length=300,
+    )
+    field_to_populate: str = Field(
+        ...,
+        description=(
+            "Campo do SimulationRequest que a resposta do usuário deve preencher. "
+            "Ex: 'target_date', 'current_monthly_rent', 'max_monthly_budget'."
+        ),
+    )
+    priority: str = Field(
+        default="MEDIUM",
+        description=(
+            "Prioridade de exibição: "
+            "HIGH = pergunta crítica (impacta diretamente a recomendação); "
+            "MEDIUM = melhora precisão; "
+            "LOW = enriquece contexto."
+        ),
+    )
+    rationale: str = Field(
+        ...,
+        description="Explicação de por que essa informação muda a análise.",
+        min_length=10,
+        max_length=300,
+    )
+
+
+class UrgencyAnalysis(BaseModel):
+    """
+    Análise de viabilidade temporal do SAVE_INVEST em relação ao prazo desejado.
+
+    Compara months_to_achieve (prazo de acumulação simulado) com desired_months
+    (prazo que o usuário informou via target_date) para determinar se o plano
+    de poupança é viável dentro do cronograma pretendido.
+
+    Attributes:
+        desired_months:       Meses disponíveis até target_date.
+        savings_months:       Meses necessários para acumular o valor (months_to_achieve).
+        months_gap:           desired_months − savings_months.
+                              Positivo = sobra de tempo. Negativo = déficit.
+        urgency_level:        OK | TIGHT | CRITICAL
+        narrative:            Explicação contextualizada da situação.
+        alternative_strategy: Estratégia alternativa sugerida quando TIGHT ou CRITICAL.
+    """
+
+    desired_months: int = Field(
+        ...,
+        description="Meses disponíveis até o prazo desejado (target_date).",
+        ge=1,
+    )
+    savings_months: int = Field(
+        ...,
+        description="Meses necessários para acumular o valor (months_to_achieve do SAVE_INVEST).",
+        ge=1,
+    )
+    months_gap: int = Field(
+        ...,
+        description=(
+            "desired_months − savings_months. "
+            "Positivo = margem de tempo. Negativo = déficit (urgência)."
+        ),
+    )
+    urgency_level: str = Field(
+        ...,
+        description=(
+            "Nível de urgência: "
+            "OK = prazo confortável (gap ≥ 0); "
+            "TIGHT = prazo apertado (gap entre −30% e 0% do savings_months); "
+            "CRITICAL = inviável (gap < −30% do savings_months)."
+        ),
+    )
+    narrative: str = Field(
+        ...,
+        description="Análise contextualizada da viabilidade temporal em linguagem natural.",
+        min_length=20,
+        max_length=500,
+    )
+    alternative_strategy: Optional[StrategyType] = Field(
+        default=None,
+        description=(
+            "Estratégia alternativa sugerida quando urgency_level = TIGHT ou CRITICAL. "
+            "None quando OK (SAVE_INVEST é viável no prazo)."
+        ),
+    )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # RESPONSE — OUTPUT DA SIMULAÇÃO
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1401,6 +1506,28 @@ class SimulationResponse(BaseModel):
             "Inclui verificação de consistência (flags, override aplicado) e "
             "narrativa contextualizada em 3 parágrafos (por quê, riscos, próximos passos). "
             "None quando LLM_PROVIDER não está configurado ou a chamada falha."
+        ),
+    )
+
+    # ── SAVE_INVEST: urgência temporal e perguntas de acompanhamento ──
+
+    urgency_analysis: Optional[UrgencyAnalysis] = Field(
+        default=None,
+        description=(
+            "Análise de viabilidade temporal do SAVE_INVEST. "
+            "Presente quando SAVE_INVEST é recomendado e target_date foi informado. "
+            "Classifica urgência: OK (viável), TIGHT (apertado), CRITICAL (inviável no prazo). "
+            "None quando target_date não foi informado ou estratégia recomendada não é SAVE_INVEST."
+        ),
+    )
+
+    follow_up_questions: Optional[list[FollowUpQuestion]] = Field(
+        default=None,
+        description=(
+            "Perguntas de acompanhamento geradas quando SAVE_INVEST é recomendado. "
+            "Indicam quais informações adicionais melhorariam a precisão da análise — "
+            "prazo desejado, aluguel atual, orçamento mensal, histórico de crédito. "
+            "None quando todas as informações relevantes já foram fornecidas ou estratégia != SAVE_INVEST."
         ),
     )
 
@@ -1671,6 +1798,9 @@ __all__ = [
     "LLMConsistencyResult",
     "LLMNarrative",
     "LLMReasoningResult",
+    # SAVE_INVEST — urgência e follow-up
+    "FollowUpQuestion",
+    "UrgencyAnalysis",
     # Simulação macroeconômica
     "StrategyMacroStats",
     "MacroSimulationResult",

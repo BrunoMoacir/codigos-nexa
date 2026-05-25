@@ -213,6 +213,18 @@ class ArchitectService:
                 if flag
             )
 
+        # ── 3.6. SAVE_INVEST: urgência temporal + perguntas de acompanhamento ──
+        urgency_analysis = None
+        follow_up_questions = None
+        if base_response.recommended_strategy == StrategyType.SAVE_INVEST:
+            urgency_analysis, follow_up_questions = self._build_save_invest_analysis(
+                request, base_response
+            )
+            if urgency_analysis is not None and urgency_analysis.urgency_level in ("TIGHT", "CRITICAL"):
+                accumulated_warnings.append(
+                    f"[URGÊNCIA {urgency_analysis.urgency_level}] {urgency_analysis.narrative}"
+                )
+
         # ── 4. Recalcular liquidez com safe_to_spend real ────────────
         monthly_payment = self._estimate_monthly_payment(base_response, request, market_rates)
         liquidity = LiquidityValidator.calculate(
@@ -295,12 +307,14 @@ class ArchitectService:
 
         return base_response.model_copy(
             update={
-                "liquidity_impact":      liquidity.impact,
-                "warnings":              accumulated_warnings,
-                "confidence_score":      round(confidence, 2),
-                "data_sources":          data_sources,
+                "liquidity_impact":        liquidity.impact,
+                "warnings":                accumulated_warnings,
+                "confidence_score":        round(confidence, 2),
+                "data_sources":            data_sources,
                 "card_optimization_bonus": card_bonus,
-                "llm_reasoning":         llm_result,
+                "llm_reasoning":           llm_result,
+                "urgency_analysis":        urgency_analysis,
+                "follow_up_questions":     follow_up_questions,
             }
         )
 
@@ -818,6 +832,136 @@ class ArchitectService:
 
         except Exception:
             return 0.0
+
+    @staticmethod
+    def _build_save_invest_analysis(
+        request: "SimulationRequest",
+        base_response: "SimulationResponse",
+    ) -> tuple:
+        """
+        Gera análise de urgência e perguntas de acompanhamento quando SAVE_INVEST é recomendado.
+
+        Urgência (quando target_date informado): compara months_to_achieve com o prazo disponível.
+          OK       → prazo confortável, SAVE_INVEST é viável.
+          TIGHT    → prazo apertado (70–100% do necessário), sugerir CONSORTIUM.
+          CRITICAL → inviável no prazo, sugerir FINANCING.
+
+        Perguntas (campo follow_up_questions): coletam dados que melhoram a análise:
+          1. Prazo desejado (target_date)        — HIGH, sempre que target_date não informado
+          2. Aluguel atual (current_monthly_rent) — HIGH, IMOVEL sem aluguel declarado
+          3. Orçamento mensal (max_monthly_budget) — MEDIUM, quando não declarado
+          4. Histórico de crédito (open_finance)  — LOW, quando OF ausente
+        """
+        from datetime import date as _date
+        from app.architect.models import (
+            AssetType, FollowUpQuestion, StrategyType, UrgencyAnalysis,
+        )
+
+        savings_months = base_response.months_to_achieve
+        urgency = None
+        follow_up: list = []
+
+        # ── Análise de urgência (quando target_date informado) ────────
+        if request.target_date is not None:
+            today = _date.today()
+            months_available = max(1, round((request.target_date - today).days / 30.44))
+            months_gap = months_available - savings_months
+
+            if months_available >= savings_months:
+                level = "OK"
+                narrative = (
+                    f"Seu prazo de {months_available} meses é confortável: o plano de poupança "
+                    f"leva {savings_months} meses, deixando {months_gap} meses de folga. "
+                    "A estratégia SAVE_INVEST é viável no cronograma desejado."
+                )
+                alt = None
+            elif months_available >= int(savings_months * 0.70):
+                shortfall = savings_months - months_available
+                level = "TIGHT"
+                narrative = (
+                    f"Prazo apertado: você tem {months_available} meses, mas acumular o valor "
+                    f"levaria {savings_months} meses — déficit de {shortfall} meses. "
+                    "Qualquer interrupção nos aportes pode comprometer o prazo. "
+                    "Considere aumentar o aporte mensal ou avaliar CONSÓRCIO como alternativa mais veloz."
+                )
+                alt = StrategyType.CONSORTIUM
+            else:
+                shortfall = savings_months - months_available
+                level = "CRITICAL"
+                narrative = (
+                    f"Prazo inviável para SAVE_INVEST: você tem {months_available} meses, "
+                    f"mas acumular o valor levaria {savings_months} meses "
+                    f"(déficit de {shortfall} meses — {shortfall / savings_months:.0%} do necessário). "
+                    "Para respeitar o prazo desejado, FINANCIAMENTO ou CONSÓRCIO são mais adequados."
+                )
+                alt = StrategyType.FINANCING
+
+            urgency = UrgencyAnalysis(
+                desired_months=months_available,
+                savings_months=savings_months,
+                months_gap=months_gap,
+                urgency_level=level,
+                narrative=narrative,
+                alternative_strategy=alt,
+            )
+        else:
+            follow_up.append(FollowUpQuestion(
+                question_id="deadline",
+                question=(
+                    f"Em quanto tempo você precisa ou quer adquirir esse bem? "
+                    f"(Poupando mensalmente, você chegaria ao valor em cerca de {savings_months} meses.)"
+                ),
+                field_to_populate="target_date",
+                priority="HIGH",
+                rationale=(
+                    "O prazo define se SAVE_INVEST é viável ou se financiamento/consórcio "
+                    "atendem melhor sua necessidade. Um prazo curto muda completamente a recomendação."
+                ),
+            ))
+
+        # ── Aluguel atual (IMOVEL sem current_monthly_rent) ───────────
+        if (
+            request.asset_type == AssetType.IMOVEL
+            and request.current_monthly_rent is None
+        ):
+            follow_up.append(FollowUpQuestion(
+                question_id="current_rent",
+                question="Você paga aluguel atualmente? Se sim, quanto por mês (R$)?",
+                field_to_populate="current_monthly_rent",
+                priority="HIGH",
+                rationale=(
+                    "Quem poupa para comprar continua pagando aluguel durante o período de acumulação. "
+                    "Esse custo pode tornar financiamento mais vantajoso do que parece."
+                ),
+            ))
+
+        # ── Orçamento mensal para poupança ────────────────────────────
+        if request.max_monthly_budget is None:
+            follow_up.append(FollowUpQuestion(
+                question_id="monthly_budget",
+                question="Quanto você consegue guardar por mês para esse objetivo (R$)?",
+                field_to_populate="max_monthly_budget",
+                priority="MEDIUM",
+                rationale=(
+                    "O aporte mensal define o prazo de acumulação. "
+                    "Com um valor declarado, calculamos exatamente em quantos meses você atinge o objetivo."
+                ),
+            ))
+
+        # ── Histórico de crédito ──────────────────────────────────────
+        if request.open_finance_features is None:
+            follow_up.append(FollowUpQuestion(
+                question_id="credit_history",
+                question="Você tem ou já teve financiamentos ou empréstimos ativos?",
+                field_to_populate="open_finance_features.experiencia_financiamento",
+                priority="LOW",
+                rationale=(
+                    "O histórico de crédito influencia o CET disponível para você. "
+                    "Bons pagadores obtêm taxas melhores, o que pode mudar a comparação entre estratégias."
+                ),
+            ))
+
+        return urgency, follow_up or None
 
     @staticmethod
     def _compute_confidence(
