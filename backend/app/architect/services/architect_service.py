@@ -213,10 +213,13 @@ class ArchitectService:
                 if flag
             )
 
-        # ── 3.6. SAVE_INVEST: urgência temporal + perguntas de acompanhamento ──
+        # ── 3.6. Urgência e perguntas de acompanhamento por estratégia ──
         urgency_analysis = None
         follow_up_questions = None
-        if base_response.recommended_strategy == StrategyType.SAVE_INVEST:
+        _strat = base_response.recommended_strategy
+        _liq   = base_response.liquidity_impact  # -0.70 = 70% comprometido
+
+        if _strat == StrategyType.SAVE_INVEST:
             urgency_analysis, follow_up_questions = self._build_save_invest_analysis(
                 request, base_response
             )
@@ -224,6 +227,13 @@ class ArchitectService:
                 accumulated_warnings.append(
                     f"[URGÊNCIA {urgency_analysis.urgency_level}] {urgency_analysis.narrative}"
                 )
+        elif _strat in (StrategyType.FINANCING, StrategyType.FINANCING_RENTAL):
+            # HIGH (>40%) ou CRITICAL (>70%) de comprometimento geram follow-ups
+            if _liq is not None and _liq < -0.40:
+                follow_up_questions = self._build_financing_followups(request, base_response)
+        elif _strat in (StrategyType.CONSORTIUM, StrategyType.CONSORTIUM_SELIC_RENTAL):
+            if _liq is not None and _liq < -0.40:
+                follow_up_questions = self._build_consortium_followups(request, base_response)
 
         # ── 4. Recalcular liquidez com safe_to_spend real ────────────
         monthly_payment = self._estimate_monthly_payment(base_response, request, market_rates)
@@ -834,6 +844,133 @@ class ArchitectService:
             return 0.0
 
     @staticmethod
+    def _build_financing_followups(
+        request: "SimulationRequest",
+        base_response: "SimulationResponse",
+    ) -> list | None:
+        """
+        Perguntas de acompanhamento quando FINANCING/FINANCING_RENTAL é recomendado
+        e o comprometimento de renda é HIGH ou CRITICAL (|liquidity_impact| > 0.40).
+
+        Objetivo: coletar dados que podem reduzir a parcela ou personalizar o CET,
+        transformando uma simulação de alto risco em uma viável.
+        """
+        from app.architect.models import AssetType, FollowUpQuestion
+
+        follow_up: list = []
+
+        if request.open_finance_features is None:
+            follow_up.append(FollowUpQuestion(
+                question_id="open_finance_cet",
+                question=(
+                    "Compartilhe seu Open Finance para obtermos seu CET real e "
+                    "comprometimento de renda atual."
+                ),
+                field_to_populate="open_finance_features",
+                priority="HIGH",
+                rationale=(
+                    "O CET praticado pelo seu banco pode ser diferente da média de mercado. "
+                    "Com Open Finance, calculamos se o financiamento é sustentável para "
+                    "sua renda específica e identificamos taxas melhores disponíveis."
+                ),
+            ))
+
+        follow_up.append(FollowUpQuestion(
+            question_id="higher_down_payment",
+            question=(
+                f"Você tem condições de aumentar a entrada além dos "
+                f"R$ {request.down_payment:,.0f} atuais? "
+                "Cada R$ 10.000 a mais reduz a parcela diretamente."
+            ),
+            field_to_populate="down_payment",
+            priority="HIGH",
+            rationale=(
+                "Uma entrada maior reduz o principal financiado e, consequentemente, "
+                "a parcela mensal — aliviando o comprometimento de renda sem precisar "
+                "mudar o prazo ou a estratégia."
+            ),
+        ))
+
+        if request.asset_type == AssetType.IMOVEL and request.financing_months < 360:
+            extended = min(request.financing_months + 60, 360)
+            follow_up.append(FollowUpQuestion(
+                question_id="extend_term",
+                question=(
+                    f"Aumentar o prazo de {request.financing_months} para {extended} meses "
+                    "reduziria a parcela mensal. Você prefere prazo mais longo?"
+                ),
+                field_to_populate="financing_months",
+                priority="MEDIUM",
+                rationale=(
+                    "Prazo mais longo reduz a parcela a custo de um total pago maior. "
+                    "Para imóvel, isso pode tornar o financiamento viável dentro do orçamento "
+                    "sem comprometer reserva de emergência."
+                ),
+            ))
+
+        if request.asset_type == AssetType.IMOVEL and request.expected_rental_income is None:
+            follow_up.append(FollowUpQuestion(
+                question_id="rental_income",
+                question=(
+                    "Você planeja alugar o imóvel (ou parte dele)? "
+                    "A renda de aluguel pode cobrir parte das parcelas."
+                ),
+                field_to_populate="expected_rental_income",
+                priority="MEDIUM",
+                rationale=(
+                    "A estratégia FINANCIAMENTO + ALUGUEL pode reduzir o custo líquido "
+                    "mensal significativamente, tornando o financiamento mais sustentável."
+                ),
+            ))
+
+        return follow_up or None
+
+    @staticmethod
+    def _build_consortium_followups(
+        request: "SimulationRequest",
+        base_response: "SimulationResponse",
+    ) -> list | None:
+        """
+        Perguntas de acompanhamento quando CONSORTIUM/CONSORTIUM_SELIC_RENTAL é recomendado
+        e o comprometimento de renda é HIGH ou CRITICAL.
+        """
+        from app.architect.models import FollowUpQuestion
+
+        follow_up: list = []
+
+        if request.open_finance_features is None:
+            follow_up.append(FollowUpQuestion(
+                question_id="open_finance_consortium",
+                question=(
+                    "Compartilhe seu Open Finance para verificarmos seu "
+                    "comprometimento real de renda com as parcelas do consórcio."
+                ),
+                field_to_populate="open_finance_features",
+                priority="HIGH",
+                rationale=(
+                    "Com dados reais de comprometimento, podemos verificar se as "
+                    "parcelas do consórcio cabem no seu orçamento sem risco de inadimplência."
+                ),
+            ))
+
+        follow_up.append(FollowUpQuestion(
+            question_id="consortium_bid",
+            question=(
+                "Você tem recursos disponíveis para dar um lance no consórcio "
+                "e antecipar a contemplação?"
+            ),
+            field_to_populate="prefers_consortium",
+            priority="MEDIUM",
+            rationale=(
+                "Um lance de 20–30% do valor do bem aumenta significativamente a "
+                "probabilidade de contemplação nos primeiros meses, reduzindo o período "
+                "em que você paga parcela sem usar o bem."
+            ),
+        ))
+
+        return follow_up or None
+
+    @staticmethod
     def _build_save_invest_analysis(
         request: "SimulationRequest",
         base_response: "SimulationResponse",
@@ -976,7 +1113,7 @@ class ArchitectService:
 
         Base (do engine):           0.75–0.85 (risk_score_confidence ou fallback)
         + Open Finance presente:   +0.10 → base sobe para ~0.95 (dados reais eliminam suposições)
-        + dados reais da F1:       +0.05
+        + dados reais da F1:       +0.10 (safe_to_spend + transações validam capacidade real)
         - taxas de fallback:       -0.05
         - por aviso gerado:        -0.02 (máx: -0.10)
 

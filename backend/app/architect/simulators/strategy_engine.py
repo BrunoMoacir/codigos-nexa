@@ -50,6 +50,26 @@ from app.architect.utils.formatters import format_currency
 
 logger = logging.getLogger(__name__)
 
+# Mapeamento AssetType → tipo aceito pelos calculadores de financiamento/consórcio.
+# Necessário para seguro correto (MIP+DFI para property, auto para vehicle).
+_CALC_ASSET_MAP: Dict[AssetType, str] = {
+    AssetType.IMOVEL:  "property",
+    AssetType.VEICULO: "vehicle",
+    AssetType.REFORMA: "other",
+    AssetType.VIAGEM:  "other",
+    AssetType.OUTRO:   "other",
+}
+
+# IOF para financiamento imobiliário residencial (SFH) é 0% — Decreto 6.306/2007.
+# Outros tipos seguem a alíquota padrão (IOF_FIXO_RATE em financing.py).
+_IOF_RATE_BY_ASSET: Dict[AssetType, float] = {
+    AssetType.IMOVEL:  0.0,                   # SFH: isento
+    AssetType.VEICULO: fin_calc.IOF_FIXO_RATE,
+    AssetType.REFORMA: fin_calc.IOF_FIXO_RATE,
+    AssetType.VIAGEM:  fin_calc.IOF_FIXO_RATE,
+    AssetType.OUTRO:   fin_calc.IOF_FIXO_RATE,
+}
+
 
 def _safe_float(value: Any) -> float:
     """Converte valor para float, tratando NaN e None."""
@@ -567,20 +587,26 @@ class StrategyEngine:
         selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
         disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
 
-        # Calcular pelo método escolhido
+        calc_asset = _CALC_ASSET_MAP.get(req.asset_type, "other")
+        iof_rate   = _IOF_RATE_BY_ASSET.get(req.asset_type, fin_calc.IOF_FIXO_RATE)
+
         if req.amortization_method.value == "SAC":
             sim = fin_calc.calculate_sac(
-                req.principal, cet_annual, req.financing_months
+                req.principal, cet_annual, req.financing_months,
+                iof_rate=iof_rate, asset_type=calc_asset,
             )
         else:
             sim = fin_calc.calculate_price(
-                req.principal, cet_annual, req.financing_months
+                req.principal, cet_annual, req.financing_months,
+                iof_rate=iof_rate, asset_type=calc_asset,
             )
 
-        # Fluxo de caixa: -Entrada no mês 0, -Parcelas nos meses 1..N
-        cashflows = [-req.down_payment]
+        # IOF pago no ato do contrato (t=0); para IMOVEL SFH é 0.
+        # Seguro mensal (MIP/DFI para imóvel, auto para veículo) entra no fluxo
+        # descontado — é custo obrigatório e afeta a comparação NPV com SAVE_INVEST.
+        cashflows = [-(req.down_payment + sim.total_iof)]
         for row in sim.schedule:
-            cashflows.append(-row["payment"])
+            cashflows.append(-(row["payment"] + row.get("insurance", 0.0)))
 
         npv_val = npv_calc.calculate_npv(cashflows, disc_monthly)
 
@@ -1863,11 +1889,17 @@ class StrategyEngine:
             new_principal = request.target_amount - new_down
 
             # ── 2. Simular financiamento com novo principal ────────────
-            sim = fin_calc.calculate_price(new_principal, cet_annual, request.financing_months)
+            sim = fin_calc.calculate_price(
+                new_principal, cet_annual, request.financing_months,
+                iof_rate=_IOF_RATE_BY_ASSET.get(request.asset_type, fin_calc.IOF_FIXO_RATE),
+                asset_type=_CALC_ASSET_MAP.get(request.asset_type, "other"),
+            )
 
             # Fluxo NPV: custo de oportunidade da espera + financiamento
             opp_cashflows  = [-monthly_savings] * wait
-            fin_cashflows  = [-new_down] + [-row["payment"] for row in sim.schedule]
+            fin_cashflows  = [-(new_down + sim.total_iof)] + [
+                -(row["payment"] + row.get("insurance", 0.0)) for row in sim.schedule
+            ]
             all_cashflows  = opp_cashflows + fin_cashflows
             npv_val = npv_calc.calculate_npv(all_cashflows, disc_monthly)
 

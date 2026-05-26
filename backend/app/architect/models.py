@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from enum import Enum
-from typing import Dict, Optional
+from typing import Dict, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -1191,7 +1191,7 @@ class FollowUpQuestion(BaseModel):
             "Ex: 'target_date', 'current_monthly_rent', 'max_monthly_budget'."
         ),
     )
-    priority: str = Field(
+    priority: Literal["HIGH", "MEDIUM", "LOW"] = Field(
         default="MEDIUM",
         description=(
             "Prioridade de exibição: "
@@ -1243,7 +1243,7 @@ class UrgencyAnalysis(BaseModel):
             "Positivo = margem de tempo. Negativo = déficit (urgência)."
         ),
     )
-    urgency_level: str = Field(
+    urgency_level: Literal["OK", "TIGHT", "CRITICAL"] = Field(
         ...,
         description=(
             "Nível de urgência: "

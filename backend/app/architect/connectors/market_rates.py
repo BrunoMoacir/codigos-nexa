@@ -28,9 +28,10 @@ Tipos de bem suportados (AssetType):
 
 import json
 import logging
-import requests
 from pathlib import Path
 from typing import Dict
+
+import httpx
 
 from app.architect.connectors.base import BaseConnector, ConnectorError
 
@@ -139,7 +140,8 @@ class MarketRatesConnector(BaseConnector):
         for serie_id in unique_series:
             url = _BCB_BASE.format(serie=serie_id)
             try:
-                resp = requests.get(url, params={"formato": "json"}, timeout=self.timeout)
+                with httpx.Client(timeout=self.timeout) as client:
+                    resp = client.get(url, params={"formato": "json"})
                 resp.raise_for_status()
                 data = resp.json()
                 if not data or "valor" not in data[0]:
@@ -147,7 +149,7 @@ class MarketRatesConnector(BaseConnector):
                 # BCB retorna percentual anual (ex: "14.83") — converte para decimal
                 avg_by_serie[serie_id] = float(data[0]["valor"]) / 100.0
                 logger.debug("BCB série %d: %.4f a.a.", serie_id, avg_by_serie[serie_id])
-            except (requests.RequestException, ValueError, KeyError, IndexError) as exc:
+            except (httpx.HTTPError, ValueError, KeyError, IndexError) as exc:
                 raise ConnectorError(
                     f"Falha ao buscar BCB série {serie_id}: {exc}"
                 ) from exc

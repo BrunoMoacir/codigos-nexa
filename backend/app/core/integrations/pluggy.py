@@ -139,3 +139,42 @@ class PluggyClient:
 
         response.raise_for_status()
         return response.json()
+
+    def get_investments(self, item_id: str) -> dict:
+        url = f"{self.BASE_URL}/investments"
+
+        response = requests.get(
+            url,
+            params={"itemId": item_id},
+            headers=self._headers(),
+            timeout=10,
+        )
+
+        response.raise_for_status()
+        return response.json()
+
+    def get_loans(self, item_id: str) -> dict:
+        url = f"{self.BASE_URL}/loans"
+
+        response = requests.get(
+            url,
+            params={"itemId": item_id},
+            headers=self._headers(),
+            timeout=10,
+        )
+
+        response.raise_for_status()
+        return response.json()
+
+    def get_financings(self, item_id: str) -> dict:
+        url = f"{self.BASE_URL}/financings"
+
+        response = requests.get(
+            url,
+            params={"itemId": item_id},
+            headers=self._headers(),
+            timeout=10,
+        )
+
+        response.raise_for_status()
+        return response.json()
