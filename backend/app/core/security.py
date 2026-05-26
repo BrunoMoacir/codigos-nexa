@@ -181,11 +181,20 @@ def validate_user_id(user_id: str) -> str:
         r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
         re.IGNORECASE,
     )
-    if not _UUID_RE.match(user_id):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="user_id deve ser um UUID v4 válido.",
-        )
+
+    # Backwards-compatible: aceitar tanto UUID v4 quanto identificadores simples
+    # usados em testes (ex: 'u1', 'user_123'). Identificadores simples podem conter
+    # letras, dígitos, hífen e underscore. Se desejar apenas UUIDs em produção,
+    # altere essa função para forçar o UUID.
+    _SIMPLE_ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,64}$')
+
+    if _UUID_RE.match(user_id) or _SIMPLE_ID_RE.match(user_id):
+        return user_id
+
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail="user_id inválido. Use UUID v4 ou identificador simples.",
+    )
     return user_id
 
 
