@@ -23,13 +23,28 @@ def detect_recurring(transactions: List[Dict]) -> List[Dict]:
     if df.is_empty():
         return []
 
-    df = df.with_columns([
-        pl.col("date").cast(pl.Date).alias("date"),
-        pl.col("description").str.to_lowercase().str.strip_chars().alias("description"),
-    ])
-    df = df.with_columns(
-        pl.col("date").dt.truncate("1mo").alias("month")
+    # Normalize date column: accept both `date` and `transaction_date` incoming names
+    if "date" in df.columns:
+        df = df.with_columns([pl.col("date").cast(pl.Date).alias("date")])
+    elif "transaction_date" in df.columns:
+        df = df.with_columns([pl.col("transaction_date").cast(pl.Date).alias("date")])
+    else:
+        # No usable date column — nothing to detect
+        return []
+
+    # Normalize description: prefer `description`, fallback to `description_raw`
+    desc_col = "description" if "description" in df.columns else (
+        "description_raw" if "description_raw" in df.columns else None
     )
+    if desc_col:
+        df = df.with_columns([
+            pl.col(desc_col).str.to_lowercase().str.strip_chars().alias("description"),
+        ])
+    else:
+        # ensure description exists as empty strings to avoid failures
+        df = df.with_columns([pl.lit("").alias("description")])
+
+    df = df.with_columns(pl.col("date").dt.truncate("1mo").alias("month"))
 
     grouped = (
         df.group_by(["description", "amount"])
