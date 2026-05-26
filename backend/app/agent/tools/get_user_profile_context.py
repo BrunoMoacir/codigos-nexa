@@ -46,6 +46,34 @@ def _cluster_tone(cluster: str) -> str:
     return tones.get(cluster, tones["NAO_CLASSIFICADO"])
 
 
+def _pick_transactions_df(txns_raw: dict):
+    """Seleciona o primeiro DataFrame Polars não vazio sem avaliar bool(df)."""
+    import polars as pl
+
+    for key in ("pf_pj_classified_df", "clean_df", "categorized_df"):
+        value = txns_raw.get(key)
+        if isinstance(value, pl.DataFrame) and not value.is_empty():
+            return value
+    return pl.DataFrame()
+
+
+def _populate_fss(profile, transactions_df) -> None:
+    """Popula FSS no mesmo formato usado pelo OptimizerService."""
+    try:
+        from app.optimizer.detectors.fss_calculator import FSSCalculator
+
+        result = FSSCalculator().calc_fss(
+            profile,
+            transactions_df,
+            resilience_score=int(getattr(profile, "resilience_score", 0) or 0),
+        )
+        profile.fss = result["fss"]
+        profile.fss_level = result["fss_level"]
+        profile.fss_signals = result.get("fss_signals", [])
+    except Exception as exc:
+        logger.debug("[Tool] FSSCalculator indisponível para profile_context: %s", exc)
+
+
 @tool
 def get_user_profile_context(user_id: str) -> str:
     """
@@ -68,24 +96,20 @@ def get_user_profile_context(user_id: str) -> str:
 
     try:
         from app.runner import get_runner
-        import polars as pl
 
         result = get_runner().run_from_db(user_id=user_id, horizon_days=30)
         if not result or result.get("status") != "success":
             return _no_data_response(user_id)
 
         txns_raw = result.get("transactions", {})
-        transactions_df: pl.DataFrame = (
-            txns_raw.get("pf_pj_classified_df")
-            or txns_raw.get("clean_df")
-            or pl.DataFrame()
-        )
+        transactions_df = _pick_transactions_df(txns_raw)
 
         if transactions_df.is_empty():
             return _no_data_response(user_id)
 
         from app.optimizer.profiler import ConsumptionProfiler
         profile = ConsumptionProfiler().build(transactions_df)
+        _populate_fss(profile, transactions_df)
 
         text = _format_profile(user_id, profile)
         _set_cached(user_id, text)
@@ -129,6 +153,9 @@ def _format_profile(user_id: str, profile) -> str:
         lines.append("  → Priorize redução de gastos e estabilidade antes de recomendar novos produtos.")
     elif profile.fss_level == "ATENCAO":
         lines.append("  → Mencione pontos de atenção com delicadeza; não alarme desnecessariamente.")
+    fss_signals = getattr(profile, "fss_signals", [])
+    if fss_signals:
+        lines.append("  Sinais FSS: " + "; ".join(str(s) for s in fss_signals[:3]))
     lines.append("")
 
     # Sinais comportamentais

@@ -390,13 +390,14 @@ class UserProfileAnalyzer:
         Returns:
             Total dividido pelo número de meses únicos
         """
-        if "transaction_date" not in df.columns or df.height == 0:
+        col = next((c for c in ("transaction_date", "date") if c in df.columns), None)
+        if col is None or df.height == 0:
             return 0.0
         
         # Contar meses únicos
         unique_months = df.select([
-            pl.col("transaction_date").dt.month().alias("month"),
-            pl.col("transaction_date").dt.year().alias("year")
+            pl.col(col).dt.month().alias("month"),
+            pl.col(col).dt.year().alias("year")
         ]).unique().height
         
         if unique_months == 0:

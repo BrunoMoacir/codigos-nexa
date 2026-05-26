@@ -269,17 +269,43 @@ Arquivo: `services/llm_reasoner.py`
 
 Modelo: **Claude Haiku** (`claude-haiku-4-5-20251001`) via Anthropic API.
 
+### O que o LLM adiciona — e o que o engine já resolve antes
+
+O `StrategyEngine` já trata as inconsistências mais óbvias antes do LLM rodar:
+- Perfil conservador + FINANCING recomendado → engine já rejeita via `_apply_risk_profile_adjustment`
+- Perfil conservador + veículo → engine já descarta FINANCING
+- VPL da melhor estratégia muito próximo da segunda → engine já aplica margem mínima
+
+Para esses casos, o LLM raramente vai divergir da decisão do motor. A divergência real acontece em **casos de borda** que o engine não tem como detectar:
+
+**1. Ajuste de prazo (`financing_months`) — override exclusivo do LLM**
+
+O engine nunca sugere alterar o prazo do financiamento. O LLM pode detectar que um prazo de 360 meses é inadequado para um perfil conservador com 45 anos e sugerir 240 meses — reduzindo o custo total em detrimento de uma parcela maior. Esse override recalcula o VPL com o novo prazo e pode mudar a estratégia vencedora.
+
+**2. Visão holística de combinações não modeladas**
+
+O LLM recebe como contexto o conjunto completo: `risk_score`, todos os NPVs, warnings do motor, taxas, dados Open Finance. O engine avalia componentes em isolamento; o LLM pode detectar a combinação:
+
+> "comprometimento de renda 80% + imóvel R$800k + prazo 30 anos + risco_score 0.28"
+
+...e sinalizar que, mesmo que FINANCING tenha o melhor NPV matemático, a sobreposição desses fatores torna a aprovação bancária improvável e o risco de default alto — o que nenhum componente isolado detectaria.
+
+**Em síntese:** o LLM é uma camada de detecção de borda, não de decisão primária. Para o caso central (perfil razoável, taxas normais, dados completos), a decisão já está correta quando o LLM começa a rodar.
+
+---
+
 ### 3 Etapas de Raciocínio
 
 **Etapa 1 — Verificação de Consistência (JSON)**
-- Envia resumo da simulação ao LLM (perfil, VPLs, taxas, dados Open Finance)
-- LLM verifica se recomendação é coerente com perfil do usuário
+- Envia resumo da simulação ao LLM (perfil, risk_score, todos os VPLs, taxas, warnings do motor, dados Open Finance)
+- LLM verifica se a recomendação é coerente com o perfil e detecta combinações problemáticas não modeladas
 - Retorna JSON com `is_consistent`, `reasoning`, `override_params` (opcional)
 - Chaves de override permitidas: `{"risk_profile", "financing_months"}` (proteção contra prompt injection)
 - Técnica de prefill: força resposta iniciando com `{` para JSON válido garantido
 
 **Etapa 2 — Re-execução condicional**
 - Se LLM retorna `override_params`, o StrategyEngine é re-executado com parâmetros ajustados
+- `financing_months` é o único override que o engine nunca conseguiria sugerir por conta própria
 - Limita a 1 re-execução por request
 
 **Etapa 3 — Narrativa (3 parágrafos)**

@@ -50,6 +50,26 @@ from app.architect.utils.formatters import format_currency
 
 logger = logging.getLogger(__name__)
 
+# Mapeamento AssetType → tipo aceito pelos calculadores de financiamento/consórcio.
+# Necessário para seguro correto (MIP+DFI para property, auto para vehicle).
+_CALC_ASSET_MAP: Dict[AssetType, str] = {
+    AssetType.IMOVEL:  "property",
+    AssetType.VEICULO: "vehicle",
+    AssetType.REFORMA: "other",
+    AssetType.VIAGEM:  "other",
+    AssetType.OUTRO:   "other",
+}
+
+# IOF para financiamento imobiliário residencial (SFH) é 0% — Decreto 6.306/2007.
+# Outros tipos seguem a alíquota padrão (IOF_FIXO_RATE em financing.py).
+_IOF_RATE_BY_ASSET: Dict[AssetType, float] = {
+    AssetType.IMOVEL:  0.0,                   # SFH: isento
+    AssetType.VEICULO: fin_calc.IOF_FIXO_RATE,
+    AssetType.REFORMA: fin_calc.IOF_FIXO_RATE,
+    AssetType.VIAGEM:  fin_calc.IOF_FIXO_RATE,
+    AssetType.OUTRO:   fin_calc.IOF_FIXO_RATE,
+}
+
 
 def _safe_float(value: Any) -> float:
     """Converte valor para float, tratando NaN e None."""
@@ -193,6 +213,59 @@ class StrategyEngine:
                     request, market_rates, cons_result
                 )
 
+        # ── 1.6. Custos de aquisição/posse antes da decisão ─────────────
+        # Esses custos afetam o ranking financeiro; aplicá-los só no output
+        # deixava recommended_strategy e NPVComparison inconsistentes.
+        ownership_warnings: list[str] = []
+        transaction_costs_applied: Optional[float] = None
+        maintenance_cost_annual: Optional[float] = None
+
+        def _add_cost_to_result(result: Optional[Dict[str, Any]], cost: float) -> None:
+            if result is None or cost <= 0:
+                return
+            result["expected_cost"] = float(result["expected_cost"]) + cost
+            result["max_cost"] = float(result["max_cost"]) + cost
+            result["npv"] = _safe_float(result.get("npv")) - cost
+
+        if request.asset_type == AssetType.IMOVEL:
+            tc_pct = request.transaction_costs_pct if request.transaction_costs_pct is not None else 0.04
+            if tc_pct > 0:
+                transaction_costs_applied = round(request.target_amount * tc_pct, 2)
+                for result in [fin_result, cons_result, comp4_result, comp5_result]:
+                    _add_cost_to_result(result, transaction_costs_applied)
+                ownership_warnings.append(
+                    f"Custos de transação de R$ {transaction_costs_applied:,.0f} "
+                    f"({tc_pct:.1%} do valor) incluídos no custo total "
+                    "(ITBI, cartório, registro)."
+                )
+
+        if request.asset_type in (AssetType.IMOVEL, AssetType.VEICULO):
+            if request.asset_type == AssetType.IMOVEL:
+                maintenance_cost_annual = round(request.target_amount * 0.01, 2)
+            else:
+                maintenance_cost_annual = 1000.0
+
+            fin_maint = self._compute_maintenance_cost(
+                request.asset_type, request.target_amount, request.financing_months
+            )
+            _add_cost_to_result(fin_result, fin_maint)
+            _add_cost_to_result(comp4_result, fin_maint)
+
+            cons_maint = 0.0
+            if cons_result:
+                cons_maint = self._compute_maintenance_cost(
+                    request.asset_type, request.target_amount, cons_result["months"]
+                )
+                _add_cost_to_result(cons_result, cons_maint)
+                _add_cost_to_result(comp5_result, cons_maint)
+
+            asset_label = "imóvel" if request.asset_type == AssetType.IMOVEL else "veículo"
+            ownership_warnings.append(
+                f"Custo de manutenção estimado para o {asset_label}: "
+                f"R$ {maintenance_cost_annual:,.0f}/ano "
+                f"(incluído no custo total das estratégias de aquisição)."
+            )
+
         # ── 1.7. Simulação macroeconômica (VAR-1) antecipada para SSD ────
         # Rodamos antes da comparação para que a dominância estocástica
         # possa influenciar a escolha, em vez de apenas enriquecer o output.
@@ -272,6 +345,7 @@ class StrategyEngine:
         best_strategy, profile_warnings = self._apply_risk_profile_adjustment(
             request, best_strategy, strategies
         )
+        profile_warnings.extend(ownership_warnings)
 
         # ── 3.6. Conflito SSD × perfil de risco ─────────────────────
         # Se o ajuste de perfil reverteu a escolha do SSD, a garantia matemática
@@ -366,23 +440,6 @@ class StrategyEngine:
                 f"em aluguel (valor presente). As estratégias compostas já incluem essa renda."
             )
 
-        # ── 4.6. Custos de transação (ITBI, cartório, registro) ─────────
-        transaction_costs_applied: Optional[float] = None
-        if request.asset_type == AssetType.IMOVEL:
-            tc_pct = request.transaction_costs_pct if request.transaction_costs_pct is not None else 0.04
-            if tc_pct > 0:
-                transaction_costs_applied = round(request.target_amount * tc_pct, 2)
-                # Somado ao custo das estratégias que envolvem aquisição imediata ou contrato
-                for result in [fin_result, cons_result, comp4_result, comp5_result]:
-                    if result is not None:
-                        result["expected_cost"] = float(result["expected_cost"]) + transaction_costs_applied
-                        result["max_cost"] = float(result["max_cost"]) + transaction_costs_applied
-                profile_warnings.append(
-                    f"Custos de transação de R$ {transaction_costs_applied:,.0f} "
-                    f"({tc_pct:.1%} do valor) incluídos no custo total "
-                    "(ITBI, cartório, registro)."
-                )
-
         # Action Plan
         action_plan = self._generate_action_plan(
             final_strategy, selected, request
@@ -455,47 +512,6 @@ class StrategyEngine:
         # months_to_achieve: para compound consortium usa contemplação esperada, não duração total
         months_to_achieve = max(1, selected["months"])
 
-        # ── 4.8. Custos de manutenção periódica (IMOVEL / VEICULO) ────────
-        maintenance_cost_annual: Optional[float] = None
-        if request.asset_type in (AssetType.IMOVEL, AssetType.VEICULO):
-            if request.asset_type == AssetType.IMOVEL:
-                maintenance_cost_annual = round(request.target_amount * 0.01, 2)
-            else:
-                maintenance_cost_annual = 1000.0
-
-            # Financiamento: posse começa agora, duração = financing_months
-            fin_maint = self._compute_maintenance_cost(
-                request.asset_type, request.target_amount, request.financing_months
-            )
-            if fin_maint > 0:
-                fin_result["expected_cost"] += fin_maint
-                fin_result["max_cost"] += fin_maint
-
-            # Consórcio: posse estimada a partir da contemplação; usa duração total do grupo
-            cons_maint = 0.0
-            if cons_result:
-                cons_maint = self._compute_maintenance_cost(
-                    request.asset_type, request.target_amount, cons_result["months"]
-                )
-                if cons_maint > 0:
-                    cons_result["expected_cost"] += cons_maint
-                    cons_result["max_cost"] += cons_maint
-
-            # Estratégias compostas herdam manutenção da estratégia base correspondente
-            if comp4_result and fin_maint > 0:
-                comp4_result["expected_cost"] += fin_maint
-                comp4_result["max_cost"] += fin_maint
-            if comp5_result and cons_maint > 0:
-                comp5_result["expected_cost"] += cons_maint
-                comp5_result["max_cost"] += cons_maint
-
-            asset_label = "imóvel" if request.asset_type == AssetType.IMOVEL else "veículo"
-            profile_warnings.append(
-                f"Custo de manutenção estimado para o {asset_label}: "
-                f"R$ {maintenance_cost_annual:,.0f}/ano "
-                f"(incluído no custo total das estratégias de aquisição)."
-            )
-
         # ── 4.9. Estratégia eficiente (segunda recomendação) ──────────────
         all_results: Dict[StrategyType, Dict[str, Any]] = {
             StrategyType.FINANCING: fin_result,
@@ -567,20 +583,26 @@ class StrategyEngine:
         selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
         disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
 
-        # Calcular pelo método escolhido
+        calc_asset = _CALC_ASSET_MAP.get(req.asset_type, "other")
+        iof_rate   = _IOF_RATE_BY_ASSET.get(req.asset_type, fin_calc.IOF_FIXO_RATE)
+
         if req.amortization_method.value == "SAC":
             sim = fin_calc.calculate_sac(
-                req.principal, cet_annual, req.financing_months
+                req.principal, cet_annual, req.financing_months,
+                iof_rate=iof_rate, asset_type=calc_asset,
             )
         else:
             sim = fin_calc.calculate_price(
-                req.principal, cet_annual, req.financing_months
+                req.principal, cet_annual, req.financing_months,
+                iof_rate=iof_rate, asset_type=calc_asset,
             )
 
-        # Fluxo de caixa: -Entrada no mês 0, -Parcelas nos meses 1..N
-        cashflows = [-req.down_payment]
+        # IOF pago no ato do contrato (t=0); para IMOVEL SFH é 0.
+        # Seguro mensal (MIP/DFI para imóvel, auto para veículo) entra no fluxo
+        # descontado — é custo obrigatório e afeta a comparação NPV com SAVE_INVEST.
+        cashflows = [-(req.down_payment + sim.total_iof)]
         for row in sim.schedule:
-            cashflows.append(-row["payment"])
+            cashflows.append(-(row["payment"] + row.get("insurance", 0.0)))
 
         npv_val = npv_calc.calculate_npv(cashflows, disc_monthly)
 
@@ -1021,9 +1043,15 @@ class StrategyEngine:
                 req.down_payment,
             )
 
-        # Fluxo: -Entrada -Aportes mensais
+        # Fluxo: -Entrada -Aportes mensais [-Aluguel mensal durante acumulação]
+        # current_monthly_rent: custo real de quem poupa para comprar enquanto ainda aluga.
+        # O aluguel é corrigido pelo IPCA mês a mês para não subestimar o NPV em horizontes longos.
+        rent_monthly = req.current_monthly_rent or 0.0
+        ipca_monthly = (1.0 + ipca_annual) ** (1.0 / 12) - 1.0
         cashflows = [-req.down_payment]
-        cashflows.extend([-monthly_dep] * months)
+        for m in range(1, months + 1):
+            rent_m = rent_monthly * (1.0 + ipca_monthly) ** m
+            cashflows.append(-(monthly_dep + rent_m))
 
         npv_val = npv_calc.calculate_npv(cashflows, disc_monthly)
 
@@ -1777,12 +1805,16 @@ class StrategyEngine:
                 if prob is not None:
                     consortium_expected = int(prob.expected_months)
 
+            # current_monthly_rent somado ao depósito mensal: quem poupa ainda paga
+            # aluguel durante a acumulação — esse custo deve entrar na distribuição SSD
+            # para comparação justa contra FINANCING (que substitui o aluguel).
+            rent_for_macro = request.current_monthly_rent or 0.0
             distributions, prob_best, ssd_matrix = run_macro_simulation(
                 n_sims                            = n_sims,
                 initial_selic_annual              = selic_annual,
                 financing_cashflows               = fin_result.get("cashflows"),
                 financing_months                  = request.financing_months,
-                save_monthly                      = float(inv_result["monthly_payment"]),
+                save_monthly                      = float(inv_result["monthly_payment"]) + rent_for_macro,
                 target_amount                     = request.target_amount,
                 down_payment                      = request.down_payment,
                 consortium_months                 = consortium_months,
@@ -1856,11 +1888,17 @@ class StrategyEngine:
             new_principal = request.target_amount - new_down
 
             # ── 2. Simular financiamento com novo principal ────────────
-            sim = fin_calc.calculate_price(new_principal, cet_annual, request.financing_months)
+            sim = fin_calc.calculate_price(
+                new_principal, cet_annual, request.financing_months,
+                iof_rate=_IOF_RATE_BY_ASSET.get(request.asset_type, fin_calc.IOF_FIXO_RATE),
+                asset_type=_CALC_ASSET_MAP.get(request.asset_type, "other"),
+            )
 
             # Fluxo NPV: custo de oportunidade da espera + financiamento
             opp_cashflows  = [-monthly_savings] * wait
-            fin_cashflows  = [-new_down] + [-row["payment"] for row in sim.schedule]
+            fin_cashflows  = [-(new_down + sim.total_iof)] + [
+                -(row["payment"] + row.get("insurance", 0.0)) for row in sim.schedule
+            ]
             all_cashflows  = opp_cashflows + fin_cashflows
             npv_val = npv_calc.calculate_npv(all_cashflows, disc_monthly)
 
@@ -1916,4 +1954,3 @@ class StrategyEngine:
             ))
 
         return results
-

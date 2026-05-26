@@ -153,7 +153,16 @@ def app():
     que acumule estado durante a sessão.
     """
     from app.main import app as fastapi_app
-    return fastapi_app
+    from app.core.security import get_current_user, require_owner
+
+    async def _test_current_user():
+        return "test_user"
+
+    fastapi_app.dependency_overrides[get_current_user] = _test_current_user
+    fastapi_app.dependency_overrides[require_owner] = lambda: "test_user"
+    yield fastapi_app
+    fastapi_app.dependency_overrides.pop(get_current_user, None)
+    fastapi_app.dependency_overrides.pop(require_owner, None)
 
 
 @pytest.fixture
@@ -337,9 +346,9 @@ class TestCacheIntegracao:
 # 2. ENDPOINT GET /simulations/{id}/sensitivity
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-_PATCH_GET_SIM   = "app.api.v1.routes.architect.get_simulation"
-_PATCH_RATES     = "app.api.v1.routes.architect._service.fetch_market_rates"
-_PATCH_ANALYZER  = "app.api.v1.routes.architect._sensitivity_analyzer.analyze"
+_PATCH_GET_SIM   = "app.architect.router.get_simulation"
+_PATCH_RATES     = "app.architect.router._service.fetch_market_rates"
+_PATCH_ANALYZER  = "app.architect.router._sensitivity_analyzer.analyze"
 
 
 class TestSensitivityEndpoint:

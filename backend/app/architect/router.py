@@ -116,9 +116,9 @@ async def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
     """
     Tenta buscar o safe_to_spend mensal da F1 para o usuário.
 
-    Usa o mesmo padrão do forecast.py: NexaRunner em modo "dev".
-    Em produção, será substituído por query direta ao Postgres
-    com o último resultado de safe_to_spend calculado pela F1.
+    Usa o histórico persistido do próprio usuário. Não chama `run()`, pois
+    esse fluxo cria/busca um item Pluggy/sandbox genérico e não tem escopo
+    por user_id.
 
     Returns:
         safe_to_spend_total (R$/mês) ou None se F1 indisponível.
@@ -126,19 +126,15 @@ async def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
     try:
         from app.runner import get_runner  # import tardio para evitar custo no startup
 
-        import os
-        from app.core.config import settings
-
         logger.info("architect | user=%s | buscando safe_to_spend da F1", user_id)
 
-        mode = "prod" if os.getenv("APP_MODE", "dev") == "prod" else "dev"
-        if mode == "prod" and (not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET):
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
+        result = get_runner().run_from_db(user_id=user_id, horizon_days=30)
+        if not result or result.get("status") != "success":
+            logger.warning(
+                "architect | user=%s | safe_to_spend indisponível no histórico do usuário",
+                user_id,
             )
-
-        result = get_runner(mode).run(horizon_days=30)
+            return None
 
         sts = result.get("safe_to_spend", {})
         value = sts.get("safe_to_spend_total")
@@ -178,6 +174,261 @@ async def _fetch_transactions(user_id: str):
     except Exception as exc:
         logger.warning(
             "architect | user=%s | transações indisponíveis (%s) — sem inferência de perfil",
+            user_id,
+            exc,
+        )
+        return None
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# HELPER: Normalizar dados Pluggy → formato OpenFinancePipeline
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _normalize_pluggy_investment(raw: dict) -> dict:
+    inv_type = (raw.get("type") or "").upper()
+    if any(k in inv_type for k in ("FIXED", "RENDA_FIXA", "TREASURE", "SECURITY")):
+        pipeline_type = "FIXED_INCOME"
+    elif any(k in inv_type for k in ("VARIABLE", "RENDA_VARIAVEL", "EQUITY", "FUND")):
+        pipeline_type = "VARIABLE_INCOME"
+    else:
+        pipeline_type = "HYBRID"
+
+    result: dict = {
+        "type": pipeline_type,
+        "amount_brl": float(raw.get("balance") or raw.get("amount") or 0),
+    }
+
+    rate = raw.get("annualRate")
+    if rate is not None:
+        result["rate_annual"] = float(rate)
+
+    due = raw.get("dueDate") or ""
+    start = raw.get("date") or ""
+    if due and start and len(due) >= 10 and len(start) >= 10:
+        try:
+            from datetime import date as _date
+            d_due = _date.fromisoformat(due[:10])
+            d_start = _date.fromisoformat(start[:10])
+            if d_due > d_start:
+                result["duration_years"] = round((d_due - d_start).days / 365.25, 2)
+        except (ValueError, TypeError):
+            pass
+
+    return result
+
+
+def _normalize_pluggy_loan(raw: dict) -> Optional[dict]:
+    monthly_fee: Optional[float] = None
+
+    fees = raw.get("fees") or {}
+    if isinstance(fees, dict):
+        monthly_fee = fees.get("monthlyFee")
+
+    if monthly_fee is None:
+        for rate_item in (raw.get("interestRates") or []):
+            unit = (rate_item.get("unit") or "").upper()
+            if "MONTH" in unit:
+                monthly_fee = rate_item.get("rate")
+                break
+
+    if monthly_fee is None:
+        return None
+
+    cet_annual = (1.0 + float(monthly_fee)) ** 12 - 1.0
+    instalments = raw.get("instalments") or {}
+    paid = int(instalments.get("paid") or instalments.get("paidInstalments") or 0)
+    missed = int(instalments.get("missed") or instalments.get("missedInstalments") or 0)
+
+    return {
+        "cet_annual": round(cet_annual, 4),
+        "monthly_payment": float(raw.get("monthlyPaymentAmount") or 0),
+        "paid_instalments": paid,
+        "missed_payments": missed,
+    }
+
+
+def _normalize_pluggy_financing(raw: dict) -> Optional[dict]:
+    product = (raw.get("type") or raw.get("subtype") or "").upper()
+    if any(k in product for k in ("HOME", "IMOVEL", "HABITAC")):
+        pipeline_type = "HOME_LOAN"
+    elif any(k in product for k in ("VEHICLE", "VEICULO", "AUTO")):
+        pipeline_type = "VEHICLE_LOAN"
+    else:
+        pipeline_type = "OTHER"
+
+    monthly_fee: Optional[float] = None
+    fees = raw.get("fees") or {}
+    if isinstance(fees, dict):
+        monthly_fee = fees.get("monthlyFee")
+
+    if monthly_fee is None:
+        for rate_item in (raw.get("interestRates") or []):
+            unit = (rate_item.get("unit") or "").upper()
+            if "MONTH" in unit:
+                monthly_fee = rate_item.get("rate")
+                break
+
+    if monthly_fee is None:
+        return None
+
+    cet_annual = (1.0 + float(monthly_fee)) ** 12 - 1.0
+    instalments = raw.get("instalments") or {}
+    paid = int(instalments.get("paid") or 0)
+    missed = int(instalments.get("missed") or 0)
+
+    return {
+        "product_type": pipeline_type,
+        "cet_annual": round(cet_annual, 4),
+        "paid_instalments": paid,
+        "missed_payments": missed,
+    }
+
+
+def _aggregate_pluggy_transactions_by_month(transactions: list) -> list:
+    """
+    Agrega transações Pluggy (amount > 0 = crédito, < 0 = débito) em
+    registros mensais no formato que OpenFinancePipeline._from_accounts espera.
+    """
+    from collections import defaultdict
+
+    monthly: Dict[tuple, Dict[str, float]] = defaultdict(lambda: {"income_total": 0.0, "balance_delta": 0.0})
+
+    for txn in transactions:
+        date_str = txn.get("date") or ""
+        try:
+            year, month = int(date_str[:4]), int(date_str[5:7])
+        except (ValueError, IndexError):
+            continue
+        amount = float(txn.get("amount") or 0)
+        key = (year, month)
+        if amount > 0:
+            monthly[key]["income_total"] += amount
+        monthly[key]["balance_delta"] += amount
+
+    return [
+        {
+            "year": year,
+            "month": month,
+            "income_total": round(data["income_total"], 2),
+            "balance_delta": round(data["balance_delta"], 2),
+        }
+        for (year, month), data in sorted(monthly.items())
+    ]
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# HELPER: Buscar OpenFinanceFeatures via Pluggy
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async def _fetch_open_finance(user_id: str) -> Optional[Any]:
+    """
+    Busca dados de Open Finance via Pluggy, normaliza e transforma em
+    OpenFinanceFeatures. Retorna None em caso de falha — degradação graciosa.
+
+    Fluxo:
+        1. Consulta pluggy_items (Postgres) para obter item_ids do usuário.
+        2. Para cada item: busca investments, loans, financings e transactions.
+        3. Normaliza cada endpoint para o formato do OpenFinancePipeline.
+        4. Extrai e retorna OpenFinanceFeatures.
+    """
+    try:
+        from sqlalchemy import select
+        from app.core.database import SessionLocal
+        from app.core.models.pluggy_item import PluggyItem
+        from app.core.integrations.pluggy import PluggyClient
+        from app.architect.pipelines.open_finance_pipeline import OpenFinancePipeline
+
+        with SessionLocal() as db:
+            item_ids: List[str] = db.execute(
+                select(PluggyItem.item_id).where(PluggyItem.user_id == user_id)
+            ).scalars().all()
+
+        if not item_ids:
+            logger.info("architect | open_finance | user=%s | sem itens Pluggy", user_id)
+            return None
+
+        client = PluggyClient()
+        all_investments: list = []
+        all_loans: list = []
+        all_financings: list = []
+        all_accounts: list = []
+
+        for item_id in item_ids:
+            # Investments
+            try:
+                raw = client.get_investments(item_id)
+                for inv in (raw.get("results") or []):
+                    normalized = _normalize_pluggy_investment(inv)
+                    if normalized.get("amount_brl", 0) > 0:
+                        all_investments.append(normalized)
+            except Exception as exc:
+                logger.debug("open_finance | investments item=%s falhou: %s", item_id, exc)
+
+            # Loans
+            try:
+                raw = client.get_loans(item_id)
+                for loan in (raw.get("results") or []):
+                    normalized = _normalize_pluggy_loan(loan)
+                    if normalized:
+                        all_loans.append(normalized)
+            except Exception as exc:
+                logger.debug("open_finance | loans item=%s falhou: %s", item_id, exc)
+
+            # Financings
+            try:
+                raw = client.get_financings(item_id)
+                for fin in (raw.get("results") or []):
+                    normalized = _normalize_pluggy_financing(fin)
+                    if normalized:
+                        all_financings.append(normalized)
+            except Exception as exc:
+                logger.debug("open_finance | financings item=%s falhou: %s", item_id, exc)
+
+            # Accounts → aggregate transactions by month
+            try:
+                accounts_raw = client.get_accounts(item_id)
+                for account in (accounts_raw.get("results") or []):
+                    account_id = account.get("id")
+                    if not account_id:
+                        continue
+                    try:
+                        txns_raw = client.get_transactions(account_id)
+                        monthly = _aggregate_pluggy_transactions_by_month(
+                            txns_raw.get("results") or []
+                        )
+                        all_accounts.extend(monthly)
+                    except Exception as exc:
+                        logger.debug(
+                            "open_finance | transactions account=%s falhou: %s", account_id, exc
+                        )
+            except Exception as exc:
+                logger.debug("open_finance | accounts item=%s falhou: %s", item_id, exc)
+
+        if not any([all_investments, all_loans, all_financings, all_accounts]):
+            logger.info(
+                "architect | open_finance | user=%s | nenhum dado OF disponível", user_id
+            )
+            return None
+
+        features = OpenFinancePipeline().extract(
+            investments=all_investments or None,
+            loans=all_loans or None,
+            accounts=all_accounts or None,
+            financings=all_financings or None,
+        )
+
+        logger.info(
+            "architect | open_finance | user=%s | features extraídas: rendimento=%.2f%% adimplencia=%s experiencia_fin=%s",
+            user_id,
+            (features.rendimento_real_atual or 0) * 100,
+            features.adimplencia_pct,
+            features.experiencia_financiamento,
+        )
+        return features
+
+    except Exception as exc:
+        logger.warning(
+            "architect | open_finance | user=%s | falhou (%s) — prosseguindo sem OF",
             user_id,
             exc,
         )
@@ -248,6 +499,12 @@ async def simulate(request: SimulationRequest, current_user: str = Depends(get_c
 
     # ── 1.5. Buscar transações para inferência de perfil e CardBonus ─
     transactions_df = await _fetch_transactions(request.user_id)
+
+    # ── 1.7. Buscar OpenFinanceFeatures via Pluggy (se não fornecido) ─
+    if request.open_finance_features is None:
+        of_features = await _fetch_open_finance(request.user_id)
+        if of_features is not None:
+            request = request.model_copy(update={"open_finance_features": of_features})
 
     # ── 2. Chamar o service ──────────────────────────────────────────
     try:

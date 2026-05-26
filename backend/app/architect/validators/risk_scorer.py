@@ -2,17 +2,22 @@
 app/architect/validators/risk_scorer.py - Scoring multidimensional de tolerância a risco
 
 Feature: F3 - Nexa Architect
-Version: 2.1.0
+Version: 2.3.0
 
-Componentes implementados (5 de 6):
+Componentes implementados (6 de 6):
     C1 income_volatility:  income_profile.income_stability (1 − CV mensal da renda)
-    C3 income_commitment:  1 − committed_pct (liberdade orçamentária residual)
-    C4 reserve_depth:      surplus_acumulado / monthly_expenses / 6 (proxy de reserva)
+    C2 investment_ratio:   composicao_rv_pct do Open Finance; proxy via income_stability×0.5
+                           quando OF ausente (cap em 0.50 para sinalizar que é estimativa)
+    C3 income_commitment:  exp(−3 × committed_pct) (penalidade não-linear ao comprometimento)
+    C4 reserve_depth:      surplus_acumulado / monthly_expenses / 6 (F1); proxy via taxa de
+                           poupança mensal do transactions_df quando F1 ausente (cap 0.50)
     C5 savings_regularity: fração de meses com saldo líquido positivo
     C6 time_horizon_fit:   financing_months / prazo_máximo_para_o_tipo_de_bem
 
-Componente ausente (sem API de portfólio):
-    C2 investment_ratio:   portfólio variável / patrimônio total → None (peso zerado)
+Proxies sem Open Finance / F1:
+    C2: income_stability × 0.50 (cap 0.50 vs. dado real máx 1.0)
+    C4: avg_surplus / avg_expense via transactions_df (cap 0.50 vs. dado real máx 1.0)
+        Proxy de fluxo — não conhece saldo acumulado; distinguível pelo cap.
 
 Agregação: média geométrica ponderada
     score = exp(Σ wᵢ × log(cᵢ))     [ao invés de Σ wᵢ × cᵢ]
@@ -275,10 +280,18 @@ class RiskScorer:
         investment_ratio: Optional[float] = None,
         reserve_depth_override: Optional[float] = None,
     ) -> RiskComponents:
-        reserve_depth = (
-            reserve_depth_override
-            if reserve_depth_override is not None
-            else RiskScorer._c4_reserve_depth(user_profile)
+        if reserve_depth_override is not None:
+            reserve_depth = reserve_depth_override
+        else:
+            reserve_depth = RiskScorer._c4_reserve_depth(user_profile)
+            if reserve_depth is None:
+                # Proxy via fluxo mensal de transações quando UserProfile (F1) ausente.
+                reserve_depth = RiskScorer._c4_reserve_depth_proxy(transactions_df)
+        # C2: usa dado real do Open Finance quando disponível; proxy quando ausente.
+        effective_investment_ratio = (
+            investment_ratio
+            if investment_ratio is not None
+            else RiskScorer._c2_investment_ratio_proxy(income_profile, transactions_df)
         )
         return RiskComponents(
             income_volatility  = RiskScorer._c1_income_volatility(income_profile, user_profile),
@@ -286,7 +299,7 @@ class RiskScorer:
             reserve_depth      = reserve_depth,
             savings_regularity = RiskScorer._c5_savings_regularity(transactions_df, user_profile),
             time_horizon_fit   = RiskScorer._c6_time_horizon(request),
-            investment_ratio   = investment_ratio,
+            investment_ratio   = effective_investment_ratio,
         )
 
     @staticmethod
@@ -306,6 +319,72 @@ class RiskScorer:
         if user_profile is not None:
             return min(user_profile.resilience_score / 100.0 * 0.7 + 0.15, 1.0)
         return 0.50
+
+    @staticmethod
+    def _c2_investment_ratio_proxy(
+        income_profile: Optional["IncomeProfile"],
+        transactions_df,
+    ) -> Optional[float]:
+        """
+        C2 proxy quando Open Finance (composicao_rv_pct) não está disponível.
+
+        Usa income_stability (1 − CV da renda mensal) como proxy de capacidade
+        de investimento: quem tem renda estável tende a poupar e investir mais.
+        Capped em 0.50 para distinguir do dado real de portfólio (que pode atingir 1.0).
+
+        Fallback secundário: CV calculado diretamente das entradas mensais no df,
+        usado quando income_profile não está disponível mas há ≥ 3 meses de dados.
+
+        None quando não há dados suficientes — C2 continua fora da média geométrica.
+        """
+        if income_profile is not None and income_profile.confidence >= 0.4:
+            return round(float(income_profile.income_stability) * 0.50, 4)
+
+        if transactions_df is not None:
+            try:
+                return RiskScorer._c2_from_transactions(transactions_df)
+            except Exception as exc:
+                logger.debug("RiskScorer | C2 proxy via df falhou: %s", exc)
+
+        return None
+
+    @staticmethod
+    def _c2_from_transactions(df) -> Optional[float]:
+        """
+        Proxy de C2 calculado a partir do CV das receitas mensais no DataFrame.
+
+        Agrupa entradas positivas por mês, calcula std/mean. Requer ≥ 3 meses.
+        Retorna stability × 0.50 (cap do proxy); None se dados insuficientes.
+        """
+        import polars as pl
+
+        col_date = next(
+            (c for c in ("transaction_date", "date") if c in df.columns), None
+        )
+        if col_date is None or "amount" not in df.columns or df.is_empty():
+            return None
+
+        monthly = (
+            df.filter(pl.col("amount") > 0)
+            .with_columns(
+                (pl.col(col_date).dt.year() * 100 + pl.col(col_date).dt.month()).alias("ym")
+            )
+            .group_by("ym")
+            .agg(pl.col("amount").sum().alias("income"))
+        )
+
+        if monthly.height < 3:
+            return None
+
+        incomes = monthly["income"].to_list()
+        mean_inc = sum(incomes) / len(incomes)
+        if mean_inc <= 0:
+            return None
+
+        variance = sum((x - mean_inc) ** 2 for x in incomes) / len(incomes)
+        cv = (variance ** 0.5) / mean_inc
+        stability = max(0.0, 1.0 - cv)
+        return round(stability * 0.50, 4)
 
     @staticmethod
     def _c3_income_commitment(
@@ -359,6 +438,62 @@ class RiskScorer:
 
         months_covered = surplus / avg_expense
         return round(min(months_covered / 6.0, 1.0), 4)
+
+    @staticmethod
+    def _c4_reserve_depth_proxy(transactions_df) -> Optional[float]:
+        """
+        Proxy de C4 calculado a partir do fluxo mensal de transações.
+
+        Estima a taxa de poupança mensal média (avg_surplus / avg_expense).
+        Capped em 0.50 para distinguir do dado real do UserProfile (máx 1.0):
+        o proxy não conhece o saldo acumulado — só o fluxo corrente.
+
+        Requer ≥ 3 meses de dados. None se insuficiente.
+        """
+        if transactions_df is None:
+            return None
+        try:
+            import polars as pl
+
+            col_date = next(
+                (c for c in ("transaction_date", "date") if c in transactions_df.columns), None
+            )
+            if col_date is None or "amount" not in transactions_df.columns or transactions_df.is_empty():
+                return None
+
+            monthly = (
+                transactions_df
+                .with_columns(
+                    (pl.col(col_date).dt.year() * 100 + pl.col(col_date).dt.month()).alias("ym")
+                )
+                .group_by("ym")
+                .agg([
+                    pl.col("amount").filter(pl.col("amount") > 0).sum().alias("income"),
+                    pl.col("amount").filter(pl.col("amount") < 0).sum().abs().alias("expense"),
+                ])
+            )
+
+            if monthly.height < 3:
+                return None
+
+            avg_income  = float(monthly["income"].mean() or 0.0)
+            avg_expense = float(monthly["expense"].mean() or 0.0)
+
+            if avg_expense <= 0:
+                return None
+
+            avg_surplus = avg_income - avg_expense
+            if avg_surplus <= 0:
+                return 0.0
+
+            # Taxa de poupança mensal como proxy de capacidade de reserva.
+            # Cap em 0.50 sinaliza que é estimativa de fluxo, não saldo acumulado.
+            savings_ratio = avg_surplus / avg_expense
+            return round(min(savings_ratio, 0.50), 4)
+
+        except Exception as exc:
+            logger.debug("RiskScorer | C4 proxy via df falhou: %s", exc)
+            return None
 
     @staticmethod
     def _c5_savings_regularity(

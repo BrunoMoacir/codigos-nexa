@@ -104,6 +104,37 @@ class IPCAConnector(BaseConnector):
         logger.info("[IPCAConnector] IPCA 12m: %.2f%%", ipca_pct)
         return {"ipca_annual": ipca_annual}
 
+    def fetch_rates_secondary(self) -> Dict[str, float]:
+        """
+        Fonte secundária: IBGE SIDRA API — produtor original do IPCA.
+
+        Usa o agregado 7060, variável 2266 (variação acumulada nos últimos
+        12 meses, %). Independente da infraestrutura do BCB.
+
+        URL: https://servicodados.ibge.gov.br/api/v3/agregados/7060/
+                  periodos/-1/variaveis/2266?localidades=N1[1]
+        """
+        url = (
+            "https://servicodados.ibge.gov.br/api/v3/agregados/7060"
+            "/periodos/-1/variaveis/2266?localidades=N1[1]"
+        )
+        with httpx.Client(timeout=self.timeout) as client:
+            response = client.get(url)
+            response.raise_for_status()
+
+        data = response.json()
+        try:
+            series_dict: dict = (
+                data[0]["resultados"][0]["series"][0]["serie"]
+            )
+            latest_value = list(series_dict.values())[-1]
+            ipca_annual = float(latest_value) / 100.0
+        except (IndexError, KeyError, ValueError, TypeError) as exc:
+            raise ConnectorError(f"IBGE SIDRA: resposta inesperada — {exc}") from exc
+
+        logger.info("[IPCAConnector] IPCA 12m via IBGE: %.2f%%", ipca_annual * 100)
+        return {"ipca_annual": round(ipca_annual, 6)}
+
     def get_fallback_rates(self) -> Dict[str, float]:
         """
         Retorna meta de inflação do CMN como fallback.

@@ -70,7 +70,7 @@ class AnbimaConnector(BaseConnector):
         "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{series}"
         "/dados/ultimos/1?formato=json"
     )
-    _CDI_SERIES = 12  # CDI over acumulado no mês, anualizado — % a.a.
+    _CDI_SERIES = 12  # CDI over diário — série retorna % ao dia, não % a.a.
 
     # ── Interface obrigatória ─────────────────────────────────────────────
 
@@ -102,9 +102,37 @@ class AnbimaConnector(BaseConnector):
                 f"(série {self._CDI_SERIES}): {data}"
             )
 
-        cdi_pct = float(data[0]["valor"])   # ex: 13.15 (percentual)
-        cdi_annual = cdi_pct / 100          # ex: 0.1315 (decimal)
+        cdi_raw = float(data[0]["valor"])
 
+        # BCB SGS série 12 publica a taxa CDI diária em percentual ao dia.
+        # Ex: 0.0543 significa 0.0543% ao dia → (1 + 0.000543)^252 - 1 ≈ 14.65% a.a.
+        # Guarda de formato: se o valor for > 0.5 o campo provavelmente veio como
+        # taxa anual em % (formato histórico/legado) — parsear direto.
+        if cdi_raw > 0.5:
+            cdi_annual = cdi_raw / 100
+        else:
+            cdi_annual = (1 + cdi_raw / 100) ** 252 - 1
+
+        return {"cdi_annual": round(cdi_annual, 6)}
+
+    def fetch_rates_secondary(self) -> Dict[str, float]:
+        """
+        Fonte secundária: deriva CDI a partir da SELIC meta (CDI ≈ SELIC − 0,10%).
+
+        Não depende da série 12 estar disponível — usa BacenConnector que tem
+        sua própria cadeia de fallback.
+        """
+        from app.architect.connectors.bacen import BacenConnector
+        selic = BacenConnector(
+            cache_ttl_seconds=self.cache_ttl,
+            timeout_seconds=self.timeout,
+            fallback_cache_ttl_seconds=self.fallback_cache_ttl,
+        ).get_selic()
+        cdi_annual = round(max(selic - 0.001, 0.0), 6)
+        logger.info(
+            "[AnbimaConnector] CDI derivado da SELIC: SELIC=%.4f → CDI=%.4f",
+            selic, cdi_annual,
+        )
         return {"cdi_annual": cdi_annual}
 
     def get_fallback_rates(self) -> Dict[str, float]:

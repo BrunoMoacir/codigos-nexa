@@ -62,7 +62,8 @@ class BacenConnector(BaseConnector):
         "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{series}"
         "/dados/ultimos/1?formato=json"
     )
-    _SELIC_META_SERIES = 432  # Taxa SELIC meta — % nominal anual
+    _SELIC_META_SERIES   = 432   # Taxa SELIC meta — % nominal anual
+    _SELIC_EFETIVA_SERIES = 4390  # SELIC over anualizada (% a.a.) — fonte secundária
 
     # ── Interface obrigatória ─────────────────────────────────────────────
 
@@ -97,6 +98,24 @@ class BacenConnector(BaseConnector):
         selic_pct = float(data[0]["valor"])   # ex: 13.25 (percentual)
         selic_annual = selic_pct / 100        # ex: 0.1325 (decimal)
 
+        return {"selic_annual": selic_annual}
+
+    def fetch_rates_secondary(self) -> Dict[str, float]:
+        """
+        Fonte secundária: SGS série 4390 (SELIC over anualizada).
+
+        Usa a mesma infraestrutura BCB mas série diferente — cobre falhas
+        de série específica sem depender de um provedor externo.
+        """
+        url = self._SGS_BASE_URL.format(series=self._SELIC_EFETIVA_SERIES)
+        with httpx.Client(timeout=self.timeout) as client:
+            response = client.get(url)
+            response.raise_for_status()
+        data = response.json()
+        if not data or not isinstance(data, list) or "valor" not in data[0]:
+            raise ConnectorError(f"BCB série {self._SELIC_EFETIVA_SERIES}: resposta inesperada {data}")
+        selic_annual = float(data[0]["valor"]) / 100
+        logger.info("[BacenConnector] SELIC (série 4390): %.4f a.a.", selic_annual)
         return {"selic_annual": selic_annual}
 
     def get_fallback_rates(self) -> Dict[str, float]:

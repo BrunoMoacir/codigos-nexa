@@ -323,6 +323,11 @@ def _calculate_iof(
     Returns:
         Tuple (iof_fixo, iof_diario, iof_total)
     """
+    # iof_fixed_rate == 0.0 sinaliza operação isenta (ex: SFH imobiliário).
+    # Nesse caso, ambas as componentes são zero — não apenas a fixa.
+    if iof_fixed_rate == 0.0:
+        return 0.0, 0.0, 0.0
+
     iof_fixed = principal * iof_fixed_rate
 
     iof_daily = 0.0

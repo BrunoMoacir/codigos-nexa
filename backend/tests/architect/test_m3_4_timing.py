@@ -194,9 +194,11 @@ def test_duplicate_scenarios_not_repeated():
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from app.architect.router import router as arch_router
+from app.core.security import get_current_user
 
 _app = FastAPI()
 _app.include_router(arch_router)
+_app.dependency_overrides[get_current_user] = lambda: "test_user"
 _client = TestClient(_app)
 
 _BASE_BODY = {
@@ -247,4 +249,3 @@ def test_api_timing_scenarios_invalid_months():
         json=_BASE_BODY,
     )
     assert resp.status_code == 422
-

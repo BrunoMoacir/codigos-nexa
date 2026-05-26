@@ -290,15 +290,18 @@ class LLMReasoner:
             "CONSORTIUM_SELIC_RENTAL": npv.consortium_selic_rental,
         }.get(response.recommended_strategy.value, 0.0) or 0.0
 
-        discarded: dict[str, str] = {}
-        for strat, val in {
+        all_npvs = {
             "FINANCING":               npv.financing,
             "SAVE_INVEST":             npv.save_invest,
             "CONSORTIUM":              npv.consortium,
-        }.items():
-            if val is not None and strat != response.recommended_strategy.value:
-                diff = winner_npv - val
-                discarded[strat] = f"NPV {diff:+,.0f} vs {response.recommended_strategy.value}"
+            "FINANCING_RENTAL":        npv.financing_rental,
+            "CONSORTIUM_SELIC_RENTAL": npv.consortium_selic_rental,
+        }
+        discarded: dict[str, str] = {
+            strat: f"NPV {winner_npv - val:+,.0f} vs {response.recommended_strategy.value}"
+            for strat, val in all_npvs.items()
+            if val is not None and strat != response.recommended_strategy.value
+        }
 
         return {
             "bem":            request.asset_type.value,
@@ -311,9 +314,11 @@ class LLMReasoner:
             "selic":          f"{market_rates.get('selic_annual', 0.1475):.2%}",
             "cet":            f"{market_rates.get('best_cet_annual', 0.15):.2%}",
             "ipca":           f"{market_rates.get('ipca_annual', 0.045):.2%}",
-            "npv_financing":  f"R${npv.financing:,.0f}" if npv.financing is not None else None,
-            "npv_save_invest": f"R${npv.save_invest:,.0f}" if npv.save_invest is not None else None,
-            "npv_consortium": f"R${npv.consortium:,.0f}" if npv.consortium is not None else None,
+            "npv_financing":           f"R${npv.financing:,.0f}" if npv.financing is not None else None,
+            "npv_save_invest":         f"R${npv.save_invest:,.0f}" if npv.save_invest is not None else None,
+            "npv_consortium":          f"R${npv.consortium:,.0f}" if npv.consortium is not None else None,
+            "npv_financing_rental":    f"R${npv.financing_rental:,.0f}" if npv.financing_rental is not None else None,
+            "npv_consortium_selic":    f"R${npv.consortium_selic_rental:,.0f}" if npv.consortium_selic_rental is not None else None,
             "recomendado":    response.recommended_strategy.value,
             "ssd_guarantee":  response.ssd_guarantee,
             "warnings_motor": [

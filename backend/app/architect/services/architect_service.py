@@ -213,6 +213,28 @@ class ArchitectService:
                 if flag
             )
 
+        # ── 3.6. Urgência e perguntas de acompanhamento por estratégia ──
+        urgency_analysis = None
+        follow_up_questions = None
+        _strat = base_response.recommended_strategy
+        _liq   = base_response.liquidity_impact  # -0.70 = 70% comprometido
+
+        if _strat == StrategyType.SAVE_INVEST:
+            urgency_analysis, follow_up_questions = self._build_save_invest_analysis(
+                request, base_response
+            )
+            if urgency_analysis is not None and urgency_analysis.urgency_level in ("TIGHT", "CRITICAL"):
+                accumulated_warnings.append(
+                    f"[URGÊNCIA {urgency_analysis.urgency_level}] {urgency_analysis.narrative}"
+                )
+        elif _strat in (StrategyType.FINANCING, StrategyType.FINANCING_RENTAL):
+            # HIGH (>40%) ou CRITICAL (>70%) de comprometimento geram follow-ups
+            if _liq is not None and _liq < -0.40:
+                follow_up_questions = self._build_financing_followups(request, base_response)
+        elif _strat in (StrategyType.CONSORTIUM, StrategyType.CONSORTIUM_SELIC_RENTAL):
+            if _liq is not None and _liq < -0.40:
+                follow_up_questions = self._build_consortium_followups(request, base_response)
+
         # ── 4. Recalcular liquidez com safe_to_spend real ────────────
         monthly_payment = self._estimate_monthly_payment(base_response, request, market_rates)
         liquidity = LiquidityValidator.calculate(
@@ -223,9 +245,10 @@ class ArchitectService:
         accumulated_warnings.extend(liquidity.warnings)
 
         # ── 5. Calcular confidence_score ─────────────────────────────
+        has_f1_transactions = transactions_df is not None and not transactions_df.is_empty()
         confidence = self._compute_confidence(
             base_confidence=base_response.confidence_score,
-            has_f1_data=(safe_to_spend is not None),
+            has_f1_data=(safe_to_spend is not None or has_f1_transactions),
             used_fallback_rates=bool(rate_warnings),
             warning_count=len(accumulated_warnings),
             has_open_finance_data=has_open_finance_data,
@@ -235,6 +258,8 @@ class ArchitectService:
         data_sources = list(base_response.data_sources)
         if safe_to_spend is not None:
             data_sources.append("f1_safe_to_spend")
+        if has_f1_transactions:
+            data_sources.append("f1_transactions")
         if has_open_finance_data:
             data_sources.append("open_finance")
         # ABAC sempre consultado para simulações de consórcio (Fase 2)
@@ -292,12 +317,14 @@ class ArchitectService:
 
         return base_response.model_copy(
             update={
-                "liquidity_impact":      liquidity.impact,
-                "warnings":              accumulated_warnings,
-                "confidence_score":      round(confidence, 2),
-                "data_sources":          data_sources,
+                "liquidity_impact":        liquidity.impact,
+                "warnings":                accumulated_warnings,
+                "confidence_score":        round(confidence, 2),
+                "data_sources":            data_sources,
                 "card_optimization_bonus": card_bonus,
-                "llm_reasoning":         llm_result,
+                "llm_reasoning":           llm_result,
+                "urgency_analysis":        urgency_analysis,
+                "follow_up_questions":     follow_up_questions,
             }
         )
 
@@ -506,6 +533,15 @@ class ArchitectService:
             reserve_depth_of     = None
             of = request.open_finance_features
 
+            # Renda inferida da F1 — usada como fallback quando não declarada no request.
+            # Calculada aqui para estar disponível no C4 proxy abaixo e no updates final.
+            inferred_income = (
+                income_profile.monthly_net_income
+                if income_profile.confidence >= 0.4 and income_profile.monthly_net_income > 0
+                else None
+            )
+            effective_monthly_income = request.monthly_income or inferred_income
+
             if of is not None:
                 if of.comprometimento_renda_pct is not None:
                     committed_pct       = of.comprometimento_renda_pct
@@ -517,11 +553,11 @@ class ArchitectService:
                 # Requer renda + comprometimento + streak; sem qualquer um cai para user_profile.
                 if (
                     of.meses_consecutivos_poupanca is not None
-                    and request.monthly_income is not None
-                    and request.monthly_income > 0
+                    and effective_monthly_income is not None
+                    and effective_monthly_income > 0
                     and of.comprometimento_renda_pct is not None
                 ):
-                    income    = request.monthly_income
+                    income    = effective_monthly_income
                     committed = of.comprometimento_renda_pct
                     streak    = of.meses_consecutivos_poupanca
 
@@ -538,6 +574,15 @@ class ArchitectService:
                     estimated_reserve = monthly_saving * streak
                     months_covered    = estimated_reserve / monthly_expense if monthly_expense > 0 else 0.0
                     reserve_depth_of  = round(min(months_covered / 6.0, 1.0), 4)
+
+            # C3 proxy a partir de transações recorrentes quando OF não disponível.
+            # is_recurring=True já foi marcado pelo ETL da F1 (recurring_detector).
+            # committed_pct = despesas_recorrentes_mensais / renda_líquida_mensal.
+            if not committed_available and inferred_income is not None and inferred_income > 0:
+                monthly_recurring = ArchitectService._monthly_recurring_expenses(transactions_df)
+                if monthly_recurring > 0:
+                    committed_pct       = round(min(monthly_recurring / inferred_income, 1.0), 4)
+                    committed_available = True
 
             risk_result = RiskScorer.score(
                 request=request,
@@ -559,6 +604,11 @@ class ArchitectService:
                 "risk_score":            risk_result.score,
                 "risk_score_confidence": risk_result.confidence,
             }
+
+            # Popula monthly_income da F1 quando não declarado pelo usuário.
+            # Necessário para card_optimization_bonus, BudgetAdvisor e C4 via OF.
+            if request.monthly_income is None and inferred_income is not None:
+                updates["monthly_income"] = round(inferred_income, 2)
 
             if request.risk_profile is None:
                 updates["risk_profile"] = risk_result.profile
@@ -752,6 +802,305 @@ class ArchitectService:
         return confidence
 
     @staticmethod
+    def _monthly_recurring_expenses(transactions_df) -> float:
+        """
+        Calcula a média mensal de despesas recorrentes a partir do DataFrame de transações.
+
+        Usa a coluna is_recurring marcada pelo ETL da F1 (recurring_detector).
+        Retorna 0.0 se o DataFrame não tiver as colunas necessárias ou estiver vazio.
+        """
+        try:
+            import polars as pl
+
+            required = {"amount", "is_recurring"}
+            if transactions_df is None or not required.issubset(set(transactions_df.columns)):
+                return 0.0
+
+            col_date = next(
+                (c for c in ("transaction_date", "date") if c in transactions_df.columns), None
+            )
+            if col_date is None:
+                return 0.0
+
+            recurring = (
+                transactions_df
+                .filter(
+                    (pl.col("is_recurring") == True) &  # noqa: E712
+                    (pl.col("amount") < 0)
+                )
+                .with_columns(
+                    (pl.col(col_date).dt.year() * 100 + pl.col(col_date).dt.month()).alias("ym")
+                )
+                .group_by("ym")
+                .agg(pl.col("amount").sum().abs().alias("monthly_recurring"))
+            )
+
+            if recurring.is_empty():
+                return 0.0
+
+            return float(recurring["monthly_recurring"].mean() or 0.0)
+
+        except Exception:
+            return 0.0
+
+    @staticmethod
+    def _build_financing_followups(
+        request: "SimulationRequest",
+        base_response: "SimulationResponse",
+    ) -> list | None:
+        """
+        Perguntas de acompanhamento quando FINANCING/FINANCING_RENTAL é recomendado
+        e o comprometimento de renda é HIGH ou CRITICAL (|liquidity_impact| > 0.40).
+
+        Objetivo: coletar dados que podem reduzir a parcela ou personalizar o CET,
+        transformando uma simulação de alto risco em uma viável.
+        """
+        from app.architect.models import AssetType, FollowUpQuestion
+
+        follow_up: list = []
+
+        if request.open_finance_features is None:
+            follow_up.append(FollowUpQuestion(
+                question_id="open_finance_cet",
+                question=(
+                    "Compartilhe seu Open Finance para obtermos seu CET real e "
+                    "comprometimento de renda atual."
+                ),
+                field_to_populate="open_finance_features",
+                priority="HIGH",
+                rationale=(
+                    "O CET praticado pelo seu banco pode ser diferente da média de mercado. "
+                    "Com Open Finance, calculamos se o financiamento é sustentável para "
+                    "sua renda específica e identificamos taxas melhores disponíveis."
+                ),
+            ))
+
+        follow_up.append(FollowUpQuestion(
+            question_id="higher_down_payment",
+            question=(
+                f"Você tem condições de aumentar a entrada além dos "
+                f"R$ {request.down_payment:,.0f} atuais? "
+                "Cada R$ 10.000 a mais reduz a parcela diretamente."
+            ),
+            field_to_populate="down_payment",
+            priority="HIGH",
+            rationale=(
+                "Uma entrada maior reduz o principal financiado e, consequentemente, "
+                "a parcela mensal — aliviando o comprometimento de renda sem precisar "
+                "mudar o prazo ou a estratégia."
+            ),
+        ))
+
+        if request.asset_type == AssetType.IMOVEL and request.financing_months < 360:
+            extended = min(request.financing_months + 60, 360)
+            follow_up.append(FollowUpQuestion(
+                question_id="extend_term",
+                question=(
+                    f"Aumentar o prazo de {request.financing_months} para {extended} meses "
+                    "reduziria a parcela mensal. Você prefere prazo mais longo?"
+                ),
+                field_to_populate="financing_months",
+                priority="MEDIUM",
+                rationale=(
+                    "Prazo mais longo reduz a parcela a custo de um total pago maior. "
+                    "Para imóvel, isso pode tornar o financiamento viável dentro do orçamento "
+                    "sem comprometer reserva de emergência."
+                ),
+            ))
+
+        if request.asset_type == AssetType.IMOVEL and request.expected_rental_income is None:
+            follow_up.append(FollowUpQuestion(
+                question_id="rental_income",
+                question=(
+                    "Você planeja alugar o imóvel (ou parte dele)? "
+                    "A renda de aluguel pode cobrir parte das parcelas."
+                ),
+                field_to_populate="expected_rental_income",
+                priority="MEDIUM",
+                rationale=(
+                    "A estratégia FINANCIAMENTO + ALUGUEL pode reduzir o custo líquido "
+                    "mensal significativamente, tornando o financiamento mais sustentável."
+                ),
+            ))
+
+        return follow_up or None
+
+    @staticmethod
+    def _build_consortium_followups(
+        request: "SimulationRequest",
+        base_response: "SimulationResponse",
+    ) -> list | None:
+        """
+        Perguntas de acompanhamento quando CONSORTIUM/CONSORTIUM_SELIC_RENTAL é recomendado
+        e o comprometimento de renda é HIGH ou CRITICAL.
+        """
+        from app.architect.models import FollowUpQuestion
+
+        follow_up: list = []
+
+        if request.open_finance_features is None:
+            follow_up.append(FollowUpQuestion(
+                question_id="open_finance_consortium",
+                question=(
+                    "Compartilhe seu Open Finance para verificarmos seu "
+                    "comprometimento real de renda com as parcelas do consórcio."
+                ),
+                field_to_populate="open_finance_features",
+                priority="HIGH",
+                rationale=(
+                    "Com dados reais de comprometimento, podemos verificar se as "
+                    "parcelas do consórcio cabem no seu orçamento sem risco de inadimplência."
+                ),
+            ))
+
+        follow_up.append(FollowUpQuestion(
+            question_id="consortium_bid",
+            question=(
+                "Você tem recursos disponíveis para dar um lance no consórcio "
+                "e antecipar a contemplação?"
+            ),
+            field_to_populate="prefers_consortium",
+            priority="MEDIUM",
+            rationale=(
+                "Um lance de 20–30% do valor do bem aumenta significativamente a "
+                "probabilidade de contemplação nos primeiros meses, reduzindo o período "
+                "em que você paga parcela sem usar o bem."
+            ),
+        ))
+
+        return follow_up or None
+
+    @staticmethod
+    def _build_save_invest_analysis(
+        request: "SimulationRequest",
+        base_response: "SimulationResponse",
+    ) -> tuple:
+        """
+        Gera análise de urgência e perguntas de acompanhamento quando SAVE_INVEST é recomendado.
+
+        Urgência (quando target_date informado): compara months_to_achieve com o prazo disponível.
+          OK       → prazo confortável, SAVE_INVEST é viável.
+          TIGHT    → prazo apertado (70–100% do necessário), sugerir CONSORTIUM.
+          CRITICAL → inviável no prazo, sugerir FINANCING.
+
+        Perguntas (campo follow_up_questions): coletam dados que melhoram a análise:
+          1. Prazo desejado (target_date)        — HIGH, sempre que target_date não informado
+          2. Aluguel atual (current_monthly_rent) — HIGH, IMOVEL sem aluguel declarado
+          3. Orçamento mensal (max_monthly_budget) — MEDIUM, quando não declarado
+          4. Histórico de crédito (open_finance)  — LOW, quando OF ausente
+        """
+        from datetime import date as _date
+        from app.architect.models import (
+            AssetType, FollowUpQuestion, StrategyType, UrgencyAnalysis,
+        )
+
+        savings_months = base_response.months_to_achieve
+        urgency = None
+        follow_up: list = []
+
+        # ── Análise de urgência (quando target_date informado) ────────
+        if request.target_date is not None:
+            today = _date.today()
+            months_available = max(1, round((request.target_date - today).days / 30.44))
+            months_gap = months_available - savings_months
+
+            if months_available >= savings_months:
+                level = "OK"
+                narrative = (
+                    f"Seu prazo de {months_available} meses é confortável: o plano de poupança "
+                    f"leva {savings_months} meses, deixando {months_gap} meses de folga. "
+                    "A estratégia SAVE_INVEST é viável no cronograma desejado."
+                )
+                alt = None
+            elif months_available >= int(savings_months * 0.70):
+                shortfall = savings_months - months_available
+                level = "TIGHT"
+                narrative = (
+                    f"Prazo apertado: você tem {months_available} meses, mas acumular o valor "
+                    f"levaria {savings_months} meses — déficit de {shortfall} meses. "
+                    "Qualquer interrupção nos aportes pode comprometer o prazo. "
+                    "Considere aumentar o aporte mensal ou avaliar CONSÓRCIO como alternativa mais veloz."
+                )
+                alt = StrategyType.CONSORTIUM
+            else:
+                shortfall = savings_months - months_available
+                level = "CRITICAL"
+                narrative = (
+                    f"Prazo inviável para SAVE_INVEST: você tem {months_available} meses, "
+                    f"mas acumular o valor levaria {savings_months} meses "
+                    f"(déficit de {shortfall} meses — {shortfall / savings_months:.0%} do necessário). "
+                    "Para respeitar o prazo desejado, FINANCIAMENTO ou CONSÓRCIO são mais adequados."
+                )
+                alt = StrategyType.FINANCING
+
+            urgency = UrgencyAnalysis(
+                desired_months=months_available,
+                savings_months=savings_months,
+                months_gap=months_gap,
+                urgency_level=level,
+                narrative=narrative,
+                alternative_strategy=alt,
+            )
+        else:
+            follow_up.append(FollowUpQuestion(
+                question_id="deadline",
+                question=(
+                    f"Em quanto tempo você precisa ou quer adquirir esse bem? "
+                    f"(Poupando mensalmente, você chegaria ao valor em cerca de {savings_months} meses.)"
+                ),
+                field_to_populate="target_date",
+                priority="HIGH",
+                rationale=(
+                    "O prazo define se SAVE_INVEST é viável ou se financiamento/consórcio "
+                    "atendem melhor sua necessidade. Um prazo curto muda completamente a recomendação."
+                ),
+            ))
+
+        # ── Aluguel atual (IMOVEL sem current_monthly_rent) ───────────
+        if (
+            request.asset_type == AssetType.IMOVEL
+            and request.current_monthly_rent is None
+        ):
+            follow_up.append(FollowUpQuestion(
+                question_id="current_rent",
+                question="Você paga aluguel atualmente? Se sim, quanto por mês (R$)?",
+                field_to_populate="current_monthly_rent",
+                priority="HIGH",
+                rationale=(
+                    "Quem poupa para comprar continua pagando aluguel durante o período de acumulação. "
+                    "Esse custo pode tornar financiamento mais vantajoso do que parece."
+                ),
+            ))
+
+        # ── Orçamento mensal para poupança ────────────────────────────
+        if request.max_monthly_budget is None:
+            follow_up.append(FollowUpQuestion(
+                question_id="monthly_budget",
+                question="Quanto você consegue guardar por mês para esse objetivo (R$)?",
+                field_to_populate="max_monthly_budget",
+                priority="MEDIUM",
+                rationale=(
+                    "O aporte mensal define o prazo de acumulação. "
+                    "Com um valor declarado, calculamos exatamente em quantos meses você atinge o objetivo."
+                ),
+            ))
+
+        # ── Histórico de crédito ──────────────────────────────────────
+        if request.open_finance_features is None:
+            follow_up.append(FollowUpQuestion(
+                question_id="credit_history",
+                question="Você tem ou já teve financiamentos ou empréstimos ativos?",
+                field_to_populate="open_finance_features.experiencia_financiamento",
+                priority="LOW",
+                rationale=(
+                    "O histórico de crédito influencia o CET disponível para você. "
+                    "Bons pagadores obtêm taxas melhores, o que pode mudar a comparação entre estratégias."
+                ),
+            ))
+
+        return urgency, follow_up or None
+
+    @staticmethod
     def _compute_confidence(
         base_confidence: float,
         has_f1_data: bool,
@@ -764,7 +1113,7 @@ class ArchitectService:
 
         Base (do engine):           0.75–0.85 (risk_score_confidence ou fallback)
         + Open Finance presente:   +0.10 → base sobe para ~0.95 (dados reais eliminam suposições)
-        + dados reais da F1:       +0.05
+        + dados reais da F1:       +0.10 (safe_to_spend + transações validam capacidade real)
         - taxas de fallback:       -0.05
         - por aviso gerado:        -0.02 (máx: -0.10)
 

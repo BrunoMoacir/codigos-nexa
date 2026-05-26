@@ -28,9 +28,10 @@ Tipos de bem suportados (AssetType):
 
 import json
 import logging
-import requests
 from pathlib import Path
 from typing import Dict
+
+import httpx
 
 from app.architect.connectors.base import BaseConnector, ConnectorError
 
@@ -139,7 +140,8 @@ class MarketRatesConnector(BaseConnector):
         for serie_id in unique_series:
             url = _BCB_BASE.format(serie=serie_id)
             try:
-                resp = requests.get(url, params={"formato": "json"}, timeout=self.timeout)
+                with httpx.Client(timeout=self.timeout) as client:
+                    resp = client.get(url, params={"formato": "json"})
                 resp.raise_for_status()
                 data = resp.json()
                 if not data or "valor" not in data[0]:
@@ -147,7 +149,7 @@ class MarketRatesConnector(BaseConnector):
                 # BCB retorna percentual anual (ex: "14.83") — converte para decimal
                 avg_by_serie[serie_id] = float(data[0]["valor"]) / 100.0
                 logger.debug("BCB série %d: %.4f a.a.", serie_id, avg_by_serie[serie_id])
-            except (requests.RequestException, ValueError, KeyError, IndexError) as exc:
+            except (httpx.HTTPError, ValueError, KeyError, IndexError) as exc:
                 raise ConnectorError(
                     f"Falha ao buscar BCB série {serie_id}: {exc}"
                 ) from exc
@@ -164,6 +166,51 @@ class MarketRatesConnector(BaseConnector):
 
         logger.info(
             "MarketRatesConnector: taxas atualizadas via BCB — IMOVEL avg=%.2f%% VEICULO avg=%.2f%%",
+            rates["cet_IMOVEL_avg"] * 100,
+            rates["cet_VEICULO_avg"] * 100,
+        )
+        return rates
+
+    def fetch_rates_secondary(self) -> Dict[str, float]:
+        """
+        Fonte secundária: deriva CETs a partir da SELIC atual + spreads calibrados.
+
+        Quando o BCB SGS falha, usa a SELIC do BacenConnector (que tem sua própria
+        cadeia de fallback) como âncora, aplicando spreads históricos por tipo de ativo.
+        Isso produz valores dinâmicos mesmo offline, ao invés dos hardcoded.
+
+        Spreads sobre SELIC (médias históricas 2022-2026):
+            IMOVEL:  SELIC + 2-4 p.p. (SFH/SFI)
+            VEICULO: SELIC + 5-15 p.p. (CDC)
+            REFORMA: SELIC + 10-30 p.p. (crédito pessoal)
+            VIAGEM:  SELIC + 15-37 p.p. (crédito pessoal)
+            OUTRO:   SELIC + 10-33 p.p. (crédito pessoal)
+        """
+        from app.architect.connectors.bacen import BacenConnector
+        selic = BacenConnector(
+            cache_ttl_seconds=self.cache_ttl,
+            timeout_seconds=self.timeout,
+            fallback_cache_ttl_seconds=self.fallback_cache_ttl,
+        ).get_selic()
+
+        # spreads adicionados à SELIC: (min_add, avg_add, max_add) em p.p.
+        spreads = {
+            "IMOVEL":  (0.020, 0.030, 0.045),
+            "VEICULO": (0.050, 0.080, 0.145),
+            "REFORMA": (0.100, 0.190, 0.310),
+            "VIAGEM":  (0.150, 0.225, 0.380),
+            "OUTRO":   (0.100, 0.200, 0.330),
+        }
+
+        rates: Dict[str, float] = {}
+        for asset_type, (sp_min, sp_avg, sp_max) in spreads.items():
+            rates[f"cet_{asset_type}_min"] = round(selic + sp_min, 4)
+            rates[f"cet_{asset_type}_avg"] = round(selic + sp_avg, 4)
+            rates[f"cet_{asset_type}_max"] = round(selic + sp_max, 4)
+
+        logger.info(
+            "[MarketRatesConnector] CETs derivados da SELIC %.2f%% — IMOVEL avg=%.2f%% VEICULO avg=%.2f%%",
+            selic * 100,
             rates["cet_IMOVEL_avg"] * 100,
             rates["cet_VEICULO_avg"] * 100,
         )
