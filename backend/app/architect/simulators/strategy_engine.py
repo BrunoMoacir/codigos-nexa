@@ -213,6 +213,59 @@ class StrategyEngine:
                     request, market_rates, cons_result
                 )
 
+        # ── 1.6. Custos de aquisição/posse antes da decisão ─────────────
+        # Esses custos afetam o ranking financeiro; aplicá-los só no output
+        # deixava recommended_strategy e NPVComparison inconsistentes.
+        ownership_warnings: list[str] = []
+        transaction_costs_applied: Optional[float] = None
+        maintenance_cost_annual: Optional[float] = None
+
+        def _add_cost_to_result(result: Optional[Dict[str, Any]], cost: float) -> None:
+            if result is None or cost <= 0:
+                return
+            result["expected_cost"] = float(result["expected_cost"]) + cost
+            result["max_cost"] = float(result["max_cost"]) + cost
+            result["npv"] = _safe_float(result.get("npv")) - cost
+
+        if request.asset_type == AssetType.IMOVEL:
+            tc_pct = request.transaction_costs_pct if request.transaction_costs_pct is not None else 0.04
+            if tc_pct > 0:
+                transaction_costs_applied = round(request.target_amount * tc_pct, 2)
+                for result in [fin_result, cons_result, comp4_result, comp5_result]:
+                    _add_cost_to_result(result, transaction_costs_applied)
+                ownership_warnings.append(
+                    f"Custos de transação de R$ {transaction_costs_applied:,.0f} "
+                    f"({tc_pct:.1%} do valor) incluídos no custo total "
+                    "(ITBI, cartório, registro)."
+                )
+
+        if request.asset_type in (AssetType.IMOVEL, AssetType.VEICULO):
+            if request.asset_type == AssetType.IMOVEL:
+                maintenance_cost_annual = round(request.target_amount * 0.01, 2)
+            else:
+                maintenance_cost_annual = 1000.0
+
+            fin_maint = self._compute_maintenance_cost(
+                request.asset_type, request.target_amount, request.financing_months
+            )
+            _add_cost_to_result(fin_result, fin_maint)
+            _add_cost_to_result(comp4_result, fin_maint)
+
+            cons_maint = 0.0
+            if cons_result:
+                cons_maint = self._compute_maintenance_cost(
+                    request.asset_type, request.target_amount, cons_result["months"]
+                )
+                _add_cost_to_result(cons_result, cons_maint)
+                _add_cost_to_result(comp5_result, cons_maint)
+
+            asset_label = "imóvel" if request.asset_type == AssetType.IMOVEL else "veículo"
+            ownership_warnings.append(
+                f"Custo de manutenção estimado para o {asset_label}: "
+                f"R$ {maintenance_cost_annual:,.0f}/ano "
+                f"(incluído no custo total das estratégias de aquisição)."
+            )
+
         # ── 1.7. Simulação macroeconômica (VAR-1) antecipada para SSD ────
         # Rodamos antes da comparação para que a dominância estocástica
         # possa influenciar a escolha, em vez de apenas enriquecer o output.
@@ -292,6 +345,7 @@ class StrategyEngine:
         best_strategy, profile_warnings = self._apply_risk_profile_adjustment(
             request, best_strategy, strategies
         )
+        profile_warnings.extend(ownership_warnings)
 
         # ── 3.6. Conflito SSD × perfil de risco ─────────────────────
         # Se o ajuste de perfil reverteu a escolha do SSD, a garantia matemática
@@ -386,23 +440,6 @@ class StrategyEngine:
                 f"em aluguel (valor presente). As estratégias compostas já incluem essa renda."
             )
 
-        # ── 4.6. Custos de transação (ITBI, cartório, registro) ─────────
-        transaction_costs_applied: Optional[float] = None
-        if request.asset_type == AssetType.IMOVEL:
-            tc_pct = request.transaction_costs_pct if request.transaction_costs_pct is not None else 0.04
-            if tc_pct > 0:
-                transaction_costs_applied = round(request.target_amount * tc_pct, 2)
-                # Somado ao custo das estratégias que envolvem aquisição imediata ou contrato
-                for result in [fin_result, cons_result, comp4_result, comp5_result]:
-                    if result is not None:
-                        result["expected_cost"] = float(result["expected_cost"]) + transaction_costs_applied
-                        result["max_cost"] = float(result["max_cost"]) + transaction_costs_applied
-                profile_warnings.append(
-                    f"Custos de transação de R$ {transaction_costs_applied:,.0f} "
-                    f"({tc_pct:.1%} do valor) incluídos no custo total "
-                    "(ITBI, cartório, registro)."
-                )
-
         # Action Plan
         action_plan = self._generate_action_plan(
             final_strategy, selected, request
@@ -474,47 +511,6 @@ class StrategyEngine:
 
         # months_to_achieve: para compound consortium usa contemplação esperada, não duração total
         months_to_achieve = max(1, selected["months"])
-
-        # ── 4.8. Custos de manutenção periódica (IMOVEL / VEICULO) ────────
-        maintenance_cost_annual: Optional[float] = None
-        if request.asset_type in (AssetType.IMOVEL, AssetType.VEICULO):
-            if request.asset_type == AssetType.IMOVEL:
-                maintenance_cost_annual = round(request.target_amount * 0.01, 2)
-            else:
-                maintenance_cost_annual = 1000.0
-
-            # Financiamento: posse começa agora, duração = financing_months
-            fin_maint = self._compute_maintenance_cost(
-                request.asset_type, request.target_amount, request.financing_months
-            )
-            if fin_maint > 0:
-                fin_result["expected_cost"] += fin_maint
-                fin_result["max_cost"] += fin_maint
-
-            # Consórcio: posse estimada a partir da contemplação; usa duração total do grupo
-            cons_maint = 0.0
-            if cons_result:
-                cons_maint = self._compute_maintenance_cost(
-                    request.asset_type, request.target_amount, cons_result["months"]
-                )
-                if cons_maint > 0:
-                    cons_result["expected_cost"] += cons_maint
-                    cons_result["max_cost"] += cons_maint
-
-            # Estratégias compostas herdam manutenção da estratégia base correspondente
-            if comp4_result and fin_maint > 0:
-                comp4_result["expected_cost"] += fin_maint
-                comp4_result["max_cost"] += fin_maint
-            if comp5_result and cons_maint > 0:
-                comp5_result["expected_cost"] += cons_maint
-                comp5_result["max_cost"] += cons_maint
-
-            asset_label = "imóvel" if request.asset_type == AssetType.IMOVEL else "veículo"
-            profile_warnings.append(
-                f"Custo de manutenção estimado para o {asset_label}: "
-                f"R$ {maintenance_cost_annual:,.0f}/ano "
-                f"(incluído no custo total das estratégias de aquisição)."
-            )
 
         # ── 4.9. Estratégia eficiente (segunda recomendação) ──────────────
         all_results: Dict[StrategyType, Dict[str, Any]] = {
@@ -1049,10 +1045,13 @@ class StrategyEngine:
 
         # Fluxo: -Entrada -Aportes mensais [-Aluguel mensal durante acumulação]
         # current_monthly_rent: custo real de quem poupa para comprar enquanto ainda aluga.
-        # Sem esse campo, SAVE_INVEST é sistematicamente sub-custoso para IMOVEL.
+        # O aluguel é corrigido pelo IPCA mês a mês para não subestimar o NPV em horizontes longos.
         rent_monthly = req.current_monthly_rent or 0.0
+        ipca_monthly = (1.0 + ipca_annual) ** (1.0 / 12) - 1.0
         cashflows = [-req.down_payment]
-        cashflows.extend([-(monthly_dep + rent_monthly)] * months)
+        for m in range(1, months + 1):
+            rent_m = rent_monthly * (1.0 + ipca_monthly) ** m
+            cashflows.append(-(monthly_dep + rent_m))
 
         npv_val = npv_calc.calculate_npv(cashflows, disc_monthly)
 
@@ -1955,4 +1954,3 @@ class StrategyEngine:
             ))
 
         return results
-

@@ -14,7 +14,7 @@ O QUE É TESTADO:
 ESTRATÉGIA:
     Usa TestClient do FastAPI (sem servidor HTTP real).
     O _service (singleton) é patcheado para isolar a API da lógica de negócio.
-    O patch correto é "app.api.v1.routes.architect._service.simulate"
+    O patch correto é "app.architect.router._service.simulate"
     pois _service = ArchitectService() é instanciado no módulo de rotas.
 
 COMO RODAR:
@@ -35,8 +35,10 @@ from app.architect.models import (
     StrategyType,
 )
 
+TEST_USER_ID = "11111111-1111-4111-8111-111111111111"
+
 # Path do singleton de service no módulo de rotas
-_PATCH_SIMULATE = "app.api.v1.routes.architect._service.simulate"
+_PATCH_SIMULATE = "app.architect.router._service.simulate"
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -47,7 +49,14 @@ _PATCH_SIMULATE = "app.api.v1.routes.architect._service.simulate"
 def app():
     """Cria a aplicação FastAPI em modo de teste."""
     from app.main import app as fastapi_app  # app/main.py (não na raiz)
-    return fastapi_app
+    from app.core.security import get_current_user
+
+    async def _test_current_user():
+        return TEST_USER_ID
+
+    fastapi_app.dependency_overrides[get_current_user] = _test_current_user
+    yield fastapi_app
+    fastapi_app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest.fixture
@@ -85,7 +94,7 @@ def mock_response() -> SimulationResponse:
 def valid_payload() -> dict:
     """Payload JSON válido para POST /architect/simulate."""
     return {
-        "user_id": "test_api_user",
+        "user_id": TEST_USER_ID,
         "target_amount": 50000.0,
         "down_payment": 10000.0,
         "max_monthly_budget": 2000.0,
@@ -222,11 +231,11 @@ class TestSimulateEndpoint:
 
 # Paths dos helpers de DB usados na rota (para patch isolado)
 _PATCH_GET_USER_SIMULATIONS = (
-    "app.api.v1.routes.architect.get_user_simulations"
+    "app.architect.router.get_user_simulations"
 )
-_PATCH_GET_SIMULATION       = "app.api.v1.routes.architect.get_simulation"
-_PATCH_GET_USER_METRICS     = "app.api.v1.routes.architect.get_user_metrics"
-_PATCH_SAVE_SIMULATION      = "app.api.v1.routes.architect.save_simulation"
+_PATCH_GET_SIMULATION       = "app.architect.router.get_simulation"
+_PATCH_GET_USER_METRICS     = "app.architect.router.get_user_metrics"
+_PATCH_SAVE_SIMULATION      = "app.architect.router.save_simulation"
 
 # Payload mínimo de SimulationSummary retornado pelo banco
 _SUMMARY = {
@@ -249,7 +258,7 @@ class TestListSimulationsEndpoint:
         """Retorna 200 e lista quando o banco tem resultados."""
         with patch(_PATCH_GET_USER_SIMULATIONS, return_value=[_SUMMARY]):
             response = client.get(
-                "/api/v1/architect/simulations", params={"user_id": "user_1"}
+                "/api/v1/architect/simulations", params={"user_id": TEST_USER_ID}
             )
         assert response.status_code == 200
         assert isinstance(response.json(), list)
@@ -258,7 +267,7 @@ class TestListSimulationsEndpoint:
         """Usuário sem histórico → retorna lista vazia, não 404."""
         with patch(_PATCH_GET_USER_SIMULATIONS, return_value=[]):
             response = client.get(
-                "/api/v1/architect/simulations", params={"user_id": "novo_user"}
+                "/api/v1/architect/simulations", params={"user_id": TEST_USER_ID}
             )
         assert response.status_code == 200
         assert response.json() == []
@@ -267,7 +276,7 @@ class TestListSimulationsEndpoint:
         """Cada item deve ter id, created_at, recommended_strategy e confidence_score."""
         with patch(_PATCH_GET_USER_SIMULATIONS, return_value=[_SUMMARY]):
             response = client.get(
-                "/api/v1/architect/simulations", params={"user_id": "user_1"}
+                "/api/v1/architect/simulations", params={"user_id": TEST_USER_ID}
             )
         item = response.json()[0]
         for campo in ("id", "created_at", "recommended_strategy", "confidence_score"):
@@ -283,7 +292,7 @@ class TestListSimulationsEndpoint:
         with patch(_PATCH_GET_USER_SIMULATIONS, return_value=[]):
             response = client.get(
                 "/api/v1/architect/simulations",
-                params={"user_id": "u1", "limit": 5},
+                params={"user_id": TEST_USER_ID, "limit": 5},
             )
         assert response.status_code == 200
 
@@ -292,7 +301,7 @@ class TestListSimulationsEndpoint:
         with patch(_PATCH_GET_USER_SIMULATIONS, return_value=[]):
             response = client.get(
                 "/api/v1/architect/simulations",
-                params={"user_id": "u1", "asset_type": "IMOVEL"},
+                params={"user_id": TEST_USER_ID, "asset_type": "IMOVEL"},
             )
         assert response.status_code == 200
 
@@ -302,7 +311,7 @@ class TestListSimulationsEndpoint:
             _PATCH_GET_USER_SIMULATIONS, side_effect=RuntimeError("DB error")
         ):
             response = client.get(
-                "/api/v1/architect/simulations", params={"user_id": "u1"}
+                "/api/v1/architect/simulations", params={"user_id": TEST_USER_ID}
             )
         assert response.status_code == 500
 
@@ -318,7 +327,7 @@ _FULL_SIM = {
     "financing_months":   48,
     "down_payment":       10_000.0,
     "max_monthly_budget": 2_000.0,
-    "request":  {"user_id": "u1", "target_amount": 80_000.0},
+    "request":  {"user_id": TEST_USER_ID, "target_amount": 80_000.0},
     "response": {"recommended_strategy": "FINANCING"},
 }
 
@@ -385,7 +394,7 @@ class TestGetMetricsEndpoint:
         """Usuário com simulações → 200."""
         with patch(_PATCH_GET_USER_METRICS, return_value=_METRICS):
             response = client.get(
-                "/api/v1/architect/metrics", params={"user_id": "user_1"}
+                "/api/v1/architect/metrics", params={"user_id": TEST_USER_ID}
             )
         assert response.status_code == 200
 
@@ -393,7 +402,7 @@ class TestGetMetricsEndpoint:
         """Response deve ter user_id, total_simulations e favorite_strategy."""
         with patch(_PATCH_GET_USER_METRICS, return_value=_METRICS):
             response = client.get(
-                "/api/v1/architect/metrics", params={"user_id": "user_1"}
+                "/api/v1/architect/metrics", params={"user_id": TEST_USER_ID}
             )
         data = response.json()
         assert data["user_id"] == "user_1"
@@ -404,7 +413,7 @@ class TestGetMetricsEndpoint:
         """Usuário sem nenhuma simulação → 404."""
         with patch(_PATCH_GET_USER_METRICS, return_value=None):
             response = client.get(
-                "/api/v1/architect/metrics", params={"user_id": "novo_user"}
+                "/api/v1/architect/metrics", params={"user_id": TEST_USER_ID}
             )
         assert response.status_code == 404
 
@@ -419,6 +428,6 @@ class TestGetMetricsEndpoint:
             _PATCH_GET_USER_METRICS, side_effect=RuntimeError("DB error")
         ):
             response = client.get(
-                "/api/v1/architect/metrics", params={"user_id": "u1"}
+                "/api/v1/architect/metrics", params={"user_id": TEST_USER_ID}
             )
         assert response.status_code == 500

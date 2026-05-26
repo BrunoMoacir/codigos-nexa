@@ -116,9 +116,9 @@ async def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
     """
     Tenta buscar o safe_to_spend mensal da F1 para o usuário.
 
-    Usa o mesmo padrão do forecast.py: NexaRunner em modo "dev".
-    Em produção, será substituído por query direta ao Postgres
-    com o último resultado de safe_to_spend calculado pela F1.
+    Usa o histórico persistido do próprio usuário. Não chama `run()`, pois
+    esse fluxo cria/busca um item Pluggy/sandbox genérico e não tem escopo
+    por user_id.
 
     Returns:
         safe_to_spend_total (R$/mês) ou None se F1 indisponível.
@@ -126,19 +126,15 @@ async def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
     try:
         from app.runner import get_runner  # import tardio para evitar custo no startup
 
-        import os
-        from app.core.config import settings
-
         logger.info("architect | user=%s | buscando safe_to_spend da F1", user_id)
 
-        mode = "prod" if os.getenv("APP_MODE", "dev") == "prod" else "dev"
-        if mode == "prod" and (not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET):
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
+        result = get_runner().run_from_db(user_id=user_id, horizon_days=30)
+        if not result or result.get("status") != "success":
+            logger.warning(
+                "architect | user=%s | safe_to_spend indisponível no histórico do usuário",
+                user_id,
             )
-
-        result = get_runner(mode).run(horizon_days=30)
+            return None
 
         sts = result.get("safe_to_spend", {})
         value = sts.get("safe_to_spend_total")

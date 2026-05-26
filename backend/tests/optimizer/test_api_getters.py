@@ -1,11 +1,14 @@
 import pytest
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
+from app.core.security import get_current_user, require_owner
 from app.optimizer.router import router as optimizer_router
 from app.optimizer.models import OptimizationRequest
 
 app = FastAPI()
 app.include_router(optimizer_router)
+app.dependency_overrides[get_current_user] = lambda: "user_empty"
+app.dependency_overrides[require_owner] = lambda: "user_empty"
 client = TestClient(app)
 
 def test_health_check_endpoint():

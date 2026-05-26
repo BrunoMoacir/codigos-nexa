@@ -148,15 +148,29 @@ class BaseConnector(ABC):
 
     # ── API pública ───────────────────────────────────────────────────────
 
+    def fetch_rates_secondary(self) -> Optional[Dict[str, float]]:
+        """
+        Fonte secundária de dados — chamada quando fetch_rates() falha.
+
+        Subclasses devem sobrescrever para fornecer uma fonte alternativa
+        (ex: IBGE para IPCA, derivação de outra taxa para CDI).
+        Retornar None indica "sem fonte secundária disponível".
+
+        Returns:
+            Dict de {nome_taxa: valor_decimal} ou None.
+        """
+        return None
+
     def get_rates(self) -> Dict[str, float]:
         """
-        Retorna taxas com cache automático e fallback em caso de falha.
+        Retorna taxas com cache automático e cadeia de fallback em 3 níveis.
 
         Fluxo:
             1. Cache válido → retorna imediatamente
             2. fetch_rates() bem-sucedido → cacheia por cache_ttl_seconds e retorna
-            3. Qualquer exceção → loga aviso, cacheia fallback por
-               fallback_cache_ttl_seconds e retorna get_fallback_rates()
+            3. fetch_rates_secondary() bem-sucedido → cacheia por fallback_cache_ttl e retorna
+            4. Ambas falharam → loga aviso, cacheia hardcoded por fallback_cache_ttl
+               e retorna get_fallback_rates()
 
         Returns:
             Dict de {nome_taxa: valor_decimal} — sempre retorna algo válido.
@@ -172,27 +186,52 @@ class BaseConnector(ABC):
         if cached is not None:
             return cached
 
+        # Nível 1: fonte primária
         try:
             rates = self.fetch_rates()
             self._set_cache(cache_key, rates)
             logger.debug(
-                "[%s] Taxas atualizadas via API: %s",
+                "[%s] Taxas atualizadas via API primária: %s",
                 self.__class__.__name__,
                 list(rates.keys()),
             )
             return rates
         except Exception as exc:
             logger.warning(
-                "[%s] Falha ao buscar taxas (%s: %s). "
-                "Usando fallback por %ds.",
+                "[%s] Fonte primária falhou (%s: %s). Tentando fonte secundária.",
                 self.__class__.__name__,
                 type(exc).__name__,
                 exc,
-                self.fallback_cache_ttl,
             )
-            fallback = self.get_fallback_rates()
-            self._set_cache(cache_key, fallback, ttl_seconds=self.fallback_cache_ttl)
-            return fallback
+
+        # Nível 2: fonte secundária (implementada pela subclasse)
+        try:
+            secondary = self.fetch_rates_secondary()
+            if secondary is not None:
+                self._set_cache(cache_key, secondary, ttl_seconds=self.fallback_cache_ttl)
+                logger.info(
+                    "[%s] Taxas obtidas via fonte secundária: %s",
+                    self.__class__.__name__,
+                    list(secondary.keys()),
+                )
+                return secondary
+        except Exception as exc2:
+            logger.warning(
+                "[%s] Fonte secundária também falhou (%s: %s). Usando hardcoded.",
+                self.__class__.__name__,
+                type(exc2).__name__,
+                exc2,
+            )
+
+        # Nível 3: fallback hardcoded
+        logger.warning(
+            "[%s] Todas as fontes falharam. Usando valores hardcoded por %ds.",
+            self.__class__.__name__,
+            self.fallback_cache_ttl,
+        )
+        fallback = self.get_fallback_rates()
+        self._set_cache(cache_key, fallback, ttl_seconds=self.fallback_cache_ttl)
+        return fallback
 
     def invalidate_cache(self) -> None:
         """Limpa o cache, forçando re-fetch na próxima chamada."""

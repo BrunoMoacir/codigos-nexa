@@ -115,6 +115,26 @@ class AnbimaConnector(BaseConnector):
 
         return {"cdi_annual": round(cdi_annual, 6)}
 
+    def fetch_rates_secondary(self) -> Dict[str, float]:
+        """
+        Fonte secundária: deriva CDI a partir da SELIC meta (CDI ≈ SELIC − 0,10%).
+
+        Não depende da série 12 estar disponível — usa BacenConnector que tem
+        sua própria cadeia de fallback.
+        """
+        from app.architect.connectors.bacen import BacenConnector
+        selic = BacenConnector(
+            cache_ttl_seconds=self.cache_ttl,
+            timeout_seconds=self.timeout,
+            fallback_cache_ttl_seconds=self.fallback_cache_ttl,
+        ).get_selic()
+        cdi_annual = round(max(selic - 0.001, 0.0), 6)
+        logger.info(
+            "[AnbimaConnector] CDI derivado da SELIC: SELIC=%.4f → CDI=%.4f",
+            selic, cdi_annual,
+        )
+        return {"cdi_annual": cdi_annual}
+
     def get_fallback_rates(self) -> Dict[str, float]:
         """
         Retorna CDI hardcoded como fallback quando a API falha.
