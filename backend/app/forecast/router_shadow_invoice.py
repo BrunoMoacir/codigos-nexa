@@ -30,9 +30,10 @@ Retornar ShadowInvoiceListResponse
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
+import polars as pl
 from fastapi import APIRouter, HTTPException, status, Depends
 from app.core.security import require_owner
 
@@ -168,17 +169,22 @@ async def get_shadow_invoices(
         installments_count = 0
 
         if hasattr(shadow_data, "filter") and not shadow_data.is_empty():
-            import polars as pl
-            
             for row in shadow_data.to_dicts():
+                metadata = row.get("metadata") or {}
+                description = metadata.get("description", "Desconhecido")
+                next_due_date = row.get("next_due_date")
+                if isinstance(next_due_date, date) and not isinstance(next_due_date, datetime):
+                    next_due_date = datetime.combine(next_due_date, datetime.min.time(), tzinfo=timezone.utc)
                 invoices_list.append({
                     "id": f"shadow_{row.get('type', 'unknown').lower()}_{len(invoices_list)}",
-                    "date": str(row.get("next_due_date", "")),
-                    "merchant": (row.get("metadata") or {}).get("description", "Desconhecido").upper(),
+                    "next_due_date": next_due_date,
+                    "merchant": description.upper(),
+                    "description": description,
                     "amount": round(float(row.get("amount", 0)), 2),
-                    "type": row.get("type", "unknown").lower(),
+                    "type": str(row.get("type", "unknown")).upper(),
                     "origin": "recurring_pattern",
-                    "confidence": round(float(row.get("confidence", 0)), 2)
+                    "confidence": round(float(row.get("confidence", 0)), 2),
+                    "occurrences": metadata.get("occurrences"),
                 })
 
             total_count = shadow_data.height
@@ -208,14 +214,18 @@ async def get_shadow_invoices(
 
                 subs_rows = q.fetchall()
                 for row in subs_rows:
-                    name, amt, next_billing, status, cycle = row[0], row[1], row[2], row[3], row[4]
-                    if status == 'active' and (cycle is None or (isinstance(cycle, str) and cycle.lower() == 'monthly')):
+                    name, amt, next_billing, row_status, cycle = row[0], row[1], row[2], row[3], row[4]
+                    if row_status == 'active' and (cycle is None or (isinstance(cycle, str) and cycle.lower() == 'monthly')):
+                        due_date = next_billing
+                        if isinstance(due_date, date) and not isinstance(due_date, datetime):
+                            due_date = datetime.combine(due_date, datetime.min.time(), tzinfo=timezone.utc)
                         invoices_list.append({
                             "id": f"sub_tbl_{len(invoices_list)}",
-                            "date": str(next_billing) if next_billing else None,
+                            "next_due_date": due_date,
                             "merchant": (name or "Desconhecido").upper(),
+                            "description": name or "Desconhecido",
                             "amount": -abs(float(amt or 0.0)),
-                            "type": "subscription",
+                            "type": "SUBSCRIPTION",
                             "origin": "subscriptions_table",
                             "confidence": 1.0,
                         })
@@ -323,8 +333,8 @@ async def get_shadow_invoice_summary(user_id: str = Depends(require_owner)):
                 sub_count_tbl = 0
                 sub_total_tbl = 0.0
                 for r in rows:
-                    amt, status, cycle = r[0], r[1], r[2]
-                    if status == 'active' and (cycle is None or (isinstance(cycle, str) and cycle.lower() == 'monthly')):
+                    amt, row_status, cycle = r[0], r[1], r[2]
+                    if row_status == 'active' and (cycle is None or (isinstance(cycle, str) and cycle.lower() == 'monthly')):
                         sub_count_tbl += 1
                         sub_total_tbl += float(amt or 0.0)
                 # Merge into shadow_data values
