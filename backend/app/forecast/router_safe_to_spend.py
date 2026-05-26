@@ -83,7 +83,9 @@ async def get_safe_to_spend(user_id: str = Depends(require_owner)) -> dict:
     # ── Transformar Safe-to-Spend em limite "Mensal" em vez de "Acumulado"
     # O backend projetor olha pro saldo bancário absoluto. Mas o frontend usa o STS como "Orçamento Mensal".
     # Portanto, reescrevemos o "Total Seguro para Gastar" baseando-nos na Renda - Obrigações Fixas Previstas.
-    monthly_budget_limit = max(0.0, total_income - abs(sts.total_shadow_invoices) - sts.safety_buffer)
+    monthly_budget_limit = getattr(sts, "safe_to_spend_total", 0.0)
+    if total_income > 0:
+        monthly_budget_limit = max(0.0, total_income - abs(sts.total_shadow_invoices) - sts.safety_buffer)
 
     # ── spent_to_date: soma de despesas no mês corrente ───────────────
     today = date.today()
