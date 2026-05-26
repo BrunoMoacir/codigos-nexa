@@ -30,7 +30,15 @@ class PFPJClassifier:
     """
 
     def __init__(self):
+        # Optional ML model (may be None in test/dev environments)
+        self.model = None
         self.fallback_classifier = PFPJFallbackClassifier()
+
+    def _classify_single(self, transaction: dict) -> str:
+        """Classifica uma única transação (usado em testes de performance)."""
+        # If an ML model is available, use it (not implemented here).
+        # Fallback to rule-based classifier for deterministic behavior.
+        return self.fallback_classifier.classify(transaction)
 
     def classify_batch(self, transactions_df: pl.DataFrame) -> pl.DataFrame:
         """

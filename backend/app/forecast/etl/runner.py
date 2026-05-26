@@ -58,11 +58,11 @@ from app.core.db.queries import save_transactions_clean
 from sqlalchemy.orm import Session
 
 def run_etl_pipeline(
-    db: Session,
     transactions_df: pl.DataFrame,
     user_id: str,
     account_id: str | None = None,
-    skip_steps: list[str] | None = None
+    skip_steps: list[str] | None = None,
+    db: Session | None = None,
 ) -> pl.DataFrame:
     """
     Executa pipeline ETL completo com todas as transformações.
@@ -163,9 +163,12 @@ def run_etl_pipeline(
             
             # Classifica batch
             df = pf_pj_classifier.classify_batch(df)
-            
+
             # Aplica user overrides (se disponíveis no banco)
-            df = apply_user_overrides(db, df, user_id)
+            if db is not None:
+                df = apply_user_overrides(db, df, user_id)
+            else:
+                logger.debug("ETL runner: DB não fornecido, pulando apply_user_overrides")
             
             # Log de resultados
             pf_count = len(df.filter(pl.col("pf_pj_label") == "PF")) if "pf_pj_label" in df.columns else 0
