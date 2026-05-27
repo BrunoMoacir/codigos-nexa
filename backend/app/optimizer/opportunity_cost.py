@@ -17,11 +17,13 @@ INTEGRAÇÃO:
     - O agente usa na strategy_text: "Você está deixando de ganhar R$ X/mês..."
 
 LIMITAÇÕES CONHECIDAS:
-    - Recompensas calculadas com taxa flat (sem distinção de categoria).
-      A M2.5 (Cashback por Categoria) expandirá isso com rates por categoria.
     - Cashback cap é tratado como mensal (conforme CardRecord.cashback_cap).
     - Anuidade não é subtraída aqui — foco é em reward bruto.
       O ROI líquido (reward - annuity) é responsabilidade da M2.4.
+
+M2.5: Para cartões com cashback_categories, o cálculo usa taxas por categoria
+cruzadas com profile.spend_by_category quando o perfil está disponível.
+O _breakdown_by_category também usa taxas reais por categoria.
 """
 
 from __future__ import annotations
@@ -130,7 +132,12 @@ class OpportunityCostReport:
 # HELPER INTERNO
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def _compute_card_reward(card: CardRecord, total_spend: float, months: int) -> float:
+def _compute_card_reward(
+    card: CardRecord,
+    total_spend: float,
+    months: int,
+    category: str | None = None,
+) -> float:
     """
     Calcula o valor monetário de recompensas para um dado gasto total.
 
@@ -140,10 +147,15 @@ def _compute_card_reward(card: CardRecord, total_spend: float, months: int) -> f
     M2.3: Para cartões POINTS com loyalty_program, usa o cenário "expected"
     do MilesValuator em vez da taxa fixa do CardRecord.
 
+    M2.5: Quando `category` é fornecida e o cartão tem cashback_categories,
+    aplica a taxa específica daquela categoria (com cap_monthly da regra).
+    Se a categoria não tiver regra, cai no cashback_pct flat.
+
     Args:
         card: Cartão a simular
         total_spend: Gasto total no período (R$)
         months: Duração do período — usado para normalizar o cashback_cap mensal
+        category: Categoria de gasto (opcional, para M2.5)
 
     Returns:
         Valor total de recompensas no período (R$)
@@ -165,6 +177,16 @@ def _compute_card_reward(card: CardRecord, total_spend: float, months: int) -> f
         return (points / 1000) * card.points_conversion_rate
 
     if card.card_type in (CardType.CASHBACK, CardType.INVESTBACK):
+        # M2.5: taxa específica por categoria quando disponível
+        if category and card.cashback_categories:
+            category_rules = {r.category: r for r in card.cashback_categories}
+            rule = category_rules.get(category)
+            if rule:
+                value = total_spend * rule.pct
+                if rule.cap_monthly is not None:
+                    value = min(value, rule.cap_monthly * months)
+                return value
+        # Fallback flat
         if card.cashback_pct is None:
             return 0.0
         value = total_spend * card.cashback_pct
@@ -174,6 +196,36 @@ def _compute_card_reward(card: CardRecord, total_spend: float, months: int) -> f
         return value
 
     return 0.0
+
+
+def _compute_total_reward_with_profile(
+    card: CardRecord,
+    profile: "UserProfile",
+    months: int,
+) -> float:
+    """
+    M2.5: Calcula reward total usando spend_by_category do perfil quando disponível.
+
+    Para cartões CASHBACK/INVESTBACK com cashback_categories definidas, soma o
+    retorno por categoria usando as taxas reais da regra. Para cartões POINTS ou
+    sem cashback_categories, usa o gasto total flat (comportamento original).
+    """
+    if (
+        card.card_type in (CardType.CASHBACK, CardType.INVESTBACK)
+        and card.cashback_categories
+        and profile.spend_by_category
+    ):
+        total = 0.0
+        for cat, monthly_avg in profile.spend_by_category.items():
+            cat_spend = monthly_avg * months
+            total += _compute_card_reward(card, cat_spend, months, category=cat)
+        # Cap global do cartão
+        if card.cashback_cap:
+            total = min(total, card.cashback_cap * months)
+        return total
+
+    total_spend = profile.monthly_avg_spend * months
+    return _compute_card_reward(card, total_spend, months)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -229,9 +281,10 @@ class OpportunityCostCalculator:
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # RECOMPENSA DO CARTÃO ATUAL no período
+        # M2.5: usa taxas por categoria quando disponíveis no perfil
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-        current_reward = _compute_card_reward(current_card, total_spend, months)
+        current_reward = _compute_total_reward_with_profile(current_card, profile, months)
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # COMPARAR COM CADA CANDIDATO
@@ -243,7 +296,7 @@ class OpportunityCostCalculator:
             if candidate.card_id == current_card.card_id:
                 continue  # não comparar consigo mesmo
 
-            candidate_reward = _compute_card_reward(candidate, total_spend, months)
+            candidate_reward = _compute_total_reward_with_profile(candidate, profile, months)
             difference = candidate_reward - current_reward
 
             # Só reportar candidatos melhores que o atual
@@ -311,18 +364,11 @@ class OpportunityCostCalculator:
         """
         Diferença de recompensa por categoria de gasto.
 
-        Como os cartões atuais usam taxa flat (sem distinção de categoria),
-        a diferença por categoria é proporcional ao gasto em cada categoria.
-        A M2.5 expandirá isso com rates diferenciados por categoria.
+        M2.5: usa taxas reais por categoria quando disponíveis em cashback_categories.
+        Para cartões sem regra na categoria, aplica cashback_pct flat.
 
-        NOTA — cashback_cap por categoria vs. global:
-            _compute_card_reward aplica cashback_cap independentemente para cada
-            categoria (cap × months por categoria). Isso difere do cálculo global,
-            onde o cap é aplicado ao gasto total do período. Em cartões com cap
-            baixo e gasto concentrado em poucas categorias, a soma dos breakdown
-            pode divergir ligeiramente do valor total reportado no CardOpportunity.
-            Simplificação intencional: o breakdown é orientativo (LLM/UI), não
-            serve como base de cálculo — o valor autoritativo é `difference`.
+        NOTA — o breakdown é orientativo (LLM/UI); o valor autoritativo é `difference`
+        calculado por _compute_total_reward_with_profile.
         """
         breakdown: dict[str, float] = {}
 
@@ -331,8 +377,8 @@ class OpportunityCostCalculator:
                 continue
 
             cat_spend = monthly_avg * months
-            current_cat  = _compute_card_reward(current_card, cat_spend, months)
-            candidate_cat = _compute_card_reward(candidate, cat_spend, months)
+            current_cat = _compute_card_reward(current_card, cat_spend, months, category=category)
+            candidate_cat = _compute_card_reward(candidate, cat_spend, months, category=category)
             diff = candidate_cat - current_cat
 
             if abs(diff) > 0.01:  # filtrar diferenças negligenciáveis

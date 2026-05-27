@@ -11,10 +11,8 @@ ALGORITMO (greedy por categoria):
   4. Remove cartões com gasto direcionado < threshold mínimo
   5. Calcula retorno total e compara vs melhor cartão único
 
-NOTA M2.5: cashback_categories em CardRecord é atualmente list[str] (nomes de
-categorias, sem percentual). Para categorias especiais do cartão usamos um
-multiplicador aproximado (1.5×). Quando M2.5 for implementado e cashback_categories
-passar a incluir percentuais por categoria, basta atualizar _return_for_category().
+M2.5: cashback_categories é list[CashbackCategoryRule] com pct e cap_monthly por
+categoria. _return_for_category usa as taxas reais; o fallback é cashback_pct flat.
 """
 
 from __future__ import annotations
@@ -37,9 +35,6 @@ logger = logging.getLogger(__name__)
 # Abaixo disso, o cartão é descartado e suas categorias são reatribuídas.
 _MIN_DIRECTED_SPEND_MONTHLY = 200.0
 
-# Multiplicador de retorno para categorias listadas em cashback_categories do cartão.
-# Representa o benefício de categorias especiais até M2.5 implementar pct por categoria.
-_CATEGORY_BONUS_MULTIPLIER = 1.5
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -254,17 +249,21 @@ class MultiCardStrategist:
             return (points / 1000) * card.points_conversion_rate
 
         if card.card_type in (CardType.CASHBACK, CardType.INVESTBACK):
+            # M2.5: usar taxa real da categoria quando disponível
+            if category and card.cashback_categories:
+                category_rules = {r.category: r for r in card.cashback_categories}
+                rule = category_rules.get(category)
+                if rule:
+                    value = monthly_spend * rule.pct
+                    if rule.cap_monthly is not None:
+                        value = min(value, rule.cap_monthly)
+                    return value
+            # Fallback: taxa flat
             if card.cashback_pct is None:
                 return 0.0
-            # Bonus para categorias com taxa diferenciada (M2.5 refinará com pct real)
-            multiplier = (
-                _CATEGORY_BONUS_MULTIPLIER
-                if category and category in card.cashback_categories
-                else 1.0
-            )
-            value = monthly_spend * card.cashback_pct * multiplier
+            value = monthly_spend * card.cashback_pct
             if card.cashback_cap:
-                value = min(value, card.cashback_cap)  # cap mensal
+                value = min(value, card.cashback_cap)
             return value
 
         return 0.0
@@ -291,14 +290,12 @@ class MultiCardStrategist:
                 best_return = ret
                 best_card = card
 
-                if card.card_type == CardType.CASHBACK:
-                    pct = (card.cashback_pct or 0) * 100
-                    is_special = category in card.cashback_categories
-                    label = f"{pct * _CATEGORY_BONUS_MULTIPLIER:.1f}%" if is_special else f"{pct:.1f}%"
-                    best_reason = f"Melhor cashback em {category} ({label})"
-                elif card.card_type == CardType.INVESTBACK:
-                    pct = (card.cashback_pct or 0) * 100
-                    best_reason = f"Melhor investback em {category} ({pct:.1f}%)"
+                if card.card_type in (CardType.CASHBACK, CardType.INVESTBACK):
+                    category_rules = {r.category: r for r in card.cashback_categories}
+                    rule = category_rules.get(category)
+                    pct_used = (rule.pct * 100) if rule else ((card.cashback_pct or 0) * 100)
+                    label_type = "cashback" if card.card_type == CardType.CASHBACK else "investback"
+                    best_reason = f"Melhor {label_type} em {category} ({pct_used:.1f}%)"
                 else:  # POINTS
                     best_reason = (
                         f"Melhor retorno em {category} "
