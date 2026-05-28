@@ -19,6 +19,8 @@ from app.optimizer.promotion_tracker import PromotionTracker
 from app.optimizer.queries import get_optimization_report_by_id, get_optimization_reports
 from app.optimizer.services.optimizer_service import OptimizerService
 from app.optimizer.simulator import CardSimulator
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/optimizer", tags=["Optimizer (F2)"])
@@ -86,8 +88,31 @@ async def analyze_cards(
             transactions_df=transactions_df,
             shadow_invoices_df=shadow_invoices_df,
         )
-        
-        return report
+
+        # Construir dicionário serializável e adicionar campos legados
+        try:
+            resp = report.model_dump()
+        except Exception:
+            # Caso report já seja dict
+            resp = dict(report)
+        try:
+            resp["recommended_cards"] = [c.card_id for c in (report.all_cards or [])][:3]
+        except Exception:
+            resp["recommended_cards"] = []
+        # Estimate a lightweight confidence_score for backward compatibility
+        try:
+            conf = 0.5
+            if resp.get("all_cards") and len(resp.get("all_cards", [])) >= 3:
+                conf += 0.2
+            if "pluggy" in resp.get("data_sources", []):
+                conf += 0.1
+            if resp.get("user_profile_summary", {}).get("monthly_avg_spend", 0) > 0:
+                conf += 0.1
+            resp["confidence_score"] = round(min(1.0, conf), 2)
+        except Exception:
+            resp["confidence_score"] = 0.5
+
+        return JSONResponse(content=jsonable_encoder(resp))
 
     except ValueError as ve:
         logger.error("[API] Erro de validação na otimização: %s", ve)
