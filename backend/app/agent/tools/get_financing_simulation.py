@@ -138,6 +138,7 @@ def _build_request(
         financing_months=months,
         risk_profile=risk_enum,
         include_consortium=True,
+        fast_mode=True,
     )
     if expected_rental_income and expected_rental_income > 0 and asset_enum == AssetType.IMOVEL:
         req_kwargs["expected_rental_income"] = expected_rental_income

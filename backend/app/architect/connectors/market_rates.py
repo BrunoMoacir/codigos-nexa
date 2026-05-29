@@ -146,8 +146,12 @@ class MarketRatesConnector(BaseConnector):
                 data = resp.json()
                 if not data or "valor" not in data[0]:
                     raise ConnectorError(f"BCB série {serie_id}: resposta inesperada {data}")
-                # BCB retorna percentual anual (ex: "14.83") — converte para decimal
-                avg_by_serie[serie_id] = float(data[0]["valor"]) / 100.0
+                # Séries BCB 25497/25501/20722 retornam % a.m. (ex: "1.12" = 1.12%/mês).
+                # Valores < 5% são mensais — converter para taxa anual equivalente.
+                rate = float(data[0]["valor"]) / 100.0
+                if rate < 0.05:
+                    rate = (1 + rate) ** 12 - 1
+                avg_by_serie[serie_id] = rate
                 logger.debug("BCB série %d: %.4f a.a.", serie_id, avg_by_serie[serie_id])
             except (httpx.HTTPError, ValueError, KeyError, IndexError) as exc:
                 raise ConnectorError(
@@ -163,6 +167,14 @@ class MarketRatesConnector(BaseConnector):
             rates[f"cet_{asset_type}_avg"] = round(avg, 4)
             rates[f"cet_{asset_type}_min"] = round(avg * (1 - spread_min), 4)
             rates[f"cet_{asset_type}_max"] = round(avg * (1 + spread_max), 4)
+
+        # Validar invariante: CET imóvel (garantia real) < CET veículo (bem depreciativo).
+        # Se violado, a série BCB retornou produto subsidiado atípico — usar fonte secundária.
+        if rates.get("cet_IMOVEL_min", 0) >= rates.get("cet_VEICULO_min", 1):
+            raise ConnectorError(
+                f"Invariante econômica violada: CET imóvel ({rates['cet_IMOVEL_min']:.4f}) "
+                f">= CET veículo ({rates['cet_VEICULO_min']:.4f}). Série BCB inconsistente."
+            )
 
         logger.info(
             "MarketRatesConnector: taxas atualizadas via BCB — IMOVEL avg=%.2f%% VEICULO avg=%.2f%%",
@@ -227,8 +239,8 @@ class MarketRatesConnector(BaseConnector):
             Dict plano com cet_{ASSET_TYPE}_{min|avg|max}
         """
         return {
-            # Imóvel — SFH/SFI (CAIXA, BB, Itaú, Bradesco) — SELIC 13.25% + spread 150-300bps
-            "cet_IMOVEL_min": 0.1475,
+            # Imóvel — SFH/SFI (CAIXA, BB, Itaú, Bradesco) — SELIC 14.75% + spread mínimo 15bps
+            "cet_IMOVEL_min": 0.1490,
             "cet_IMOVEL_avg": 0.1525,
             "cet_IMOVEL_max": 0.1625,
             # Veículo — CDC, consórcio, leasing
