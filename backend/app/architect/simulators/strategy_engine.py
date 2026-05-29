@@ -46,6 +46,12 @@ from app.architect.calculators import npv as npv_calc
 from app.architect.calculators import consortium as cons_calc
 from app.architect.connectors.consortium_rate_provider import ConsortiumRateProvider
 from app.architect.connectors.ipca import deflate as ipca_deflate
+from app.architect.simulators.action_plan_builder import generate_action_plan
+from app.architect.simulators.cost_adjuster import compute_maintenance_cost
+from app.architect.simulators.strategy_selector import (
+    apply_risk_profile_adjustment,
+    pick_efficient_strategy,
+)
 from app.architect.utils.formatters import format_currency
 
 logger = logging.getLogger(__name__)
@@ -245,7 +251,7 @@ class StrategyEngine:
             else:
                 maintenance_cost_annual = 1000.0
 
-            fin_maint = self._compute_maintenance_cost(
+            fin_maint = compute_maintenance_cost(
                 request.asset_type, request.target_amount, request.financing_months
             )
             _add_cost_to_result(fin_result, fin_maint)
@@ -253,7 +259,7 @@ class StrategyEngine:
 
             cons_maint = 0.0
             if cons_result:
-                cons_maint = self._compute_maintenance_cost(
+                cons_maint = compute_maintenance_cost(
                     request.asset_type, request.target_amount, cons_result["months"]
                 )
                 _add_cost_to_result(cons_result, cons_maint)
@@ -348,7 +354,7 @@ class StrategyEngine:
                 best_strategy = ssd_winner
 
         # ── 3.5. Ajuste por perfil de risco ─────────────────────────
-        best_strategy, profile_warnings = self._apply_risk_profile_adjustment(
+        best_strategy, profile_warnings = apply_risk_profile_adjustment(
             request, best_strategy, strategies
         )
         profile_warnings.extend(ownership_warnings)
@@ -447,7 +453,7 @@ class StrategyEngine:
             )
 
         # Action Plan
-        action_plan = self._generate_action_plan(
+        action_plan = generate_action_plan(
             final_strategy, selected, request
         )
 
@@ -530,7 +536,7 @@ class StrategyEngine:
         if comp5_result:
             all_results[StrategyType.CONSORTIUM_SELIC_RENTAL] = comp5_result
 
-        efficient_strategy = self._pick_efficient_strategy(
+        efficient_strategy = pick_efficient_strategy(
             request, all_results, final_strategy
         )
 
@@ -812,25 +818,6 @@ class StrategyEngine:
             readiness_flag=readiness_flag,
             rationale=rationale,
         )
-
-    @staticmethod
-    def _compute_maintenance_cost(
-        asset_type: AssetType, target_amount: float, months: int
-    ) -> float:
-        """
-        Custo total de manutenção ao longo do período de posse (R$).
-
-        IMOVEL  → 1% do valor do imóvel por ano (reparos, pequenos consertos).
-        VEICULO → R$ 1.000/ano (revisões, pneus, imprevistos).
-        Outros  → 0.
-        """
-        if asset_type == AssetType.IMOVEL:
-            annual = target_amount * 0.01
-        elif asset_type == AssetType.VEICULO:
-            annual = 1000.0
-        else:
-            return 0.0
-        return round(annual * (months / 12), 2)
 
     def _find_break_even_cet(
         self, req: SimulationRequest, rates: Dict[str, float], npv_inv: float
