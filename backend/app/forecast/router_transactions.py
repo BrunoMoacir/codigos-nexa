@@ -208,7 +208,7 @@ async def receive_transaction_webhook(
 @router.get("/{user_id}", status_code=status.HTTP_200_OK)
 @cache_response(prefix="transactions", ttl=300)
 async def get_user_transactions(
-    user_id: str,
+    user_id: str = Depends(__import__('app.core.security', fromlist=['require_owner']).require_owner),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     category: Optional[str] = Query(default=None),
