@@ -269,13 +269,15 @@ class StrategyEngine:
         # ── 1.7. Simulação macroeconômica (VAR-1) antecipada para SSD ────
         # Rodamos antes da comparação para que a dominância estocástica
         # possa influenciar a escolha, em vez de apenas enriquecer o output.
-        macro_sim = self._run_macro_simulation(
-            request=request,
-            market_rates=market_rates,
-            fin_result=fin_result,
-            inv_result=inv_result,
-            cons_result=cons_result,
-        )
+        macro_sim = None
+        if request.include_macro:
+            macro_sim = self._run_macro_simulation(
+                request=request,
+                market_rates=market_rates,
+                fin_result=fin_result,
+                inv_result=inv_result,
+                cons_result=cons_result,
+            )
 
         # ── 2. Comparar NPVs ────────────────────────────────────────
         npv_fin = _safe_float(fin_result["npv"])
@@ -306,8 +308,12 @@ class StrategyEngine:
         npv_inv_for_comparison = npv_inv - foregone_rental_pv
 
         # ── 2.8. Break-even rate: CET onde FINANCING == SAVE_INVEST ────
-        break_even_cet   = self._find_break_even_cet(request, market_rates, npv_inv)
-        breakeven_dist   = self._compute_breakeven_surface(request, market_rates)
+        break_even_cet = self._find_break_even_cet(request, market_rates, npv_inv)
+        breakeven_dist = (
+            self._compute_breakeven_surface(request, market_rates)
+            if request.include_breakeven_distribution
+            else None
+        )
 
         # ── 3. Decisão: maior NPV = menor custo presente ────────────
         strategies: Dict[StrategyType, float] = {

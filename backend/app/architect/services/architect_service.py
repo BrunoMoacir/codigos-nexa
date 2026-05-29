@@ -198,13 +198,17 @@ class ArchitectService:
         # LLMReasoner age como analista sênior: verifica inconsistências entre
         # perfil e recomendação, sugere ajuste de parâmetros (override_params)
         # e gera narrativa contextualizada em 3 parágrafos.
-        # Retorna (None, base_response) quando LLM não está configurado ou falha.
-        llm_result, base_response = self._llm_reasoner.reason(
-            request=request,
-            base_response=base_response,
-            market_rates=market_rates,
-            rerun_fn=lambda req: self._engine.simulate(req, market_rates),
-        )
+        # Retorna (None, base_response) quando LLM não está configurado, falha
+        # ou include_llm_reasoning=False.
+        if request.include_llm_reasoning:
+            llm_result, base_response = self._llm_reasoner.reason(
+                request=request,
+                base_response=base_response,
+                market_rates=market_rates,
+                rerun_fn=lambda req: self._engine.simulate(req, market_rates),
+            )
+        else:
+            llm_result = None
         _MAX_FLAG_LEN = 200
         if llm_result is not None and llm_result.consistency.flags:
             accumulated_warnings.extend(
