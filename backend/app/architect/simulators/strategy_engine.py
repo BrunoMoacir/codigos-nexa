@@ -46,6 +46,12 @@ from app.architect.calculators import npv as npv_calc
 from app.architect.calculators import consortium as cons_calc
 from app.architect.connectors.consortium_rate_provider import ConsortiumRateProvider
 from app.architect.connectors.ipca import deflate as ipca_deflate
+from app.architect.simulators.action_plan_builder import generate_action_plan
+from app.architect.simulators.cost_adjuster import compute_maintenance_cost
+from app.architect.simulators.strategy_selector import (
+    apply_risk_profile_adjustment,
+    pick_efficient_strategy,
+)
 from app.architect.utils.formatters import format_currency
 
 logger = logging.getLogger(__name__)
@@ -245,7 +251,7 @@ class StrategyEngine:
             else:
                 maintenance_cost_annual = 1000.0
 
-            fin_maint = self._compute_maintenance_cost(
+            fin_maint = compute_maintenance_cost(
                 request.asset_type, request.target_amount, request.financing_months
             )
             _add_cost_to_result(fin_result, fin_maint)
@@ -253,7 +259,7 @@ class StrategyEngine:
 
             cons_maint = 0.0
             if cons_result:
-                cons_maint = self._compute_maintenance_cost(
+                cons_maint = compute_maintenance_cost(
                     request.asset_type, request.target_amount, cons_result["months"]
                 )
                 _add_cost_to_result(cons_result, cons_maint)
@@ -348,7 +354,7 @@ class StrategyEngine:
                 best_strategy = ssd_winner
 
         # ── 3.5. Ajuste por perfil de risco ─────────────────────────
-        best_strategy, profile_warnings = self._apply_risk_profile_adjustment(
+        best_strategy, profile_warnings = apply_risk_profile_adjustment(
             request, best_strategy, strategies
         )
         profile_warnings.extend(ownership_warnings)
@@ -447,7 +453,7 @@ class StrategyEngine:
             )
 
         # Action Plan
-        action_plan = self._generate_action_plan(
+        action_plan = generate_action_plan(
             final_strategy, selected, request
         )
 
@@ -530,7 +536,7 @@ class StrategyEngine:
         if comp5_result:
             all_results[StrategyType.CONSORTIUM_SELIC_RENTAL] = comp5_result
 
-        efficient_strategy = self._pick_efficient_strategy(
+        efficient_strategy = pick_efficient_strategy(
             request, all_results, final_strategy
         )
 
@@ -623,214 +629,6 @@ class StrategyEngine:
             "months": 1,  # Aquisição imediata (ge=1 no model)
             "cashflows": cashflows,  # Preservado para estratégias compostas
         }
-
-    def _pick_efficient_strategy(
-        self,
-        request: SimulationRequest,
-        results: Dict[StrategyType, Dict[str, Any]],
-        financial_winner: StrategyType,
-    ) -> Optional[EfficiencyAnalysis]:
-        """
-        Seleciona a estratégia com melhor equilíbrio custo × velocidade × orçamento.
-
-        Score (0.0–1.0):
-          40% → capital_loss: extra pago além do valor do bem (juros/taxas)
-          35% → speed: meses até a posse
-          25% → budget: parcela / orçamento mensal
-
-        Retorna None quando a estratégia eficiente coincide com financial_winner.
-        """
-        if not results:
-            return None
-
-        budget = request.max_monthly_budget or 0.0
-
-        # Estratégias de aquisição real (excluir SAVE_INVEST — ele não "adquire" o bem)
-        # A eficiência compara alternativas que entregam o bem, não a opção de esperar.
-        acquisition_types = {
-            StrategyType.FINANCING,
-            StrategyType.CONSORTIUM,
-            StrategyType.FINANCING_RENTAL,
-            StrategyType.CONSORTIUM_SELIC_RENTAL,
-        }
-        candidates = {
-            stype: r for stype, r in results.items()
-            if stype in acquisition_types
-        }
-
-        if not candidates:
-            return None
-
-        # Excluir estratégias com parcela > 120% do orçamento (inviáveis na prática)
-        if budget > 0:
-            candidates = {
-                stype: r for stype, r in candidates.items()
-                if float(r.get("monthly_payment", 0.0)) <= budget * 1.20
-            }
-
-        if not candidates:
-            return None
-
-        all_months = [max(1, r.get("months", 1)) for r in candidates.values()]
-        max_months = max(all_months)
-
-        scored: list[tuple[float, StrategyType, Dict[str, Any]]] = []
-        for stype, result in candidates.items():
-            target = request.target_amount
-            total_cost = float(result.get("expected_cost", target))
-            monthly = float(result.get("monthly_payment", 0.0))
-            months = max(1, result.get("months", 1))
-
-            # Dimensão 1: perda de capital (40%)
-            total_out = request.down_payment + total_cost
-            capital_loss_raw = max(0.0, (total_out - target) / target)
-            score_capital = 1.0 - min(capital_loss_raw, 1.0)
-
-            # Dimensão 2: velocidade de posse (35%)
-            score_speed = 1.0 - (months - 1) / max(max_months - 1, 1)
-            score_speed = max(0.0, score_speed)
-
-            # Dimensão 3: impacto no orçamento (25%)
-            if budget > 0:
-                budget_ratio = monthly / budget
-            else:
-                budget_ratio = 0.5  # neutro sem info de orçamento
-            score_budget = 1.0 - min(budget_ratio, 1.0)
-
-            score = round(0.40 * score_capital + 0.35 * score_speed + 0.25 * score_budget, 4)
-            scored.append((score, stype, result))
-
-        if not scored:
-            return None
-
-        scored.sort(key=lambda x: x[0], reverse=True)
-        best_score, best_type, best_result = scored[0]
-
-        # Só retorna se difere da recomendação financeira
-        if best_type == financial_winner:
-            return None
-
-        target = request.target_amount
-        total_cost = float(best_result.get("expected_cost", target))
-        monthly = float(best_result.get("monthly_payment", 0.0))
-        months = max(1, best_result.get("months", 1))
-        # Capital loss = dinheiro total pago (entrada + parcelas) - valor do bem
-        total_out_of_pocket = request.down_payment + total_cost
-        capital_loss_pct = round(max(0.0, (total_out_of_pocket - target) / target) * 100, 1)
-        budget_commitment_pct = round((monthly / budget * 100) if budget > 0 else 0.0, 1)
-
-        # ── Readiness: limiares interpolados pelo risk_score (ou fallback por enum) ──
-        rp = request.risk_profile
-        rs = request.risk_score
-        if rs is not None:
-            # Interpolação linear contínua entre extremos conservador (rs=0) e arrojado (rs=1).
-            # Elimina o salto discreto CONSERVADOR→MODERADO→AGRESSIVO.
-            ready_budget = 25.0 + rs * 25.0   # 25% (rs=0) → 50% (rs=1)
-            warn_budget  = 40.0 + rs * 35.0   # 40%        → 75%
-            ready_loss   = 50.0 + rs * 50.0   # 50%        → 100%
-            warn_loss    = 80.0 + rs * 70.0   # 80%        → 150%
-            profile_label = f"score {rs:.2f}"
-        else:
-            if rp == RiskProfile.CONSERVADOR:
-                ready_budget, warn_budget = 25.0, 40.0
-                ready_loss, warn_loss = 50.0, 80.0
-            elif rp == RiskProfile.AGRESSIVO:
-                ready_budget, warn_budget = 50.0, 75.0
-                ready_loss, warn_loss = 100.0, 150.0
-            else:  # MODERADO
-                ready_budget, warn_budget = 35.0, 60.0
-                ready_loss, warn_loss = 80.0, 120.0
-            profile_label = rp.value
-
-        if budget_commitment_pct > warn_budget or capital_loss_pct > warn_loss:
-            readiness_flag = "AGUARDAR"
-        elif budget_commitment_pct > ready_budget or capital_loss_pct > ready_loss:
-            readiness_flag = "ATENCAO"
-        else:
-            readiness_flag = "PRONTO"
-
-        fmt = format_currency
-        strategy_labels = {
-            StrategyType.FINANCING:               "Financiamento",
-            StrategyType.CONSORTIUM:              "Consórcio",
-            StrategyType.SAVE_INVEST:             "Poupar e Investir",
-            StrategyType.FINANCING_RENTAL:        "Financiamento + Aluguel",
-            StrategyType.CONSORTIUM_SELIC_RENTAL: "Consórcio + SELIC + Aluguel",
-        }
-        fin_label = strategy_labels.get(financial_winner, str(financial_winner))
-        eff_label = strategy_labels.get(best_type, str(best_type))
-
-        # Prefixo de timing
-        if readiness_flag == "AGUARDAR":
-            timing_prefix = (
-                f"Ainda não é a hora ideal: a parcela de {fmt(monthly)}/mês representa "
-                f"{budget_commitment_pct:.0f}% do seu orçamento"
-                + (f" e o custo extra é de {capital_loss_pct:.0f}%" if capital_loss_pct > warn_loss else "")
-                + f" — acima do confortável para o perfil {profile_label}. "
-                f"Considere aumentar a entrada ou aguardar mais capacidade de poupança. "
-            )
-        elif readiness_flag == "ATENCAO":
-            timing_prefix = (
-                f"Viável, mas exige disciplina: parcela de {fmt(monthly)}/mês "
-                f"({budget_commitment_pct:.0f}% do orçamento). "
-            )
-        else:
-            timing_prefix = ""
-
-        if best_type == StrategyType.CONSORTIUM:
-            body = (
-                f"O {eff_label} equilibra custo e tempo: {capital_loss_pct:.0f}% de custo extra "
-                f"(taxa de administração), posse em ~{months} meses. "
-                f"Melhor que o {fin_label} em perda de capital."
-            )
-        elif best_type == StrategyType.FINANCING:
-            body = (
-                f"O {eff_label} entrega o bem imediatamente ({capital_loss_pct:.0f}% de juros). "
-                f"Escolha quando tempo importa mais que custo total."
-            )
-        elif best_type in (StrategyType.FINANCING_RENTAL, StrategyType.CONSORTIUM_SELIC_RENTAL):
-            body = (
-                f"O {eff_label} usa o aluguel para reduzir o desembolso real: "
-                f"posse em ~{months} meses, {capital_loss_pct:.0f}% de custo líquido extra."
-            )
-        else:
-            body = (
-                f"O {eff_label} oferece o melhor equilíbrio entre perda de capital "
-                f"({capital_loss_pct:.0f}%), prazo ({months} meses) e parcela ({fmt(monthly)}/mês)."
-            )
-
-        rationale = (timing_prefix + body).strip()
-
-        return EfficiencyAnalysis(
-            strategy_type=best_type,
-            efficiency_score=best_score,
-            capital_loss_pct=capital_loss_pct,
-            months_to_acquire=months,
-            budget_commitment_pct=budget_commitment_pct,
-            monthly_payment=round(monthly, 2),
-            total_cost=round(total_cost, 2),
-            readiness_flag=readiness_flag,
-            rationale=rationale,
-        )
-
-    @staticmethod
-    def _compute_maintenance_cost(
-        asset_type: AssetType, target_amount: float, months: int
-    ) -> float:
-        """
-        Custo total de manutenção ao longo do período de posse (R$).
-
-        IMOVEL  → 1% do valor do imóvel por ano (reparos, pequenos consertos).
-        VEICULO → R$ 1.000/ano (revisões, pneus, imprevistos).
-        Outros  → 0.
-        """
-        if asset_type == AssetType.IMOVEL:
-            annual = target_amount * 0.01
-        elif asset_type == AssetType.VEICULO:
-            annual = 1000.0
-        else:
-            return 0.0
-        return round(annual * (months / 12), 2)
 
     def _find_break_even_cet(
         self, req: SimulationRequest, rates: Dict[str, float], npv_inv: float
@@ -1325,342 +1123,6 @@ class StrategyEngine:
             "narrative": narrative,
             "probability": cons_result["probability"],
         }
-
-    def _generate_action_plan(
-        self,
-        strategy: StrategyType,
-        scenario: Dict[str, Any],
-        req: SimulationRequest,
-    ) -> List[ActionStep]:
-        """Gera passos práticos baseados na estratégia escolhida."""
-        steps: List[ActionStep] = []
-
-        if strategy == StrategyType.FINANCING_RENTAL:
-            steps.append(ActionStep(
-                step=1,
-                action=f"Reunir documentação para financiamento de {req.asset_type.value.lower()} com plano de aluguel",
-                is_critical=True,
-            ))
-            if req.down_payment > 0:
-                steps.append(ActionStep(
-                    step=2,
-                    action=f"Separar entrada de {format_currency(req.down_payment)}",
-                    amount=req.down_payment,
-                    is_critical=True,
-                ))
-            gross = scenario["monthly_payment"]
-            rental = scenario["monthly_rental_income"]
-            net = scenario["monthly_net_cost"]
-            coverage_pct = rental / gross * 100 if gross > 0 else 0
-            if scenario["is_self_sustaining"]:
-                steps.append(ActionStep(
-                    step=len(steps) + 1,
-                    action=(
-                        f"Financiar e imediatamente colocar o imóvel para alugar — "
-                        f"aluguel de {format_currency(rental)}/mês cobre 100% da parcela de "
-                        f"{format_currency(gross)}/mês. Imóvel se paga sozinho."
-                    ),
-                    amount=gross,
-                ))
-            else:
-                steps.append(ActionStep(
-                    step=len(steps) + 1,
-                    action=(
-                        f"Financiar e colocar o imóvel para alugar por {format_currency(rental)}/mês — "
-                        f"cobre {coverage_pct:.0f}% da parcela. "
-                        f"Seu desembolso real: {format_currency(net)}/mês"
-                    ),
-                    amount=net,
-                ))
-            steps.append(ActionStep(
-                step=len(steps) + 1,
-                action=(
-                    f"Custo líquido real da aquisição após {scenario['months']} meses de aluguel: "
-                    f"{format_currency(scenario['net_acquisition_cost'])}"
-                ),
-            ))
-
-        elif strategy == StrategyType.CONSORTIUM_SELIC_RENTAL:
-            selic_m = scenario.get("monthly_selic_contribution", 0.0)
-            rental = scenario["monthly_rental_income"]
-            gross = scenario["monthly_payment"]
-            net = scenario["monthly_net_cost"]
-            steps.append(ActionStep(
-                step=1,
-                action="Aderir ao consórcio e investir a entrada disponível na SELIC enquanto aguarda contemplação",
-                is_critical=True,
-            ))
-            if req.down_payment > 0:
-                steps.append(ActionStep(
-                    step=2,
-                    action=(
-                        f"Aplicar {format_currency(req.down_payment)} em Tesouro Selic — "
-                        f"rende aprox. {format_currency(selic_m)}/mês para complementar o aluguel"
-                    ),
-                    amount=req.down_payment,
-                    is_critical=True,
-                ))
-            if scenario["is_self_sustaining"]:
-                steps.append(ActionStep(
-                    step=len(steps) + 1,
-                    action=(
-                        f"Aluguel ({format_currency(rental)}/mês) + SELIC ({format_currency(selic_m)}/mês) "
-                        f"cobrem 100% das parcelas do consórcio ({format_currency(gross)}/mês) — "
-                        f"operação AUTO-SUSTENTÁVEL sem desembolso mensal"
-                    ),
-                    amount=gross,
-                ))
-            else:
-                steps.append(ActionStep(
-                    step=len(steps) + 1,
-                    action=(
-                        f"Aluguel ({format_currency(rental)}/mês) + SELIC ({format_currency(selic_m)}/mês) "
-                        f"cobrem parcialmente as parcelas ({format_currency(gross)}/mês). "
-                        f"Desembolso real: {format_currency(net)}/mês"
-                    ),
-                    amount=net,
-                ))
-            steps.append(ActionStep(
-                step=len(steps) + 1,
-                action=f"Aguardar contemplação no consórcio (média esperada: {scenario['months']} meses) e usar a carta para comprar o imóvel",
-            ))
-
-        elif strategy == StrategyType.FINANCING:
-            steps.append(
-                ActionStep(
-                    step=1,
-                    action=f"Reunir documentação para financiamento de {req.asset_type.value.lower()}",
-                    is_critical=True,
-                )
-            )
-            if req.down_payment > 0:
-                steps.append(
-                    ActionStep(
-                        step=2,
-                        action=f"Separar entrada de {format_currency(req.down_payment)}",
-                        amount=req.down_payment,
-                        is_critical=True,
-                    )
-                )
-            steps.append(
-                ActionStep(
-                    step=len(steps) + 1,
-                    action=f"Pagar parcelas mensais de aprox. {format_currency(scenario['monthly_payment'])}",
-                    amount=scenario["monthly_payment"],
-                )
-            )
-            if req.asset_type == AssetType.IMOVEL and req.expected_rental_income:
-                rental = req.expected_rental_income
-                payment = scenario["monthly_payment"]
-                coverage = rental / payment * 100 if payment > 0 else 0
-                out_of_pocket = max(payment - rental, 0.0)
-                if rental >= payment:
-                    rental_action = (
-                        f"Alugar o imóvel por {format_currency(rental)}/mês — cobre 100% da parcela "
-                        f"e gera {format_currency(rental - payment)}/mês de renda extra enquanto quita o financiamento"
-                    )
-                else:
-                    rental_action = (
-                        f"Alugar o imóvel por {format_currency(rental)}/mês — cobre {coverage:.0f}% da parcela. "
-                        f"Seu custo real mensal cai para {format_currency(out_of_pocket)}"
-                    )
-                steps.append(
-                    ActionStep(
-                        step=len(steps) + 1,
-                        action=rental_action,
-                        amount=rental,
-                    )
-                )
-
-        elif strategy == StrategyType.CONSORTIUM:
-            steps.append(
-                ActionStep(
-                    step=1,
-                    action="Aderir a um grupo de consórcio em andamento",
-                    is_critical=True,
-                )
-            )
-            if req.down_payment > 0:
-                steps.append(
-                    ActionStep(
-                        step=2,
-                        action=f"Ofertar lance de {format_currency(req.down_payment)} para antecipar contemplação",
-                        amount=req.down_payment,
-                        is_critical=True,
-                    )
-                )
-            steps.append(
-                ActionStep(
-                    step=len(steps) + 1,
-                    action=f"Aguardar contemplação (média esperada: {scenario['months']} meses)",
-                )
-            )
-            if req.asset_type == AssetType.IMOVEL and req.expected_rental_income:
-                rental = req.expected_rental_income
-                payment = scenario["monthly_payment"]
-                coverage = rental / payment * 100 if payment > 0 else 0
-                out_of_pocket = max(payment - rental, 0.0)
-                if rental >= payment:
-                    rental_action = (
-                        f"Após contemplação, colocar o imóvel para alugar por "
-                        f"{format_currency(rental)}/mês — o aluguel cobre 100% da parcela "
-                        f"e ainda gera {format_currency(rental - payment)}/mês de renda extra"
-                    )
-                else:
-                    rental_action = (
-                        f"Após contemplação, colocar o imóvel para alugar por "
-                        f"{format_currency(rental)}/mês — cobre {coverage:.0f}% da parcela. "
-                        f"Seu desembolso real cai para {format_currency(out_of_pocket)}/mês"
-                    )
-                steps.append(
-                    ActionStep(
-                        step=len(steps) + 1,
-                        action=rental_action,
-                        amount=rental,
-                    )
-                )
-
-        else:  # SAVE_INVEST
-            steps.append(
-                ActionStep(
-                    step=1,
-                    action="Abrir conta em corretora de taxa zero para investimentos",
-                    is_critical=True,
-                )
-            )
-            steps.append(
-                ActionStep(
-                    step=2,
-                    action=f"Configurar aplicação automática mensal de {format_currency(scenario['monthly_payment'])} em CDB 100% CDI",
-                    amount=scenario["monthly_payment"],
-                    is_critical=True,
-                )
-            )
-            # M3.1 — Adiciona nota sobre poder de compra real se disponível
-            months_label = scenario.get("months", req.financing_months)
-            fv_real   = scenario.get("fv_real")
-            fv_nominal = scenario.get("fv_nominal")
-            if fv_real and fv_nominal and abs(fv_real - fv_nominal) > 500:
-                inflation_note = (
-                    f" (Em poder de compra de hoje: {format_currency(fv_real)} — "
-                    f"a inflação corroi {format_currency(fv_nominal - fv_real)} do valor nominal.)"
-                )
-            else:
-                inflation_note = ""
-            steps.append(
-                ActionStep(
-                    step=3,
-                    action=f"Resgatar valor total em {months_label} meses para compra à vista{inflation_note}",
-                )
-            )
-
-        return steps
-
-    @staticmethod
-    def _apply_risk_profile_adjustment(
-        request: SimulationRequest,
-        best_strategy: StrategyType,
-        strategies: Dict[StrategyType, float],
-    ) -> tuple[StrategyType, list[str]]:
-        """
-        Ajusta a estratégia recomendada com base no perfil/score de risco.
-
-        Quando risk_score está disponível, usa limiares contínuos:
-          - Perfil "conservador" (score < 0.35):
-              · Veículo: evita FINANCING (bem depreciativo).
-              · Outros: requer vantagem de NPV ≥ min_advantage_pct sobre SAVE_INVEST.
-                min_advantage_pct = 25% × (1 − score/0.35) → suaviza a fronteira.
-          - Perfil "moderado/arrojado" (score ≥ 0.35): sem ajuste, NPV decide.
-
-        Sem risk_score: comportamento legado por enum CONSERVADOR/MODERADO/AGRESSIVO.
-        """
-        rs = request.risk_score
-        is_conservative = (
-            rs < 0.35 if rs is not None
-            else request.risk_profile == RiskProfile.CONSERVADOR
-        )
-
-        if not is_conservative:
-            return best_strategy, []
-
-        if best_strategy not in (
-            StrategyType.FINANCING,
-            StrategyType.FINANCING_RENTAL,
-            StrategyType.CONSORTIUM,
-        ):
-            return best_strategy, []
-
-        warnings: list[str] = []
-        npv_fin  = strategies.get(StrategyType.FINANCING, 0.0)
-        npv_inv  = strategies.get(StrategyType.SAVE_INVEST, float("-inf"))
-        npv_cons = strategies.get(StrategyType.CONSORTIUM)
-
-        # Consórcio: só bloquear para perfis muito conservadores (rs < 0.25).
-        # Entre 0.25 e 0.35 (conservador moderado), consórcio é aceito — sem juros bancários.
-        if best_strategy == StrategyType.CONSORTIUM:
-            is_very_conservative = (
-                rs < 0.25 if rs is not None
-                else request.risk_profile == RiskProfile.CONSERVADOR
-            )
-            if (
-                is_very_conservative
-                and npv_cons is not None
-                and npv_inv != float("-inf")
-            ):
-                abs_diff = abs(npv_inv) - abs(npv_cons)   # positivo = consórcio mais barato
-                ref = abs(npv_inv) if npv_inv != 0 else 1.0
-                advantage_pct = abs_diff / ref
-                if advantage_pct < 0.10:
-                    profile_label = f"score={rs:.2f}" if rs is not None else request.risk_profile.value
-                    warnings.append(
-                        f"Perfil muito conservador ({profile_label}): vantagem do consórcio "
-                        f"sobre Poupar/Investir é de {advantage_pct:.0%} (mínimo: 10%) "
-                        "— preferindo Poupar/Investir para evitar compromisso de longo prazo."
-                    )
-                    return StrategyType.SAVE_INVEST, warnings
-            return best_strategy, warnings
-
-        # Veículo + conservador → nunca financia (bem depreciativo)
-        if request.asset_type == AssetType.VEICULO:
-            if npv_cons is not None and npv_cons > npv_inv:
-                adjusted = StrategyType.CONSORTIUM
-                reason = "consórcio (sem juros bancários)"
-            else:
-                adjusted = StrategyType.SAVE_INVEST
-                reason = "Poupar/Investir (sem endividamento)"
-            profile_label = f"score={rs:.2f}" if rs is not None else request.risk_profile.value
-            warnings.append(
-                f"Perfil conservador ({profile_label}): financiamento de veículo evitado "
-                f"(bem depreciativo — perde ~15-20% ao ano). Recomendado: {reason}."
-            )
-            return adjusted, warnings
-
-        # Outros bens: requer vantagem mínima de NPV sobre SAVE_INVEST.
-        # Com risk_score: limiar suavizado entre 25% (score=0) e 15% (score=0.35).
-        # Sem risk_score: limiar fixo de 20% (comportamento legado).
-        if npv_inv == float("-inf"):
-            return best_strategy, warnings
-
-        if rs is not None:
-            # score=0 → exige 25%; score=0.35 → exige ~15%; interpolação linear
-            min_advantage_pct = 0.25 - rs * (0.10 / 0.35)
-        else:
-            min_advantage_pct = 0.20
-
-        abs_diff = abs(npv_inv) - abs(npv_fin)   # positivo = financing mais barato
-        ref = abs(npv_inv) if npv_inv != 0 else 1.0
-        advantage_pct = abs_diff / ref
-
-        if advantage_pct < min_advantage_pct:
-            profile_label = f"score={rs:.2f}" if rs is not None else request.risk_profile.value
-            warnings.append(
-                f"Perfil conservador ({profile_label}): vantagem do financiamento sobre "
-                f"Poupar/Investir é de {advantage_pct:.0%} (mínimo: {min_advantage_pct:.0%}) "
-                "— preferindo Poupar/Investir para evitar endividamento."
-            )
-            return StrategyType.SAVE_INVEST, warnings
-
-        return best_strategy, warnings
 
     @staticmethod
     def _vehicle_depreciation_warning(

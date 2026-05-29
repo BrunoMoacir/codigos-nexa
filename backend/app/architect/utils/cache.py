@@ -345,7 +345,11 @@ class SimulationCache:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-def make_simulation_key(request_dict: dict, market_rates: dict) -> str:
+def make_simulation_key(
+    request_dict: dict,
+    market_rates: dict,
+    calibration_version: int = 0,
+) -> str:
     """
     Gera uma chave de cache determinística para uma simulação.
 
@@ -354,14 +358,17 @@ def make_simulation_key(request_dict: dict, market_rates: dict) -> str:
     (o mesmo veículo de R$50k terá o mesmo resultado para qualquer usuário).
 
     Args:
-        request_dict: dict de SimulationRequest.model_dump(mode="json")
-        market_rates: dict de taxas de mercado (selic_annual, cdi_annual, ...)
+        request_dict:         dict de SimulationRequest.model_dump(mode="json")
+        market_rates:         dict de taxas de mercado (selic_annual, cdi_annual, ...)
+        calibration_version:  versão atual da CalibrationState — incrementada a cada
+                              recalibração, garante que simulações obsoletas sejam
+                              recalculadas automaticamente.
 
     Returns:
-        String "sim_{32 hex chars}" — segura para uso como nome de arquivo.
+        String "sim_{48 hex chars}" — segura para uso como nome de arquivo.
 
     Example:
-        >>> key = make_simulation_key(req.model_dump(mode="json"), rates)
+        >>> key = make_simulation_key(req.model_dump(mode="json"), rates, cal_version=3)
         >>> cache.get(key)  # None no primeiro acesso
     """
     # Parâmetros que determinam o resultado matemático (subset intencional)
@@ -374,6 +381,11 @@ def make_simulation_key(request_dict: dict, market_rates: dict) -> str:
         "include_consortium": request_dict.get("include_consortium"),
         "risk_profile":       request_dict.get("risk_profile"),
         "asset_type":         request_dict.get("asset_type"),
+        # Flags de execução determinísticas — fast_mode e full_mode têm entradas separadas
+        "include_macro":                  request_dict.get("include_macro", True),
+        "include_breakeven_distribution": request_dict.get("include_breakeven_distribution", True),
+        # Versão da calibração — muda quando RiskScorer ou MC de consórcio recalibra
+        "calibration_version": calibration_version,
     }
 
     # Arredondar taxas em 6 casas para evitar colisões por float impreciso

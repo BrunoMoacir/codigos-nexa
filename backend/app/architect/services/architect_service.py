@@ -49,6 +49,7 @@ from app.architect.models import (
 )
 from app.architect.services.llm_reasoner import LLMReasoner
 from app.architect.simulators.strategy_engine import StrategyEngine
+from app.architect.utils.cache import make_simulation_key, simulation_cache
 from app.architect.validators.input_validator import InputValidator
 from app.architect.validators.liquidity_validator import LiquidityValidator, RiskLevel
 
@@ -190,7 +191,35 @@ class ArchitectService:
             has_open_finance_data = True
 
         # ── 3. Simular estratégias ───────────────────────────────────
-        base_response = self._engine.simulate(request, market_rates)
+        # Cache bypassa quando: (a) Open Finance presente — resultado personalizado
+        # por usuário; (b) LLM habilitado — resposta não-determinística.
+        # Flags determinísticas (include_macro, include_breakeven_distribution)
+        # entram na chave, então fast_mode e full_mode têm entradas separadas.
+        _bypass_cache = (
+            request.open_finance_features is not None
+            or request.include_llm_reasoning
+        )
+        _cache_key: Optional[str] = None
+        if not _bypass_cache:
+            _cache_key = make_simulation_key(
+                request.model_dump(mode="json"),
+                market_rates,
+                calibration_version=cal.get("calibration_version", 0),
+            )
+            _cached = simulation_cache.get(_cache_key)
+            if _cached is not None:
+                logger.debug("simulate | cache HIT key=%.16s…", _cache_key)
+                base_response = SimulationResponse.model_validate(_cached)
+            else:
+                base_response = self._engine.simulate(request, market_rates)
+                simulation_cache.set(
+                    _cache_key,
+                    base_response.model_dump(mode="json"),
+                    l1_ttl=900,    # 15 min L1
+                    l2_ttl=1800,   # 30 min L2
+                )
+        else:
+            base_response = self._engine.simulate(request, market_rates)
         # Preserva warnings gerados pelo engine (perfil de risco, depreciação, etc.)
         accumulated_warnings.extend(base_response.warnings)
 
