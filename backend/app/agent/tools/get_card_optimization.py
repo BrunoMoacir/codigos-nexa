@@ -11,9 +11,10 @@ logger = logging.getLogger(__name__)
 
 @tool
 def get_card_optimization(
-    user_id: str, 
-    monthly_income: Optional[float] = None, 
-    safe_to_spend: Optional[float] = None
+    user_id: str,
+    monthly_income: Optional[float] = None,
+    safe_to_spend: Optional[float] = None,
+    monthly_spend: Optional[float] = None,
 ) -> str:
     """
     Analisa o perfil financeiro do usuário e recomenda o melhor cartão de crédito.
@@ -21,11 +22,14 @@ def get_card_optimization(
     - Qual cartão de crédito deve pedir/solicitar.
     - Como otimizar seus pontos, milhas ou cashback.
     - Se vale a pena pagar anuidade em um cartão específico.
-    
+
     Args:
         user_id: ID do usuário (obrigatório).
-        monthly_income: Renda mensal do usuário (opcional, use se o usuário informar).
-        safe_to_spend: Valor seguro para gastos mensais no cartão (opcional, use se o usuário informar).
+        monthly_income: Renda mensal do usuário em R$ (use se o usuário informar).
+        safe_to_spend: Margem mensal disponível para cartão em R$ (use se o usuário informar).
+        monthly_spend: Gasto mensal total em R$ declarado pelo usuário — use quando o usuário mencionar
+                       quanto gasta por mês (ex: "gasto R$4.000/mês no cartão"). Sobrescreve o histórico
+                       de transações se for maior, garantindo que o perfil real do usuário seja considerado.
     """
     logger.info("[Tool] Chamando get_card_optimization para %s", user_id)
     try:
@@ -75,6 +79,7 @@ def get_card_optimization(
             user_id=user_id,
             monthly_income=monthly_income,
             safe_to_spend=safe_to_spend,
+            monthly_spend=monthly_spend,
             current_cards=[]
         )
         

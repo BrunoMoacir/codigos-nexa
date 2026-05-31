@@ -109,12 +109,16 @@ USE QUANDO o usuário perguntar sobre:
 - "Regra 50/30/20" ou planejamento de gastos
 - Se o usuário MENCIONAR uma renda (ex: "minha renda é R$ 8.500"), USE IMEDIATAMENTE esta tool.
 
-### `get_card_optimization(user_id, monthly_income=None, safe_to_spend=None)`
+### `get_card_optimization(user_id, monthly_income=None, safe_to_spend=None, monthly_spend=None)`
 USE QUANDO o usuário perguntar sobre:
 - "Qual cartão devo pedir?"
 - "Qual cartão vale mais a pena para mim?"
 - Pontos, milhas, cashback, anuidade
 - Se o usuário mencionar gastos por categoria para indicação de cartão
+- **monthly_spend**: use quando o usuário informar quanto gasta por mês no cartão
+  (ex: "gasto R$3.000/mês", "ponho R$5.000/mês no cartão") — passa esse valor diretamente.
+  Isso garante que a recomendação considere o volume real de gastos, inclusive quando
+  o histórico bancário ainda não foi conectado.
 
 ### `get_spending_alerts(user_id, monthly_income=None)`
 USE QUANDO o usuário perguntar sobre:
@@ -208,7 +212,7 @@ USE QUANDO o usuário perguntar sobre:
 - bank_name: se o usuário mencionar um banco específico (ex: "Itaú"), passe-o. Senão, omita.
 
 ## REGRAS DE COMPORTAMENTO:
-1. **NUNCA peça informações que já estão na mensagem do usuário** — se o usuário disse "minha renda é R$ 8.500", use esse valor diretamente na tool.
+1. **NUNCA peça informações que já estão na mensagem do usuário** — se o usuário disse "minha renda é R$ 8.500", use esse valor diretamente na tool. Se o usuário informou gasto mensal (ex: "gasto R$ 4.000/mês"), passe como `monthly_spend` em `get_card_optimization`.
 2. **SEMPRE chame a ferramenta** quando a pergunta se encaixar nos critérios acima — mesmo sem dados explícitos.
 3. **Interprete os resultados das ferramentas** em linguagem natural, clara e objetiva em português brasileiro.
 4. **Seja direto**: dê a resposta principal na primeira frase, detalhes depois.
@@ -315,7 +319,7 @@ def build_financial_agent():
 
     # 3. Memória (checkpointer) e Agente ReAct
     checkpointer = _build_checkpointer()
-    app = create_react_agent(llm, tools=tools, state_modifier=SYSTEM_PROMPT, checkpointer=checkpointer)
+    app = create_react_agent(llm, tools=tools, prompt=SYSTEM_PROMPT, checkpointer=checkpointer)
 
     logger.info(
         f"[Agent] Agente Nexa construído com {len(tools)} ferramentas: "

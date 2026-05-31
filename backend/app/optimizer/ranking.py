@@ -131,7 +131,9 @@ class CardRanking:
 
         elif cluster == "INVESTIDOR_CAUTELOSO":
             if result.annuity_effective > 500:
-                score *= 0.90
+                # Penaliza só quando o ROI não justifica claramente a anuidade (< 2×)
+                if result.net_gain_expected < result.annuity_effective * 2.0:
+                    score *= 0.90
 
         elif cluster == "FAMILIA_ESTRUTURADA":
             # Famílias valorizam cashback em supermercado, farmácia e saúde
@@ -150,9 +152,10 @@ class CardRanking:
                 score += 80
             elif result.annuity_effective <= 200:
                 score += 30
-            # Penaliza cartões com anuidade alta: custo de oportunidade digital
+            # Penaliza anuidade alta só quando o ROI não justifica (< 2.5×)
             if result.annuity_effective > 500:
-                score *= 0.85
+                if result.net_gain_expected < result.annuity_effective * 2.5:
+                    score *= 0.85
 
         elif cluster == "MICROEMPREENDEDOR":
             # MEI precisa de cartão sem anuidade ou com isenção fácil — renda PJ irregular
@@ -161,7 +164,9 @@ class CardRanking:
             elif result.annuity_effective <= 200:
                 score += 40
             elif result.annuity_effective > 400:
-                score *= 0.80
+                # Penaliza só quando ROI não compensa (< 2×)
+                if result.net_gain_expected < result.annuity_effective * 2.0:
+                    score *= 0.80
             # Cashback plano é mais previsível para fluxo de caixa irregular
             if BenefitTag.CASHBACK in result.benefit_tags:
                 score += 50
@@ -336,7 +341,11 @@ class CardRanking:
             elif result.annuity_effective <= 300:
                 relevance = 0.65
             else:
-                relevance = 0.3
+                # Anuidade alta: relevância padrão baixa, mas ROI forte eleva
+                if result.net_gain_expected >= result.annuity_effective * 2.0:
+                    relevance = 0.65  # fee claramente justificada
+                else:
+                    relevance = 0.3
 
         elif cluster == "ESTRESSE_FINANCEIRO":
             relevance = 0.9 if result.annuity_effective == 0 else 0.2
@@ -355,7 +364,11 @@ class CardRanking:
             elif result.annuity_effective <= 200 and BenefitTag.CASHBACK in result.benefit_tags:
                 relevance = 0.65
             else:
-                relevance = 0.30
+                # Anuidade alta: relevância baixa, mas ROI muito forte eleva
+                if result.net_gain_expected >= result.annuity_effective * 2.5:
+                    relevance = 0.60
+                else:
+                    relevance = 0.30
 
         elif cluster == "MICROEMPREENDEDOR":
             # MEI prioriza: sem anuidade > cashback plano > anuidade baixa
@@ -368,7 +381,21 @@ class CardRanking:
             elif result.annuity_effective <= 200:
                 relevance = 0.50
             else:
-                relevance = 0.20
+                if result.net_gain_expected >= result.annuity_effective * 2.0:
+                    relevance = 0.55
+                else:
+                    relevance = 0.20
+
+        # Override global: gasto real de viagem eleva floor de relevância para cartões de viagem
+        # Garante que viajantes frequentes recebam recomendações premium mesmo em clusters conservadores
+        travel_tags = {BenefitTag.LOUNGE, BenefitTag.TRAVEL, BenefitTag.INSURANCE}
+        user_travel_monthly = getattr(profile, "travel_spend_monthly", 0.0)
+        if (
+            user_travel_monthly > _TRAVEL_SPEND_THRESHOLD
+            and bool(travel_tags & set(result.benefit_tags))
+            and result.net_gain_expected > 0
+        ):
+            relevance = max(relevance, 0.65)
 
         return relevance
 

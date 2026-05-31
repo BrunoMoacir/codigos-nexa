@@ -202,6 +202,27 @@ class OptimizerService:
                     f"(IncomeProfiler conf={getattr(profile.income_profile, 'confidence', 0):.2f} < 0.5)"
                 )
 
+        # Spend override ou fallback:
+        # 1. Se o usuário declarou explicitamente o gasto mensal (ex: via chat), usa esse valor.
+        # 2. Senão, se não há gastos detectados nas transações mas temos renda, estima 40% como gasto.
+        # Sem isso, todo cartão com anuidade recebe net_gain < 0 e é filtrado —
+        # causando viés sistemático para cartões gratuitos independente do perfil real.
+        from dataclasses import replace as _replace
+        if request.monthly_spend and request.monthly_spend > 0:
+            if request.monthly_spend > profile.monthly_avg_spend:
+                profile = _replace(profile, monthly_avg_spend=request.monthly_spend)
+                logger.info(
+                    "monthly_spend declarado (R$%.0f) > perfil (R$%.0f) — usando valor declarado",
+                    request.monthly_spend, profile.monthly_avg_spend,
+                )
+        elif profile.monthly_avg_spend == 0 and annual_income > 0:
+            estimated_spend = annual_income / 12 * 0.40
+            profile = _replace(profile, monthly_avg_spend=estimated_spend)
+            logger.info(
+                "monthly_avg_spend=0 com renda conhecida — estimando R$%.0f/mês (40%% da renda anual de R$%.0f)",
+                estimated_spend, annual_income,
+            )
+
         # 3. Filtrar cartões elegíveis
         eligible_cards = self.knowledge_base.filter_eligible(
             annual_income=annual_income,
