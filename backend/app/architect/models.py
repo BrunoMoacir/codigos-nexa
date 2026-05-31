@@ -409,7 +409,53 @@ class SimulationRequest(BaseModel):
         ),
     )
 
+    # ── Flags de execução ────────────────────────────────────────────
+
+    fast_mode: bool = Field(
+        default=False,
+        description=(
+            "Quando True, desativa componentes pesados (macro VAR-1, LLM, breakeven "
+            "distribution) para minimizar latência. Ideal para tool calls do agente "
+            "onde resposta rápida tem prioridade. Equivale a setar include_macro=False, "
+            "include_llm_reasoning=False e include_breakeven_distribution=False."
+        ),
+    )
+
+    include_macro: bool = Field(
+        default=True,
+        description=(
+            "Inclui simulação macroeconômica (VAR-1, 2.000 trajetórias). "
+            "Desativar reduz latência em ~150-300ms. Ignorado quando fast_mode=True."
+        ),
+    )
+
+    include_llm_reasoning: bool = Field(
+        default=True,
+        description=(
+            "Inclui co-raciocínio LLM (verificação de consistência + narrativa). "
+            "Desativar elimina as chamadas de rede ao provedor LLM. "
+            "Ignorado quando fast_mode=True."
+        ),
+    )
+
+    include_breakeven_distribution: bool = Field(
+        default=True,
+        description=(
+            "Inclui distribuição probabilística do break-even (5.000 amostras). "
+            "Desativar reduz latência em ~100-200ms. Ignorado quando fast_mode=True."
+        ),
+    )
+
     # ── Validações de negócio ────────────────────────────────────────
+
+    @model_validator(mode="after")
+    def apply_fast_mode(self) -> "SimulationRequest":
+        """Quando fast_mode=True, desativa todos os componentes pesados."""
+        if self.fast_mode:
+            object.__setattr__(self, "include_macro", False)
+            object.__setattr__(self, "include_llm_reasoning", False)
+            object.__setattr__(self, "include_breakeven_distribution", False)
+        return self
 
     @model_validator(mode="after")
     def set_financing_months_by_asset(self) -> "SimulationRequest":

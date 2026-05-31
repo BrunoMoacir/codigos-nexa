@@ -11,6 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.security import require_owner
 from app.costs.bank_fee_analyzer import BankFeeAnalyzer
 from app.costs.models import BankCostReport
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/costs", tags=["Custos Bancários (F5)"])
@@ -55,7 +57,14 @@ def get_bank_cost_report(
     # ── 2. Analisar custos ────────────────────────────────────────
     try:
         report = BankFeeAnalyzer().analyze(transactions_df, user_id=user_id)
-        return report
+        # Compatibilidade: retornar JSON com chaves legadas esperadas pelos testes
+        try:
+            resp = report.model_dump()
+        except Exception:
+            resp = dict(report)
+        resp["total_fees_period"] = resp.get("total_paid", 0.0)
+        resp["annualized_cost"] = resp.get("annual_projection", 0.0)
+        return JSONResponse(content=jsonable_encoder(resp))
 
     except Exception as exc:
         logger.error("[API] F5 erro na análise: %s", exc, exc_info=True)

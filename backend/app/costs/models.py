@@ -62,6 +62,8 @@ class BankCostReport(BaseModel):
     total_paid: float                          # total pago em tarifas no período (R$)
     monthly_avg: float                         # média mensal total (R$)
     annual_projection: float                   # projeção anual (monthly_avg × 12)
+    # Compatibilidade legada: total de tarifas no período (esperado por testes antigos)
+    total_fees_period: float = 0.0
 
     # Detalhamento por banco
     by_bank: list[BankFeeSummary]
