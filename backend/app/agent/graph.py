@@ -37,6 +37,7 @@ from app.agent.tools.get_peer_comparison import get_peer_comparison
 from app.agent.tools.get_purchase_recommendation import get_purchase_recommendation
 from app.agent.tools.get_bank_cost_analysis import get_bank_cost_analysis
 from app.agent.tools.get_negotiation_script import get_negotiation_script
+from app.agent.tools.get_expert_card_analysis import get_expert_card_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,11 @@ USE QUANDO o usuário perguntar sobre:
 - Se o usuário MENCIONAR uma renda (ex: "minha renda é R$ 8.500"), USE IMEDIATAMENTE esta tool.
 
 ### `get_card_optimization(user_id, monthly_income=None, safe_to_spend=None, monthly_spend=None)`
+**FLUXO COM ESPECIALISTA:** Esta ferramenta retorna campos `[META]` no resultado:
+- `[META] confidence_score_melhor_cartao`: se < 0.50 → chame `get_expert_card_analysis` em seguida
+- `[META] dados_insuficientes: True` → chame `get_expert_card_analysis` em seguida
+Passe o `confidence_score_melhor_cartao` como `original_confidence` ao chamar o especialista.
+
 USE QUANDO o usuário perguntar sobre:
 - "Qual cartão devo pedir?"
 - "Qual cartão vale mais a pena para mim?"
@@ -200,6 +206,19 @@ USE QUANDO o usuário perguntar sobre:
 - "Quais são meus custos bancários?"
 - "Vale a pena migrar para um banco digital?"
 - Qualquer pergunta sobre tarifas, taxas ou custos de conta bancária.
+
+### `get_expert_card_analysis(user_id, question, monthly_income=None, monthly_spend=None, original_confidence=None, original_coverage_months=None)`
+USE QUANDO, após chamar `get_card_optimization`:
+- O `confidence_score` do melhor cartão retornado for **< 0.5**
+- O `data_coverage_months` for **< 2** (histórico muito curto)
+- O usuário perguntar sobre **um cartão específico que não está na base interna**
+  (ex: "o que acha do C6 Carbon?", "vale o Platinum do Amex?")
+- A pergunta for **estratégica e complexa**: "devo ter dois cartões?",
+  "qual a melhor estratégia de milhas para viajar todo mês?"
+- Ao chamar, **sempre passe** `original_confidence` e `original_coverage_months`
+  vindos do resultado de `get_card_optimization`, e repasse `monthly_income`/`monthly_spend` se disponíveis.
+- Este agente usa Claude **Opus 4.7** e pode pesquisar cartões na internet — é mais lento e caro,
+  use apenas nos casos acima.
 
 ### `get_negotiation_script(user_id, bank_name="")`
 USE QUANDO o usuário perguntar sobre:
@@ -312,6 +331,7 @@ def build_financial_agent():
         get_purchase_recommendation,
         get_bank_cost_analysis,
         get_negotiation_script,
+        get_expert_card_analysis,
     ]
 
     # 2. LLM — Claude (preferencial) ou OpenAI (fallback)

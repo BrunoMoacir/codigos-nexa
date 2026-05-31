@@ -113,21 +113,30 @@ def get_card_optimization(
                     "Informe monthly_income para melhorar a análise."
                 )
 
+        # Metadados de qualidade — usados pelo agente principal para decidir se aciona o especialista
+        best_confidence = report.best_card.confidence_score if report.best_card else 0.0
+        coverage_months = report.user_profile_summary.get("monthly_avg_spend", 0)  # proxy
+        # Extrai coverage real do perfil via warnings
+        coverage_flag = any("Histórico" in w or "histórico" in w for w in (report.warnings or []))
+
         # Formata o output para o LLM ler e gerar resposta amigável
         output = [
             f"Relatório de Otimização (ID: {report.report_id})",
             f"Recomendação Principal: {report.recommendation_type.value}",
             f"Estratégia: {report.strategy_text}",
+            f"[META] confidence_score_melhor_cartao: {best_confidence:.2f}",
+            f"[META] dados_insuficientes: {coverage_flag}",
         ]
         output.extend(income_context_lines)
         output.append("-" * 30)
-        
+
         if report.best_card:
             c = report.best_card
             output.append(f"Card Vencedor: {c.card_name} (ID: {c.card_id})")
             output.append(f"Valor de Benefícios Projetado: R$ {c.points_value_expected:.2f}")
             output.append(f"Anuidade Efetiva: R$ {c.annuity_effective:.2f}")
             output.append(f"> Lucro Líquido Anual: R$ {c.net_gain_expected:.2f} <")
+            output.append(f"Confiança da simulação: {c.confidence_score:.0%}")
             if c.eligibility_reasons:
                 output.append(f"Elegibilidade: {'; '.join(c.eligibility_reasons[:2])}")
         
