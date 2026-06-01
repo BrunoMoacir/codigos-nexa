@@ -282,7 +282,10 @@ class TransactionFeatureEnricher:
 
     def _add_temporal_features(self, df: pl.DataFrame) -> pl.DataFrame:
         """
-        Adiciona day_of_week (0=Segunda…6=Domingo) e is_weekend.
+        Adiciona day_of_week (ISO 1=Segunda…7=Domingo) e is_weekend.
+
+        Polars dt.weekday() segue ISO 8601: 1=Segunda, 6=Sábado, 7=Domingo.
+        NÃO é a convenção Python (0=Segunda…6=Domingo).
 
         Verifica antes de adicionar: ingestor.py:159 já deriva day_of_week de
         transaction_date no pipeline ETL. O optimizer recebe coluna `date`,
@@ -295,7 +298,7 @@ class TransactionFeatureEnricher:
 
         if "is_weekend" not in df.columns and "day_of_week" in df.columns:
             df = df.with_columns(
-                (pl.col("day_of_week") >= 5).alias("is_weekend"),
+                (pl.col("day_of_week") >= 6).alias("is_weekend"),  # 6=Sábado, 7=Domingo
             )
 
         return df

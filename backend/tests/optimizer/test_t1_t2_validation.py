@@ -963,15 +963,37 @@ class TestTemporalDetector:
 
     def test_is_weekend_spender_when_weekend_dominates(self):
         from app.optimizer.detectors.temporal_detector import TemporalDetector
-        # 2026-03-07 = Saturday, 2026-03-08 = Sunday
+        # 2026-03-07 = Saturday (ISO 6), 2026-03-08 = Sunday (ISO 7)
         rows = [
             {"date": date(2026, 3, 7), "amount": -800.0},
             {"date": date(2026, 3, 8), "amount": -600.0},
-            {"date": date(2026, 3, 10), "amount": -100.0},  # Tuesday
+            {"date": date(2026, 3, 10), "amount": -100.0},  # Tuesday (ISO 2)
         ]
         df = pl.DataFrame(rows, schema={"date": pl.Date, "amount": pl.Float64})
         result = TemporalDetector().analyze(df)
         assert result["is_weekend_spender"] is True
+
+    def test_friday_is_not_weekend(self):
+        from app.optimizer.detectors.temporal_detector import TemporalDetector
+        from app.optimizer.feature_store import TransactionFeatureEnricher
+        # 2026-03-06 = Friday (ISO 5) — deve ser dia útil, não fim de semana
+        rows = [
+            {"date": date(2026, 3, 6), "amount": -900.0},   # Friday
+            {"date": date(2026, 3, 9), "amount": -100.0},   # Monday
+        ]
+        df = pl.DataFrame(rows, schema={"date": pl.Date, "amount": pl.Float64})
+
+        # TemporalDetector: sexta não conta como fim de semana
+        result = TemporalDetector().analyze(df)
+        assert result["is_weekend_spender"] is False, (
+            "Sexta-feira (ISO 5) não deve ser classificada como fim de semana"
+        )
+
+        # feature_store: is_weekend deve ser False para sexta
+        enriched = TransactionFeatureEnricher().enrich(df)
+        assert enriched["is_weekend"][0] is False, (
+            "feature_store: is_weekend deve ser False para sexta-feira (ISO weekday=5)"
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -44,11 +44,11 @@ class TemporalDetector:
             .agg(pl.col("amount").sum().abs().alias("total"))
             .sort("total", descending=True)
         )
-        peak_weekday = int(by_weekday[0]["dow"][0]) if len(by_weekday) > 0 else 0
+        peak_weekday = int(by_weekday[0]["dow"][0]) if len(by_weekday) > 0 else 1
 
         total_spend = float(expenses["amount"].sum()) * -1
         weekend_spend = float(
-            expenses.filter(pl.col("date").dt.weekday() >= 5)["amount"].sum()
+            expenses.filter(pl.col("date").dt.weekday() >= 6)["amount"].sum()  # ISO: 6=Sáb, 7=Dom
         ) * -1
         is_weekend_spender = (weekend_spend / total_spend) > 0.45 if total_spend > 0 else False
 
