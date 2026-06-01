@@ -80,33 +80,7 @@ class CardRanking:
     # ─── Score ────────────────────────────────────────────────────────────────
 
     def _compute_score(self, result: CardSimulationResult, profile: UserProfile) -> float:
-        # 1. Liquidez: multiplicativo sobre o net_gain (v2.1 — antes era subtrativo)
-        multiplier = _LIQUIDITY_MULTIPLIER.get(result.liquidity_risk, 1.0)
-        score = result.net_gain_expected * multiplier
-
-        # 2. BenefitViabilityFilter + ProfileAwareBenefitUtilization
-        # Hard blocks: benefícios só contam se o perfil viabiliza o uso
-        benefits_bonus = 0.0
-
-        if (
-            profile.international_spend_monthly > _INTL_SPEND_THRESHOLD
-            and BenefitTag.INTERNACIONAL in result.benefit_tags
-        ):
-            benefits_bonus += _INTL_BONUS
-
-        if (
-            profile.travel_spend_monthly > _TRAVEL_SPEND_THRESHOLD
-            and BenefitTag.LOUNGE in result.benefit_tags
-        ):
-            benefits_bonus += _LOUNGE_BONUS
-
-        # Regra 40%: se benefícios dominam > 40% do ganho base, desconto de 15%
-        # Previne que cartões premium com benefícios de luxo dominem ranking
-        if benefits_bonus > 0 and result.net_gain_expected > 0:
-            if benefits_bonus > _BENEFIT_DOMINANCE_THRESHOLD * result.net_gain_expected:
-                benefits_bonus *= _BENEFIT_DOMINANCE_DISCOUNT
-
-        score += benefits_bonus
+        score, benefits_bonus = self._compute_financial_score(result, profile)
 
         # Bônus por cluster — ajusta relevância de benefícios ao estilo de vida
         cluster = getattr(profile, "lifestyle_cluster", "NAO_CLASSIFICADO")
@@ -192,12 +166,10 @@ class CardRanking:
 
     # ── Score base sem cluster (usado pelo hyperscore para evitar double-counting) ──
 
-    def _compute_base_score(self, result: CardSimulationResult, profile: UserProfile) -> float:
-        """
-        Score financeiro puro: liquidez + benefícios + penalidades, SEM bônus de cluster.
-        Usado por _compute_hyperscore como W2, para que W1 (cluster relevance) não
-        duplique o ajuste que _compute_score já faria pelo cluster.
-        """
+    def _compute_financial_score(
+        self, result: CardSimulationResult, profile: UserProfile
+    ) -> tuple[float, float]:
+        """Retorna (score_com_benefícios, benefits_bonus): liquidez + regra 40%, sem cluster nem penalidades."""
         multiplier = _LIQUIDITY_MULTIPLIER.get(result.liquidity_risk, 1.0)
         score = result.net_gain_expected * multiplier
 
@@ -216,14 +188,21 @@ class CardRanking:
             if benefits_bonus > _BENEFIT_DOMINANCE_THRESHOLD * result.net_gain_expected:
                 benefits_bonus *= _BENEFIT_DOMINANCE_DISCOUNT
         score += benefits_bonus
+        return score, benefits_bonus
 
+    def _compute_base_score(self, result: CardSimulationResult, profile: UserProfile) -> float:
+        """
+        Score financeiro puro: liquidez + benefícios + penalidades, SEM bônus de cluster.
+        Usado por _compute_hyperscore como W2, para que W1 (cluster relevance) não
+        duplique o ajuste que _compute_score já faria pelo cluster.
+        """
+        score, _ = self._compute_financial_score(result, profile)
         if result.confidence_score < 0.4:
             score *= 0.5
         if result.eligibility_score < 0.5:
             score *= 0.4
         elif result.eligibility_score < 0.7:
             score *= 0.75
-
         return score
 
     # ── Ranker hiperpersonalizado (T2.4) ─────────────────────────────────────
