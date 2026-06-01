@@ -1057,3 +1057,100 @@ class TestProfilerPipelineIntegration:
         # o profiler retorna resilience_score correto para alimentar o FSSCalculator
         assert profile.resilience_score >= 0.0
         assert profile.resilience_score <= 100.0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SOLICITAR_UPGRADE — ganho incremental vs. absoluto
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestSolicitarUpgradeIncremental:
+    """
+    _try_solicitar_upgrade deve usar ganho INCREMENTAL (vs. cartão atual),
+    não o ganho absoluto do cartão premium.
+    """
+
+    def _premium_result(self, net_gain_annual: float) -> "CardSimulationResult":
+        from app.optimizer.models import CardSimulationResult, CardFlag, LiquidityRisk, BenefitTag
+        return CardSimulationResult(
+            card_id="premium-card",
+            card_name="Cartão Black Premium",
+            issuer="Banco Premium",
+            flag=CardFlag.MASTERCARD,
+            annuity_effective=600.0,       # R$600/ano — satisfaz _UPGRADE_MIN_ANNUITY=300
+            annuity_waived=False,
+            points_value_min=net_gain_annual * 0.8 + 600,
+            points_value_expected=net_gain_annual + 600,
+            points_value_max=net_gain_annual * 1.2 + 600,
+            net_gain_min=net_gain_annual * 0.8,
+            net_gain_expected=net_gain_annual,
+            net_gain_max=net_gain_annual * 1.2,
+            liquidity_impact=0.02,
+            liquidity_risk=LiquidityRisk.SAFE,
+            confidence_score=0.95,
+            eligibility_score=0.90,        # satisfaz _UPGRADE_ELIGIBILITY_GATE=0.85
+            benefit_tags=[BenefitTag.LOUNGE, BenefitTag.PREMIUM],
+        )
+
+    def _profile(self):
+        from app.optimizer.profiler import UserProfile
+        return UserProfile(
+            monthly_avg_spend=5000.0,
+            committed_percentage=0.2,
+            credit_spend_ratio=0.9,
+            spend_by_category={},
+        )
+
+    def test_upgrade_suppressed_when_incremental_gain_below_gate(self):
+        """
+        Cartão premium retorna R$150/mês absoluto, mas usuário já tem R$145/mês
+        no cartão atual. Ganho incremental = R$5/mês < gate R$10/mês → sem insight.
+        """
+        from app.optimizer.insight_generator import InsightGenerator
+        gen = InsightGenerator()
+        result = self._premium_result(net_gain_annual=1800.0)  # R$150/mês absoluto
+        profile = self._profile()
+        insight = gen._try_solicitar_upgrade(
+            ranked_results=[result],
+            profile=profile,
+            current_card_id="outro-cartao",
+            current_card_monthly_return=145.0,  # R$145/mês atual → incremental = R$5 < gate
+        )
+        assert insight is None, (
+            "Incremental de R$5/mês (abaixo do gate R$10) não deve gerar insight de upgrade"
+        )
+
+    def test_upgrade_surfaced_when_incremental_gain_above_gate(self):
+        """
+        Cartão premium retorna R$150/mês, atual retorna R$80/mês.
+        Incremental = R$70/mês > gate → insight deve aparecer com ganho incremental.
+        """
+        from app.optimizer.insight_generator import InsightGenerator
+        gen = InsightGenerator()
+        result = self._premium_result(net_gain_annual=1800.0)  # R$150/mês absoluto
+        profile = self._profile()
+        insight = gen._try_solicitar_upgrade(
+            ranked_results=[result],
+            profile=profile,
+            current_card_id="outro-cartao",
+            current_card_monthly_return=80.0,  # incremental = 150 - 80 = R$70/mês
+        )
+        assert insight is not None, "Incremental de R$70/mês deve gerar insight de upgrade"
+        # O intervalo exibido deve ser incremental (≈R$70), não absoluto (≈R$150)
+        assert insight.gain_interval.expected == pytest.approx(70.0, abs=5.0), (
+            "gain_interval.expected deve ser incremental (~R$70), não absoluto (~R$150)"
+        )
+
+    def test_upgrade_with_zero_current_return_shows_absolute_gain(self):
+        """Sem cartão atual (baseline 0), o ganho exibido é o absoluto do premium."""
+        from app.optimizer.insight_generator import InsightGenerator
+        gen = InsightGenerator()
+        result = self._premium_result(net_gain_annual=1800.0)
+        profile = self._profile()
+        insight = gen._try_solicitar_upgrade(
+            ranked_results=[result],
+            profile=profile,
+            current_card_id=None,
+            current_card_monthly_return=0.0,
+        )
+        assert insight is not None
+        assert insight.gain_interval.expected == pytest.approx(150.0, abs=5.0)

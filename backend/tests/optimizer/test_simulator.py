@@ -246,6 +246,37 @@ class TestConfidenceScore:
         result = sim.simulate(card, profile)
         assert result.confidence_score == pytest.approx(0.7, abs=0.01)
 
+    def test_income_confidence_zero_is_not_treated_as_one(self, sim):
+        """IncomeProfile.confidence=0.0 deve multiplicar score por 0, não ser ignorado pelo 'or 1.0'."""
+        from app.forecast.etl.income_profiler import IncomeProfile, IncomePattern
+        card = _make_card(data_trust_score=1.0)
+        zero_conf_income = IncomeProfile(
+            monthly_net_income=0.0,
+            income_pattern=IncomePattern.UNKNOWN,
+            income_stability=0.0,
+            confidence=0.0,
+            salary_monthly=0.0,
+            freelance_monthly=0.0,
+            raw_monthly_credits=0.0,
+            excluded_monthly=0.0,
+        )
+        profile = _make_profile(data_coverage_months=6, spending_stability=1.0, committed_percentage=0.0)
+        profile.income_profile = zero_conf_income
+        result = sim.simulate(card, profile)
+        # score = 1.0 (trust) × 1.0 (coverage ok) × 0.0 (income_conf) → 0.0
+        assert result.confidence_score == pytest.approx(0.0, abs=0.01), (
+            "confidence=0.0 deve zerar o score, não ser promovido para 1.0 pelo 'or 1.0'"
+        )
+
+    def test_income_confidence_none_attribute_defaults_to_one(self, sim):
+        """Quando income_profile é None (atributo ausente), sem penalidade de confiança."""
+        card = _make_card(data_trust_score=1.0)
+        profile = _make_profile(data_coverage_months=6, spending_stability=1.0, committed_percentage=0.0)
+        # income_profile=None por padrão no _make_profile — não deve penalizar
+        assert profile.income_profile is None
+        result = sim.simulate(card, profile)
+        assert result.confidence_score == pytest.approx(1.0, abs=0.01)
+
 
 # ─── Spending anchor e razões ───────────────────────────────────────────────────
 

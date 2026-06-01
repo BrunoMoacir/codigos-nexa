@@ -378,8 +378,12 @@ class CardSimulator:
         if profile.committed_percentage > 0.8:
             score *= 0.7
 
-        # Income confidence (da hierarquia do IncomeProfiler)
-        income_conf = getattr(profile.income_profile, "confidence", 1.0) or 1.0
+        # Income confidence (da hierarquia do IncomeProfiler).
+        # None (atributo ausente) → sem penalidade (1.0).
+        # 0.0 (confiança explicitamente zero, ex: _empty()) → penalidade total.
+        # `or 1.0` NÃO pode ser usado aqui: 0.0 é falsy e removeria a penalidade.
+        _raw_conf = getattr(profile.income_profile, "confidence", None)
+        income_conf = _raw_conf if _raw_conf is not None else 1.0
         score *= income_conf
 
         # Spend stability factor — baseado no CV puro (v2.1)

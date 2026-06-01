@@ -157,7 +157,9 @@ class InsightGenerator:
         insights.extend(self._try_mudar_categoria(ranked_results, profile, current_card_id))
 
         # 7. SOLICITAR_UPGRADE
-        insight = self._try_solicitar_upgrade(ranked_results, profile, current_card_id)
+        insight = self._try_solicitar_upgrade(
+            ranked_results, profile, current_card_id, current_card_monthly_return
+        )
         if insight:
             insights.append(insight)
 
@@ -474,10 +476,14 @@ class InsightGenerator:
         ranked_results: list[CardSimulationResult],
         profile: "UserProfile",
         current_card_id: str | None,
+        current_card_monthly_return: float = 0.0,
     ) -> ActionableInsight | None:
         """
         Ativa quando o usuário tem eligibility ≥ 85% para um cartão premium
         (LOUNGE, PREMIUM ou INSURANCE) com anuidade ≥ R$300/ano e retorno positivo.
+
+        O ganho exibido e o gate mínimo usam o ganho INCREMENTAL (vs. cartão atual),
+        não o ganho absoluto do cartão premium.
         """
         for result in ranked_results[:5]:
             if result.card_id == current_card_id:
@@ -491,12 +497,12 @@ class InsightGenerator:
             if not premium_tags:
                 continue
 
-            monthly_gain = result.net_gain_expected / 12
+            monthly_gain = result.net_gain_expected / 12 - current_card_monthly_return
             if monthly_gain < _INSIGHT_MIN_MONTHLY_GAIN:
                 continue
 
             effort = InsightEffort.ALTO
-            interval = self._make_interval(result)
+            interval = self._make_interval(result, current_card_monthly_return)
             confidence = result.confidence_score * result.eligibility_score
 
             return ActionableInsight(

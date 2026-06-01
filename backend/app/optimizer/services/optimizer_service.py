@@ -386,8 +386,12 @@ class OptimizerService:
                 try:
                     roi = self.simulator.calculate_current_card_roi(current_card_record, profile)
                     current_card_monthly_return = roi.net_roi / 12
-                except Exception:
-                    pass  # fallback seguro: 0.0 (insight superestima, não trava)
+                except Exception as _roi_err:
+                    logger.warning(
+                        "Erro ao calcular ROI do cartão atual '%s' — TROCAR_PRIMARIO usará "
+                        "baseline 0.0 (ganho incremental pode estar superestimado): %s",
+                        current_card_id, _roi_err,
+                    )
 
         insights = self.insight_generator.generate(
             ranked_results=ranked_results,
