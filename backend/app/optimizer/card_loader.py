@@ -42,15 +42,27 @@ class CardKnowledgeBase:
         try:
             with open(self._path, "r", encoding="utf-8") as f:
                 raw = json.load(f)
-            self._cards = [CardRecord(**item) for item in raw]
-            logger.info("CardKnowledgeBase: %s cartões carregados de %s", len(self._cards), self._path)
-            return self._cards
         except FileNotFoundError:
             logger.error("Arquivo de cartões não encontrado: %s", self._path)
             return []
         except Exception as e:
             logger.error("Erro ao carregar cartões: %s", e)
             return []
+
+        loaded: list[CardRecord] = []
+        for item in raw:
+            try:
+                loaded.append(CardRecord(**item))
+            except Exception as _item_err:
+                logger.warning(
+                    "CardKnowledgeBase: item ignorado (card_id=%r) — %s",
+                    item.get("card_id", "?") if isinstance(item, dict) else "?",
+                    _item_err,
+                )
+
+        self._cards = loaded
+        logger.info("CardKnowledgeBase: %s cartões carregados de %s", len(self._cards), self._path)
+        return self._cards
 
     def get_by_id(self, card_id: str) -> Optional[CardRecord]:
         """Retorna um cartão pelo card_id, ou None se não encontrado."""

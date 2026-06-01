@@ -214,8 +214,16 @@ class PromotionTracker:
         try:
             with open(self._data_path, encoding="utf-8") as f:
                 raw: list[dict] = json.load(f)
-            promos = []
-            for item in raw:
+        except FileNotFoundError:
+            logger.warning("[PromotionTracker] Arquivo não encontrado: %s", self._data_path)
+            return []
+        except Exception as e:
+            logger.error("[PromotionTracker] Erro ao carregar promoções: %s", e, exc_info=True)
+            return []
+
+        promos: list[TransferPromotion] = []
+        for item in raw:
+            try:
                 promos.append(TransferPromotion(
                     id=item["id"],
                     loyalty_program=item["loyalty_program"],
@@ -232,14 +240,15 @@ class PromotionTracker:
                     source=item.get("source", "manual"),
                     last_verified=item.get("last_verified", ""),
                 ))
-            logger.info("[PromotionTracker] %s promoções carregadas de %s", len(promos), self._data_path)
-            return promos
-        except FileNotFoundError:
-            logger.warning("[PromotionTracker] Arquivo não encontrado: %s", self._data_path)
-            return []
-        except Exception as e:
-            logger.error("[PromotionTracker] Erro ao carregar promoções: %s", e, exc_info=True)
-            return []
+            except Exception as _item_err:
+                logger.warning(
+                    "[PromotionTracker] item ignorado (id=%r) — %s",
+                    item.get("id", "?") if isinstance(item, dict) else "?",
+                    _item_err,
+                )
+
+        logger.info("[PromotionTracker] %s promoções carregadas de %s", len(promos), self._data_path)
+        return promos
 
     @staticmethod
     def _match_card(eligible: list[str], user_cards: list[str]) -> Optional[str]:
