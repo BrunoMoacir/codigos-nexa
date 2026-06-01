@@ -106,7 +106,7 @@ class InsightGenerator:
         ranked_results: list[CardSimulationResult],
         profile: "UserProfile",
         current_card_id: str | None = None,
-        current_card_monthly_return: float = 0.0,
+        current_card_monthly_return: float | None = 0.0,
         enable_cluster_tone: bool = True,
     ) -> list[ActionableInsight]:
         """
@@ -129,13 +129,15 @@ class InsightGenerator:
 
         best = ranked_results[0]
 
-        # 1. TROCAR_PRIMARIO
-        insight = self._try_trocar_primario(
-            best, profile, current_card_id, current_card_monthly_return,
-            enable_cluster_tone=enable_cluster_tone,
-        )
-        if insight:
-            insights.append(insight)
+        # 1. TROCAR_PRIMARIO — requer ROI do cartão atual conhecido; None suprime o insight
+        # para evitar mostrar ganho absoluto como se fosse ganho incremental.
+        if current_card_monthly_return is not None:
+            insight = self._try_trocar_primario(
+                best, profile, current_card_id, current_card_monthly_return,
+                enable_cluster_tone=enable_cluster_tone,
+            )
+            if insight:
+                insights.append(insight)
 
         # 2. PORTFOLIO_MULTI
         insight = self._try_portfolio_multi(ranked_results, profile)
@@ -148,20 +150,22 @@ class InsightGenerator:
         # 4. ATINGIR_ISENCAO
         insights.extend(self._try_atingir_isencao(ranked_results, profile))
 
-        # 5. CANCELAR_CARTAO
-        insight = self._try_cancelar_cartao(current_card_id, current_card_monthly_return)
-        if insight:
-            insights.append(insight)
+        # 5. CANCELAR_CARTAO — idem: requer retorno mensal real para calcular a perda.
+        if current_card_monthly_return is not None:
+            insight = self._try_cancelar_cartao(current_card_id, current_card_monthly_return)
+            if insight:
+                insights.append(insight)
 
         # 6. MUDAR_CATEGORIA
         insights.extend(self._try_mudar_categoria(ranked_results, profile, current_card_id))
 
-        # 7. SOLICITAR_UPGRADE
-        insight = self._try_solicitar_upgrade(
-            ranked_results, profile, current_card_id, current_card_monthly_return
-        )
-        if insight:
-            insights.append(insight)
+        # 7. SOLICITAR_UPGRADE — idem: ganho incremental requer baseline real.
+        if current_card_monthly_return is not None:
+            insight = self._try_solicitar_upgrade(
+                ranked_results, profile, current_card_id, current_card_monthly_return
+            )
+            if insight:
+                insights.append(insight)
 
         # 8. Insights por cluster de estilo de vida (apenas TREATMENT)
         if enable_cluster_tone:

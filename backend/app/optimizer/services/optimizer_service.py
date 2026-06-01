@@ -381,13 +381,16 @@ class OptimizerService:
 
         # Retorno mensal do cartão atual — necessário para TROCAR_PRIMARIO ser incremental.
         # Sem isso, o insight mostraria o ganho total do novo cartão, não o ganho adicional.
-        current_card_monthly_return = 0.0
+        # None = ROI do cartão atual desconhecido → insights de comparação suprimidos.
+        # 0.0 é reservado para "sem cartão atual" (baseline correto quando não há current_card_id).
+        current_card_monthly_return: float | None = 0.0
         if current_card_id:
+            current_card_monthly_return = None  # desconhecido até o cálculo abaixo ter sucesso
             current_card_record = self.knowledge_base.get_by_id(current_card_id)
             if current_card_record is None:
                 logger.warning(
                     "current_card_id='%s' não encontrado na knowledge base — "
-                    "TROCAR_PRIMARIO usará baseline 0 (ganho pode estar superestimado).",
+                    "TROCAR_PRIMARIO/CANCELAR_CARTAO/SOLICITAR_UPGRADE suprimidos.",
                     current_card_id,
                 )
             else:
@@ -396,8 +399,8 @@ class OptimizerService:
                     current_card_monthly_return = roi.net_roi / 12
                 except Exception as _roi_err:
                     logger.warning(
-                        "Erro ao calcular ROI do cartão atual '%s' — TROCAR_PRIMARIO usará "
-                        "baseline 0.0 (ganho incremental pode estar superestimado): %s",
+                        "Erro ao calcular ROI do cartão atual '%s' — "
+                        "insights de comparação suprimidos para evitar superestimação: %s",
                         current_card_id, _roi_err,
                     )
 
