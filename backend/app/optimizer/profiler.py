@@ -378,7 +378,12 @@ class ConsumptionProfiler:
 
         Convenção baseada no transaction_type:
         - "DEBIT" → débito (conta corrente / PIX / boleto)
-        - qualquer outro → crédito (cartão de crédito)
+        - null/None → "unknown" (excluído do cálculo de credit_spend_ratio)
+        - qualquer outro string não-nulo → crédito (cartão de crédito)
+
+        Null é tratado como "unknown" e NÃO como crédito. Classificá-lo como
+        crédito inflava credit_spend_ratio para usuários PIX-only cujo banco
+        não preenche transaction_type, superestimando spend_annual em até 10×.
         """
         if "transaction_type" not in df.columns:
             return {}
@@ -392,7 +397,9 @@ class ConsumptionProfiler:
         result = (
             expenses
             .with_columns(
-                pl.when(pl.col("transaction_type").str.to_uppercase() == "DEBIT")
+                pl.when(pl.col("transaction_type").is_null())
+                .then(pl.lit("unknown"))
+                .when(pl.col("transaction_type").str.to_uppercase() == "DEBIT")
                 .then(pl.lit("debit"))
                 .otherwise(pl.lit("credit"))
                 .alias("source")
@@ -502,11 +509,15 @@ class ConsumptionProfiler:
         assumir 50% causava superestimação de 5-10x para usuários PIX-only.
         Floor mínimo de 10% evita retorno=0 para usuários sem histórico de crédito,
         preservando recomendações básicas sem inflar resultados.
+
+        Quando total=0 mas há transações "unknown" (transaction_type=None), o usuário
+        é provavelmente PIX/débito — usa o floor (0.10) ao invés de 1.0 (default anterior).
         """
         credit = spend_by_source.get("credit", 0.0)
         debit = spend_by_source.get("debit", 0.0)
         total = credit + debit
         if total <= 0:
-            return 1.0
+            has_unknown = spend_by_source.get("unknown", 0.0) > 0
+            return 0.10 if has_unknown else 1.0
         raw_ratio = credit / total
         return max(raw_ratio, 0.10)

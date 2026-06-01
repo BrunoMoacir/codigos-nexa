@@ -289,6 +289,75 @@ class TestSpendBySource:
         assert result.spend_by_source.get("debit", 0) > 0
         assert result.spend_by_source.get("credit", 0) == 0
 
+    def test_null_transaction_type_not_classified_as_credit(self):
+        """None em transaction_type não deve inflar credit_spend_ratio para 1.0."""
+        profiler = ConsumptionProfiler()
+        df = pl.DataFrame(
+            {
+                "transaction_id": ["t1", "t2"],
+                "user_id": ["u1", "u1"],
+                "description": ["PIX enviado", "PIX recebido"],
+                "amount": [-800.0, -200.0],
+                "date": [RECENT, RECENT],
+                "transaction_type": [None, None],
+                "category": ["Outros", "Outros"],
+                "context_type": ["PF", "PF"],
+            },
+            schema={
+                "transaction_id": pl.Utf8,
+                "user_id": pl.Utf8,
+                "description": pl.Utf8,
+                "amount": pl.Float64,
+                "date": pl.Date,
+                "transaction_type": pl.Utf8,
+                "category": pl.Utf8,
+                "context_type": pl.Utf8,
+            },
+        )
+        result = profiler.build(df, reference_date=TODAY)
+        # Transações null vão para bucket "unknown", não para "credit"
+        assert result.spend_by_source.get("credit", 0.0) == 0.0, (
+            "transaction_type=None não deve ser classificado como crédito"
+        )
+        # Com total known=0 mas unknown>0: usa floor 0.10 (não 1.0)
+        assert result.credit_spend_ratio == pytest.approx(0.10, abs=0.01), (
+            "Usuário com transaction_type=None deve ter credit_spend_ratio=0.10 (floor), não 1.0"
+        )
+
+    def test_null_transaction_type_mixed_with_debit(self):
+        """None misturado com DEBIT: null é excluído do ratio, calculado só com tipos conhecidos."""
+        profiler = ConsumptionProfiler()
+        df = pl.DataFrame(
+            {
+                "transaction_id": ["t1", "t2", "t3"],
+                "user_id": ["u1", "u1", "u1"],
+                "description": ["Mercado", "Restaurante", "PIX"],
+                "amount": [-600.0, -400.0, -1000.0],
+                "date": [RECENT, RECENT, RECENT],
+                "transaction_type": ["DEBIT", "CREDIT", None],
+                "category": ["Alimentação", "Alimentação", "Outros"],
+                "context_type": ["PF", "PF", "PF"],
+            },
+            schema={
+                "transaction_id": pl.Utf8,
+                "user_id": pl.Utf8,
+                "description": pl.Utf8,
+                "amount": pl.Float64,
+                "date": pl.Date,
+                "transaction_type": pl.Utf8,
+                "category": pl.Utf8,
+                "context_type": pl.Utf8,
+            },
+        )
+        result = profiler.build(df, reference_date=TODAY)
+        # credit_spend_ratio calculado apenas sobre DEBIT(600) + CREDIT(400),
+        # ignorando o PIX sem tipo (1000). ratio = 400 / 1000 = 0.40
+        assert result.credit_spend_ratio == pytest.approx(0.40, abs=0.02), (
+            "Transações null devem ser excluídas do denominador do credit_spend_ratio"
+        )
+        # A chave "unknown" pode existir no dict — é informacional
+        assert result.spend_by_source.get("unknown", 0.0) > 0
+
 
 class TestInternationalSpend:
     def test_detects_iof_keyword(self):
