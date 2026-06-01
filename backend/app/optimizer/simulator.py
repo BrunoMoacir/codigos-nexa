@@ -393,6 +393,11 @@ class CardSimulator:
         else:
             score *= 0.60
 
+        # Sem histórico real: gasto foi estimado por renda (40% da renda anual).
+        # Recomendações baseadas em gasto sintético não podem ter confiança alta.
+        if getattr(profile, "spend_is_estimated", False):
+            score = min(score, 0.50)
+
         return min(round(score, 4), 1.0)
 
     def _top_categories(self, profile: UserProfile, n: int = 3) -> list[str]:

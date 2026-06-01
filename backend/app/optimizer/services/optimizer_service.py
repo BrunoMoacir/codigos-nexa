@@ -217,7 +217,7 @@ class OptimizerService:
                 )
         elif profile.monthly_avg_spend == 0 and annual_income > 0:
             estimated_spend = annual_income / 12 * 0.40
-            profile = _replace(profile, monthly_avg_spend=estimated_spend)
+            profile = _replace(profile, monthly_avg_spend=estimated_spend, spend_is_estimated=True)
             logger.info(
                 "monthly_avg_spend=0 com renda conhecida — estimando R$%.0f/mês (40%% da renda anual de R$%.0f)",
                 estimated_spend, annual_income,
@@ -432,6 +432,13 @@ class OptimizerService:
                 "Informar a renda mensal melhora a precisão das recomendações de cartão."
             )
 
+        if getattr(profile_data, "spend_is_estimated", False):
+            warnings.append(
+                "Nenhum histórico de transações encontrado. As recomendações foram geradas com "
+                "gasto estimado (40% da renda declarada) e têm confiança limitada. "
+                "Conecte sua conta bancária para análise personalizada."
+            )
+
         if not ranked_results:
             import uuid
             return OptimizationReport(
@@ -465,6 +472,14 @@ class OptimizerService:
             recommendation_type = RecommendationType.KEEP_CURRENT
             strategy_text = "Nenhum cartão simulado gerou ganhos líquidos positivos para o seu padrão de gastos. Fique com seu cartão atual."
             best_card_result = None
+        elif getattr(profile_data, "spend_is_estimated", False):
+            # Gasto 100% estimado: não podemos afirmar com confiança que vale trocar.
+            recommendation_type = RecommendationType.LOW_CONFIDENCE
+            strategy_text = (
+                "Encontramos cartões compatíveis com seu perfil de renda, mas sem histórico de "
+                "transações não é possível personalizar a recomendação. Conecte sua conta bancária "
+                "para uma análise mais precisa."
+            )
         else:
             strategy_text = "Encontramos cartões que podem melhorar seu retorno financeiro líquido."
 

@@ -598,11 +598,19 @@ class TestOptimizerServiceFluxoCompleto:
             transactions_df=pl.DataFrame(),
             reference_date=TODAY,
         )
-        # Com df vazio o perfil é zerado — sem gastos, ganho tende a 0
+        # Com df vazio e renda declarada: gasto é estimado (40% da renda).
+        # Deve retornar LOW_CONFIDENCE, não SWITCH_RECOMMENDED.
         assert report.user_id == "user-sem-dados"
         assert report.recommendation_type in (
             RecommendationType.INSUFFICIENT_DATA,
             RecommendationType.KEEP_CURRENT,
+            RecommendationType.LOW_CONFIDENCE,
+        )
+        assert report.recommendation_type != RecommendationType.SWITCH_RECOMMENDED, (
+            "Sem histórico real não deve retornar SWITCH_RECOMMENDED"
+        )
+        assert any("gasto estimado" in w.lower() or "histórico" in w.lower() for w in report.warnings), (
+            "Deve haver warning explícito sobre ausência de dados reais"
         )
 
     def test_melhor_cartao_e_o_primeiro_da_lista(self, service, perfil_clt_medio):

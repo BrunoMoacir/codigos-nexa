@@ -38,6 +38,9 @@ class RecommendationType(str, Enum):
     SWITCH_RECOMMENDED = "SWITCH_RECOMMENDED"
     KEEP_CURRENT = "KEEP_CURRENT"
     INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
+    # Cartões foram encontrados mas o gasto base é estimado (sem histórico real).
+    # Sugestões são exploratórias — conectar conta bancária melhora a análise.
+    LOW_CONFIDENCE = "LOW_CONFIDENCE"
 
 
 class LiquidityRisk(str, Enum):

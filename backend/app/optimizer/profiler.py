@@ -99,6 +99,11 @@ class UserProfile:
     peak_spend_day_of_month: Optional[int] = None   # T2.7: dia do mês com pico de gasto
     best_notification_day: int = 5                  # T2.7: melhor dia para notificar
 
+    # True quando monthly_avg_spend foi estimado por renda (sem transações reais).
+    # Usado pelo CardSimulator para capar confidence_score em 0.50 e pelo
+    # OptimizerService para emitir warning no relatório.
+    spend_is_estimated: bool = False
+
 
 def _calc_merchant_diversity(df: pl.DataFrame) -> float:
     """Score 0–100: quanto mais merchants únicos, mais diversificado."""
