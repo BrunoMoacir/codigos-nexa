@@ -251,8 +251,7 @@ class MultiCardStrategist:
         if card.card_type in (CardType.CASHBACK, CardType.INVESTBACK):
             # M2.5: usar taxa real da categoria quando disponível
             if category and card.cashback_categories:
-                category_rules = {r.category: r for r in card.cashback_categories}
-                rule = category_rules.get(category)
+                rule = next((r for r in card.cashback_categories if r.category == category), None)
                 if rule:
                     value = monthly_spend * rule.pct
                     if rule.cap_monthly is not None:
@@ -291,8 +290,7 @@ class MultiCardStrategist:
                 best_card = card
 
                 if card.card_type in (CardType.CASHBACK, CardType.INVESTBACK):
-                    category_rules = {r.category: r for r in card.cashback_categories}
-                    rule = category_rules.get(category)
+                    rule = next((r for r in card.cashback_categories if r.category == category), None)
                     pct_used = (rule.pct * 100) if rule else ((card.cashback_pct or 0) * 100)
                     label_type = "cashback" if card.card_type == CardType.CASHBACK else "investback"
                     best_reason = f"Melhor {label_type} em {category} ({pct_used:.1f}%)"

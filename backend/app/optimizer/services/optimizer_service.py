@@ -267,12 +267,20 @@ class OptimizerService:
         # ConfidenceGate (0.65) e MinGainFilter por insight são aplicados no InsightGenerator.
         simulated_results = _apply_anti_fp_gates(simulated_results, profile)
 
-        # Fase 2 — FSS (opera sobre todas as transações para cheque especial / IOF)
-        # Family/Temporal/Airbnb já rodaram dentro do ConsumptionProfiler.build().
+        # Fase 2 — FSS: janela de 90 dias — mesma do profiler.
+        # _calc_overdraft_usage divide overdraft_months/total_months; passar o histórico
+        # completo dilui o sinal (~8× para 2 anos de dados), subestimando estresse recente.
         from app.optimizer.detectors.fss_calculator import FSSCalculator
+        from datetime import date as _fss_date, timedelta as _fss_td
 
+        _fss_cutoff = (reference_date or _fss_date.today()) - _fss_td(days=90)
+        _txns_90d = (
+            transactions_df.filter(pl.col("date") >= _fss_cutoff)
+            if "date" in transactions_df.columns
+            else transactions_df
+        )
         fss_result = FSSCalculator().calc_fss(
-            profile, transactions_df,
+            profile, _txns_90d,
             resilience_score=int(profile.resilience_score),
         )
         profile.fss = fss_result["fss"]
