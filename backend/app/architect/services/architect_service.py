@@ -246,11 +246,45 @@ class ArchitectService:
                 if flag
             )
 
-        # ── 3.6. Urgência e perguntas de acompanhamento por estratégia ──
+        return self._finalize_simulation_response(
+            request=request,
+            base_response=base_response,
+            transactions_df=transactions_df,
+            accumulated_warnings=accumulated_warnings,
+            safe_to_spend=safe_to_spend,
+            market_rates=market_rates,
+            has_open_finance_data=has_open_finance_data,
+            rate_warnings=rate_warnings,
+            llm_result=llm_result,
+            confidence_cap=cal.get("confidence_threshold_upper", 1.0),
+        )
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # HELPERS PRIVADOS
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _finalize_simulation_response(
+        self,
+        request: SimulationRequest,
+        base_response: SimulationResponse,
+        transactions_df,
+        accumulated_warnings: list[str],
+        safe_to_spend: Optional[float],
+        market_rates: dict[str, float],
+        has_open_finance_data: bool,
+        rate_warnings: list[str],
+        llm_result,
+        confidence_cap: float,
+    ) -> SimulationResponse:
+        """
+        Consolida a resposta final depois do cálculo principal.
+
+        Esta etapa fica isolada para manter `simulate()` como coordenador.
+        """
         urgency_analysis = None
         follow_up_questions = None
         _strat = base_response.recommended_strategy
-        _liq   = base_response.liquidity_impact  # -0.70 = 70% comprometido
+        _liq = base_response.liquidity_impact
 
         if _strat == StrategyType.SAVE_INVEST:
             urgency_analysis, follow_up_questions = self._build_save_invest_analysis(
@@ -261,14 +295,56 @@ class ArchitectService:
                     f"[URGÊNCIA {urgency_analysis.urgency_level}] {urgency_analysis.narrative}"
                 )
         elif _strat in (StrategyType.FINANCING, StrategyType.FINANCING_RENTAL):
-            # HIGH (>40%) ou CRITICAL (>70%) de comprometimento geram follow-ups
             if _liq is not None and _liq < -0.40:
                 follow_up_questions = self._build_financing_followups(request, base_response)
         elif _strat in (StrategyType.CONSORTIUM, StrategyType.CONSORTIUM_SELIC_RENTAL):
             if _liq is not None and _liq < -0.40:
                 follow_up_questions = self._build_consortium_followups(request, base_response)
 
-        # ── 4. Recalcular liquidez com safe_to_spend real ────────────
+        (
+            monthly_payment,
+            liquidity,
+            confidence,
+            data_sources,
+            card_bonus,
+        ) = self._build_response_context(
+            request=request,
+            base_response=base_response,
+            transactions_df=transactions_df,
+            accumulated_warnings=accumulated_warnings,
+            safe_to_spend=safe_to_spend,
+            market_rates=market_rates,
+            has_open_finance_data=has_open_finance_data,
+            rate_warnings=rate_warnings,
+        )
+
+        confidence = min(confidence, confidence_cap)
+
+        return base_response.model_copy(
+            update={
+                "liquidity_impact": liquidity.impact,
+                "warnings": accumulated_warnings,
+                "confidence_score": round(confidence, 2),
+                "data_sources": data_sources,
+                "card_optimization_bonus": card_bonus,
+                "llm_reasoning": llm_result,
+                "urgency_analysis": urgency_analysis,
+                "follow_up_questions": follow_up_questions,
+            }
+        )
+
+    def _build_response_context(
+        self,
+        request: SimulationRequest,
+        base_response: SimulationResponse,
+        transactions_df,
+        accumulated_warnings: list[str],
+        safe_to_spend: Optional[float],
+        market_rates: dict[str, float],
+        has_open_finance_data: bool,
+        rate_warnings: list[str],
+    ) -> tuple[float, object, float, list[str], Optional[CardOptimizationBonus]]:
+        """Calcula liquidez, confiança, fontes e bônus antes da montagem final."""
         monthly_payment = self._estimate_monthly_payment(base_response, request, market_rates)
         liquidity = LiquidityValidator.calculate(
             monthly_payment=monthly_payment,
@@ -277,7 +353,6 @@ class ArchitectService:
         )
         accumulated_warnings.extend(liquidity.warnings)
 
-        # ── 5. Calcular confidence_score ─────────────────────────────
         has_f1_transactions = transactions_df is not None and not transactions_df.is_empty()
         confidence = self._compute_confidence(
             base_confidence=base_response.confidence_score,
@@ -287,7 +362,6 @@ class ArchitectService:
             has_open_finance_data=has_open_finance_data,
         )
 
-        # ── 6. Consolidar data_sources ───────────────────────────────
         data_sources = list(base_response.data_sources)
         if safe_to_spend is not None:
             data_sources.append("f1_safe_to_spend")
@@ -295,14 +369,11 @@ class ArchitectService:
             data_sources.append("f1_transactions")
         if has_open_finance_data:
             data_sources.append("open_finance")
-        # ABAC sempre consultado para simulações de consórcio (Fase 2)
         if request.include_consortium and "abac" not in data_sources:
             data_sources.append("abac")
-        # IPCA — M3.1
         if "ipca" not in data_sources:
             data_sources.append("ipca")
 
-        # ── 7. M3.3 — Custo de oportunidade cruzado F3↔F2 ───────────
         card_bonus: Optional[CardOptimizationBonus] = None
         if base_response.recommended_strategy in (StrategyType.FINANCING, StrategyType.FINANCING_RENTAL):
             card_bonus = self._compute_card_optimization_bonus(
@@ -312,10 +383,13 @@ class ArchitectService:
                 monthly_income=request.monthly_income,
                 transactions_df=transactions_df,
             )
-            source = "optimizer_f2" if card_bonus and card_bonus.best_card_name != "melhor cartão premium de mercado" else "market_reference_estimate"
+            source = (
+                "optimizer_f2"
+                if card_bonus and card_bonus.best_card_name != "melhor cartão premium de mercado"
+                else "market_reference_estimate"
+            )
             data_sources.append(source)
 
-            # Penalizar confidence quando o melhor cartão tem risco de liquidez alto.
             if card_bonus and card_bonus.liquidity_risk in ("HIGH", "CRITICAL"):
                 confidence = max(0.30, confidence - 0.05)
                 accumulated_warnings.append(
@@ -323,7 +397,6 @@ class ArchitectService:
                     f"{card_bonus.liquidity_risk} para sua margem atual — avalie se a anuidade é sustentável."
                 )
 
-        # ── 7b. Validar parcela contra orçamento ideal (BudgetAdvisor) ──
         confidence = self._adjust_confidence_budget(
             confidence=confidence,
             monthly_payment=monthly_payment,
@@ -334,7 +407,6 @@ class ArchitectService:
             data_sources=data_sources,
         )
 
-        # ── 7c. Validar aportes contra metas ativas (GoalTracker) ──────
         confidence = self._adjust_confidence_goals(
             confidence=confidence,
             monthly_payment=monthly_payment,
@@ -344,26 +416,7 @@ class ArchitectService:
             data_sources=data_sources,
         )
 
-        # ── 8. Montar resposta final ─────────────────────────────────
-        # Aplica teto de confidence calibrado (rebaixado quando modelo estava superconfiante)
-        confidence = min(confidence, cal.get("confidence_threshold_upper", 1.0))
-
-        return base_response.model_copy(
-            update={
-                "liquidity_impact":        liquidity.impact,
-                "warnings":                accumulated_warnings,
-                "confidence_score":        round(confidence, 2),
-                "data_sources":            data_sources,
-                "card_optimization_bonus": card_bonus,
-                "llm_reasoning":           llm_result,
-                "urgency_analysis":        urgency_analysis,
-                "follow_up_questions":     follow_up_questions,
-            }
-        )
-
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # HELPERS PRIVADOS
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        return monthly_payment, liquidity, confidence, data_sources, card_bonus
 
     def _validate_or_raise(
         self,
