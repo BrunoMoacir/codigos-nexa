@@ -624,6 +624,114 @@ class TestLifeEventsDetector:
         )
         assert events == []
 
+    def test_confidence_grows_with_income_change_magnitude(self):
+        from app.optimizer.detectors.life_events_detector import LifeEventsDetector
+        det = LifeEventsDetector()
+        e_small = det.detect_all(_make_df([]), _make_df([]), 6200.0, 5000.0)   # +24%
+        e_large = det.detect_all(_make_df([]), _make_df([]), 10000.0, 5000.0)  # +100%
+        conf_small = next(e.confidence for e in e_small if e.event == "income_increase")
+        conf_large = next(e.confidence for e in e_large if e.event == "income_increase")
+        assert conf_large > conf_small
+
+    def test_multi_signal_wedding_higher_confidence_than_single(self):
+        """BUFFET+DECORACAO+FOTOGRAFO deve ter confiança bem acima de BUFFET isolado."""
+        from app.optimizer.detectors.life_events_detector import LifeEventsDetector
+        det = LifeEventsDetector()
+
+        single = _make_df([_txn(-1100, "BUFFET CASAMENTO")])
+        multi = _make_df([
+            _txn(-1500, "BUFFET CASAMENTO",        days_ago=5),
+            _txn(-2000, "DECORACAO FESTA NOIVAS",  days_ago=15),
+            _txn(-3000, "FOTOGRAFO CASAMENTO",     days_ago=25),
+        ])
+        history = _make_df([])
+
+        ev_single = det.detect_all(single, history, 5000.0, 5000.0)
+        ev_multi  = det.detect_all(multi,  history, 5000.0, 5000.0)
+
+        conf_single = next((e.confidence for e in ev_single if e.event == "wedding"), 0.0)
+        conf_multi  = next(e.confidence  for e in ev_multi  if e.event == "wedding")
+
+        assert conf_multi > conf_single
+        assert conf_multi >= 0.75, f"multi-sinal esperado >= 0.75, obtido {conf_multi}"
+
+    def test_isolated_buffet_has_low_confidence(self):
+        """Um único BUFFET isolado deve gerar confiança abaixo de 0.65."""
+        from app.optimizer.detectors.life_events_detector import LifeEventsDetector
+        recent = _make_df([_txn(-1100, "BUFFET JANTAR CORPORATIVO")])
+        events = LifeEventsDetector().detect_all(recent, _make_df([]), 5000.0, 5000.0)
+        wedding = next((e for e in events if e.event == "wedding"), None)
+        # Pode ser detectado (threshold passa), mas confiança deve ser baixa
+        if wedding:
+            assert wedding.confidence < 0.65, (
+                f"BUFFET isolado não deve ter confiança alta, obtido {wedding.confidence}"
+            )
+
+    def test_evidence_score_signals_in_supporting_signals(self):
+        """supporting_signals deve incluir breakdown do EvidenceScore."""
+        from app.optimizer.detectors.life_events_detector import LifeEventsDetector
+        recent = _make_df([
+            _txn(-600, "PAMPERS FRALDA", days_ago=3),
+            _txn(-400, "HUGGIES BEBE",   days_ago=20),
+        ])
+        events = LifeEventsDetector().detect_all(recent, _make_df([]), 5000.0, 5000.0)
+        baby = next(e for e in events if e.event == "new_baby")
+        signal_keys = " ".join(baby.supporting_signals)
+        assert "ev_volume" in signal_keys
+        assert "ev_absence" in signal_keys
+        assert "txn_count" in signal_keys
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EvidenceScore unit tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestEvidenceScorer:
+    def test_single_transaction_at_threshold_is_low_confidence(self):
+        from app.optimizer.detectors.evidence_scorer import compute_evidence_score
+        ev = compute_evidence_score(
+            recent_spend=1000.0, txn_count=1, merchant_count=1,
+            months_with_signal=1, historical_spend=0.0,
+            spend_threshold=1000, history_baseline=200, quality=0.72,
+        )
+        assert ev.composite < 0.65, f"sinal isolado esperado < 0.65, obtido {ev.composite}"
+        assert ev.diversity == 0.0
+        assert ev.recurrence == 0.0
+
+    def test_multi_merchant_raises_composite(self):
+        from app.optimizer.detectors.evidence_scorer import compute_evidence_score
+        single = compute_evidence_score(
+            1000.0, 1, 1, 1, 0.0, 1000, 200, quality=0.72
+        )
+        multi = compute_evidence_score(
+            5000.0, 3, 3, 2, 0.0, 1000, 200, quality=0.72
+        )
+        assert multi.composite > single.composite
+        assert multi.diversity > 0
+
+    def test_history_presence_reduces_absence(self):
+        from app.optimizer.detectors.evidence_scorer import compute_evidence_score
+        clean = compute_evidence_score(1000.0, 1, 1, 1, 0.0,   1000, 200, 0.72)
+        dirty = compute_evidence_score(1000.0, 1, 1, 1, 150.0,  1000, 200, 0.72)
+        assert clean.absence > dirty.absence
+        assert clean.composite > dirty.composite
+
+    def test_composite_capped_at_one(self):
+        from app.optimizer.detectors.evidence_scorer import compute_evidence_score
+        ev = compute_evidence_score(
+            100_000.0, 50, 20, 12, 0.0, 100, 50, quality=1.0
+        )
+        assert ev.composite <= 1.0
+
+    def test_as_signals_returns_expected_keys(self):
+        from app.optimizer.detectors.evidence_scorer import compute_evidence_score
+        ev = compute_evidence_score(500.0, 2, 2, 1, 0.0, 300, 100, 0.85)
+        keys = " ".join(ev.as_signals())
+        assert "ev_volume" in keys
+        assert "ev_recurrence" in keys
+        assert "ev_absence" in keys
+        assert "ev_diversity" in keys
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # T2.2 — FSSCalculator
