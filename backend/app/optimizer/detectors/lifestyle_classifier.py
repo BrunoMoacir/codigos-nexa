@@ -13,16 +13,26 @@ CLUSTER_FINANCIAL_STRESS   = "ESTRESSE_FINANCEIRO"
 CLUSTER_MICROEMPREENDEDOR  = "MICROEMPREENDEDOR"
 CLUSTER_UNCLASSIFIED       = "NAO_CLASSIFICADO"
 
+# Score mínimo para o cluster primário (deve "ganhar" claramente)
+_PRIMARY_THRESHOLD = 0.35
+# Score mínimo para clusters secundários (basta "estar presente" de forma relevante)
+_SECONDARY_THRESHOLD = 0.30
+# Máximo de clusters secundários retornados
+_MAX_SECONDARY = 2
+
 
 class LifestyleClassifier:
     """
-    Classifica o UserProfile em um dos clusters de estilo de vida.
+    Classifica o UserProfile em um ou mais clusters de estilo de vida.
 
     Fase 1: regras determinísticas baseadas em scores dos detectors.
     Fase 3: substituir por modelo ML (HDBSCAN ou K-Means treinado).
 
-    Retorna o cluster primário (string) e um dict de scores de afinidade
-    para todos os clusters (0.0–1.0) para uso futuro.
+    Retorna:
+        lifestyle_cluster:   cluster primário (o de maior score ≥ 0.35)
+        secondary_clusters:  clusters com score ≥ 0.30, distintos do primário,
+                             ordenados por score desc (máx 2)
+        cluster_scores:      afinidade 0.0–1.0 por cluster para uso futuro
     """
 
     def classify(self, profile: UserProfile) -> dict:
@@ -38,12 +48,20 @@ class LifestyleClassifier:
 
         primary = max(scores, key=lambda k: scores[k])
 
-        # Threshold mínimo — se nenhum cluster tem afinidade > 0.35, não classificar
-        if scores[primary] < 0.35:
+        # Threshold mínimo para primário — se nenhum cluster tem afinidade > 0.35, não classificar
+        if scores[primary] < _PRIMARY_THRESHOLD:
             primary = CLUSTER_UNCLASSIFIED
+
+        # Clusters secundários: score ≥ 0.30, distintos do primário
+        secondary = sorted(
+            [c for c, s in scores.items() if c != primary and s >= _SECONDARY_THRESHOLD],
+            key=lambda c: scores[c],
+            reverse=True,
+        )[:_MAX_SECONDARY]
 
         return {
             "lifestyle_cluster": primary,
+            "secondary_clusters": secondary,
             "cluster_scores": {k: round(v, 3) for k, v in scores.items()},
         }
 

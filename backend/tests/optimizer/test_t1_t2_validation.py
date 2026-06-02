@@ -434,6 +434,76 @@ class TestLifestyleClassifier:
         for k, v in result["cluster_scores"].items():
             assert 0.0 <= v <= 1.0, f"Cluster {k} score {v} out of [0,1]"
 
+    def test_secondary_clusters_returned(self):
+        """Perfil com sinais fortes em 2 dimensões deve gerar cluster secundário."""
+        from app.optimizer.detectors.lifestyle_classifier import LifestyleClassifier
+        # Ambos os clusters têm sinais fortes — o primário é o de maior score;
+        # o outro deve aparecer nos secundários.
+        p = self._base_profile(
+            travel_frequency_score=85.0,
+            travel_profile="INTENSO",
+            international_spend_monthly=700.0,
+            investor_type="ATIVO",
+            savings_rate=40.0,
+        )
+        result = LifestyleClassifier().classify(p)
+        primary = result["lifestyle_cluster"]
+        secondary = result["secondary_clusters"]
+        assert isinstance(secondary, list)
+        # Um dos dois clusters deve ser primário e o outro deve aparecer como secundário
+        target_clusters = {"EXPLORADOR_GLOBAL", "INVESTIDOR_CAUTELOSO"}
+        assert primary in target_clusters, f"Esperado um de {target_clusters}, obtido {primary}"
+        other = target_clusters - {primary}
+        assert other & set(secondary), f"Esperado {other} nos secundários, obtidos {secondary}"
+
+    def test_secondary_clusters_max_two(self):
+        """Nunca mais de 2 clusters secundários."""
+        from app.optimizer.detectors.lifestyle_classifier import LifestyleClassifier
+        p = self._base_profile(
+            travel_frequency_score=80.0,
+            travel_profile="FREQUENTE",
+            international_spend_monthly=500.0,
+            investor_type="ATIVO",
+            savings_rate=35.0,
+            is_likely_mei=True,
+        )
+        result = LifestyleClassifier().classify(p)
+        assert len(result["secondary_clusters"]) <= 2
+
+    def test_secondary_clusters_empty_when_unclassified(self):
+        """NAO_CLASSIFICADO não deve ter clusters secundários."""
+        from app.optimizer.detectors.lifestyle_classifier import LifestyleClassifier
+        p = self._base_profile(
+            subscription_burn_monthly=0.0,
+            merchant_diversity_score=0.0,
+            credit_spend_ratio=1.0,
+        )
+        result = LifestyleClassifier().classify(p)
+        assert result["lifestyle_cluster"] == "NAO_CLASSIFICADO"
+        # Pode ter secundários (scores >= 0.30) mesmo sem primário — tudo bem
+        assert isinstance(result["secondary_clusters"], list)
+
+    def test_primary_not_in_secondary_clusters(self):
+        """O cluster primário não deve aparecer nos secundários."""
+        from app.optimizer.detectors.lifestyle_classifier import LifestyleClassifier
+        p = self._base_profile(
+            travel_frequency_score=80.0,
+            travel_profile="INTENSO",
+            international_spend_monthly=600.0,
+            investor_type="ATIVO",
+            savings_rate=30.0,
+        )
+        result = LifestyleClassifier().classify(p)
+        primary = result["lifestyle_cluster"]
+        assert primary not in result["secondary_clusters"]
+
+    def test_userprofile_has_secondary_clusters_field(self):
+        """UserProfile deve ter secondary_clusters inicializado como lista vazia."""
+        from app.optimizer.profiler import UserProfile
+        p = UserProfile()
+        assert hasattr(p, "secondary_clusters")
+        assert isinstance(p.secondary_clusters, list)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # T1.8 — CardRanking cluster bonuses

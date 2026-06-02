@@ -152,6 +152,13 @@ class CardRanking:
             elif result.annuity_effective > 200:
                 score *= 0.70
 
+        # Clusters secundários: somente bonuses aditivos (sem penalties) a 50% de peso.
+        # Penalties ficam restritas ao cluster primário — identidade principal determina riscos.
+        for secondary in getattr(profile, "secondary_clusters", [])[:2]:
+            score = self._secondary_cluster_additive_bonus(
+                score, benefits_bonus, result, profile, secondary
+            )
+
         # 3. Penalidade de confiança (multiplicativa após bônus)
         if result.confidence_score < 0.4:
             score *= 0.5
@@ -163,6 +170,71 @@ class CardRanking:
             score *= 0.75
 
         return score
+
+    def _secondary_cluster_additive_bonus(
+        self,
+        score: float,
+        benefits_bonus: float,
+        result: CardSimulationResult,
+        profile: UserProfile,
+        cluster: str,
+    ) -> float:
+        """
+        Bonuses aditivos de cluster secundário a 50% do peso do primário.
+
+        Não aplica penalties multiplicativas (ex: score *= 0.70) — estas derivam
+        da identidade primária e não devem ser duplicadas por sinais secundários.
+        INVESTIDOR_CAUTELOSO só tem penalty → nenhum bonus aqui.
+        """
+        bonus = 0.0
+
+        if cluster == "EXPLORADOR_GLOBAL":
+            if BenefitTag.LOUNGE in result.benefit_tags or BenefitTag.TRAVEL in result.benefit_tags:
+                bonus += benefits_bonus * 0.25
+            travel_profile = getattr(profile, "travel_profile", "OCASIONAL")
+            if travel_profile in ("FREQUENTE", "INTENSO"):
+                if BenefitTag.INSURANCE in result.benefit_tags or BenefitTag.TRAVEL in result.benefit_tags:
+                    bonus += benefits_bonus * 0.10
+
+        elif cluster == "URBANO_FOODIE":
+            if BenefitTag.CASHBACK in result.benefit_tags:
+                food_spend = profile.spend_by_category.get("Alimentação", 0)
+                if food_spend > 500:
+                    foodie_mult = (
+                        1.5 if getattr(profile, "foodie_profile", "BASICO") in ("GOURMET", "ENTUSIASTA")
+                        else 1.0
+                    )
+                    bonus += food_spend * 0.005 * foodie_mult
+
+        elif cluster == "FAMILIA_ESTRUTURADA":
+            if BenefitTag.CASHBACK in result.benefit_tags:
+                family_spend = (
+                    profile.spend_by_category.get("Supermercado", 0)
+                    + profile.spend_by_category.get("Saúde", 0)
+                    + profile.spend_by_category.get("Educação", 0)
+                )
+                if family_spend > 400:
+                    bonus += family_spend * 0.004
+
+        elif cluster == "DIGITAL_NATIVO":
+            if result.annuity_effective == 0:
+                bonus += 80
+            elif result.annuity_effective <= 200:
+                bonus += 30
+
+        elif cluster == "MICROEMPREENDEDOR":
+            if result.annuity_effective == 0:
+                bonus += 100
+            elif result.annuity_effective <= 200:
+                bonus += 40
+            if BenefitTag.CASHBACK in result.benefit_tags:
+                bonus += 50
+
+        elif cluster == "ESTRESSE_FINANCEIRO":
+            if result.annuity_effective == 0:
+                bonus += 60
+
+        return score + bonus * 0.50
 
     # ── Score base sem cluster (usado pelo hyperscore para evitar double-counting) ──
 
@@ -263,8 +335,15 @@ class CardRanking:
         """
         cluster = getattr(profile, "lifestyle_cluster", "NAO_CLASSIFICADO")
 
-        # W1: relevância ao cluster (0-1) → 0-100
-        w1 = self._cluster_relevance(result, profile, cluster) * 100
+        # W1: relevância ao cluster primário + boost de clusters secundários.
+        # Para secundários: apenas o excesso acima do baseline neutro (0.5) contribui,
+        # a 35% de peso — garante que clusters periféricos não sobrescrevam o primário.
+        primary_rel = self._cluster_relevance(result, profile, cluster)
+        for sec in getattr(profile, "secondary_clusters", [])[:2]:
+            sec_rel = self._cluster_relevance(result, profile, sec)
+            above_neutral = max(sec_rel - 0.5, 0.0)
+            primary_rel = min(primary_rel + above_neutral * 0.35, 1.0)
+        w1 = primary_rel * 100
 
         # W2: impacto financeiro sem cluster (R$/ano) normalizado por R$3k → 0-100
         base = self._compute_base_score(result, profile)

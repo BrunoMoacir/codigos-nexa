@@ -533,9 +533,32 @@ class InsightGenerator:
         ranked: list[CardSimulationResult],
         profile: "UserProfile",
     ) -> list[ActionableInsight]:
-        """Insights específicos por cluster de estilo de vida."""
+        """
+        Insights específicos por cluster de estilo de vida.
+
+        Gera insights para o cluster primário e para cada cluster secundário
+        (máx 1 insight por cluster secundário, para não criar ruído).
+        """
         insights: list[ActionableInsight] = []
-        cluster = getattr(profile, "lifestyle_cluster", "NAO_CLASSIFICADO")
+        primary_cluster = getattr(profile, "lifestyle_cluster", "NAO_CLASSIFICADO")
+
+        insights.extend(self._cluster_insights_for(ranked, profile, primary_cluster))
+
+        for secondary in getattr(profile, "secondary_clusters", [])[:2]:
+            secondary_insights = self._cluster_insights_for(ranked, profile, secondary)
+            if secondary_insights:
+                insights.append(secondary_insights[0])  # apenas o mais relevante
+
+        return insights
+
+    def _cluster_insights_for(
+        self,
+        ranked: list[CardSimulationResult],
+        profile: "UserProfile",
+        cluster: str,
+    ) -> list[ActionableInsight]:
+        """Insights para um cluster específico (primário ou secundário)."""
+        insights: list[ActionableInsight] = []
 
         if cluster == "EXPLORADOR_GLOBAL" and profile.travel_spend_monthly > 500:
             top_card = ranked[0] if ranked else None
