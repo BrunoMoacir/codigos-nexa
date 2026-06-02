@@ -97,7 +97,7 @@ class CardRanking:
 
         elif cluster == "URBANO_FOODIE":
             if BenefitTag.CASHBACK in result.benefit_tags:
-                food_spend = profile.spend_by_category.get("Alimentação", 0)
+                food_spend = profile.spend_by_category.get("alimentacao", 0)
                 if food_spend > 500:
                     # Foodies GOURMET/ENTUSIASTA valorizam mais o cashback em alimentação
                     foodie_mult = 1.5 if getattr(profile, "foodie_profile", "BASICO") in ("GOURMET", "ENTUSIASTA") else 1.0
@@ -113,9 +113,9 @@ class CardRanking:
             # Famílias valorizam cashback em supermercado, farmácia e saúde
             if BenefitTag.CASHBACK in result.benefit_tags:
                 family_spend = (
-                    profile.spend_by_category.get("Supermercado", 0)
-                    + profile.spend_by_category.get("Saúde", 0)
-                    + profile.spend_by_category.get("Educação", 0)
+                    profile.spend_by_category.get("supermercado", 0)
+                    + profile.spend_by_category.get("saude", 0)
+                    + profile.spend_by_category.get("educacao", 0)
                 )
                 if family_spend > 400:
                     score += family_spend * 0.004
@@ -198,7 +198,7 @@ class CardRanking:
 
         elif cluster == "URBANO_FOODIE":
             if BenefitTag.CASHBACK in result.benefit_tags:
-                food_spend = profile.spend_by_category.get("Alimentação", 0)
+                food_spend = profile.spend_by_category.get("alimentacao", 0)
                 if food_spend > 500:
                     foodie_mult = (
                         1.5 if getattr(profile, "foodie_profile", "BASICO") in ("GOURMET", "ENTUSIASTA")
@@ -209,9 +209,9 @@ class CardRanking:
         elif cluster == "FAMILIA_ESTRUTURADA":
             if BenefitTag.CASHBACK in result.benefit_tags:
                 family_spend = (
-                    profile.spend_by_category.get("Supermercado", 0)
-                    + profile.spend_by_category.get("Saúde", 0)
-                    + profile.spend_by_category.get("Educação", 0)
+                    profile.spend_by_category.get("supermercado", 0)
+                    + profile.spend_by_category.get("saude", 0)
+                    + profile.spend_by_category.get("educacao", 0)
                 )
                 if family_spend > 400:
                     bonus += family_spend * 0.004

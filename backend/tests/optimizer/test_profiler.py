@@ -239,6 +239,7 @@ class TestSpendingStability:
 
 class TestSpendByCategory:
     def test_groups_by_category(self):
+        """spend_by_category usa chaves canônicas lowercase sem acento após enrich."""
         profiler = ConsumptionProfiler()
         df = _make_df([
             _txn(-400.0, category="Alimentação", txn_id="a1"),
@@ -246,10 +247,10 @@ class TestSpendByCategory:
             _txn(-300.0, category="Transporte", txn_id="t1"),
         ])
         result = profiler.build(df, reference_date=TODAY)
-        assert "Alimentação" in result.spend_by_category
-        assert "Transporte" in result.spend_by_category
+        assert "alimentacao" in result.spend_by_category
+        assert "transporte" in result.spend_by_category
         # 600 total em 1 mês
-        assert result.spend_by_category["Alimentação"] == pytest.approx(600.0, abs=0.01)
+        assert result.spend_by_category["alimentacao"] == pytest.approx(600.0, abs=0.01)
 
     def test_empty_without_category_column(self):
         """Se não há coluna category, spend_by_category fica vazio."""

@@ -80,7 +80,8 @@ class LifestyleClassifier:
     def _score_foodie(self, p: UserProfile) -> float:
         score = 0.0
         score += min(p.foodie_score / 100, 1.0) * 0.60
-        food_spend = p.spend_by_category.get("Alimentação", 0) + p.spend_by_category.get("alimentacao", 0)
+        # category_canonical usa "alimentacao" (lowercase, sem acento) — elimina dual-lookup
+        food_spend = p.spend_by_category.get("alimentacao", 0)
         pct_food = food_spend / p.monthly_avg_spend if p.monthly_avg_spend > 0 else 0
         score += min(pct_food * 2, 1.0) * 0.40
         return score
@@ -103,8 +104,8 @@ class LifestyleClassifier:
 
         # Fallback heurístico para perfis sem FamilyDetector
         edu_health = (
-            p.spend_by_category.get("Saúde", 0)
-            + p.spend_by_category.get("Educação", 0)
+            p.spend_by_category.get("saude", 0)
+            + p.spend_by_category.get("educacao", 0)
         )
         edu_health_pct = edu_health / p.monthly_avg_spend if p.monthly_avg_spend > 0 else 0
         score = min(edu_health_pct * 3, 0.6)

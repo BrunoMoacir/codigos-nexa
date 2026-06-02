@@ -9,10 +9,12 @@ import polars as pl
 
 logger = logging.getLogger(__name__)
 
-# Categorias L1 do optimizer que compõem "alimentação"
-_FOOD_CATEGORIES_L1 = {"Alimentação", "alimentacao"}
-# Categorias L2 (T1.1) que compõem "alimentação"
+# Categoria L1 canônica (category_canonical, lowercase sem acento)
+_FOOD_CATEGORY_CANONICAL = "alimentacao"
+# Categorias L2 (T1.1) que mapeiam para alimentação
 _FOOD_CATEGORIES_L2 = {"DELIVERY", "RESTAURANTE", "SUPERMERCADO"}
+# Fallback: raw category names de bancos que não passam por category_canonical
+_FOOD_CATEGORIES_RAW = {"Alimentação", "alimentacao"}
 
 # Ticket médio acima deste valor em restaurante = sinal de fine dining
 _FINE_DINING_TICKET = 150.0
@@ -60,15 +62,27 @@ class FoodieDetector:
         )
         total_spend_period = monthly_avg_spend * coverage_months
 
-        # ── Gasto em alimentação (L2 prioritário, L1 como fallback) ──────────
+        # ── Gasto em alimentação — hierarquia de campos ───────────────────────
+        # 1. merchant_category_l1 (canônico, derivado do L2): mais preciso
+        # 2. merchant_category_l2 (subcategoria): fallback quando L1 ausente
+        # 3. category_canonical (normalizado do banco): inclui transações sem L2
+        # 4. category (raw): compatibilidade com bancos que não passam por enrich
         food_filter = pl.lit(False)
+        if "merchant_category_l1" in df.columns:
+            food_filter = food_filter | (
+                pl.col("merchant_category_l1") == _FOOD_CATEGORY_CANONICAL
+            )
         if "merchant_category_l2" in df.columns:
             food_filter = food_filter | pl.col("merchant_category_l2").is_in(
                 list(_FOOD_CATEGORIES_L2)
             )
-        if "category" in df.columns:
+        if "category_canonical" in df.columns:
+            food_filter = food_filter | (
+                pl.col("category_canonical") == _FOOD_CATEGORY_CANONICAL
+            )
+        elif "category" in df.columns:
             food_filter = food_filter | pl.col("category").is_in(
-                list(_FOOD_CATEGORIES_L1)
+                list(_FOOD_CATEGORIES_RAW)
             )
 
         food_df = expenses.filter(food_filter)
@@ -85,7 +99,14 @@ class FoodieDetector:
                 pl.col("merchant_category_l2").is_in({"RESTAURANTE", "DELIVERY"})
             )
             if not rest_df.is_empty():
-                restaurant_diversity = rest_df["description"].n_unique()
+                # merchant_normalized remove ruído de pagamento antes de contar merchants
+                # únicos: "PG*IFOOD", "IFOOD*PADARIA" e "IFOOD.COM" colapsam corretamente.
+                merch_col = (
+                    "merchant_normalized"
+                    if "merchant_normalized" in rest_df.columns
+                    else "description"
+                )
+                restaurant_diversity = rest_df[merch_col].n_unique()
                 avg_ticket = float(rest_df["amount"].sum()) * -1 / len(rest_df)
                 fine_dining = avg_ticket > _FINE_DINING_TICKET
 

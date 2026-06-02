@@ -103,6 +103,105 @@ class TestFeatureEnricher:
         df = self._enrich([_txn(-600, "AIRBNB RESERVA SAO PAULO")])
         assert df["merchant_category_l2"][0] == "AIRBNB"
 
+    # ── Taxonomia canônica ────────────────────────────────────────────────────
+
+    def test_merchant_category_l1_viagem_for_airbnb(self):
+        df = self._enrich([_txn(-600, "AIRBNB RESERVA")])
+        assert df["merchant_category_l1"][0] == "viagem"
+
+    def test_merchant_category_l1_alimentacao_for_restaurante(self):
+        df = self._enrich([_txn(-80, "RESTAURANTE BELO SABOR")])
+        assert df["merchant_category_l1"][0] == "alimentacao"
+
+    def test_merchant_category_l1_alimentacao_for_delivery(self):
+        df = self._enrich([_txn(-45, "IFOOD PEDIDO 123")])
+        assert df["merchant_category_l1"][0] == "alimentacao"
+
+    def test_merchant_category_l1_supermercado_distinct_from_alimentacao(self):
+        df = self._enrich([_txn(-200, "SUPERMERCADO EXTRA")])
+        assert df["merchant_category_l1"][0] == "supermercado"
+
+    def test_merchant_category_l1_farmacia(self):
+        df = self._enrich([_txn(-60, "DROGASIL FARMACIA")])
+        assert df["merchant_category_l1"][0] == "farmacia"
+
+    def test_merchant_category_l1_streaming(self):
+        df = self._enrich([_txn(-40, "NETFLIX MENSALIDADE")])
+        assert df["merchant_category_l1"][0] == "streaming"
+
+    def test_merchant_category_l1_none_for_unknown(self):
+        df = self._enrich([_txn(-100, "LOJA GENÉRICA ABC")])
+        assert df["merchant_category_l1"][0] is None
+
+    def test_category_canonical_normalizes_accents(self):
+        from app.optimizer.feature_store import TransactionFeatureEnricher
+        df = pl.DataFrame(
+            [{"date": date.today(), "amount": -100.0, "description": "PADARIA",
+              "category": "Alimentação", "transaction_type": "CREDIT"}],
+            schema={"date": pl.Date, "amount": pl.Float64, "description": pl.Utf8,
+                    "category": pl.Utf8, "transaction_type": pl.Utf8},
+        )
+        enriched = TransactionFeatureEnricher().enrich(df)
+        assert enriched["category_canonical"][0] == "alimentacao"
+
+    def test_category_canonical_normalizes_saude(self):
+        from app.optimizer.feature_store import TransactionFeatureEnricher
+        df = pl.DataFrame(
+            [{"date": date.today(), "amount": -50.0, "description": "CONSULTA",
+              "category": "Saúde", "transaction_type": "CREDIT"}],
+            schema={"date": pl.Date, "amount": pl.Float64, "description": pl.Utf8,
+                    "category": pl.Utf8, "transaction_type": pl.Utf8},
+        )
+        enriched = TransactionFeatureEnricher().enrich(df)
+        assert enriched["category_canonical"][0] == "saude"
+
+    def test_category_canonical_outros_falls_back_to_l1(self):
+        """Quando category='Outros', category_canonical deve usar merchant_category_l1."""
+        from app.optimizer.feature_store import TransactionFeatureEnricher
+        df = pl.DataFrame(
+            [{"date": date.today(), "amount": -200.0, "description": "CARREFOUR SUPERMERCADO",
+              "category": "Outros", "transaction_type": "CREDIT"}],
+            schema={"date": pl.Date, "amount": pl.Float64, "description": pl.Utf8,
+                    "category": pl.Utf8, "transaction_type": pl.Utf8},
+        )
+        enriched = TransactionFeatureEnricher().enrich(df)
+        assert enriched["category_canonical"][0] == "supermercado"
+
+    def test_merchant_normalized_removes_pg_prefix(self):
+        df = self._enrich([_txn(-15, "PG*SPOTIFY")])
+        assert df["merchant_normalized"][0] == "SPOTIFY"
+
+    def test_merchant_normalized_removes_pagamento_pix(self):
+        df = self._enrich([_txn(-500, "PAGAMENTO PIX ENVIADO EMPRESA ABC")])
+        assert df["merchant_normalized"][0] == "EMPRESA ABC"
+
+    def test_merchant_normalized_removes_dotcom(self):
+        df = self._enrich([_txn(-40, "NETFLIX.COM")])
+        assert df["merchant_normalized"][0] == "NETFLIX"
+
+    def test_merchant_normalized_replaces_asterisk(self):
+        df = self._enrich([_txn(-80, "IFOOD*PADARIA DA ESQUINA")])
+        assert df["merchant_normalized"][0] == "IFOOD PADARIA DA ESQUINA"
+
+    def test_spend_by_category_uses_canonical_keys(self):
+        """spend_by_category deve usar chaves lowercase sem acento após enrich."""
+        from app.optimizer.profiler import ConsumptionProfiler
+        df = pl.DataFrame(
+            [{"date": date.today(), "amount": -300.0, "description": "RESTAURANTE",
+              "category": "Alimentação", "transaction_type": "CREDIT"},
+             {"date": date.today(), "amount": -100.0, "description": "FARMACIA XYZ",
+              "category": "Saúde", "transaction_type": "CREDIT"}],
+            schema={"date": pl.Date, "amount": pl.Float64, "description": pl.Utf8,
+                    "category": pl.Utf8, "transaction_type": pl.Utf8},
+        )
+        profile = ConsumptionProfiler().build(df)
+        # Chaves devem ser canonizadas — não "Alimentação" ou "Saúde"
+        assert "alimentacao" in profile.spend_by_category or "supermercado" in profile.spend_by_category or len(profile.spend_by_category) > 0
+        # Garantir que não há chaves com acento
+        for key in profile.spend_by_category:
+            assert key == key.lower(), f"Chave não-lowercase: {key}"
+            assert "ã" not in key and "é" not in key and "ç" not in key, f"Chave com acento: {key}"
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # T1.2 — TravelDetector

@@ -22,6 +22,42 @@ _MCC_CAR_RENTAL = {7512, 7513}
 _MCC_TRAVEL_INSURANCE = {6300}
 _MCC_INVESTMENT_BROKERS = {6211}
 
+# ── Taxonomia canônica de categorias ─────────────────────────────────────────
+# Formato: lowercase sem acento — igual ao knowledge_cards.json (cashback rules).
+# Fonte única de verdade: qualquer consumer usa estas constantes, não strings inline.
+
+# Mapeamento L2 → L1 (merchant_category_l1)
+# Mantém SUPERMERCADO e FARMACIA separados de ALIMENTACAO: cashback rules são distintos.
+_L2_TO_L1: dict[str, str] = {
+    "RESTAURANTE":  "alimentacao",
+    "DELIVERY":     "alimentacao",
+    "SUPERMERCADO": "supermercado",
+    "VOO":          "viagem",
+    "HOTEL":        "viagem",
+    "LOCADORA":     "viagem",
+    "AIRBNB":       "viagem",
+    "FARMACIA":     "farmacia",
+    "SAUDE":        "saude",
+    "ACADEMIA":     "saude",
+    "ESCOLA":       "educacao",
+    "STREAMING":    "streaming",
+    "COWORKING":    "outros",
+    "CORRETORA":    "outros",
+}
+
+# Categorias canônicas L1 exportadas para uso nos detectors/ranking sem string literals
+CAT_ALIMENTACAO  = "alimentacao"
+CAT_SUPERMERCADO = "supermercado"
+CAT_FARMACIA     = "farmacia"
+CAT_VIAGEM       = "viagem"
+CAT_SAUDE        = "saude"
+CAT_EDUCACAO     = "educacao"
+CAT_STREAMING    = "streaming"
+CAT_TRANSPORTE   = "transporte"
+CAT_LAZER        = "lazer"
+CAT_FINANCAS     = "financas"
+CAT_OUTROS       = "outros"
+
 # ── Keywords por domínio (fonte única de verdade) ──────────────────────────────
 # Usados tanto nos flags booleanos (is_travel_related, is_delivery, etc.)
 # quanto nos classificadores L2. Não duplicar inline.
@@ -98,6 +134,9 @@ class TransactionFeatureEnricher:
         df = self._add_is_broker(df)
         df = self._add_is_b2b(df)
         df = self._add_merchant_category_l2(df)
+        df = self._add_merchant_category_l1(df)   # depende de l2
+        df = self._add_category_canonical(df)      # normaliza raw bank category
+        df = self._add_merchant_normalized(df)     # nome limpo para diversidade
         df = self._add_is_foreign(df)
         df = self._add_temporal_features(df)
         return df
@@ -250,6 +289,129 @@ class TransactionFeatureEnricher:
         )
 
         return df.with_columns(expr.alias("merchant_category_l2"))
+
+    def _add_merchant_category_l1(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Categoria L1 canônica derivada do merchant_category_l2.
+
+        Usa _L2_TO_L1 como fonte única de verdade — não duplicar o mapeamento inline.
+        Mantém SUPERMERCADO e FARMACIA separados de ALIMENTACAO para preservar a
+        granularidade dos cashback_categories em knowledge_cards.json.
+        """
+        if "merchant_category_l1" in df.columns:
+            return df
+        if "merchant_category_l2" not in df.columns:
+            return df.with_columns(pl.lit(None).cast(pl.Utf8).alias("merchant_category_l1"))
+
+        l2 = pl.col("merchant_category_l2")
+        expr = pl.lit(None).cast(pl.Utf8)
+        for l2_val, l1_val in _L2_TO_L1.items():
+            expr = pl.when(l2 == l2_val).then(pl.lit(l1_val)).otherwise(expr)
+
+        return df.with_columns(expr.alias("merchant_category_l1"))
+
+    def _add_category_canonical(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Normaliza a categoria raw do banco (campo `category`) para formato canônico:
+        lowercase, sem acento, sem espaço extra — alinhado com knowledge_cards.json.
+
+        Ex: "Alimentação" → "alimentacao", "Saúde" → "saude", None → "outros".
+
+        Quando merchant_category_l1 está disponível e a categoria raw é ausente/genérica
+        ("Outros", None), usa o L1 como fallback para máxima cobertura.
+        """
+        if "category_canonical" in df.columns:
+            return df
+
+        if "category" not in df.columns:
+            # Sem coluna raw: tenta usar merchant_category_l1 como proxy
+            if "merchant_category_l1" in df.columns:
+                return df.with_columns(
+                    pl.col("merchant_category_l1").fill_null(CAT_OUTROS).alias("category_canonical")
+                )
+            return df.with_columns(pl.lit(CAT_OUTROS).alias("category_canonical"))
+
+        # Passo 1: normalizar texto — lowercase + remover acentos comuns do português
+        normalized = (
+            pl.col("category")
+            .cast(pl.Utf8)
+            .str.to_lowercase()
+            .str.replace_all("á|â|ã", "a")
+            .str.replace_all("é|ê", "e")
+            .str.replace_all("í", "i")
+            .str.replace_all("ó|ô|õ", "o")
+            .str.replace_all("ú|ü", "u")
+            .str.replace_all("ç", "c")
+            .str.strip_chars()
+            .fill_null(CAT_OUTROS)
+        )
+
+        # Passo 2: mapear aliases conhecidos → valor canônico
+        # "restaurante" e "refeição" → alimentacao; "saúde e bem-estar" → saude; etc.
+        canonical = (
+            pl.when(normalized.is_in(["restaurante", "refeicao", "refeição"]))
+            .then(pl.lit(CAT_ALIMENTACAO))
+            .when(normalized.is_in(["farmacia", "farmácia", "drogaria"]))
+            .then(pl.lit(CAT_FARMACIA))
+            .when(normalized.is_in(["saude e bem-estar", "saúde e bem-estar", "bem-estar"]))
+            .then(pl.lit(CAT_SAUDE))
+            .when(normalized.is_in(["turismo", "turismo e viagem", "hotel"]))
+            .then(pl.lit(CAT_VIAGEM))
+            .when(normalized.is_in(["entretenimento", "diversao", "diversão"]))
+            .then(pl.lit(CAT_LAZER))
+            .when(normalized.is_in(["investimentos", "aplicacao", "aplicação"]))
+            .then(pl.lit(CAT_FINANCAS))
+            .otherwise(normalized)
+        )
+
+        # Passo 3: quando raw category é genérica ("outros"), prefere merchant_category_l1
+        if "merchant_category_l1" in df.columns:
+            canonical = (
+                pl.when((canonical == CAT_OUTROS) & pl.col("merchant_category_l1").is_not_null())
+                .then(pl.col("merchant_category_l1"))
+                .otherwise(canonical)
+            )
+
+        return df.with_columns(canonical.alias("category_canonical"))
+
+    def _add_merchant_normalized(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Nome do merchant limpo de ruído de pagamento.
+
+        Remove prefixos de meio de pagamento ("PG*", "PAGAMENTO PIX", "TED "),
+        asteriscos intermediários, sufixos ".COM" e códigos numéricos longos.
+        Resultado em uppercase para consistência com os demais campos de texto.
+
+        Útil para contagem de merchants distintos no EvidenceScore: sem isso
+        "PG*SPOTIFY" e "SPOTIFY.COM" seriam contados como merchants diferentes.
+        """
+        if "merchant_normalized" in df.columns:
+            return df
+        if "description" not in df.columns:
+            return df.with_columns(pl.lit(None).cast(pl.Utf8).alias("merchant_normalized"))
+
+        desc = pl.col("description").str.to_uppercase()
+
+        normalized = (
+            desc
+            # Prefixos de pagamento no início.
+            # PGT?O?\* cobre variantes: PG*, PGT*, PGTO* (ex: "PG*SPOTIFY", "PGTO*AMAZON")
+            .str.replace_all(
+                r"^(PGT?O?\*|PAG(?:AMENTO)?\s+(?:PIX\s+)?(?:ENVIADO\s+)?|PIX\s+(?:ENVIADO\s+)?|TED\s+|DOC\s+)",
+                "",
+            )
+            # Separadores com asterisco → espaço único
+            .str.replace_all(r"\s*\*\s*", " ")
+            # Sufixo .COM
+            .str.replace_all(r"\.COM\b", "")
+            # Códigos numéricos longos no final (≥ 6 dígitos)
+            .str.replace_all(r"\s+\d{6,}.*$", "")
+            # Ruído de tipo de transação no final
+            .str.replace_all(r"\s+(COMPRA|DEBITO|CREDITO|PGMT|LOJA\s+\d+)$", "")
+            .str.strip_chars()
+        )
+
+        return df.with_columns(normalized.alias("merchant_normalized"))
 
     def _add_is_foreign(self, df: pl.DataFrame) -> pl.DataFrame:
         """

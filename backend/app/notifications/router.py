@@ -155,12 +155,15 @@ def get_notifications(
             from app.optimizer.detectors.life_events_detector import LifeEventsDetector
 
             if transactions_df is not None and not transactions_df.is_empty():
+                from app.optimizer.feature_store import TransactionFeatureEnricher
                 date_col = "date" if "date" in transactions_df.columns else "transaction_date"
                 today = date.today()
-                txns_recent  = transactions_df.filter(
+                # Enriquecer antes de slicear — merchant_normalized disponível nos slices.
+                txns_enriched = TransactionFeatureEnricher().enrich(transactions_df)
+                txns_recent  = txns_enriched.filter(
                     pl.col(date_col).cast(pl.Date) >= today - timedelta(days=60)
                 )
-                txns_history = transactions_df.filter(
+                txns_history = txns_enriched.filter(
                     pl.col(date_col).cast(pl.Date) < today - timedelta(days=180)
                 )
                 income_recent = income_profile.monthly_net_income if income_profile else 0.0

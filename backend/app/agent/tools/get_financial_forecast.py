@@ -167,6 +167,7 @@ def get_financial_forecast(
                 # ── Eventos de vida (LifeEventsDetector) ──────────────────
                 try:
                     from app.optimizer.detectors.life_events_detector import LifeEventsDetector
+                    from app.optimizer.feature_store import TransactionFeatureEnricher
 
                     today      = date.today()
                     cutoff_60d = today - timedelta(days=60)
@@ -174,10 +175,14 @@ def get_financial_forecast(
 
                     date_col = "date" if "date" in transactions_df.columns else "transaction_date"
 
-                    txns_recent = transactions_df.filter(
+                    # Enriquecer antes de slicear para que merchant_normalized esteja
+                    # disponível em txns_recent e txns_history. Idempotente.
+                    txns_enriched = TransactionFeatureEnricher().enrich(transactions_df)
+
+                    txns_recent = txns_enriched.filter(
                         pl.col(date_col).cast(pl.Date) >= cutoff_60d
                     )
-                    txns_history = transactions_df.filter(
+                    txns_history = txns_enriched.filter(
                         pl.col(date_col).cast(pl.Date) < cutoff_6m
                     )
 

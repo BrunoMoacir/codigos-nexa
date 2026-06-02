@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 _WINDOW_DAYS = 90
 
 # Categorias consideradas "viagem" para travel_spend_monthly
-_TRAVEL_CATEGORIES = {"Lazer", "Transporte"}
+_TRAVEL_CATEGORIES = {"Lazer", "Transporte", "lazer", "transporte", "viagem"}
 
 # Padrões regex que indicam gasto internacional.
 # Palavras ambíguas usam word boundaries (\b) para evitar falsos positivos:
@@ -352,8 +352,17 @@ class ConsumptionProfiler:
         return stability, round(min(cv, 1.0), 4)
 
     def _spend_by_category(self, df: pl.DataFrame, coverage_months: int) -> dict:
-        """Gasto médio mensal por categoria (apenas despesas)."""
-        if "category" not in df.columns:
+        """
+        Gasto médio mensal por categoria (apenas despesas).
+
+        Usa category_canonical (lowercase sem acento) quando disponível — garante que
+        as chaves do dict coincidam com os cashback_categories em knowledge_cards.json
+        ("alimentacao", "supermercado", "farmacia"...) e eliminam o dual-lookup
+        "Alimentação" + "alimentacao" dos detectors.
+        Fallback para raw `category` quando category_canonical não existe.
+        """
+        cat_col = "category_canonical" if "category_canonical" in df.columns else "category"
+        if cat_col not in df.columns:
             return {}
 
         expenses = df.filter(pl.col("amount") < 0)
@@ -364,15 +373,15 @@ class ConsumptionProfiler:
 
         result = (
             expenses
-            .group_by("category")
+            .group_by(cat_col)
             .agg(pl.col("amount").sum().abs().alias("total"))
             .with_columns((pl.col("total") / months).alias("monthly_avg"))
         )
 
         return {
-            row["category"]: round(row["monthly_avg"], 2)
+            row[cat_col]: round(row["monthly_avg"], 2)
             for row in result.to_dicts()
-            if row["category"] is not None
+            if row[cat_col] is not None and row[cat_col] != "outros"
         }
 
     def _spend_by_source(self, df: pl.DataFrame, coverage_months: int) -> dict:
@@ -437,12 +446,17 @@ class ConsumptionProfiler:
         return round(total / max(coverage_months, 1), 2)
 
     def _travel_spend(self, df: pl.DataFrame, coverage_months: int) -> float:
-        """Gasto médio mensal nas categorias de viagem (Lazer + Transporte)."""
-        if "category" not in df.columns:
+        """Gasto médio mensal nas categorias de viagem (lazer + transporte + viagem).
+
+        Usa category_canonical quando disponível para cobrir bancos que enviam
+        "Lazer", "lazer" ou "viagem" sem normalização prévia.
+        """
+        cat_col = "category_canonical" if "category_canonical" in df.columns else "category"
+        if cat_col not in df.columns:
             return 0.0
 
         travel = df.filter(
-            (pl.col("amount") < 0) & pl.col("category").is_in(list(_TRAVEL_CATEGORIES))
+            (pl.col("amount") < 0) & pl.col(cat_col).is_in(list(_TRAVEL_CATEGORIES))
         )
 
         if travel.is_empty():

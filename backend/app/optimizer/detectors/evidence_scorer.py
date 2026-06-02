@@ -82,7 +82,11 @@ def gather_evidence(
         if not matched.is_empty():
             recent_spend = float(matched["amount"].sum()) * -1
             txn_count = len(matched)
-            merchant_count = matched["description"].n_unique()
+            # merchant_normalized remove ruído de pagamento (PG*, .COM, TED...) antes
+            # de contar merchants distintos — evita contar "PG*SPOTIFY" e "SPOTIFY"
+            # como dois merchants. Fallback para description quando ausente.
+            merch_col = "merchant_normalized" if "merchant_normalized" in matched.columns else "description"
+            merchant_count = matched[merch_col].n_unique()
             if "date" in matched.columns:
                 months_with_signal = (
                     matched

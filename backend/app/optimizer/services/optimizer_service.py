@@ -169,6 +169,14 @@ class OptimizerService:
         # 1. Validar request
         self.validator.validate(request)
 
+        # Enriquecer transactions_df uma vez antes de qualquer slice.
+        # Garante que merchant_normalized, category_canonical e merchant_category_l1
+        # estejam disponíveis em todos os consumidores downstream (profiler, FSS,
+        # LifeEventsDetector). O enricher é idempotente: não-op se colunas já existem.
+        if transactions_df is not None and not transactions_df.is_empty():
+            from app.optimizer.feature_store import TransactionFeatureEnricher
+            transactions_df = TransactionFeatureEnricher().enrich(transactions_df)
+
         # 2. Construir perfil de consumo
         profile = self.profiler.build(
             transactions_df=transactions_df,
