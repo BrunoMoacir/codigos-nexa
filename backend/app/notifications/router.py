@@ -106,6 +106,12 @@ def get_notifications(
         transactions_data = runner_result.get("transactions", {})
         transactions_df: pl.DataFrame | None = transactions_data.get("pf_pj_classified_df")
 
+        # Enriquecer uma vez — merchant_id, category_canonical etc. ficam disponíveis
+        # para burn rate, anomalia, assinaturas e life events sem re-enriquecimento.
+        if transactions_df is not None and not transactions_df.is_empty():
+            from app.optimizer.feature_store import TransactionFeatureEnricher
+            transactions_df = TransactionFeatureEnricher().enrich(transactions_df)
+
         # ── 2. IncomeProfile ───────────────────────────────────────
         income_profile = None
         if transactions_df is not None and not transactions_df.is_empty():
@@ -155,15 +161,13 @@ def get_notifications(
             from app.optimizer.detectors.life_events_detector import LifeEventsDetector
 
             if transactions_df is not None and not transactions_df.is_empty():
-                from app.optimizer.feature_store import TransactionFeatureEnricher
                 date_col = "date" if "date" in transactions_df.columns else "transaction_date"
                 today = date.today()
-                # Enriquecer antes de slicear — merchant_normalized disponível nos slices.
-                txns_enriched = TransactionFeatureEnricher().enrich(transactions_df)
-                txns_recent  = txns_enriched.filter(
+                # transactions_df já enriquecido no início do bloco principal.
+                txns_recent  = transactions_df.filter(
                     pl.col(date_col).cast(pl.Date) >= today - timedelta(days=60)
                 )
-                txns_history = txns_enriched.filter(
+                txns_history = transactions_df.filter(
                     pl.col(date_col).cast(pl.Date) < today - timedelta(days=180)
                 )
                 income_recent = income_profile.monthly_net_income if income_profile else 0.0

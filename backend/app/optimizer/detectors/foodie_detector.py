@@ -99,13 +99,14 @@ class FoodieDetector:
                 pl.col("merchant_category_l2").is_in({"RESTAURANTE", "DELIVERY"})
             )
             if not rest_df.is_empty():
-                # merchant_normalized remove ruído de pagamento antes de contar merchants
-                # únicos: "PG*IFOOD", "IFOOD*PADARIA" e "IFOOD.COM" colapsam corretamente.
-                merch_col = (
-                    "merchant_normalized"
-                    if "merchant_normalized" in rest_df.columns
-                    else "description"
-                )
+                # merchant_id colapsa aliases do mesmo merchant antes de contar
+                # diversidade: "PG*IFOOD", "IFOOD*PADARIA", "IFOOD.COM" → todos "ifood".
+                if "merchant_id" in rest_df.columns:
+                    merch_col = "merchant_id"
+                elif "merchant_normalized" in rest_df.columns:
+                    merch_col = "merchant_normalized"
+                else:
+                    merch_col = "description"
                 restaurant_diversity = rest_df[merch_col].n_unique()
                 avg_ticket = float(rest_df["amount"].sum()) * -1 / len(rest_df)
                 fine_dining = avg_ticket > _FINE_DINING_TICKET

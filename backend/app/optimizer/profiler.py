@@ -109,10 +109,18 @@ class UserProfile:
 
 def _calc_merchant_diversity(df: pl.DataFrame) -> float:
     """Score 0–100: quanto mais merchants únicos, mais diversificado."""
-    if "description" not in df.columns:
+    expenses = df.filter(pl.col("amount") < 0)
+    if expenses.is_empty():
         return 0.0
-    unique_merchants = df.filter(pl.col("amount") < 0)["description"].n_unique()
-    return round(min(unique_merchants, 100), 1)
+    if "merchant_id" in expenses.columns:
+        merch_col = "merchant_id"
+    elif "merchant_normalized" in expenses.columns:
+        merch_col = "merchant_normalized"
+    elif "description" in expenses.columns:
+        merch_col = "description"
+    else:
+        return 0.0
+    return round(min(expenses[merch_col].n_unique(), 100), 1)
 
 
 def _calc_subscription_burn(df: pl.DataFrame, coverage_months: int) -> float:

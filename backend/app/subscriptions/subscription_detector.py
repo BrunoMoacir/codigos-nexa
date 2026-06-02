@@ -254,15 +254,29 @@ class SubscriptionDetector:
         if expenses.is_empty():
             return expenses
 
+        # merchant_id colapsa aliases ("PG*NETFLIX", "NETFLIX.COM" → "netflix")
+        # antes de detectar recorrência — sem isso cada variante gera assinatura separada.
+        # Underscores → espaços para que keyword classification e .title() funcionem:
+        # "amazon_prime" → "amazon prime" → "Amazon Prime".
+        if "merchant_id" in expenses.columns:
+            desc_expr: pl.Expr = pl.col("merchant_id").str.replace_all("_", " ")
+            if "description" in expenses.columns:
+                desc_expr = desc_expr.fill_null(
+                    pl.col("description").str.to_lowercase().str.strip_chars()
+                )
+        else:
+            desc_expr = (
+                pl.col("description")
+                .str.to_lowercase()
+                .str.strip_chars()
+                .str.replace_all(r"\s+", " ", literal=False)
+            )
+
         return (
             expenses
             .with_columns([
                 pl.col("amount").abs().alias("amount"),
-                pl.col("description")
-                   .str.to_lowercase()
-                   .str.strip_chars()
-                   .str.replace_all(r"\s+", " ", literal=False)
-                   .alias("desc_norm"),
+                desc_expr.alias("desc_norm"),
                 pl.col("date").cast(pl.Date).alias("date"),
             ])
             .with_columns(

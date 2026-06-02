@@ -85,7 +85,12 @@ def gather_evidence(
             # merchant_normalized remove ruído de pagamento (PG*, .COM, TED...) antes
             # de contar merchants distintos — evita contar "PG*SPOTIFY" e "SPOTIFY"
             # como dois merchants. Fallback para description quando ausente.
-            merch_col = "merchant_normalized" if "merchant_normalized" in matched.columns else "description"
+            if "merchant_id" in matched.columns:
+                merch_col = "merchant_id"
+            elif "merchant_normalized" in matched.columns:
+                merch_col = "merchant_normalized"
+            else:
+                merch_col = "description"
             merchant_count = matched[merch_col].n_unique()
             if "date" in matched.columns:
                 months_with_signal = (

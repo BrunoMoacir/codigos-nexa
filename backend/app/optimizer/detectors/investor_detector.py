@@ -68,7 +68,11 @@ class InvestorDetector:
                 investment_transfers_monthly = (
                     float(broker_df["amount"].sum()) * -1 / coverage_months
                 )
-                if "description" in df.columns:
+                if "merchant_id" in broker_df.columns:
+                    broker_diversity = broker_df["merchant_id"].n_unique()
+                elif "merchant_normalized" in broker_df.columns:
+                    broker_diversity = broker_df["merchant_normalized"].n_unique()
+                elif "description" in broker_df.columns:
                     broker_diversity = broker_df["description"].n_unique()
         elif "description" in df.columns:
             logger.debug("InvestorDetector: is_broker_txn ausente — rode T1.1 primeiro")

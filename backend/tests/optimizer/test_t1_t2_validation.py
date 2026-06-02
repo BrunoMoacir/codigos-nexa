@@ -204,6 +204,94 @@ class TestFeatureEnricher:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# T1.1b — merchant_id canônico
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestMerchantId:
+    def _enrich(self, rows: list[dict]) -> pl.DataFrame:
+        from app.optimizer.feature_store import TransactionFeatureEnricher
+        return TransactionFeatureEnricher().enrich(_make_df(rows))
+
+    def test_pg_spotify_collapses_to_spotify(self):
+        df = self._enrich([_txn(-15, "PG*SPOTIFY")])
+        assert df["merchant_id"][0] == "spotify"
+
+    def test_spotify_com_collapses_to_spotify(self):
+        df = self._enrich([_txn(-15, "SPOTIFY.COM")])
+        assert df["merchant_id"][0] == "spotify"
+
+    def test_spotify_brasil_collapses_to_spotify(self):
+        df = self._enrich([_txn(-15, "SPOTIFY BRASIL")])
+        assert df["merchant_id"][0] == "spotify"
+
+    def test_three_spotify_aliases_yield_n_unique_one(self):
+        df = self._enrich([
+            _txn(-15, "PG*SPOTIFY"),
+            _txn(-15, "SPOTIFY.COM"),
+            _txn(-15, "SPOTIFY BRASIL"),
+        ])
+        assert df["merchant_id"].n_unique() == 1
+
+    def test_uber_eats_distinct_from_uber(self):
+        df = self._enrich([
+            _txn(-40, "UBER EATS COMPRA"),
+            _txn(-20, "UBER CORRIDA"),
+        ])
+        assert df["merchant_id"][0] == "uber_eats"
+        assert df["merchant_id"][1] == "uber"
+
+    def test_amazon_prime_distinct_from_amazon(self):
+        df = self._enrich([
+            _txn(-30, "AMAZON PRIME VIDEO"),
+            _txn(-80, "AMAZON MARKETPLACE"),
+        ])
+        assert df["merchant_id"][0] == "amazon_prime"
+        assert df["merchant_id"][1] == "amazon"
+
+    def test_ifood_variants_collapse(self):
+        df = self._enrich([
+            _txn(-30, "IFOOD*PADARIA DA ESQUINA"),
+            _txn(-25, "PG*IFOOD"),
+            _txn(-35, "IFOOD.COM"),
+        ])
+        assert all(mid == "ifood" for mid in df["merchant_id"].to_list())
+
+    def test_netflix_com_collapses(self):
+        df = self._enrich([_txn(-45, "NETFLIX.COM")])
+        assert df["merchant_id"][0] == "netflix"
+
+    def test_mercado_pago_distinct_from_mercado_livre(self):
+        df = self._enrich([
+            _txn(-50, "MERCADO PAGO COMPRA"),
+            _txn(-90, "MERCADO LIVRE VENDA"),
+        ])
+        assert df["merchant_id"][0] == "mercado_pago"
+        assert df["merchant_id"][1] == "mercado_livre"
+
+    def test_general_fallback_slugifies(self):
+        df = self._enrich([_txn(-100, "RESTAURANTE BELO SABOR")])
+        mid = df["merchant_id"][0]
+        assert " " not in mid
+        assert mid == "restaurante_belo_sabor"
+
+    def test_general_fallback_strips_ltda(self):
+        df = self._enrich([_txn(-200, "PADARIA DO JOAO LTDA")])
+        mid = df["merchant_id"][0]
+        assert "ltda" not in mid
+
+    def test_idempotent_does_not_overwrite_existing(self):
+        from app.optimizer.feature_store import TransactionFeatureEnricher
+        df = _make_df([_txn(-15, "NETFLIX")])
+        df = df.with_columns(pl.lit("custom_netflix").alias("merchant_id"))
+        enriched = TransactionFeatureEnricher().enrich(df)
+        assert enriched["merchant_id"][0] == "custom_netflix"
+
+    def test_merchant_id_field_present_after_enrich(self):
+        df = self._enrich([_txn(-50, "QUALQUER COMPRA")])
+        assert "merchant_id" in df.columns
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # T1.2 — TravelDetector
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -1431,3 +1519,132 @@ class TestSolicitarUpgradeIncremental:
         )
         assert insight is not None
         assert insight.gain_interval.expected == pytest.approx(150.0, abs=5.0)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SpendingAnomalyDetector × merchant_id
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestSpendingAnomalyDetectorMerchantId:
+    """
+    Garante que merchant_id elimina falsos positivos do SpendingAnomalyDetector.
+
+    Cenários críticos:
+      NEW_MERCHANT  — alias visto no histórico não deve ser "novo merchant"
+      DUPLICATE     — mesmo merchant_id, descrições distintas, mesmo valor = duplicata suspeita
+    """
+
+    # Valor acima de _NEW_MERCHANT_MIN_VALUE=200 para acionar NEW_MERCHANT
+    _HIGH_AMOUNT = -250.0
+
+    def _enrich(self, rows: list[dict]) -> pl.DataFrame:
+        from app.optimizer.feature_store import TransactionFeatureEnricher
+        return TransactionFeatureEnricher().enrich(_make_df(rows))
+
+    def _new_merchant_anomalies(self, recent, history):
+        from app.forecast.etl.spending_anomaly_detector import SpendingAnomalyDetector, AnomalyType
+        anomalies = SpendingAnomalyDetector().detect(recent, history)
+        return [a for a in anomalies if a.anomaly_type == AnomalyType.NEW_MERCHANT]
+
+    def _duplicate_anomalies(self, recent, history):
+        from app.forecast.etl.spending_anomaly_detector import SpendingAnomalyDetector, AnomalyType
+        anomalies = SpendingAnomalyDetector().detect(recent, history)
+        return [a for a in anomalies if a.anomaly_type == AnomalyType.DUPLICATE_SUSPECT]
+
+    # ── NEW_MERCHANT ──────────────────────────────────────────────────────────
+
+    def test_pg_netflix_in_history_makes_netflix_com_known(self):
+        """PG*NETFLIX no histórico → NETFLIX.COM recente não é sinalizado como novo merchant."""
+        history = self._enrich([_txn(self._HIGH_AMOUNT, "PG*NETFLIX", days_ago=60)])
+        recent  = self._enrich([_txn(self._HIGH_AMOUNT, "NETFLIX.COM", days_ago=5)])
+        assert self._new_merchant_anomalies(recent, history) == []
+
+    def test_spotify_brasil_in_history_makes_pg_spotify_known(self):
+        """SPOTIFY BRASIL no histórico → PG*SPOTIFY recente não é sinalizado como novo merchant."""
+        history = self._enrich([_txn(self._HIGH_AMOUNT, "SPOTIFY BRASIL", days_ago=60)])
+        recent  = self._enrich([_txn(self._HIGH_AMOUNT, "PG*SPOTIFY", days_ago=5)])
+        assert self._new_merchant_anomalies(recent, history) == []
+
+    def test_different_merchant_id_still_flagged_as_new(self):
+        """NETFLIX no histórico → AMAZON PRIME VIDEO (merchant_id distinto) deve ser novo."""
+        history = self._enrich([_txn(self._HIGH_AMOUNT, "NETFLIX", days_ago=60)])
+        recent  = self._enrich([_txn(-239.90, "AMAZON PRIME VIDEO", days_ago=5)])
+        flags = self._new_merchant_anomalies(recent, history)
+        assert len(flags) >= 1, "amazon_prime é merchant_id diferente de netflix — deve ser flagged"
+
+    def test_new_merchant_without_merchant_id_uses_description_fallback(self):
+        """Sem merchant_id, fallback para description normalizada (comportamento original)."""
+        # DataFrame sem enriquecimento — description raw
+        df_hist   = _make_df([_txn(self._HIGH_AMOUNT, "PAGAMENTOS NETFLIX", days_ago=60)])
+        df_recent = _make_df([_txn(self._HIGH_AMOUNT, "AMAZON PRIME", days_ago=5)])
+        # Strings normalizadas diferentes → deve ser flagged
+        flags = self._new_merchant_anomalies(df_recent, df_hist)
+        assert len(flags) >= 1
+
+    # ── DUPLICATE_SUSPECT ─────────────────────────────────────────────────────
+
+    def test_pg_netflix_and_netflix_com_same_amount_flagged_as_duplicate(self):
+        """PG*NETFLIX e NETFLIX.COM com mesmo valor em 1 dia → DUPLICATE_SUSPECT."""
+        today = date.today()
+        df = pl.DataFrame(
+            [
+                {"date": today - timedelta(days=1), "amount": -55.90,
+                 "description": "PG*NETFLIX", "category": "Outros", "transaction_type": "CREDIT"},
+                {"date": today,                    "amount": -55.90,
+                 "description": "NETFLIX.COM",   "category": "Outros", "transaction_type": "CREDIT"},
+            ],
+            schema={"date": pl.Date, "amount": pl.Float64, "description": pl.Utf8,
+                    "category": pl.Utf8, "transaction_type": pl.Utf8},
+        )
+        from app.optimizer.feature_store import TransactionFeatureEnricher
+        df = TransactionFeatureEnricher().enrich(df)
+        # Ambas as linhas têm merchant_id="netflix" — duplicata suspeita ✓
+        flags = self._duplicate_anomalies(df, df)
+        assert len(flags) >= 1, "PG*NETFLIX e NETFLIX.COM = mesmo merchant_id → duplicata suspeita"
+
+    def test_pg_ifood_and_ifood_com_same_amount_flagged_as_duplicate(self):
+        """PG*IFOOD e IFOOD.COM com mesmo valor em 1 dia → DUPLICATE_SUSPECT."""
+        today = date.today()
+        df = pl.DataFrame(
+            [
+                {"date": today - timedelta(days=1), "amount": -89.90,
+                 "description": "PG*IFOOD",   "category": "Outros", "transaction_type": "CREDIT"},
+                {"date": today,                    "amount": -89.90,
+                 "description": "IFOOD.COM",   "category": "Outros", "transaction_type": "CREDIT"},
+            ],
+            schema={"date": pl.Date, "amount": pl.Float64, "description": pl.Utf8,
+                    "category": pl.Utf8, "transaction_type": pl.Utf8},
+        )
+        from app.optimizer.feature_store import TransactionFeatureEnricher
+        df = TransactionFeatureEnricher().enrich(df)
+        flags = self._duplicate_anomalies(df, df)
+        assert len(flags) >= 1
+
+    def test_spotify_and_netflix_same_amount_not_flagged_as_duplicate(self):
+        """SPOTIFY e NETFLIX com mesmo valor em 1 dia → NÃO é DUPLICATE_SUSPECT."""
+        today = date.today()
+        df = pl.DataFrame(
+            [
+                {"date": today - timedelta(days=1), "amount": -55.90,
+                 "description": "SPOTIFY",  "category": "Outros", "transaction_type": "CREDIT"},
+                {"date": today,                    "amount": -55.90,
+                 "description": "NETFLIX",  "category": "Outros", "transaction_type": "CREDIT"},
+            ],
+            schema={"date": pl.Date, "amount": pl.Float64, "description": pl.Utf8,
+                    "category": pl.Utf8, "transaction_type": pl.Utf8},
+        )
+        from app.optimizer.feature_store import TransactionFeatureEnricher
+        df = TransactionFeatureEnricher().enrich(df)
+        flags = self._duplicate_anomalies(df, df)
+        assert flags == [], "merchant_ids distintos (spotify vs netflix) não são duplicata"
+
+    def test_duplicate_without_merchant_id_uses_description_fallback(self):
+        """Sem merchant_id, mesmo merchant (descrição idêntica) mesmo valor = duplicata."""
+        today = date.today()
+        df = _make_df([
+            _txn(-55.90, "NETFLIX", days_ago=1),
+            _txn(-55.90, "NETFLIX", days_ago=0),
+        ])
+        # Sem enriquecimento — fallback para description normalizada
+        flags = self._duplicate_anomalies(df, df)
+        assert len(flags) >= 1

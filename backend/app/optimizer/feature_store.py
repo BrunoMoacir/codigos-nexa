@@ -90,6 +90,78 @@ _SUPERMERCADO_KEYWORDS = ["SUPERMERCADO", "CARREFOUR", "EXTRA ", "PAO DE ACUCAR"
 _RESTAURANTE_KEYWORDS  = ["RESTAURANTE", "LANCHONETE", "PIZZARIA", "HAMBURGER", "SUSHI"]
 _STREAMING_KEYWORDS    = ["NETFLIX", "SPOTIFY", "AMAZON PRIME", "DISNEY", "HBO", "GLOBOPLAY", "DEEZER"]
 
+# ── Tabela de aliases de merchant — padrão regex → merchant_id canônico ────────
+# Ordem: variante mais específica antes da marca genérica.
+# Padrões matcheados contra merchant_normalized (uppercase, sem prefixo de pagamento).
+_MERCHANT_ALIASES: list[tuple[str, str]] = [
+    # Streaming — específico antes do catch-all da marca
+    (r"AMAZON\s+PRIME",          "amazon_prime"),
+    (r"YOUTUBE\s+PREMIUM",       "youtube_premium"),
+    (r"APPLE\s+TV",              "apple_tv"),
+    (r"HBO\s*MAX",               "hbo_max"),
+    (r"DISNEY",                  "disney_plus"),
+    (r"NETFLIX",                 "netflix"),
+    (r"SPOTIFY",                 "spotify"),
+    (r"GLOBOPLAY",               "globoplay"),
+    (r"DEEZER",                  "deezer"),
+    (r"PARAMOUNT",               "paramount_plus"),
+    (r"CRUNCHYROLL",             "crunchyroll"),
+    # E-commerce / tech (AMAZON depois de AMAZON PRIME)
+    (r"AMAZON",                  "amazon"),
+    (r"MERCADO\s*PAGO",          "mercado_pago"),   # antes de MERCADO LIVRE
+    (r"MERCADO\s*LIVRE",         "mercado_livre"),
+    (r"SHOPEE",                  "shopee"),
+    (r"AMERICANAS",              "americanas"),
+    (r"MAGAZINE\s*LUIZA|MAGALU", "magalu"),
+    (r"SUBMARINO",               "submarino"),
+    # Delivery (UBER EATS antes de UBER)
+    (r"UBER\s+EATS",             "uber_eats"),
+    (r"IFOOD",                   "ifood"),
+    (r"RAPPI",                   "rappi"),
+    # Transporte (UBER depois de UBER EATS)
+    (r"UBER",                    "uber"),
+    (r"99\s*(?:APP|TAXI|POP)\b", "99app"),
+    # Aéreas
+    (r"LATAM",                   "latam"),
+    (r"SMILES|GOL\b",            "gol"),
+    (r"AZUL\b",                  "azul"),
+    (r"AVIANCA",                 "avianca"),
+    # Hospedagem
+    (r"AIRBNB",                  "airbnb"),
+    (r"BOOKING",                 "booking"),
+    (r"DECOLAR",                 "decolar"),
+    (r"HURB",                    "hurb"),
+    # Locadoras
+    (r"LOCALIZA",                "localiza"),
+    (r"MOVIDA",                  "movida"),
+    (r"UNIDAS",                  "unidas"),
+    # Supermercados
+    (r"CARREFOUR",               "carrefour"),
+    (r"P(?:AO)?\s*DE\s*ACUCAR",  "pao_de_acucar"),
+    (r"EXTRA\b",                 "extra"),
+    # Farmácias
+    (r"DROGASIL",                "drogasil"),
+    (r"DROGA\s*RAIA",            "droga_raia"),
+    (r"PACHECO",                 "pacheco"),
+    (r"ULTRAFARMA",              "ultrafarma"),
+    # Academias
+    (r"SMART\s*FIT",             "smartfit"),
+    (r"BLUE\s*FIT",              "bluefit"),
+    (r"BODYTECH",                "bodytech"),
+    # Investimentos
+    (r"XP\s+INVESTIMENTOS",      "xp"),
+    (r"NUINVEST|NU\s+INVEST",    "nuinvest"),
+    (r"BTG\s*(?:PACTUAL)?",      "btg"),
+    (r"RICO\s*CORRETORA",        "rico"),
+    # Bancos / fintechs
+    (r"NUBANK",                  "nubank"),
+    # Telecom
+    (r"CLARO\b",                 "claro"),
+    (r"VIVO\b",                  "vivo"),
+    # Apple genérico (depois de APPLE TV)
+    (r"APPLE",                   "apple"),
+]
+
 # ── Padrões regex pré-compilados (re.escape em keywords literais) ──────────────
 # Listas de keywords literais são escapadas para evitar que caracteres como
 # espaços, pontos ou parênteses em nomes de merchants sejam interpretados como
@@ -137,6 +209,7 @@ class TransactionFeatureEnricher:
         df = self._add_merchant_category_l1(df)   # depende de l2
         df = self._add_category_canonical(df)      # normaliza raw bank category
         df = self._add_merchant_normalized(df)     # nome limpo para diversidade
+        df = self._add_merchant_id(df)             # ID canônico por alias/slug
         df = self._add_is_foreign(df)
         df = self._add_temporal_features(df)
         return df
@@ -412,6 +485,49 @@ class TransactionFeatureEnricher:
         )
 
         return df.with_columns(normalized.alias("merchant_normalized"))
+
+    def _add_merchant_id(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        ID canônico estável por merchant — colapsa aliases do mesmo negócio.
+
+        "PG*SPOTIFY", "SPOTIFY.COM", "SPOTIFY BRASIL" → merchant_id = "spotify"
+        "UBER EATS COMPRA" → "uber_eats";  "UBER CORRIDA" → "uber"
+
+        Para merchants fora da tabela de aliases (_MERCHANT_ALIASES), aplica
+        normalização genérica: lowercase, remoção de sufixos legais, slugify.
+
+        Depende de merchant_normalized (adicionado por _add_merchant_normalized).
+        """
+        if "merchant_id" in df.columns:
+            return df
+        if "merchant_normalized" not in df.columns:
+            return df.with_columns(pl.lit(None).cast(pl.Utf8).alias("merchant_id"))
+
+        m = pl.col("merchant_normalized")  # uppercase, sem prefixo de pagamento
+
+        # Fallback genérico: slugify para merchants não cobertos pela tabela
+        general_fallback: pl.Expr = (
+            m.str.to_lowercase()
+            .str.replace_all(
+                r"\s+(brasil|ltda|s\.?a\.?|s/a|eireli|me|epp|filial|matriz|loja\s*\d*)\s*$",
+                "",
+            )
+            .str.replace_all(r"[^a-z0-9 ]+", " ")
+            .str.strip_chars()
+            .str.replace_all(r"\s+", "_")
+            .str.slice(0, 40)
+        )
+
+        # Constrói when/then/otherwise a partir da tabela de aliases.
+        # reversed() garante que o primeiro alias na lista tenha maior prioridade.
+        expr: pl.Expr = general_fallback
+        for pattern, mid in reversed(_MERCHANT_ALIASES):
+            expr = pl.when(m.str.contains(pattern)).then(pl.lit(mid)).otherwise(expr)
+
+        # Propaga null: sem description → sem merchant_id
+        expr = pl.when(m.is_null()).then(pl.lit(None).cast(pl.Utf8)).otherwise(expr)
+
+        return df.with_columns(expr.alias("merchant_id"))
 
     def _add_is_foreign(self, df: pl.DataFrame) -> pl.DataFrame:
         """

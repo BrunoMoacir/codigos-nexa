@@ -343,49 +343,58 @@ class SpendingAnomalyDetector:
         """
         Sinaliza transações de valor alto em estabelecimentos nunca vistos.
 
-        Proxy de merchant = description normalizada (lowercase + strip).
-        Transações abaixo do threshold são ignoradas para reduzir ruído de
-        pequenas compras avulsas (ex: estacionamento R$ 10).
+        Usa merchant_id quando disponível: "SPOTIFY BRASIL" e "PG*SPOTIFY" têm
+        o mesmo merchant_id "spotify", então não são sinalizados como "novo merchant".
+        Fallback para description normalizada quando merchant_id ausente.
 
         Threshold dinâmico quando income_monthly disponível:
             max(100.0, income_monthly × _INCOME_PCT_NEW_MERCHANT)
-        Isso calibra o limite ao nível de renda — para quem ganha R$3.000/mês,
-        R$60 já pode ser relevante; para R$15.000/mês, R$300 faz mais sentido.
-        Caso contrário, usa _NEW_MERCHANT_MIN_VALUE (R$200 fixo).
         """
-        if "description" not in recent.columns or "description" not in history.columns:
+        has_merchant_id = (
+            "merchant_id" in recent.columns and "merchant_id" in history.columns
+        )
+        if not has_merchant_id and (
+            "description" not in recent.columns or "description" not in history.columns
+        ):
             return []
 
-        # Threshold calibrado pela renda quando disponível
         min_value = (
             max(100.0, income_monthly * _INCOME_PCT_NEW_MERCHANT)
             if income_monthly
             else _NEW_MERCHANT_MIN_VALUE
         )
 
-        # Série de merchants conhecidos mantida como pl.Series para is_in() direto
-        # (evita roundtrip para Python set e de volta para list)
-        known_series: pl.Series = (
-            history
-            .select(pl.col("description").str.to_lowercase().str.strip_chars())
-            .drop_nulls()
-            .get_column("description")
-        )
-
-        # Filtrar recentes de alto valor com merchant novo (vectorizado)
-        flagged = (
-            recent
-            .filter(pl.col("amount") >= min_value)
-            .with_columns(
-                pl.col("description").str.to_lowercase().str.strip_chars().alias("_desc_norm")
+        if has_merchant_id:
+            known: list[str] = (
+                history.select(pl.col("merchant_id")).drop_nulls().get_column("merchant_id").to_list()
             )
-            .filter(~pl.col("_desc_norm").is_in(known_series))
-        )
+            flagged = (
+                recent
+                .filter(pl.col("amount") >= min_value)
+                .with_columns(pl.col("merchant_id").alias("_desc_norm"))
+                .filter(~pl.col("_desc_norm").is_in(known))
+            )
+        else:
+            known = (
+                history
+                .select(pl.col("description").str.to_lowercase().str.strip_chars())
+                .drop_nulls()
+                .get_column("description")
+                .to_list()
+            )
+            flagged = (
+                recent
+                .filter(pl.col("amount") >= min_value)
+                .with_columns(
+                    pl.col("description").str.to_lowercase().str.strip_chars().alias("_desc_norm")
+                )
+                .filter(~pl.col("_desc_norm").is_in(known))
+            )
 
         anomalies: list[Anomaly] = []
         for row in flagged.iter_rows(named=True):
             amount = row["amount"]
-            raw_desc = row.get("description") or row["_desc_norm"]
+            raw_desc = row.get("description") or row.get("_desc_norm", "?")
             anomalies.append(Anomaly(
                 transaction_id=self._tx_id(row),
                 anomaly_type=AnomalyType.NEW_MERCHANT,
@@ -477,29 +486,42 @@ class SpendingAnomalyDetector:
         Sinaliza pares de transações com mesmo merchant e mesmo valor dentro
         de _DUPLICATE_WINDOW_DAYS dias.
 
-        Opera exclusivamente em `recent` (o histórico não é relevante aqui:
-        uma cobrança duplicada é sempre intra-período imediato).
+        Usa merchant_id quando disponível: "PG*NETFLIX" e "NETFLIX.COM" num
+        intervalo de 2 dias são corretamente sinalizados como possível duplicata.
+        Fallback para description normalizada quando merchant_id ausente.
 
-        Cada transação é reportada no máximo uma vez (break no primeiro match)
-        para evitar alertas em cascata em cobranças recorrentes legítimas
-        (ex: plano parcelado com mesmo valor mensal).
-
-        Limitação: usa datas (não timestamps) — janela é 2 dias calendário,
-        não exatamente 48h. Aceito como simplificação do schema atual.
+        Limitação: usa datas (não timestamps) — janela é 2 dias calendário.
         """
-        if "description" not in recent.columns or "date" not in recent.columns:
+        has_merchant_id = "merchant_id" in recent.columns
+        if not has_merchant_id and (
+            "description" not in recent.columns or "date" not in recent.columns
+        ):
+            return []
+        if "date" not in recent.columns:
             return []
 
-        rows = (
-            recent
-            .with_columns([
-                pl.col("date").cast(pl.Date),
-                pl.col("description").str.to_lowercase().str.strip_chars().alias("_desc_norm"),
-            ])
-            .drop_nulls(subset=["date"])   # null date → TypeError em subtração de datas
-            .sort("date")
-            .to_dicts()
-        )
+        if has_merchant_id:
+            rows = (
+                recent
+                .with_columns([
+                    pl.col("date").cast(pl.Date),
+                    pl.col("merchant_id").alias("_desc_norm"),
+                ])
+                .drop_nulls(subset=["date"])
+                .sort("date")
+                .to_dicts()
+            )
+        else:
+            rows = (
+                recent
+                .with_columns([
+                    pl.col("date").cast(pl.Date),
+                    pl.col("description").str.to_lowercase().str.strip_chars().alias("_desc_norm"),
+                ])
+                .drop_nulls(subset=["date"])
+                .sort("date")
+                .to_dicts()
+            )
 
         seen: list[dict] = []
         anomalies: list[Anomaly] = []
