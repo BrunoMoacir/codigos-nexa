@@ -7,6 +7,8 @@ import logging
 
 import polars as pl
 
+from app.optimizer.detectors.evidence_scorer import compute_false_positive_risk
+
 logger = logging.getLogger(__name__)
 
 # Categoria L1 canônica (category_canonical, lowercase sem acento)
@@ -120,6 +122,28 @@ class FoodieDetector:
         foodie_score = round(min(pct_score + diversity_score + ticket_score + fine_bonus, 100.0), 1)
         profile = self._classify(foodie_score)
 
+        confidence = round(foodie_score / 100, 4)
+
+        supporting_signals: list[str] = []
+        if pct_score > 0:
+            supporting_signals.append(f"pct_alimentacao={pct_food:.1%}")
+        if diversity_score > 0:
+            supporting_signals.append(f"merchants_distintos={restaurant_diversity}")
+        if ticket_score > 0:
+            supporting_signals.append(f"ticket_medio=R${avg_ticket:.0f}")
+        if fine_dining:
+            supporting_signals.append("fine_dining=True")
+
+        missing_signals: list[str] = []
+        if pct_score < 20:
+            missing_signals.append("proporcao_alimentacao_baixa")
+        if diversity_score < 15:
+            missing_signals.append("diversidade_restaurantes_baixa")
+        if ticket_score < 10:
+            missing_signals.append("ticket_medio_baixo")
+        if not fine_dining:
+            missing_signals.append("sem_fine_dining")
+
         return {
             "foodie_score": foodie_score,
             "foodie_profile": profile,
@@ -128,6 +152,10 @@ class FoodieDetector:
             "restaurant_diversity": restaurant_diversity,
             "avg_restaurant_ticket": round(avg_ticket, 2),
             "is_fine_dining": fine_dining,
+            "confidence": confidence,
+            "supporting_signals": supporting_signals,
+            "missing_signals": missing_signals,
+            "false_positive_risk": compute_false_positive_risk(confidence),
         }
 
     # ── Helpers ──────────────────────────────────────────────────────────────
@@ -152,4 +180,8 @@ class FoodieDetector:
             "restaurant_diversity": 0,
             "avg_restaurant_ticket": 0.0,
             "is_fine_dining": False,
+            "confidence": 0.0,
+            "supporting_signals": [],
+            "missing_signals": ["proporcao_alimentacao_baixa", "diversidade_restaurantes_baixa", "ticket_medio_baixo", "sem_fine_dining"],
+            "false_positive_risk": "high",
         }

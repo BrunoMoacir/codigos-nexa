@@ -7,6 +7,8 @@ import logging
 
 import polars as pl
 
+from app.optimizer.detectors.evidence_scorer import compute_false_positive_risk
+
 logger = logging.getLogger(__name__)
 
 
@@ -93,14 +95,31 @@ class TravelDetector:
                 pl.col("is_foreign") & (pl.col("amount") < 0)
             ).height
 
-        score = (
-            (min(months_with_travel, 12) / 12) * 40
-            + min(travel_spend_ratio * 200, 40)
-            + min(foreign_count * 4, 20)
-        )
+        regularidade_pts  = (min(months_with_travel, 12) / 12) * 40
+        intensidade_pts   = min(travel_spend_ratio * 200, 40)
+        internacional_pts = min(foreign_count * 4, 20)
+
+        score = regularidade_pts + intensidade_pts + internacional_pts
         score = round(min(score, 100.0), 1)
 
         profile = self._classify(score)
+        confidence = round(score / 100, 4)
+
+        supporting_signals: list[str] = []
+        if regularidade_pts > 0:
+            supporting_signals.append(f"meses_com_viagem={months_with_travel}")
+        if intensidade_pts > 0:
+            supporting_signals.append(f"proporcao_gasto_viagem={travel_spend_ratio:.1%}")
+        if foreign_count > 0:
+            supporting_signals.append(f"transacoes_internacionais={foreign_count}")
+
+        missing_signals: list[str] = []
+        if months_with_travel < 3:
+            missing_signals.append("regularidade_viagens_baixa")
+        if travel_spend_ratio < 0.05:
+            missing_signals.append("proporcao_gasto_viagem_baixa")
+        if foreign_count == 0:
+            missing_signals.append("sem_transacoes_internacionais")
 
         # Média mensal de gasto em viagem (normalizada pelos meses do df)
         total_months = max(
@@ -116,6 +135,10 @@ class TravelDetector:
             "travel_spend_monthly": round(travel_spend / total_months, 2),
             "months_with_travel": months_with_travel,
             "foreign_txn_count": foreign_count,
+            "confidence": confidence,
+            "supporting_signals": supporting_signals,
+            "missing_signals": missing_signals,
+            "false_positive_risk": compute_false_positive_risk(confidence),
         }
 
     def detect_airbnb_profile(self, df: pl.DataFrame) -> dict:
@@ -126,7 +149,10 @@ class TravelDetector:
         Depende de T1.1: merchant_category_l2.
         """
         if df.is_empty() or "description" not in df.columns:
-            return {"is_airbnb_user": False, "airbnb_frequency": "NUNCA", "is_digital_nomad": False}
+            return {
+                "is_airbnb_user": False, "airbnb_frequency": "NUNCA", "is_digital_nomad": False,
+                "confidence": 0.0, "supporting_signals": [], "missing_signals": ["sem_transacoes_airbnb"], "false_positive_risk": "high",
+            }
 
         airbnb_df = df.filter(
             pl.col("description").str.to_uppercase().str.contains("AIRBNB")
@@ -135,22 +161,47 @@ class TravelDetector:
         airbnb_count = len(airbnb_df)
 
         if airbnb_count == 0:
-            return {"is_airbnb_user": False, "airbnb_frequency": "NUNCA", "is_digital_nomad": False}
+            return {
+                "is_airbnb_user": False, "airbnb_frequency": "NUNCA", "is_digital_nomad": False,
+                "confidence": 0.0, "supporting_signals": [], "missing_signals": ["sem_transacoes_airbnb"], "false_positive_risk": "high",
+            }
 
         airbnb_frequency = "REGULAR" if airbnb_count >= 3 else "OCASIONAL"
 
         is_digital_nomad = False
+        coworking_count = 0
         if airbnb_frequency == "REGULAR" and "merchant_category_l2" in df.columns:
             coworking_count = df.filter(
                 pl.col("merchant_category_l2") == "COWORKING"
             ).height
             is_digital_nomad = coworking_count >= 2
 
+        if is_digital_nomad:
+            confidence = 0.88
+        elif airbnb_frequency == "REGULAR":
+            confidence = 0.72
+        else:
+            confidence = 0.50
+
+        supporting_signals: list[str] = [f"airbnb_txns={airbnb_count}"]
+        if is_digital_nomad:
+            supporting_signals.append(f"coworking_txns={coworking_count}")
+
+        missing_signals: list[str] = []
+        if airbnb_frequency != "REGULAR":
+            missing_signals.append("airbnb_uso_insuficiente")
+        if not is_digital_nomad:
+            missing_signals.append("sem_coworking")
+
         return {
             "is_airbnb_user": True,
             "airbnb_frequency": airbnb_frequency,
             "is_digital_nomad": is_digital_nomad,
             "airbnb_txn_count": airbnb_count,
+            "confidence": confidence,
+            "supporting_signals": supporting_signals,
+            "missing_signals": missing_signals,
+            "false_positive_risk": compute_false_positive_risk(confidence),
         }
 
     # ── Helpers privados ─────────────────────────────────────────────────────
@@ -173,4 +224,8 @@ class TravelDetector:
             "travel_spend_monthly": 0.0,
             "months_with_travel": 0,
             "foreign_txn_count": 0,
+            "confidence": 0.0,
+            "supporting_signals": [],
+            "missing_signals": ["regularidade_viagens_baixa", "proporcao_gasto_viagem_baixa", "sem_transacoes_internacionais"],
+            "false_positive_risk": "high",
         }

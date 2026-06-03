@@ -7,6 +7,8 @@ import logging
 
 import polars as pl
 
+from app.optimizer.detectors.evidence_scorer import compute_false_positive_risk
+
 logger = logging.getLogger(__name__)
 
 # Keywords de proventos recebidos — indica carteira de investimentos ativa
@@ -99,12 +101,37 @@ class InvestorDetector:
         else:
             investor_type = "CASUAL"
 
+        _CONFIDENCE_BY_TYPE = {"NONE": 0.0, "CASUAL": 0.45, "ATIVO": 0.72, "DIVERSIFICADO": 0.90}
+        confidence = round(_CONFIDENCE_BY_TYPE[investor_type], 4)
+
+        supporting_signals: list[str] = []
+        if broker_txn_count > 0:
+            supporting_signals.append(f"aportes_corretora={broker_txn_count}")
+        if broker_diversity >= 2:
+            supporting_signals.append(f"corretoras_distintas={broker_diversity}")
+        if has_dividends:
+            supporting_signals.append("proventos_recebidos=True")
+
+        missing_signals: list[str] = []
+        if broker_txn_count == 0:
+            missing_signals.append("sem_aportes_identificados")
+        elif broker_txn_count < 4:
+            missing_signals.append("poucos_aportes")
+        if not has_dividends:
+            missing_signals.append("sem_proventos_recebidos")
+        if broker_diversity < 2:
+            missing_signals.append("diversificacao_corretoras_baixa")
+
         return {
             "investor_type": investor_type,
             "investment_transfers_monthly": round(investment_transfers_monthly, 2),
             "broker_txn_count": broker_txn_count,
             "has_dividends": has_dividends,
             "broker_diversity": broker_diversity,
+            "confidence": confidence,
+            "supporting_signals": supporting_signals,
+            "missing_signals": missing_signals,
+            "false_positive_risk": compute_false_positive_risk(confidence),
         }
 
     # ── Helpers ──────────────────────────────────────────────────────────────
@@ -117,4 +144,8 @@ class InvestorDetector:
             "broker_txn_count": 0,
             "has_dividends": False,
             "broker_diversity": 0,
+            "confidence": 0.0,
+            "supporting_signals": [],
+            "missing_signals": ["sem_aportes_identificados", "sem_proventos_recebidos", "diversificacao_corretoras_baixa"],
+            "false_positive_risk": "high",
         }

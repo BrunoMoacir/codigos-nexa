@@ -175,3 +175,26 @@ def compute_evidence_score(
         quality=round(quality, 4),
         composite=round(min(composite, 1.0), 4),
     )
+
+
+def compute_false_positive_risk(confidence: float) -> str:
+    """Risco de falso positivo padronizado para todos os detectores."""
+    if confidence >= 0.70:
+        return "low"
+    if confidence >= 0.45:
+        return "medium"
+    return "high"
+
+
+def missing_signals_from_evidence(ev: EvidenceScore) -> list[str]:
+    """Dimensões do EvidenceScore que estão abaixo do ideal (uso em LifeEventsDetector)."""
+    missing: list[str] = []
+    if ev.volume < 0.50:
+        missing.append("volume_abaixo_do_ideal")
+    if ev.recurrence < 0.50:
+        missing.append("recorrencia_insuficiente")
+    if ev.diversity < 0.33:
+        missing.append("merchants_insuficientes")
+    if ev.absence < 0.50:
+        missing.append("historico_existente")
+    return missing

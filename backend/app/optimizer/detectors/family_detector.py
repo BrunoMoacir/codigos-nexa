@@ -6,6 +6,8 @@ from __future__ import annotations
 import re
 import polars as pl
 
+from app.optimizer.detectors.evidence_scorer import compute_false_positive_risk
+
 _SCHOOL_KEYWORDS = ["ESCOLA", "COLEGIO", "CRECHE", "MATERNAL", "ENSINO INFANTIL"]
 _BABY_PRODUCT_KEYWORDS = ["FRALDA", "PAMPERS", "HUGGIES", "CHICCO", "FISHER PRICE"]
 _PEDIATRIC_KEYWORDS = ["PEDIATR", "INFANTIL CLINICA", "PLANO SAUDE CRIANCA", "PLANO FAMILIAR"]
@@ -48,10 +50,14 @@ class FamilyDetector:
 
     def detect_family_profile(self, df: pl.DataFrame) -> dict:
         if df.is_empty() or "description" not in df.columns:
-            return {"is_family_with_kids": False, "family_score": 0.0, "family_signals": []}
+            return {
+                "is_family_with_kids": False, "family_score": 0.0, "family_signals": [],
+                "confidence": 0.0, "supporting_signals": [], "missing_signals": ["escola", "produtos_bebe", "pediatria", "roupas_infantis", "entretenimento_infantil"], "false_positive_risk": "high",
+            }
 
         score = 0.0
-        signals = []
+        signals: list[str] = []
+        missing: list[str] = []
 
         expenses = df.filter(pl.col("amount") < 0)
 
@@ -59,31 +65,46 @@ class FamilyDetector:
         if school_spend > 200:
             score += 30
             signals.append(f"school_spend=R${school_spend:.0f}")
+        else:
+            missing.append("escola")
 
         baby_spend = _match_spend(expenses, _P_BABY)
         if baby_spend > 100:
             score += 25
             signals.append(f"baby_products=R${baby_spend:.0f}")
+        else:
+            missing.append("produtos_bebe")
 
         pediatric_count = _match_count(expenses, _P_PEDIATRIC)
         if pediatric_count >= 2:
             score += 20
             signals.append(f"pediatric_visits={pediatric_count}")
+        else:
+            missing.append("pediatria")
 
         kids_clothing = _match_spend(expenses, _P_KIDS_CLOTHING)
         if kids_clothing > 100:
             score += 15
             signals.append(f"kids_clothing=R${kids_clothing:.0f}")
+        else:
+            missing.append("roupas_infantis")
 
         kids_entertainment = _match_count(expenses, _P_KIDS_ENTERT)
         if kids_entertainment >= 2:
             score += 10
             signals.append(f"kids_entertainment={kids_entertainment}")
+        else:
+            missing.append("entretenimento_infantil")
 
         family_score = round(min(score, 100.0), 1)
+        confidence = round(family_score / 100, 4)
 
         return {
             "is_family_with_kids": family_score >= 40,
             "family_score": family_score,
             "family_signals": signals,
+            "confidence": confidence,
+            "supporting_signals": signals,
+            "missing_signals": missing,
+            "false_positive_risk": compute_false_positive_risk(confidence),
         }

@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
+from app.optimizer.detectors.evidence_scorer import compute_false_positive_risk
+
 if TYPE_CHECKING:
     from app.forecast.etl.income_profiler import IncomeProfile
 
@@ -105,22 +107,34 @@ class MEIDetector:
         is_likely_mei = len(signals) >= 2
         confidence = round(min(len(signals) / 4, 1.0), 2)
 
+        _ALL_SIGNALS = {"income_pattern_pj", "b2b_tools", "multiple_cnpj_payers", "unstable_income"}
+        missing_signals = [s for s in _ALL_SIGNALS if s not in signals]
+
         return {
             "is_likely_mei": is_likely_mei,
             "mei_confidence": confidence,
             "mei_signals": signals,
             "b2b_spend_monthly": round(b2b_spend_monthly, 2),
             "pj_credit_count": pj_credits,
+            "confidence": confidence,
+            "supporting_signals": signals,
+            "missing_signals": missing_signals,
+            "false_positive_risk": compute_false_positive_risk(confidence),
         }
 
     # ── Helpers ──────────────────────────────────────────────────────────────
 
     @staticmethod
     def _zero_result() -> dict:
+        _all = ["income_pattern_pj", "b2b_tools", "multiple_cnpj_payers", "unstable_income"]
         return {
             "is_likely_mei": False,
             "mei_confidence": 0.0,
             "mei_signals": [],
             "b2b_spend_monthly": 0.0,
             "pj_credit_count": 0,
+            "confidence": 0.0,
+            "supporting_signals": [],
+            "missing_signals": _all,
+            "false_positive_risk": "high",
         }

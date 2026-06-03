@@ -33,6 +33,8 @@ from app.optimizer.detectors.evidence_scorer import (
     EvidenceScore,
     gather_evidence,
     compute_evidence_score,
+    compute_false_positive_risk,
+    missing_signals_from_evidence,
 )
 
 
@@ -49,6 +51,8 @@ class LifeEvent:
     detected_at: date
     trigger_action: str
     supporting_signals: list[str] = field(default_factory=list)
+    missing_signals: list[str] = field(default_factory=list)
+    false_positive_risk: str = "high"
 
 
 _BABY_KEYWORDS = [
@@ -156,6 +160,8 @@ class LifeEventsDetector:
                 f"txn_count={txn_count}",
                 f"merchant_diversity={merchant_count}",
             ] + ev.as_signals(),
+            missing_signals=missing_signals_from_evidence(ev),
+            false_positive_risk=compute_false_positive_risk(ev.composite),
         )
 
     def _detect_moving(
@@ -189,6 +195,8 @@ class LifeEventsDetector:
                 f"txn_count={txn_count}",
                 f"merchant_diversity={merchant_count}",
             ] + ev.as_signals(),
+            missing_signals=missing_signals_from_evidence(ev),
+            false_positive_risk=compute_false_positive_risk(ev.composite),
         )
 
     def _detect_wedding(
@@ -221,6 +229,8 @@ class LifeEventsDetector:
                 f"txn_count={txn_count}",
                 f"merchant_diversity={merchant_count}",
             ] + ev.as_signals(),
+            missing_signals=missing_signals_from_evidence(ev),
+            false_positive_risk=compute_false_positive_risk(ev.composite),
         )
 
     def _detect_new_education(
@@ -250,6 +260,8 @@ class LifeEventsDetector:
                 f"txn_count={txn_count}",
                 f"merchant_diversity={merchant_count}",
             ] + ev.as_signals(),
+            missing_signals=missing_signals_from_evidence(ev),
+            false_positive_risk=compute_false_positive_risk(ev.composite),
         )
 
     def _detect_income_change(
@@ -270,6 +282,8 @@ class LifeEventsDetector:
                 detected_at=date.today(),
                 trigger_action="suggest_investment_of_raise",
                 supporting_signals=[f"income_change={change_ratio:.1%}"],
+                missing_signals=[],
+                false_positive_risk=compute_false_positive_risk(confidence),
             )
 
         if change_ratio < _SALARY_DROP_THRESHOLD:
@@ -282,6 +296,8 @@ class LifeEventsDetector:
                 detected_at=date.today(),
                 trigger_action="activate_defense_mode",
                 supporting_signals=[f"income_change={change_ratio:.1%}"],
+                missing_signals=[],
+                false_positive_risk=compute_false_positive_risk(confidence),
             )
 
         return None
