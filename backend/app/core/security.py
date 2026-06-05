@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -20,12 +21,20 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 horas — token comprometido expira 
 # Prefixo Redis para blacklist de tokens revogados
 _BLACKLIST_PREFIX = "nexa:blacklist:"
 
+# Compilados uma vez no nível de módulo para evitar overhead por chamada
+_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+    re.IGNORECASE,
+)
+_SIMPLE_ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,64}$')
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
 class TokenData(BaseModel):
     user_id: Optional[str] = None
     jti: Optional[str] = None
+    exp: Optional[int] = None
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
@@ -176,18 +185,10 @@ def validate_user_id(user_id: str) -> str:
     Raises:
         HTTPException 422 se o formato for inválido.
     """
-    import re
-    _UUID_RE = re.compile(
-        r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
-        re.IGNORECASE,
-    )
-
     # Backwards-compatible: aceitar tanto UUID v4 quanto identificadores simples
     # usados em testes (ex: 'u1', 'user_123'). Identificadores simples podem conter
     # letras, dígitos, hífen e underscore. Se desejar apenas UUIDs em produção,
     # altere essa função para forçar o UUID.
-    _SIMPLE_ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,64}$')
-
     if _UUID_RE.match(user_id) or _SIMPLE_ID_RE.match(user_id):
         return user_id
 
@@ -195,7 +196,6 @@ def validate_user_id(user_id: str) -> str:
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail="user_id inválido. Use UUID v4 ou identificador simples.",
     )
-    return user_id
 
 
 async def get_current_token_data(token: str = Depends(oauth2_scheme)) -> TokenData:
@@ -215,9 +215,7 @@ async def get_current_token_data(token: str = Depends(oauth2_scheme)) -> TokenDa
         exp: Optional[int] = payload.get("exp")
         if user_id is None:
             raise credentials_exception
-        token_data = TokenData(user_id=user_id, jti=jti)
-        # Anexa exp ao objeto para uso no logout
-        token_data.__dict__["exp"] = exp
+        token_data = TokenData(user_id=user_id, jti=jti, exp=exp)
         return token_data
     except JWTError:
         raise credentials_exception

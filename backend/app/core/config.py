@@ -1,10 +1,15 @@
 #backend/app/core/config.py
 import logging
+import re
 from pathlib import Path
 from typing import Annotated
 
 from pydantic import BeforeValidator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Apenas origens localhost reais são permitidas como fallback em produção.
+# Rejeita padrões como http://localhost-prod.com ou http://localhost.evil.com.
+_LOCALHOST_RE = re.compile(r'^https?://localhost(:\d+)?$')
 
 
 def parse_cors_origins(value):
@@ -95,7 +100,7 @@ class Settings(BaseSettings):
                 )
             if self.ALLOWED_ORIGINS == ["*"]:
                 fallback_origin = (self.FRONTEND_BASE_URL or "").strip().rstrip("/")
-                if fallback_origin and not fallback_origin.startswith("http://localhost"):
+                if fallback_origin and not _LOCALHOST_RE.match(fallback_origin):
                     self.ALLOWED_ORIGINS = [fallback_origin]
                     _logger.warning(
                         "[Config] APP_ENV=production e ALLOWED_ORIGINS='*'. "
