@@ -726,7 +726,7 @@ async def get_pending_feedback_endpoint(
 )
 async def get_simulation_by_id(
     simulation_id: str,
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """
     Retorna os dados completos de uma simulação pelo seu ID.
@@ -759,6 +759,9 @@ async def get_simulation_by_id(
             detail=f"Simulação '{simulation_id}' não encontrada.",
         )
 
+    if sim.get("user_id") != current_user:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+
     # Normalizar created_at para ISO 8601
     sim["created_at"] = _to_iso(sim["created_at"])
     return sim
@@ -782,7 +785,7 @@ async def get_simulation_by_id(
 )
 async def get_sensitivity(
     simulation_id: str,
-    _: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """
     Executa análise de sensibilidade sobre os parâmetros de uma simulação existente.
@@ -851,6 +854,9 @@ async def get_sensitivity(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Simulação '{simulation_id}' não encontrada.",
         )
+
+    if sim.get("user_id") != current_user:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
 
     # ── 2. Reconstruir request e response a partir do JSON armazenado ────
     try:
