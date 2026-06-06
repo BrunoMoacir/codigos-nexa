@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import polars as pl
 
 from app.optimizer.detectors.evidence_scorer import compute_false_positive_risk
+
+if TYPE_CHECKING:
+    from app.optimizer.detectors.personal_baseline import PersonalBaseline
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +44,16 @@ class FoodieDetector:
         self,
         df: pl.DataFrame,
         monthly_avg_spend: float,
+        baseline: "PersonalBaseline | None" = None,
     ) -> dict:
         """
         Args:
-            df: transactions_clean já enriquecido (T1.1).
+            df:                transactions_clean já enriquecido (T1.1).
             monthly_avg_spend: gasto médio mensal total (R$), do ConsumptionProfiler.
+            baseline:          PersonalBaseline do usuário (90–540 dias). Quando fornecido:
+                               - threshold de fine dining é ajustado pelo nível de gasto histórico
+                               - spike de alimentação vs baseline gera bonus de até +10 pts
+                               - deviation_ratio é exposto em supporting_signals
 
         Returns:
             dict com foodie_score, foodie_profile e métricas auxiliares.
@@ -111,15 +120,47 @@ class FoodieDetector:
                     merch_col = "description"
                 restaurant_diversity = rest_df[merch_col].n_unique()
                 avg_ticket = float(rest_df["amount"].sum()) * -1 / len(rest_df)
-                fine_dining = avg_ticket > _FINE_DINING_TICKET
+
+                # Fine dining threshold adaptado ao nível histórico de gasto do usuário.
+                # Referência: R$3.000/mês = perfil mediano (ratio=1.0 → threshold=R$150).
+                # Gasto menor → threshold menor (R$80 já é fine dining para renda baixa).
+                # Gasto maior → threshold maior (R$150 é normal para quem gasta R$6k/mês).
+                if baseline is not None and baseline.has_data() and baseline.total_monthly_avg > 0:
+                    spend_ratio = baseline.total_monthly_avg / 3_000.0
+                    fine_dining_threshold = max(_FINE_DINING_TICKET * spend_ratio, 60.0)
+                else:
+                    fine_dining_threshold = _FINE_DINING_TICKET
+
+                fine_dining = avg_ticket > fine_dining_threshold
 
         # ── Score composto ────────────────────────────────────────────────────
-        pct_score      = min(pct_food * 160, 40)              # 25% em food → 40 pts
+        pct_score       = min(pct_food * 160, 40)              # 25% em food → 40 pts
         diversity_score = min(restaurant_diversity * 1.5, 30)  # 20 merchants → 30 pts
-        ticket_score   = min((avg_ticket / 200) * 20, 20)     # R$200 ticket → 20 pts
-        fine_bonus     = 10 if fine_dining else 0
+        ticket_score    = min((avg_ticket / 200) * 20, 20)     # R$200 ticket → 20 pts
+        fine_bonus      = 10 if fine_dining else 0
 
-        foodie_score = round(min(pct_score + diversity_score + ticket_score + fine_bonus, 100.0), 1)
+        # ── Bonus de comportamento: spike de alimentação vs baseline pessoal ──
+        # Detecta que o usuário está gastando notavelmente mais em alimentação do
+        # que seu próprio histórico — sinal de mudança real de comportamento.
+        baseline_bonus = 0.0
+        baseline_signals: list[str] = []
+        if baseline is not None and baseline.has_data():
+            food_monthly = food_spend / coverage_months
+            food_ratio = baseline.deviation_ratio("alimentacao", food_monthly)
+            if food_ratio == float("inf") and food_spend > 0:
+                # Categoria nova para o usuário — qualquer gasto é comportamento emergente
+                baseline_bonus = 5.0
+                baseline_signals.append("alimentacao_categoria_nova")
+            elif food_ratio >= 2.0:
+                # Dobrou ou mais vs histórico — mudança expressiva de comportamento
+                baseline_bonus = min((food_ratio - 1.0) * 3.0, 10.0)
+                baseline_signals.append(f"food_vs_baseline={food_ratio:.1f}x")
+            elif food_ratio >= 1.5:
+                # 50–100% acima — elevação moderada
+                baseline_bonus = 3.0
+                baseline_signals.append(f"food_vs_baseline={food_ratio:.1f}x")
+
+        foodie_score = round(min(pct_score + diversity_score + ticket_score + fine_bonus + baseline_bonus, 100.0), 1)
         profile = self._classify(foodie_score)
 
         confidence = round(foodie_score / 100, 4)
@@ -133,6 +174,7 @@ class FoodieDetector:
             supporting_signals.append(f"ticket_medio=R${avg_ticket:.0f}")
         if fine_dining:
             supporting_signals.append("fine_dining=True")
+        supporting_signals.extend(baseline_signals)
 
         missing_signals: list[str] = []
         if pct_score < 20:

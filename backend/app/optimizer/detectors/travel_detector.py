@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import polars as pl
 
 from app.optimizer.detectors.evidence_scorer import compute_false_positive_risk
+
+if TYPE_CHECKING:
+    from app.optimizer.detectors.personal_baseline import PersonalBaseline
 
 logger = logging.getLogger(__name__)
 
@@ -30,13 +34,17 @@ class TravelDetector:
         self,
         df: pl.DataFrame,
         total_spend: float,
+        baseline: "PersonalBaseline | None" = None,
     ) -> dict:
         """
         Calcula o score de viagem sobre o DataFrame fornecido.
 
         Args:
-            df: transactions_clean já enriquecido (T1.1).
+            df:          transactions_clean já enriquecido (T1.1).
             total_spend: total de despesas no período (R$). Usado para ratio.
+            baseline:    PersonalBaseline do usuário (90–540 dias). Quando fornecido,
+                         detecta spike de gasto em viagem vs comportamento histórico
+                         e expõe o deviation_ratio em supporting_signals.
 
         Returns:
             dict com travel_frequency_score, travel_profile e métricas auxiliares.
@@ -105,6 +113,15 @@ class TravelDetector:
         profile = self._classify(score)
         confidence = round(score / 100, 4)
 
+        # Média mensal de gasto em viagem (normalizada pelos meses do df)
+        total_months = max(
+            df.with_columns(
+                (pl.col("date").dt.year() * 100 + pl.col("date").dt.month()).alias("ym")
+            ).select("ym").unique().height,
+            1,
+        )
+        travel_spend_monthly = travel_spend / total_months
+
         supporting_signals: list[str] = []
         if regularidade_pts > 0:
             supporting_signals.append(f"meses_com_viagem={months_with_travel}")
@@ -112,6 +129,22 @@ class TravelDetector:
             supporting_signals.append(f"proporcao_gasto_viagem={travel_spend_ratio:.1%}")
         if foreign_count > 0:
             supporting_signals.append(f"transacoes_internacionais={foreign_count}")
+
+        # Sinal de mudança comportamental: gasto em viagem acima do baseline pessoal.
+        # O score principal usa travel_spend_ratio (já relativo ao total), mas não detecta
+        # quando o usuário simplesmente começou a viajar mais que seu próprio padrão histórico.
+        if baseline is not None and baseline.has_data():
+            # Combina 'viagem' e 'transporte' — bancos categorizam diferente
+            baseline_travel = baseline.monthly_avg("viagem") + baseline.monthly_avg("transporte")
+            travel_ratio = (
+                travel_spend_monthly / baseline_travel
+                if baseline_travel > 0
+                else float("inf")
+            )
+            if travel_ratio == float("inf") and travel_spend_monthly > 0:
+                supporting_signals.append("viagem_categoria_nova")
+            elif travel_ratio >= 2.0:
+                supporting_signals.append(f"travel_vs_baseline={travel_ratio:.1f}x")
 
         missing_signals: list[str] = []
         if months_with_travel < 3:
@@ -121,18 +154,10 @@ class TravelDetector:
         if foreign_count == 0:
             missing_signals.append("sem_transacoes_internacionais")
 
-        # Média mensal de gasto em viagem (normalizada pelos meses do df)
-        total_months = max(
-            df.with_columns(
-                (pl.col("date").dt.year() * 100 + pl.col("date").dt.month()).alias("ym")
-            ).select("ym").unique().height,
-            1,
-        )
-
         return {
             "travel_frequency_score": score,
             "travel_profile": profile,
-            "travel_spend_monthly": round(travel_spend / total_months, 2),
+            "travel_spend_monthly": round(travel_spend_monthly, 2),
             "months_with_travel": months_with_travel,
             "foreign_txn_count": foreign_count,
             "confidence": confidence,

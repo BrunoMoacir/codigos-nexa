@@ -4,9 +4,14 @@ FamilyDetector — detecta perfil de pai/mãe com filhos pequenos.
 
 from __future__ import annotations
 import re
+from typing import TYPE_CHECKING
+
 import polars as pl
 
 from app.optimizer.detectors.evidence_scorer import compute_false_positive_risk
+
+if TYPE_CHECKING:
+    from app.optimizer.detectors.personal_baseline import PersonalBaseline
 
 _SCHOOL_KEYWORDS = ["ESCOLA", "COLEGIO", "CRECHE", "MATERNAL", "ENSINO INFANTIL"]
 _BABY_PRODUCT_KEYWORDS = ["FRALDA", "PAMPERS", "HUGGIES", "CHICCO", "FISHER PRICE"]
@@ -48,7 +53,19 @@ class FamilyDetector:
     Threshold: family_score >= 40 → is_family_with_kids = True.
     """
 
-    def detect_family_profile(self, df: pl.DataFrame) -> dict:
+    def detect_family_profile(
+        self,
+        df: pl.DataFrame,
+        baseline: "PersonalBaseline | None" = None,
+    ) -> dict:
+        """
+        Args:
+            df:       transactions_clean já enriquecido (janela 90 dias).
+            baseline: PersonalBaseline do usuário (90–540 dias). Quando fornecido,
+                      os thresholds de gasto são adaptados ao histórico pessoal:
+                      categorias sem histórico recebem gate reduzido (novo sinal = mais forte);
+                      categorias já estabelecidas exigem spike maior para disparar.
+        """
         if df.is_empty() or "description" not in df.columns:
             return {
                 "is_family_with_kids": False, "family_score": 0.0, "family_signals": [],
@@ -61,17 +78,54 @@ class FamilyDetector:
 
         expenses = df.filter(pl.col("amount") < 0)
 
+        # Normalização mensal para comparação contra baseline (R$/mês).
+        # Quando baseline ausente, compara totais brutos do período (comportamento original).
+        use_baseline = baseline is not None and baseline.has_data()
+        if use_baseline:
+            coverage_months = max(
+                df.with_columns(
+                    (pl.col("date").dt.year() * 100 + pl.col("date").dt.month()).alias("ym")
+                ).select("ym").unique().height,
+                1,
+            )
+            # Thresholds mensais adaptados ao histórico pessoal.
+            # "educacao": tuition/creche → spike_ratio 1.5× (mensalidade sobe gradualmente)
+            # "farmacia": proxy para produtos bebê → spike_ratio 2.0× (compra concentrada)
+            # "vestuario": roupas infantis → spike_ratio 1.5×
+            thr_school   = baseline.adjusted_threshold("educacao",  default=67.0,  spike_ratio=1.5)
+            thr_baby     = baseline.adjusted_threshold("farmacia",  default=33.0,  spike_ratio=2.0)
+            thr_clothing = baseline.adjusted_threshold("vestuario", default=33.0,  spike_ratio=1.5)
+        else:
+            coverage_months = 1
+            # Thresholds originais: comparação no total do período (não mensal).
+            thr_school, thr_baby, thr_clothing = 200.0, 100.0, 100.0
+
+        def _monthly(spend: float) -> float:
+            return spend / coverage_months if use_baseline else spend
+
         school_spend = _match_spend(expenses, _P_SCHOOL)
-        if school_spend > 200:
+        if _monthly(school_spend) > thr_school:
             score += 30
             signals.append(f"school_spend=R${school_spend:.0f}")
+            if use_baseline:
+                ratio = baseline.deviation_ratio("educacao", school_spend / coverage_months)
+                if ratio != float("inf"):
+                    signals.append(f"school_vs_baseline={ratio:.1f}x")
+                elif school_spend > 0:
+                    signals.append("school_categoria_nova")
         else:
             missing.append("escola")
 
         baby_spend = _match_spend(expenses, _P_BABY)
-        if baby_spend > 100:
+        if _monthly(baby_spend) > thr_baby:
             score += 25
             signals.append(f"baby_products=R${baby_spend:.0f}")
+            if use_baseline:
+                ratio = baseline.deviation_ratio("farmacia", baby_spend / coverage_months)
+                if ratio != float("inf"):
+                    signals.append(f"baby_vs_baseline={ratio:.1f}x")
+                elif baby_spend > 0:
+                    signals.append("baby_categoria_nova")
         else:
             missing.append("produtos_bebe")
 
@@ -83,9 +137,13 @@ class FamilyDetector:
             missing.append("pediatria")
 
         kids_clothing = _match_spend(expenses, _P_KIDS_CLOTHING)
-        if kids_clothing > 100:
+        if _monthly(kids_clothing) > thr_clothing:
             score += 15
             signals.append(f"kids_clothing=R${kids_clothing:.0f}")
+            if use_baseline:
+                ratio = baseline.deviation_ratio("vestuario", kids_clothing / coverage_months)
+                if ratio != float("inf"):
+                    signals.append(f"clothing_vs_baseline={ratio:.1f}x")
         else:
             missing.append("roupas_infantis")
 

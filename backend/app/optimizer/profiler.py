@@ -173,6 +173,14 @@ class ConsumptionProfiler:
         ref = reference_date or date.today()
         cutoff = ref - timedelta(days=_WINDOW_DAYS)
 
+        # Baseline pessoal computado ANTES do corte de 90 dias.
+        # Usa [90–540 dias atrás] como janela histórica — exclui o período atual para
+        # evitar que o comportamento em análise contamine a própria referência.
+        # Quando transactions_df só contém 90 dias, baseline.has_data() = False e
+        # os detectores degradam graciosamente para thresholds fixos originais.
+        from app.optimizer.detectors.personal_baseline import compute_personal_baseline
+        personal_baseline = compute_personal_baseline(transactions_df, reference_date=ref)
+
         df = self._prepare_df(transactions_df, cutoff)
 
         if df.is_empty():
@@ -210,8 +218,8 @@ class ConsumptionProfiler:
         total_spend_period = monthly_avg_spend * data_coverage_months
 
         travel_detector = TravelDetector()
-        travel_result = travel_detector.calc_travel_score(df, total_spend_period)
-        foodie_result = FoodieDetector().calc_foodie_score(df, monthly_avg_spend)
+        travel_result = travel_detector.calc_travel_score(df, total_spend_period, baseline=personal_baseline)
+        foodie_result = FoodieDetector().calc_foodie_score(df, monthly_avg_spend, baseline=personal_baseline)
         investor_result = InvestorDetector().calc_investor_profile(df)
         mei_result = MEIDetector().detect_mei_pattern(df, income_profile)
         merchant_diversity = _calc_merchant_diversity(df)
@@ -258,7 +266,7 @@ class ConsumptionProfiler:
 
         # T2.3 — FamilyDetector (opera sobre o df enriquecido, janela 90 dias)
         from app.optimizer.detectors.family_detector import FamilyDetector
-        family_result = FamilyDetector().detect_family_profile(df)
+        family_result = FamilyDetector().detect_family_profile(df, baseline=personal_baseline)
         profile.is_family_with_kids = family_result["is_family_with_kids"]
         profile.family_score = family_result["family_score"]
 
