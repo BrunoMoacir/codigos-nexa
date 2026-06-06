@@ -342,11 +342,15 @@ class OptimizerService:
                         if _hist_months > 0:
                             _income_historical = float(_hist_credits["amount"].sum()) / _hist_months
 
+                from app.optimizer.detectors.personal_baseline import compute_personal_baseline
+                _life_baseline = compute_personal_baseline(transactions_df, reference_date=_ref)
+
                 detected = LifeEventsDetector().detect_all(
                     txns_recent=_txns_recent,
                     txns_history=_txns_history,
                     income_recent=_income_recent,
                     income_historical=_income_historical,
+                    baseline=_life_baseline,
                 )
                 life_events_raw = [
                     {

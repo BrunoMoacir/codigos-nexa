@@ -26,6 +26,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import date
+from typing import TYPE_CHECKING
 
 import polars as pl
 
@@ -36,6 +37,9 @@ from app.optimizer.detectors.evidence_scorer import (
     compute_false_positive_risk,
     missing_signals_from_evidence,
 )
+
+if TYPE_CHECKING:
+    from app.optimizer.detectors.personal_baseline import PersonalBaseline
 
 
 # Confiança mínima para surfaçar um evento — filtra sinais isolados e fracos.
@@ -106,22 +110,33 @@ class LifeEventsDetector:
         txns_history: pl.DataFrame,
         income_recent: float,
         income_historical: float,
+        baseline: "PersonalBaseline | None" = None,
     ) -> list[LifeEvent]:
+        """
+        Args:
+            txns_recent:        transações dos últimos 60 dias (janela de detecção).
+            txns_history:       transações de 6–18 meses atrás (baseline de ausência).
+            income_recent:      renda média mensal recente.
+            income_historical:  renda média mensal histórica.
+            baseline:           PersonalBaseline do usuário (90–540 dias). Quando fornecido,
+                                os gates de gasto são escalados pelo nível de consumo pessoal,
+                                tornando os limiares proporcionais à capacidade de gasto real.
+        """
         events = []
 
-        baby = self._detect_new_baby(txns_recent, txns_history)
+        baby = self._detect_new_baby(txns_recent, txns_history, baseline)
         if baby:
             events.append(baby)
 
-        moving = self._detect_moving(txns_recent, txns_history)
+        moving = self._detect_moving(txns_recent, txns_history, baseline)
         if moving:
             events.append(moving)
 
-        wedding = self._detect_wedding(txns_recent, txns_history)
+        wedding = self._detect_wedding(txns_recent, txns_history, baseline)
         if wedding:
             events.append(wedding)
 
-        education = self._detect_new_education(txns_recent, txns_history)
+        education = self._detect_new_education(txns_recent, txns_history, baseline)
         if education:
             events.append(education)
 
@@ -131,135 +146,199 @@ class LifeEventsDetector:
 
         return events
 
+    @staticmethod
+    def _level_ratio(baseline: "PersonalBaseline | None") -> float:
+        """
+        Razão de escala baseada no nível de consumo mensal do usuário.
+
+        Referência: R$3.000/mês → ratio = 1.0 (thresholds originais).
+        Usuário com R$1.500/mês → ratio = 0.5 (gates menores: R$100 em fraldas é relevante).
+        Usuário com R$6.000/mês → ratio = 2.0 (gates maiores: precisa mais volume para confirmar).
+        Limitado a [0.33, 2.0] para evitar gates triviais ou inacessíveis.
+        """
+        if baseline is None or not baseline.has_data() or baseline.total_monthly_avg <= 0:
+            return 1.0
+        return min(max(baseline.total_monthly_avg / 3_000.0, 0.33), 2.0)
+
     def _detect_new_baby(
-        self, recent: pl.DataFrame, history: pl.DataFrame
+        self,
+        recent: pl.DataFrame,
+        history: pl.DataFrame,
+        baseline: "PersonalBaseline | None" = None,
     ) -> LifeEvent | None:
         recent_spend, txn_count, merchant_count, months, hist_spend = gather_evidence(
             recent, history, _P_BABY
         )
 
-        # Gate primário: gasto mínimo e ausência de padrão histórico similar
-        if recent_spend <= 200 or hist_spend >= 50:
+        ratio = self._level_ratio(baseline)
+        # Floor 100: 1 embalagem de fraldas já é sinal independente do nível de gasto
+        spend_gate    = max(200.0 * ratio, 100.0)
+        history_gate  = max(50.0  * ratio, 20.0)
+
+        if recent_spend <= spend_gate or hist_spend >= history_gate:
             return None
 
         ev = compute_evidence_score(
             recent_spend, txn_count, merchant_count, months, hist_spend,
-            spend_threshold=200, history_baseline=50, quality=_QUALITY_BABY,
+            spend_threshold=spend_gate,
+            history_baseline=history_gate,
+            quality=_QUALITY_BABY,
         )
         if ev.composite < _MIN_EVENT_CONFIDENCE:
             return None
+
+        signals = [
+            f"baby_spend_recent=R${recent_spend:.0f}",
+            f"baby_spend_historical=R${hist_spend:.0f}",
+            f"txn_count={txn_count}",
+            f"merchant_diversity={merchant_count}",
+        ] + ev.as_signals()
+        if baseline is not None and baseline.has_data():
+            signals.append(f"spend_level_ratio={ratio:.2f}")
 
         return LifeEvent(
             event="new_baby",
             confidence=ev.composite,
             detected_at=date.today(),
             trigger_action="show_baby_financial_planning",
-            supporting_signals=[
-                f"baby_spend_recent=R${recent_spend:.0f}",
-                f"baby_spend_historical=R${hist_spend:.0f}",
-                f"txn_count={txn_count}",
-                f"merchant_diversity={merchant_count}",
-            ] + ev.as_signals(),
+            supporting_signals=signals,
             missing_signals=missing_signals_from_evidence(ev),
             false_positive_risk=compute_false_positive_risk(ev.composite),
         )
 
     def _detect_moving(
-        self, recent: pl.DataFrame, history: pl.DataFrame
+        self,
+        recent: pl.DataFrame,
+        history: pl.DataFrame,
+        baseline: "PersonalBaseline | None" = None,
     ) -> LifeEvent | None:
         recent_spend, txn_count, merchant_count, months, hist_spend = gather_evidence(
             recent, history, _P_MOVING
         )
 
-        # Requer gasto alto E sem histórico prévio similar.
-        # Guard explícito: historical_spend < 100 previne falso positivo quando
-        # historical_spend == 0 (sem histórico) — nesse caso "any spend > 0" passaria.
-        if recent_spend <= 500 or hist_spend >= 100:
+        ratio = self._level_ratio(baseline)
+        # Floor 250: mínimo razoável para um evento de mudança (caixas + frete básico)
+        spend_gate    = max(500.0 * ratio, 250.0)
+        history_gate  = max(100.0 * ratio, 50.0)
+
+        if recent_spend <= spend_gate or hist_spend >= history_gate:
             return None
 
         ev = compute_evidence_score(
             recent_spend, txn_count, merchant_count, months, hist_spend,
-            spend_threshold=500, history_baseline=100, quality=_QUALITY_MOVING,
+            spend_threshold=spend_gate,
+            history_baseline=history_gate,
+            quality=_QUALITY_MOVING,
         )
         if ev.composite < _MIN_EVENT_CONFIDENCE:
             return None
+
+        signals = [
+            f"moving_spend=R${recent_spend:.0f}",
+            f"moving_historical=R${hist_spend:.0f}",
+            f"txn_count={txn_count}",
+            f"merchant_diversity={merchant_count}",
+        ] + ev.as_signals()
+        if baseline is not None and baseline.has_data():
+            signals.append(f"spend_level_ratio={ratio:.2f}")
 
         return LifeEvent(
             event="home_change",
             confidence=ev.composite,
             detected_at=date.today(),
             trigger_action="show_financing_vs_rent_analysis",
-            supporting_signals=[
-                f"moving_spend=R${recent_spend:.0f}",
-                f"moving_historical=R${hist_spend:.0f}",
-                f"txn_count={txn_count}",
-                f"merchant_diversity={merchant_count}",
-            ] + ev.as_signals(),
+            supporting_signals=signals,
             missing_signals=missing_signals_from_evidence(ev),
             false_positive_risk=compute_false_positive_risk(ev.composite),
         )
 
     def _detect_wedding(
-        self, recent: pl.DataFrame, history: pl.DataFrame
+        self,
+        recent: pl.DataFrame,
+        history: pl.DataFrame,
+        baseline: "PersonalBaseline | None" = None,
     ) -> LifeEvent | None:
         recent_spend, txn_count, merchant_count, months, hist_spend = gather_evidence(
             recent, history, _P_WEDDING
         )
 
-        # Exige gasto recente alto E ausência de padrão histórico similar,
-        # para distinguir eventos pontuais (um casamento) de gastos regulares em eventos.
-        if recent_spend <= 1000 or hist_spend >= 200:
+        ratio = self._level_ratio(baseline)
+        # Floor 500: sinal mínimo para evento de casamento (entrada de buffet ou cerimonial)
+        spend_gate    = max(1_000.0 * ratio, 500.0)
+        history_gate  = max(200.0   * ratio, 100.0)
+
+        if recent_spend <= spend_gate or hist_spend >= history_gate:
             return None
 
         ev = compute_evidence_score(
             recent_spend, txn_count, merchant_count, months, hist_spend,
-            spend_threshold=1_000, history_baseline=200, quality=_QUALITY_WEDDING,
+            spend_threshold=spend_gate,
+            history_baseline=history_gate,
+            quality=_QUALITY_WEDDING,
         )
         if ev.composite < _MIN_EVENT_CONFIDENCE:
             return None
+
+        signals = [
+            f"wedding_spend=R${recent_spend:.0f}",
+            f"wedding_historical=R${hist_spend:.0f}",
+            f"txn_count={txn_count}",
+            f"merchant_diversity={merchant_count}",
+        ] + ev.as_signals()
+        if baseline is not None and baseline.has_data():
+            signals.append(f"spend_level_ratio={ratio:.2f}")
 
         return LifeEvent(
             event="wedding",
             confidence=ev.composite,
             detected_at=date.today(),
             trigger_action="show_couple_financial_planning",
-            supporting_signals=[
-                f"wedding_spend=R${recent_spend:.0f}",
-                f"wedding_historical=R${hist_spend:.0f}",
-                f"txn_count={txn_count}",
-                f"merchant_diversity={merchant_count}",
-            ] + ev.as_signals(),
+            supporting_signals=signals,
             missing_signals=missing_signals_from_evidence(ev),
             false_positive_risk=compute_false_positive_risk(ev.composite),
         )
 
     def _detect_new_education(
-        self, recent: pl.DataFrame, history: pl.DataFrame
+        self,
+        recent: pl.DataFrame,
+        history: pl.DataFrame,
+        baseline: "PersonalBaseline | None" = None,
     ) -> LifeEvent | None:
         recent_spend, txn_count, merchant_count, months, hist_spend = gather_evidence(
             recent, history, _P_EDUCATION
         )
 
-        if recent_spend <= 300 or hist_spend >= 100:
+        ratio = self._level_ratio(baseline)
+        # Floor 150: uma mensalidade básica de EAD ou curso livre
+        spend_gate    = max(300.0 * ratio, 150.0)
+        history_gate  = max(100.0 * ratio, 50.0)
+
+        if recent_spend <= spend_gate or hist_spend >= history_gate:
             return None
 
         ev = compute_evidence_score(
             recent_spend, txn_count, merchant_count, months, hist_spend,
-            spend_threshold=300, history_baseline=100, quality=_QUALITY_EDUCATION,
+            spend_threshold=spend_gate,
+            history_baseline=history_gate,
+            quality=_QUALITY_EDUCATION,
         )
         if ev.composite < _MIN_EVENT_CONFIDENCE:
             return None
+
+        signals = [
+            f"edu_spend_recent=R${recent_spend:.0f}",
+            f"txn_count={txn_count}",
+            f"merchant_diversity={merchant_count}",
+        ] + ev.as_signals()
+        if baseline is not None and baseline.has_data():
+            signals.append(f"spend_level_ratio={ratio:.2f}")
 
         return LifeEvent(
             event="new_education",
             confidence=ev.composite,
             detected_at=date.today(),
             trigger_action="show_student_account_options",
-            supporting_signals=[
-                f"edu_spend_recent=R${recent_spend:.0f}",
-                f"txn_count={txn_count}",
-                f"merchant_diversity={merchant_count}",
-            ] + ev.as_signals(),
+            supporting_signals=signals,
             missing_signals=missing_signals_from_evidence(ev),
             false_positive_risk=compute_false_positive_risk(ev.composite),
         )
