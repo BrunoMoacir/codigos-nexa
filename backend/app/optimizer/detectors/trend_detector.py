@@ -3,10 +3,18 @@ TrendDetector — detecta direção de tendência por categoria e por fonte de p
 
 Compara o período recente (últimos 90 dias, janela do profiler) contra o baseline
 histórico (90–540 dias anteriores, janela do PersonalBaseline) para classificar
-cada categoria como SUBINDO, ESTAVEL, CAINDO ou REEMERGINDO.
+cada sinal como SUBINDO, ESTAVEL, CAINDO, REEMERGINDO ou DESAPARECENDO.
 
-Saída: dict cujas chaves são categorias de gasto (ex: "alimentacao", "farmacia") e
-chaves especiais prefixadas com "_" para renda e fontes ("_income", "_credit", "_debit").
+Sinais cobertos:
+  - Por categoria de gasto: alimentacao, farmacia, etc. (via PersonalBaseline)
+  - _delivery:  pedidos em apps de delivery (is_delivery L2, separado de alimentacao)
+  - _income:    renda mensal
+  - _credit:    gasto via cartão de crédito
+  - _debit:     gasto via débito / conta corrente
+  - _pix:       transferências e pagamentos via PIX (payment_method="PIX")
+
+delivery e _pix exigem df enriquecido pelo TransactionFeatureEnricher.
+Quando enriched_recent_df=None, esses sinais são omitidos da saída.
 """
 
 from __future__ import annotations
@@ -19,25 +27,20 @@ import polars as pl
 
 from app.optimizer.detectors.personal_baseline import PersonalBaseline
 
-# Limite mínimo para considerar uma categoria "ativa" (evita ruído em categorias com
-# gastos esporádicos de centavos que inflariam o ratio).
-_MIN_MONTHLY = 15.0
+_MIN_MONTHLY = 15.0     # R$/mês mínimo para considerar sinal ativo
+_THRESHOLD_UP = 1.20    # +20% → SUBINDO
+_THRESHOLD_DOWN = 0.80  # -20% → CAINDO
 
-# Thresholds de classificação de direção.
-# +20% → SUBINDO; -20% → CAINDO; entre esses limites → ESTAVEL.
-_THRESHOLD_UP = 1.20
-_THRESHOLD_DOWN = 0.80
-
-_WINDOW_DAYS = 540   # janela histórica (espelho de compute_personal_baseline)
-_RECENT_DAYS = 90    # janela recente excluída do baseline
+_WINDOW_DAYS = 540      # janela histórica (espelho de compute_personal_baseline)
+_RECENT_DAYS = 90       # janela recente excluída do baseline
 
 
 @dataclass(frozen=True)
 class CategoryTrend:
     direction: str          # SUBINDO | ESTAVEL | CAINDO | REEMERGINDO | DESAPARECENDO
     ratio: float            # current / baseline; float("inf") quando baseline=0 e current>0
-    baseline_monthly: float # R$/mês no período histórico
-    current_monthly: float  # R$/mês no período recente
+    baseline_monthly: float
+    current_monthly: float
 
     def to_dict(self) -> dict:
         return {
@@ -68,6 +71,39 @@ def _classify(current: float, baseline: float) -> tuple[str, float]:
     return "ESTAVEL", round(ratio, 3)
 
 
+def _months_in(df: pl.DataFrame) -> int:
+    """Conta meses distintos no DataFrame."""
+    if df.is_empty() or "date" not in df.columns:
+        return 0
+    return (
+        df.with_columns(
+            (pl.col("date").dt.year() * 100 + pl.col("date").dt.month()).alias("ym")
+        )
+        .select("ym")
+        .unique()
+        .height
+    )
+
+
+def _monthly_expenses_filtered(df: pl.DataFrame, mask: pl.Expr) -> float:
+    """
+    Gasto médio mensal (R$/mês) para transações que satisfazem `mask`.
+
+    mask deve ser uma expressão Polars que seleciona um subconjunto das despesas
+    (amount < 0). O denominador é o número de meses distintos no df inteiro,
+    não apenas no subconjunto filtrado, para normalizar corretamente.
+    """
+    if df.is_empty():
+        return 0.0
+    months = _months_in(df)
+    if months == 0:
+        return 0.0
+    expenses = df.filter((pl.col("amount") < 0) & mask)
+    if expenses.is_empty():
+        return 0.0
+    return round(float(expenses["amount"].sum()) * -1 / months, 2)
+
+
 class TrendDetector:
 
     def detect(
@@ -78,6 +114,7 @@ class TrendDetector:
         current_monthly_income: float,
         personal_baseline: PersonalBaseline,
         reference_date: Optional[date] = None,
+        enriched_recent_df: Optional[pl.DataFrame] = None,
     ) -> dict[str, dict]:
         """
         Detecta tendência por categoria, fonte de pagamento e renda.
@@ -92,11 +129,12 @@ class TrendDetector:
             current_monthly_income: renda média mensal recente (R$/mês).
             personal_baseline: baseline histórico por categoria (90–540 dias atrás).
             reference_date: data de referência (default=hoje).
+            enriched_recent_df: df dos últimos 90 dias já enriquecido pelo
+                TransactionFeatureEnricher. Quando fornecido, habilita os sinais
+                _delivery e _pix. Quando None, esses sinais são omitidos.
 
         Returns:
-            Dict categoria → {direction, ratio, baseline_monthly, current_monthly}.
-            Chaves especiais: "_income", "_credit", "_debit".
-            Retorna dict vazio quando não há dados históricos suficientes.
+            Dict sinal → {direction, ratio, baseline_monthly, current_monthly}.
         """
         if df is None or df.is_empty():
             return {}
@@ -108,7 +146,8 @@ class TrendDetector:
 
         trends: dict[str, dict] = {}
 
-        # 1. Tendências por categoria — só quando o baseline tem dados confiáveis
+        # ── 1. Tendências por categoria de gasto ─────────────────────────────
+        # Só quando o baseline tem dados confiáveis (≥ 2 meses de histórico).
         if personal_baseline.has_data():
             all_categories = (
                 set(current_spend_by_category.keys())
@@ -127,7 +166,7 @@ class TrendDetector:
                     current_monthly=round(current, 2),
                 ).to_dict()
 
-        # 2. Tendência de renda
+        # ── 2. Tendência de renda ─────────────────────────────────────────────
         historical_income = self._historical_income(df, ref)
         if historical_income > 0 or current_monthly_income > 0:
             inc_direction, inc_ratio = _classify(current_monthly_income, historical_income)
@@ -138,7 +177,7 @@ class TrendDetector:
                 current_monthly=round(current_monthly_income, 2),
             ).to_dict()
 
-        # 3. Tendência por fonte de pagamento (crédito / débito)
+        # ── 3. Tendência por fonte de pagamento (crédito / débito) ───────────
         hist_source = self._historical_source(df, ref)
         for source in ("credit", "debit"):
             current_s = current_spend_by_source.get(source, 0.0)
@@ -152,15 +191,78 @@ class TrendDetector:
                     current_monthly=round(current_s, 2),
                 ).to_dict()
 
+        # ── 4. PIX e Delivery (requerem df enriquecido) ───────────────────────
+        if enriched_recent_df is not None and not enriched_recent_df.is_empty():
+            enriched_hist = self._build_enriched_historical(df, ref)
+            self._add_pix_trend(trends, enriched_recent_df, enriched_hist)
+            self._add_delivery_trend(trends, enriched_recent_df, enriched_hist)
+
         return trends
 
-    # ── Helpers privados ──────────────────────────────────────────────────────
+    # ── Sinais enriquecidos ───────────────────────────────────────────────────
+
+    def _build_enriched_historical(self, df: pl.DataFrame, ref: date) -> pl.DataFrame:
+        """Filtra a janela histórica e enriquece com payment_method e is_delivery."""
+        from app.optimizer.feature_store import TransactionFeatureEnricher
+        cutoff_start = ref - timedelta(days=_WINDOW_DAYS)
+        cutoff_end = ref - timedelta(days=_RECENT_DAYS)
+        hist = df.filter(
+            (pl.col("date") >= cutoff_start) & (pl.col("date") < cutoff_end)
+        )
+        if "context_type" in hist.columns:
+            hist = hist.filter(
+                pl.col("context_type").is_null() | (pl.col("context_type") != "PJ")
+            )
+        if hist.is_empty():
+            return hist
+        return TransactionFeatureEnricher().enrich(hist)
+
+    def _add_pix_trend(
+        self,
+        trends: dict,
+        recent: pl.DataFrame,
+        hist: pl.DataFrame,
+    ) -> None:
+        if "payment_method" not in recent.columns:
+            return
+        pix_mask = pl.col("payment_method") == "PIX"
+        pix_curr = _monthly_expenses_filtered(recent, pix_mask)
+        pix_hist = _monthly_expenses_filtered(hist, pix_mask) if not hist.is_empty() and "payment_method" in hist.columns else 0.0
+        if pix_curr > 0 or pix_hist > 0:
+            direction, ratio = _classify(pix_curr, pix_hist)
+            trends["_pix"] = CategoryTrend(
+                direction=direction,
+                ratio=ratio,
+                baseline_monthly=round(pix_hist, 2),
+                current_monthly=round(pix_curr, 2),
+            ).to_dict()
+
+    def _add_delivery_trend(
+        self,
+        trends: dict,
+        recent: pl.DataFrame,
+        hist: pl.DataFrame,
+    ) -> None:
+        if "is_delivery" not in recent.columns:
+            return
+        delivery_mask = pl.col("is_delivery") == True
+        del_curr = _monthly_expenses_filtered(recent, delivery_mask)
+        del_hist = _monthly_expenses_filtered(hist, delivery_mask) if not hist.is_empty() and "is_delivery" in hist.columns else 0.0
+        if del_curr > 0 or del_hist > 0:
+            direction, ratio = _classify(del_curr, del_hist)
+            trends["_delivery"] = CategoryTrend(
+                direction=direction,
+                ratio=ratio,
+                baseline_monthly=round(del_hist, 2),
+                current_monthly=round(del_curr, 2),
+            ).to_dict()
+
+    # ── Helpers históricos (operam no df bruto completo) ─────────────────────
 
     def _historical_income(self, df: pl.DataFrame, ref: date) -> float:
         """Renda média mensal na janela histórica [ref-540d, ref-90d)."""
         cutoff_start = ref - timedelta(days=_WINDOW_DAYS)
         cutoff_end = ref - timedelta(days=_RECENT_DAYS)
-
         hist = df.filter(
             (pl.col("date") >= cutoff_start)
             & (pl.col("date") < cutoff_end)
@@ -170,27 +272,15 @@ class TrendDetector:
             hist = hist.filter(
                 pl.col("context_type").is_null() | (pl.col("context_type") != "PJ")
             )
-        if hist.is_empty():
+        months = _months_in(hist)
+        if months == 0 or hist.is_empty():
             return 0.0
-
-        data_months = (
-            hist.with_columns(
-                (pl.col("date").dt.year() * 100 + pl.col("date").dt.month()).alias("ym")
-            )
-            .select("ym")
-            .unique()
-            .height
-        )
-        if data_months == 0:
-            return 0.0
-
-        return round(float(hist["amount"].sum()) / data_months, 2)
+        return round(float(hist["amount"].sum()) / months, 2)
 
     def _historical_source(self, df: pl.DataFrame, ref: date) -> dict[str, float]:
         """Gasto médio mensal por fonte (credit/debit) na janela histórica."""
         cutoff_start = ref - timedelta(days=_WINDOW_DAYS)
         cutoff_end = ref - timedelta(days=_RECENT_DAYS)
-
         hist = df.filter(
             (pl.col("date") >= cutoff_start)
             & (pl.col("date") < cutoff_end)
@@ -202,18 +292,9 @@ class TrendDetector:
             )
         if hist.is_empty() or "transaction_type" not in hist.columns:
             return {}
-
-        data_months = (
-            hist.with_columns(
-                (pl.col("date").dt.year() * 100 + pl.col("date").dt.month()).alias("ym")
-            )
-            .select("ym")
-            .unique()
-            .height
-        )
-        if data_months == 0:
+        months = _months_in(hist)
+        if months == 0:
             return {}
-
         result = (
             hist
             .with_columns(
@@ -227,9 +308,8 @@ class TrendDetector:
             .filter(pl.col("source") != "unknown")
             .group_by("source")
             .agg(pl.col("amount").sum().abs().alias("total"))
-            .with_columns((pl.col("total") / data_months).alias("monthly_avg"))
+            .with_columns((pl.col("total") / months).alias("monthly_avg"))
         )
-
         return {
             row["source"]: round(row["monthly_avg"], 2)
             for row in result.to_dicts()

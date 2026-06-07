@@ -305,6 +305,7 @@ class ConsumptionProfiler:
             current_monthly_income=estimated_monthly_income,
             personal_baseline=personal_baseline,
             reference_date=ref,
+            enriched_recent_df=df,   # df já enriquecido (90 dias) — habilita _pix e _delivery
         )
 
         logger.info(

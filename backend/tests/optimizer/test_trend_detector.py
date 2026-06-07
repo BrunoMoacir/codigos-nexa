@@ -309,3 +309,218 @@ class TestTrendDetector:
         )
         entry = result["alimentacao"]
         assert set(entry.keys()) == {"direction", "ratio", "baseline_monthly", "current_monthly"}
+
+
+# ─── Testes de PIX e Delivery (requerem enriched_recent_df) ──────────────────
+
+def _enriched_txn(
+    amount: float,
+    days_ago: int,
+    payment_method: str = "CREDIT",
+    is_delivery: bool = False,
+    description: str = "COMPRA",
+) -> dict:
+    return {
+        "date": TODAY - timedelta(days=days_ago),
+        "amount": amount,
+        "category_canonical": "alimentacao",
+        "transaction_type": "DEBIT" if payment_method in ("PIX", "DEBIT") else "CREDIT",
+        "payment_method": payment_method,
+        "is_delivery": is_delivery,
+        "description": description,
+    }
+
+
+def _make_enriched_df(rows: list[dict]) -> pl.DataFrame:
+    df = pl.DataFrame(rows).with_columns(pl.col("date").cast(pl.Date))
+    if "is_delivery" in df.columns:
+        df = df.with_columns(pl.col("is_delivery").cast(pl.Boolean))
+    return df
+
+
+class TestPIXAndDelivery:
+
+    def _detector(self):
+        return TrendDetector()
+
+    def test_pix_omitido_sem_enriched_df(self):
+        """Sem enriched_recent_df, _pix não deve aparecer na saída."""
+        result = self._detector().detect(
+            df=_make_df([_txn(-500.0, 10)]),
+            current_spend_by_category={},
+            current_spend_by_source={},
+            current_monthly_income=0.0,
+            personal_baseline=_baseline({}),
+            reference_date=TODAY,
+            enriched_recent_df=None,
+        )
+        assert "_pix" not in result
+        assert "_delivery" not in result
+
+    def test_delivery_omitido_sem_enriched_df(self):
+        result = self._detector().detect(
+            df=_make_df([_txn(-100.0, 10)]),
+            current_spend_by_category={},
+            current_spend_by_source={},
+            current_monthly_income=0.0,
+            personal_baseline=_baseline({}),
+            reference_date=TODAY,
+            enriched_recent_df=None,
+        )
+        assert "_delivery" not in result
+
+    def test_pix_reemergindo_sem_historico(self):
+        """PIX presente no recente mas ausente no histórico → REEMERGINDO."""
+        recent = _make_enriched_df([
+            _enriched_txn(-300.0, 10, payment_method="PIX"),
+            _enriched_txn(-300.0, 20, payment_method="PIX"),
+            _enriched_txn(-300.0, 30, payment_method="PIX"),
+        ])
+        # df histórico sem PIX (janela [90d, 540d] atrás — vazio)
+        hist_df = _make_df([_txn(-1.0, 200, transaction_type="CREDIT")])
+
+        result = self._detector().detect(
+            df=hist_df,
+            current_spend_by_category={},
+            current_spend_by_source={},
+            current_monthly_income=0.0,
+            personal_baseline=_baseline({}),
+            reference_date=TODAY,
+            enriched_recent_df=recent,
+        )
+        assert "_pix" in result
+        assert result["_pix"]["direction"] == "REEMERGINDO"
+        assert result["_pix"]["current_monthly"] > 0
+        assert result["_pix"]["baseline_monthly"] == 0.0
+
+    def test_delivery_aumentando(self):
+        """iFood recente muito maior que histórico → SUBINDO."""
+        # Histórico: R$100/mês em delivery (dentro da janela 90–540d atrás)
+        hist_rows = [
+            {
+                "date": TODAY - timedelta(days=200),
+                "amount": -100.0,
+                "description": "IFOOD PEDIDO",
+                "category_canonical": "alimentacao",
+                "transaction_type": "CREDIT",
+            },
+            {
+                "date": TODAY - timedelta(days=230),
+                "amount": -100.0,
+                "description": "IFOOD PEDIDO",
+                "category_canonical": "alimentacao",
+                "transaction_type": "CREDIT",
+            },
+            {
+                "date": TODAY - timedelta(days=260),
+                "amount": -100.0,
+                "description": "IFOOD PEDIDO",
+                "category_canonical": "alimentacao",
+                "transaction_type": "CREDIT",
+            },
+        ]
+        hist_df = _make_df(hist_rows)
+
+        # Recente: R$400/mês em delivery (4× o histórico)
+        recent = _make_enriched_df([
+            _enriched_txn(-400.0, 10, is_delivery=True),
+            _enriched_txn(-400.0, 40, is_delivery=True),
+            _enriched_txn(-400.0, 70, is_delivery=True),
+        ])
+
+        result = self._detector().detect(
+            df=hist_df,
+            current_spend_by_category={},
+            current_spend_by_source={},
+            current_monthly_income=0.0,
+            personal_baseline=_baseline({}),
+            reference_date=TODAY,
+            enriched_recent_df=recent,
+        )
+        assert "_delivery" in result
+        assert result["_delivery"]["direction"] == "SUBINDO"
+        assert result["_delivery"]["current_monthly"] > result["_delivery"]["baseline_monthly"]
+
+    def test_delivery_sem_historico_reemergindo(self):
+        """Delivery antes ausente, agora presente → REEMERGINDO."""
+        hist_df = _make_df([_txn(-200.0, 200, transaction_type="CREDIT")])  # sem delivery
+        recent = _make_enriched_df([
+            _enriched_txn(-250.0, 10, is_delivery=True),
+            _enriched_txn(-250.0, 40, is_delivery=True),
+        ])
+        result = self._detector().detect(
+            df=hist_df,
+            current_spend_by_category={},
+            current_spend_by_source={},
+            current_monthly_income=0.0,
+            personal_baseline=_baseline({}),
+            reference_date=TODAY,
+            enriched_recent_df=recent,
+        )
+        assert result["_delivery"]["direction"] == "REEMERGINDO"
+
+    def test_pix_desaparecendo(self):
+        """PIX comum no histórico mas ausente no recente → DESAPARECENDO."""
+        hist_rows = [
+            {
+                "date": TODAY - timedelta(days=200),
+                "amount": -500.0,
+                "description": "PIX ENVIADO",
+                "category_canonical": "outros",
+                "transaction_type": None,
+            },
+            {
+                "date": TODAY - timedelta(days=230),
+                "amount": -500.0,
+                "description": "PIX ENVIADO",
+                "category_canonical": "outros",
+                "transaction_type": None,
+            },
+            {
+                "date": TODAY - timedelta(days=260),
+                "amount": -500.0,
+                "description": "PIX ENVIADO",
+                "category_canonical": "outros",
+                "transaction_type": None,
+            },
+        ]
+        hist_df = _make_df(hist_rows)
+
+        # Recente: sem PIX
+        recent = _make_enriched_df([
+            _enriched_txn(-300.0, 10, payment_method="CREDIT"),
+        ])
+
+        result = self._detector().detect(
+            df=hist_df,
+            current_spend_by_category={},
+            current_spend_by_source={},
+            current_monthly_income=0.0,
+            personal_baseline=_baseline({}),
+            reference_date=TODAY,
+            enriched_recent_df=recent,
+        )
+        if "_pix" in result:
+            assert result["_pix"]["direction"] in ("DESAPARECENDO", "ESTAVEL")
+
+    def test_estrutura_pix_e_delivery(self):
+        """_pix e _delivery devem ter as quatro chaves padrão."""
+        recent = _make_enriched_df([
+            _enriched_txn(-200.0, 10, payment_method="PIX"),
+            _enriched_txn(-200.0, 20, is_delivery=True),
+        ])
+        hist_df = _make_df([_txn(-1.0, 200)])
+        result = self._detector().detect(
+            df=hist_df,
+            current_spend_by_category={},
+            current_spend_by_source={},
+            current_monthly_income=0.0,
+            personal_baseline=_baseline({}),
+            reference_date=TODAY,
+            enriched_recent_df=recent,
+        )
+        for key in ("_pix", "_delivery"):
+            if key in result:
+                assert set(result[key].keys()) == {
+                    "direction", "ratio", "baseline_monthly", "current_monthly"
+                }
