@@ -106,6 +106,13 @@ class UserProfile:
     # OptimizerService para emitir warning no relatório.
     spend_is_estimated: bool = False
 
+    # ── Campos de Tendência (TrendDetector) ───────────────────────────────────
+    # Dict categoria → {direction, ratio, baseline_monthly, current_monthly}.
+    # Direções: SUBINDO | ESTAVEL | CAINDO | REEMERGINDO | DESAPARECENDO
+    # Chaves especiais: "_income" (renda), "_credit" (crédito), "_debit" (débito/PIX).
+    # Vazio quando não há dados históricos suficientes (< 2 meses de baseline).
+    category_trends: dict = field(default_factory=dict)
+
 
 def _calc_merchant_diversity(df: pl.DataFrame) -> float:
     """Score 0–100: quanto mais merchants únicos, mais diversificado."""
@@ -287,6 +294,18 @@ class ConsumptionProfiler:
         profile.lifestyle_cluster = cluster_result["lifestyle_cluster"]
         profile.secondary_clusters = cluster_result.get("secondary_clusters", [])
         profile.cluster_scores = cluster_result["cluster_scores"]
+
+        # Detecção de tendência por categoria, renda e fonte de pagamento.
+        # Usa transactions_df (histórico completo) para comparar baseline vs período recente.
+        from app.optimizer.detectors.trend_detector import TrendDetector
+        profile.category_trends = TrendDetector().detect(
+            df=transactions_df,
+            current_spend_by_category=spend_by_category,
+            current_spend_by_source=spend_by_source,
+            current_monthly_income=estimated_monthly_income,
+            personal_baseline=personal_baseline,
+            reference_date=ref,
+        )
 
         logger.info(
             f"ConsumptionProfiler: avg_spend={profile.monthly_avg_spend:.2f}, "
