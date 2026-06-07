@@ -300,7 +300,7 @@ class TrendDetector:
             .with_columns(
                 pl.when(pl.col("transaction_type").is_null())
                 .then(pl.lit("unknown"))
-                .when(pl.col("transaction_type").str.to_uppercase() == "DEBIT")
+                .when(pl.col("transaction_type").cast(pl.Utf8, strict=False).str.to_uppercase() == "DEBIT")
                 .then(pl.lit("debit"))
                 .otherwise(pl.lit("credit"))
                 .alias("source")

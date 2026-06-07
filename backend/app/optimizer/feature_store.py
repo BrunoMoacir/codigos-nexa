@@ -232,6 +232,9 @@ class TransactionFeatureEnricher:
             else pl.lit("")
         )
 
+        # Cast defensivo: quando todos os valores são None, Polars infere dtype Null
+        # e .str.to_uppercase() falha. Garante que sempre seja String.
+        txn_type = pl.col("transaction_type").cast(pl.Utf8, strict=False)
         return df.with_columns(
             pl.when(desc_upper.str.contains(r"\bPIX\b"))
             .then(pl.lit("PIX"))
@@ -239,7 +242,7 @@ class TransactionFeatureEnricher:
             .then(pl.lit("BOLETO"))
             .when(desc_upper.str.contains(r"TED|DOC"))
             .then(pl.lit("TED"))
-            .when(pl.col("transaction_type").str.to_uppercase() == "DEBIT")
+            .when(txn_type.str.to_uppercase() == "DEBIT")
             .then(pl.lit("DEBIT"))
             .otherwise(pl.lit("CREDIT"))
             .alias("payment_method")
