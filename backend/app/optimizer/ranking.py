@@ -30,6 +30,23 @@ _LIQUIDITY_MULTIPLIER: dict[LiquidityRisk, float] = {
 _BENEFIT_DOMINANCE_THRESHOLD = 0.40
 _BENEFIT_DOMINANCE_DISCOUNT = 0.85
 
+# Cashback estimado por categoria crescente: usado para calcular o bonus de tendência.
+# 2% é conservador — um cashback típico em categorias populares; não usa dados do cartão
+# para evitar complexidade de lookup, resultando em um bônus de ordenação, não de simulação.
+_TREND_CASHBACK_RATE = 0.02
+
+# Mapeamento categoria de gasto → BenefitTag mais relevante (espelhado no InsightGenerator)
+_TREND_CATEGORY_BENEFIT: dict[str, BenefitTag] = {
+    "alimentacao":   BenefitTag.CASHBACK,
+    "supermercado":  BenefitTag.CASHBACK,
+    "farmacia":      BenefitTag.CASHBACK,
+    "saude":         BenefitTag.CASHBACK,
+    "transporte":    BenefitTag.TRAVEL,
+    "lazer":         BenefitTag.TRAVEL,
+    "viagem":        BenefitTag.TRAVEL,
+    "internacional": BenefitTag.INTERNACIONAL,
+}
+
 
 class CardRanking:
     """
@@ -260,7 +277,59 @@ class CardRanking:
             if benefits_bonus > _BENEFIT_DOMINANCE_THRESHOLD * result.net_gain_expected:
                 benefits_bonus *= _BENEFIT_DOMINANCE_DISCOUNT
         score += benefits_bonus
+
+        # Bônus/penalidade por tendência de categoria — não entra em benefits_bonus
+        # para não interferir com a regra de dominância 40% já computada acima.
+        score += self._trend_bonus(result, profile)
+
         return score, benefits_bonus
+
+    def _trend_bonus(self, result: CardSimulationResult, profile: UserProfile) -> float:
+        """
+        Bônus aditivo para categorias em crescimento e penalidade para renda em queda.
+
+        Categorias SUBINDO/REEMERGINDO: eleva o score de cartões com BenefitTag
+        relevante proporcionalmente ao cashback estimado sobre o incremento de gasto.
+        O bônus é anualizado (net_gain_expected é anual) e cap em R$300/ano por categoria
+        para não dominar o score financeiro.
+
+        Renda CAINDO: aplica penalidade em cartões com anuidade > R$400/ano,
+        proporcional à intensidade da queda. Penalidade cap em 20% da anuidade.
+        """
+        trends = getattr(profile, "category_trends", {})
+        if not trends:
+            return 0.0
+
+        bonus = 0.0
+
+        for cat, data in trends.items():
+            if cat.startswith("_"):
+                continue
+            direction = data.get("direction", "ESTAVEL")
+            if direction not in ("SUBINDO", "REEMERGINDO"):
+                continue
+            target_tag = _TREND_CATEGORY_BENEFIT.get(cat)
+            if target_tag is None or target_tag not in result.benefit_tags:
+                continue
+            current_monthly = data.get("current_monthly", 0.0)
+            if current_monthly < 50.0:
+                continue
+
+            ratio = data.get("ratio", 1.0)
+            effective_ratio = 1.3 if ratio == float("inf") else min(ratio, 2.0)  # REEMERGINDO → +30%
+            increment_monthly = current_monthly * max(effective_ratio - 1.0, 0.0)
+            cat_bonus_annual = min(increment_monthly * _TREND_CASHBACK_RATE * 12, 300.0)
+            bonus += cat_bonus_annual
+
+        # Penalidade: renda caindo + anuidade alta → cartão mais arriscado agora
+        income_data = trends.get("_income", {})
+        if income_data.get("direction") == "CAINDO" and result.annuity_effective > 400:
+            income_ratio = income_data.get("ratio", 1.0)
+            drop = max(1.0 - income_ratio, 0.0)  # ex: ratio=0.80 → drop=0.20
+            penalty = min(result.annuity_effective * drop * 0.5, result.annuity_effective * 0.20)
+            bonus -= penalty
+
+        return bonus
 
     def _compute_base_score(self, result: CardSimulationResult, profile: UserProfile) -> float:
         """

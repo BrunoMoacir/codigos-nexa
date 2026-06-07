@@ -171,7 +171,10 @@ class InsightGenerator:
         if enable_cluster_tone:
             insights.extend(self._generate_cluster_insights(ranked_results, profile))
 
-        # 9. Filtrar e ranquear
+        # 9. Insights por tendência de categoria e renda
+        insights.extend(self._try_tendencia_insights(ranked_results, profile))
+
+        # 10. Filtrar e ranquear
         valid = [i for i in insights if self._passes_gates(i)]
         valid.sort(key=lambda i: i.priority_score, reverse=True)
 
@@ -630,6 +633,190 @@ class InsightGenerator:
                     priority_score=self._priority(monthly_gain, effort, top_card.confidence_score),
                     tags=["mei", BenefitTag.CASHBACK.value],
                 ))
+
+        return insights
+
+    def _try_tendencia_insights(
+        self,
+        ranked_results: list[CardSimulationResult],
+        profile: "UserProfile",
+    ) -> list[ActionableInsight]:
+        """
+        Gera insights acionáveis a partir das tendências de categoria e renda.
+
+        Dispara quando uma categoria está SUBINDO ou REEMERGINDO e há um cartão
+        ranqueado com benefício relevante nela. Também gera alerta quando a renda
+        cai mais de 15% e há um cartão sem anuidade entre os ranqueados.
+
+        Cap de 3 insights por chamada para não criar ruído — os com maior
+        priority_score sobrevivem ao filtro do generate().
+        """
+        trends = getattr(profile, "category_trends", {})
+        if not trends or not ranked_results:
+            return []
+
+        insights: list[ActionableInsight] = []
+
+        # ── 1. Categorias de gasto em ascensão ───────────────────────────────
+        # Ordena por gasto atual decrescente para surfaçar o sinal mais impactante primeiro
+        cat_trends = sorted(
+            ((cat, data) for cat, data in trends.items() if not cat.startswith("_")),
+            key=lambda x: x[1].get("current_monthly", 0.0),
+            reverse=True,
+        )
+
+        for cat, data in cat_trends:
+            if len(insights) >= 2:  # máx 2 insights de categoria
+                break
+            direction = data.get("direction", "ESTAVEL")
+            if direction not in ("SUBINDO", "REEMERGINDO"):
+                continue
+
+            current = data.get("current_monthly", 0.0)
+            baseline = data.get("baseline_monthly", 0.0)
+            ratio = data.get("ratio", 1.0)
+
+            min_spend = 50.0 if direction == "REEMERGINDO" else 100.0
+            if current < min_spend:
+                continue
+
+            target_tag = _CATEGORY_BENEFIT_MAP.get(cat)
+            if target_tag is None:
+                continue
+
+            best = next(
+                (r for r in ranked_results[:5] if target_tag in r.benefit_tags),
+                None,
+            )
+            if best is None:
+                continue
+
+            # Ganho estimado: 2% de cashback sobre o gasto atual na categoria
+            gain_monthly = round(current * 0.02, 2)
+            interval = InsightInterval(
+                conservative=gain_monthly * 0.70,
+                expected=gain_monthly,
+                optimistic=gain_monthly * 1.50,
+            )
+            confidence = round(best.confidence_score * (0.75 if direction == "REEMERGINDO" else 0.80), 3)
+
+            if direction == "REEMERGINDO":
+                desc = (
+                    f"{cat.capitalize()} voltou ao seu padrão: R${current:.0f}/mês. "
+                    f"O {best.card_name} tem {target_tag.value} que pode retornar "
+                    f"{interval.display_text()} nesta categoria."
+                )
+                title = f"{cat.capitalize()} reapareceu — aproveite o benefício"
+            else:
+                pct = round((ratio - 1.0) * 100) if ratio != float("inf") else None
+                pct_str = f"+{pct}%" if pct is not None else "comportamento novo"
+                desc = (
+                    f"Seu gasto em {cat} subiu {pct_str} "
+                    f"(R${baseline:.0f} → R${current:.0f}/mês). "
+                    f"O {best.card_name} tem {target_tag.value} que pode retornar "
+                    f"{interval.display_text()} sobre esse crescimento."
+                )
+                title = f"{cat.capitalize()} em alta — otimize o retorno"
+
+            insights.append(ActionableInsight(
+                type=InsightType.MUDAR_CATEGORIA,
+                title=title,
+                description=desc,
+                gain_interval=interval,
+                effort=InsightEffort.BAIXO,
+                confidence_score=confidence,
+                priority_score=self._priority(gain_monthly, InsightEffort.BAIXO, confidence),
+                card_id=best.card_id,
+                card_name=best.card_name,
+                tags=[cat, target_tag.value, "tendencia"],
+            ))
+
+        # ── 2. Delivery em crescimento (sinal L2 separado de alimentacao) ─────
+        delivery = trends.get("_delivery", {})
+        del_direction = delivery.get("direction", "ESTAVEL")
+        if del_direction in ("SUBINDO", "REEMERGINDO"):
+            del_current = delivery.get("current_monthly", 0.0)
+            del_baseline = delivery.get("baseline_monthly", 0.0)
+            if del_current >= 50.0:
+                best = next(
+                    (r for r in ranked_results[:5] if BenefitTag.CASHBACK in r.benefit_tags),
+                    None,
+                )
+                if best:
+                    gain_monthly = round(del_current * 0.03, 2)  # delivery cards: ~3% cashback
+                    interval = InsightInterval(
+                        conservative=gain_monthly * 0.60,
+                        expected=gain_monthly,
+                        optimistic=gain_monthly * 1.50,
+                    )
+                    confidence = round(best.confidence_score * 0.75, 3)
+                    if del_direction == "REEMERGINDO":
+                        desc = (
+                            f"Delivery voltou: R${del_current:.0f}/mês em iFood/Rappi. "
+                            f"O {best.card_name} tem cashback que pode retornar "
+                            f"{interval.display_text()}."
+                        )
+                        title = "Delivery de volta — cashback para recuperar parte do gasto"
+                    else:
+                        desc = (
+                            f"Seus pedidos de delivery cresceram "
+                            f"(R${del_baseline:.0f} → R${del_current:.0f}/mês). "
+                            f"O {best.card_name} tem cashback que pode retornar "
+                            f"{interval.display_text()} sobre esse gasto."
+                        )
+                        title = "Delivery em alta — cashback para recuperar parte do gasto"
+                    insights.append(ActionableInsight(
+                        type=InsightType.MUDAR_CATEGORIA,
+                        title=title,
+                        description=desc,
+                        gain_interval=interval,
+                        effort=InsightEffort.BAIXO,
+                        confidence_score=confidence,
+                        priority_score=self._priority(gain_monthly, InsightEffort.BAIXO, confidence),
+                        card_id=best.card_id,
+                        card_name=best.card_name,
+                        tags=["delivery", BenefitTag.CASHBACK.value, "tendencia"],
+                    ))
+
+        # ── 3. Renda em queda: recomendar cartão sem anuidade ────────────────
+        income = trends.get("_income", {})
+        if income.get("direction") == "CAINDO":
+            income_ratio = income.get("ratio", 1.0)
+            if income_ratio < 0.85:  # queda > 15%
+                zero_annuity = [r for r in ranked_results[:8] if r.annuity_effective == 0]
+                if zero_annuity:
+                    best_free = zero_annuity[0]
+                    top_annuity = max(
+                        (r.annuity_effective for r in ranked_results[:3]), default=0.0
+                    )
+                    avoided_monthly = (top_annuity - best_free.annuity_effective) / 12
+                    if avoided_monthly > 0:
+                        drop_pct = round((1.0 - income_ratio) * 100)
+                        hist_income = income.get("baseline_monthly", 0.0)
+                        curr_income = income.get("current_monthly", 0.0)
+                        interval = InsightInterval(
+                            conservative=avoided_monthly * 0.80,
+                            expected=avoided_monthly,
+                            optimistic=avoided_monthly,
+                        )
+                        confidence = round(best_free.confidence_score * 0.70, 3)
+                        insights.append(ActionableInsight(
+                            type=InsightType.MUDAR_CATEGORIA,
+                            title="Renda em queda — prefira cartão sem anuidade",
+                            description=(
+                                f"Sua renda caiu {drop_pct}% nos últimos meses "
+                                f"(R${hist_income:.0f} → R${curr_income:.0f}/mês). "
+                                f"O {best_free.card_name} não tem anuidade e mantém "
+                                f"os benefícios sem comprometer seu orçamento."
+                            ),
+                            gain_interval=interval,
+                            effort=InsightEffort.MEDIO,
+                            confidence_score=confidence,
+                            priority_score=self._priority(avoided_monthly, InsightEffort.MEDIO, confidence),
+                            card_id=best_free.card_id,
+                            card_name=best_free.card_name,
+                            tags=["renda", "anuidade", "tendencia"],
+                        ))
 
         return insights
 
