@@ -11,6 +11,12 @@ from app.optimizer.constants import (
     TRAVEL_SPEND_THRESHOLD as _TRAVEL_SPEND_THRESHOLD,
     INTL_RANKING_BONUS as _INTL_BONUS,
     LOUNGE_RANKING_BONUS as _LOUNGE_BONUS,
+    LIFE_STAGE_FAMILIA_BEBE,
+    LIFE_STAGE_NOMADE_DIGITAL,
+    LIFE_STAGE_INVESTIDOR_PREMIUM,
+    LIFE_STAGE_SOLTEIRO_URBANO,
+    LIFE_STAGE_NAO_IDENTIFICADO,
+    LIFE_STAGE_MIN_CONFIDENCE as _LIFE_STAGE_MIN_CONF,
 )
 from app.optimizer.models import BenefitTag, CardSimulationResult, LiquidityRisk
 from app.optimizer.profiler import UserProfile
@@ -176,6 +182,10 @@ class CardRanking:
                 score, benefits_bonus, result, profile, secondary
             )
 
+        # Life stage refinement — sinal mais específico que o cluster, aplicado após os bonuses
+        # de cluster para não interferir com a lógica de dominância e penalties existentes.
+        score += self._life_stage_score_bonus(result, profile)
+
         # 3. Penalidade de confiança (multiplicativa após bônus)
         if result.confidence_score < 0.4:
             score *= 0.5
@@ -252,6 +262,67 @@ class CardRanking:
                 bonus += 60
 
         return score + bonus * 0.50
+
+    def _life_stage_score_bonus(
+        self,
+        result: CardSimulationResult,
+        profile: UserProfile,
+    ) -> float:
+        """
+        Bônus aditivo baseado no estágio de vida detectado.
+
+        Refinamento sobre os bônus de cluster: usa sinais mais específicos de comportamento.
+        Valores na mesma escala que net_gain_expected (R$/ano) — pequenos bonuses de R$10-80
+        para ajustar a ordenação entre cartões tecnicamente equivalentes.
+        Escalado pela life_stage_confidence para que sinais fracos não distorçam o ranking.
+        Só ativa quando confidence ≥ LIFE_STAGE_MIN_CONFIDENCE (0.50).
+        """
+        life_stage = getattr(profile, "life_stage", LIFE_STAGE_NAO_IDENTIFICADO)
+        conf = getattr(profile, "life_stage_confidence", 0.0)
+
+        if life_stage == LIFE_STAGE_NAO_IDENTIFICADO or conf < _LIFE_STAGE_MIN_CONF:
+            return 0.0
+
+        bonus = 0.0
+
+        if life_stage == LIFE_STAGE_FAMILIA_BEBE:
+            if BenefitTag.CASHBACK in result.benefit_tags:
+                family_spend = (
+                    profile.spend_by_category.get("farmacia", 0.0)
+                    + profile.spend_by_category.get("supermercado", 0.0)
+                )
+                if family_spend > 200:
+                    bonus = family_spend * 0.006  # ~R$14/ano por R$200/mês em família
+
+        elif life_stage == LIFE_STAGE_NOMADE_DIGITAL:
+            if BenefitTag.INTERNACIONAL in result.benefit_tags:
+                bonus += 80  # economia de IOF para nômade (R$/ano)
+            if BenefitTag.TRAVEL in result.benefit_tags:
+                travel = getattr(profile, "travel_spend_monthly", 0.0)
+                if travel > 300:
+                    bonus += travel * 0.004  # ~R$14/ano por R$300/mês
+
+        elif life_stage == LIFE_STAGE_INVESTIDOR_PREMIUM:
+            # Premia ROI claro; penaliza anuidade alta sem retorno proporcional
+            if result.annuity_effective == 0:
+                bonus = 60
+            elif result.net_gain_expected >= result.annuity_effective * 2.0:
+                bonus = 50  # anuidade claramente justificada
+            elif result.annuity_effective > 600 and result.net_gain_expected < result.annuity_effective * 1.5:
+                bonus = -70  # custo de oportunidade > retorno esperado
+
+        elif life_stage == LIFE_STAGE_SOLTEIRO_URBANO:
+            if BenefitTag.CASHBACK in result.benefit_tags:
+                trends = getattr(profile, "category_trends", {})
+                delivery = trends.get("_delivery", {}).get("current_monthly", 0.0)
+                food = profile.spend_by_category.get("alimentacao", 0.0)
+                urban_spend = max(delivery, 0.0) + food
+                if urban_spend > 300:
+                    bonus += urban_spend * 0.005  # ~R$18/ano por R$300/mês
+            if result.annuity_effective == 0:
+                bonus += 30
+
+        return bonus * conf  # escala pelo confidence do estágio
 
     # ── Score base sem cluster (usado pelo hyperscore para evitar double-counting) ──
 
@@ -424,7 +495,11 @@ class CardRanking:
         # W4: timing (0-1) → 0-100
         w4 = self._calc_timing_score(result, profile) * 100
 
-        return 0.40 * w1 + 0.30 * w2 + 0.20 * w3 + 0.10 * w4
+        # Life stage micro-ajuste (bônus bruto normalizado, cap ±10 pts na escala 0-100)
+        life_bonus = self._life_stage_score_bonus(result, profile)
+        life_bonus_normalized = min(max(life_bonus / 100.0, -0.10), 0.10) * 100
+
+        return 0.40 * w1 + 0.30 * w2 + 0.20 * w3 + 0.10 * w4 + life_bonus_normalized
 
     def _cluster_relevance(
         self,
