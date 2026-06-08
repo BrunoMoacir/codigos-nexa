@@ -59,6 +59,34 @@ _INSIGHT_CONFIDENCE_GATE = 0.65
 # MinGainFilter — P25 do ganho deve ser ≥ R$10/mês para surfaçar
 _INSIGHT_MIN_MONTHLY_GAIN = 10.0
 
+# Estágios de vida — contexto para insights hiperpersonalizados
+_LIFE_STAGE_CONTEXT: dict[str, dict] = {
+    "FAMILIA_BEBE": {
+        "prefix": "Com um filho pequeno em casa",
+        "focus": "cashback em farmácia e supermercado",
+        "card_priority_tags": [BenefitTag.CASHBACK],
+        "top_categories": ["farmacia", "supermercado"],
+    },
+    "NOMADE_DIGITAL": {
+        "prefix": "Como nômade digital",
+        "focus": "sem IOF no exterior e sem anuidade fixa",
+        "card_priority_tags": [BenefitTag.INTERNACIONAL, BenefitTag.TRAVEL],
+        "top_categories": ["viagem"],
+    },
+    "INVESTIDOR_PREMIUM": {
+        "prefix": "Como investidor ativo",
+        "focus": "retorno líquido sobre o custo de oportunidade da anuidade",
+        "card_priority_tags": [BenefitTag.CASHBACK, BenefitTag.PREMIUM],
+        "top_categories": [],
+    },
+    "SOLTEIRO_URBANO": {
+        "prefix": "Com seu estilo de vida urbano",
+        "focus": "cashback em delivery e alimentação",
+        "card_priority_tags": [BenefitTag.CASHBACK],
+        "top_categories": ["alimentacao", "delivery"],
+    },
+}
+
 # T2.6 — Templates de linguagem personalizados por cluster
 _CLUSTER_TONE: dict[str, dict] = {
     "EXPLORADOR_GLOBAL": {
@@ -174,7 +202,10 @@ class InsightGenerator:
         # 9. Insights por tendência de categoria e renda
         insights.extend(self._try_tendencia_insights(ranked_results, profile))
 
-        # 10. Filtrar e ranquear
+        # 10. Insights por estágio de vida (LifeStageDetector)
+        insights.extend(self._try_life_stage_insights(ranked_results, profile))
+
+        # 11. Filtrar e ranquear
         valid = [i for i in insights if self._passes_gates(i)]
         valid.sort(key=lambda i: i.priority_score, reverse=True)
 
@@ -530,6 +561,225 @@ class InsightGenerator:
             )
 
         return None
+
+    def _try_life_stage_insights(
+        self,
+        ranked: list[CardSimulationResult],
+        profile: "UserProfile",
+    ) -> list[ActionableInsight]:
+        """
+        Gera até 1 insight hiperpersonalizado por estágio de vida detectado.
+
+        Cada estágio prioriza benefit_tags e categorias de gasto diferentes,
+        gerando recomendações mais relevantes que os insights genéricos de cluster.
+        Só dispara quando life_stage_confidence ≥ 0.50 para evitar falsos positivos.
+        """
+        life_stage = getattr(profile, "life_stage", "NAO_IDENTIFICADO")
+        confidence = getattr(profile, "life_stage_confidence", 0.0)
+
+        if life_stage == "NAO_IDENTIFICADO" or confidence < 0.50:
+            return []
+
+        ctx = _LIFE_STAGE_CONTEXT.get(life_stage)
+        if not ctx or not ranked:
+            return []
+
+        priority_tags: list[BenefitTag] = ctx["card_priority_tags"]
+
+        # Busca o melhor cartão com os benefit_tags relevantes para o estágio
+        best = next(
+            (r for r in ranked[:5] if any(t in r.benefit_tags for t in priority_tags)),
+            ranked[0],
+        )
+
+        if life_stage == "FAMILIA_BEBE":
+            return self._life_stage_familia_bebe(best, profile, confidence)
+        if life_stage == "NOMADE_DIGITAL":
+            return self._life_stage_nomade_digital(best, profile, confidence)
+        if life_stage == "INVESTIDOR_PREMIUM":
+            return self._life_stage_investidor_premium(best, profile, confidence)
+        if life_stage == "SOLTEIRO_URBANO":
+            return self._life_stage_solteiro_urbano(best, profile, confidence)
+
+        return []
+
+    def _life_stage_familia_bebe(
+        self,
+        best: CardSimulationResult,
+        profile: "UserProfile",
+        stage_confidence: float,
+    ) -> list[ActionableInsight]:
+        pharmacy = profile.spend_by_category.get("farmacia", 0.0)
+        supermarket = profile.spend_by_category.get("supermercado", 0.0)
+        family_spend = pharmacy + supermarket
+
+        if family_spend < 200:
+            return []
+
+        # Estimativa conservadora: 2% de cashback médio sobre farmácia + supermercado
+        gain_monthly = round(family_spend * 0.02, 2)
+        interval = InsightInterval(
+            conservative=gain_monthly * 0.70,
+            expected=gain_monthly,
+            optimistic=gain_monthly * 1.50,
+        )
+        effort = InsightEffort.BAIXO
+        confidence = round(min(stage_confidence * best.confidence_score * 1.2, 0.90), 3)
+
+        return [ActionableInsight(
+            type=InsightType.MUDAR_CATEGORIA,
+            title="Cashback em farmácia e supermercado para sua família",
+            description=(
+                f"Com filho pequeno em casa, você gasta R${family_spend:.0f}/mês entre "
+                f"farmácia e supermercado. O {best.card_name} tem cashback nessas categorias "
+                f"e pode retornar {interval.display_text()}."
+            ),
+            gain_interval=interval,
+            effort=effort,
+            confidence_score=confidence,
+            priority_score=self._priority(gain_monthly, effort, confidence),
+            card_id=best.card_id,
+            card_name=best.card_name,
+            tags=["familia_bebe", "farmacia", "supermercado", BenefitTag.CASHBACK.value],
+        )]
+
+    def _life_stage_nomade_digital(
+        self,
+        best: CardSimulationResult,
+        profile: "UserProfile",
+        stage_confidence: float,
+    ) -> list[ActionableInsight]:
+        intl_spend = getattr(profile, "international_spend_monthly", 0.0)
+        travel_spend = getattr(profile, "travel_spend_monthly", 0.0)
+        relevant_spend = max(intl_spend, travel_spend)
+
+        if relevant_spend < 100:
+            return []
+
+        # IOF no cartão normal é 6.38% sobre gasto internacional — economia real
+        iof_savings_monthly = round(intl_spend * 0.0638, 2) if intl_spend > 0 else 0.0
+        # Se não tem gasto internacional mas tem viagem, usa 2% de retorno estimado
+        gain_monthly = iof_savings_monthly if iof_savings_monthly > 0 else round(travel_spend * 0.02, 2)
+
+        interval = InsightInterval(
+            conservative=gain_monthly * 0.70,
+            expected=gain_monthly,
+            optimistic=gain_monthly * 1.40,
+        )
+        effort = InsightEffort.BAIXO
+        confidence = round(min(stage_confidence * best.confidence_score * 1.2, 0.90), 3)
+
+        desc_intl = (
+            f"Com R${intl_spend:.0f}/mês em gastos internacionais, "
+            f"o IOF pode custar R${iof_savings_monthly:.0f}/mês. "
+        ) if intl_spend > 50 else (
+            f"Com R${travel_spend:.0f}/mês em viagens, "
+        )
+
+        return [ActionableInsight(
+            type=InsightType.MUDAR_CATEGORIA,
+            title="Cartão sem IOF para seu estilo nômade",
+            description=(
+                f"{desc_intl}O {best.card_name} tem benefícios internacionais "
+                f"que podem economizar {interval.display_text()}."
+            ),
+            gain_interval=interval,
+            effort=effort,
+            confidence_score=confidence,
+            priority_score=self._priority(gain_monthly, effort, confidence),
+            card_id=best.card_id,
+            card_name=best.card_name,
+            tags=["nomade_digital", BenefitTag.INTERNACIONAL.value, BenefitTag.TRAVEL.value],
+        )]
+
+    def _life_stage_investidor_premium(
+        self,
+        best: CardSimulationResult,
+        profile: "UserProfile",
+        stage_confidence: float,
+    ) -> list[ActionableInsight]:
+        monthly_gain = best.net_gain_expected / 12
+        if monthly_gain < _INSIGHT_MIN_MONTHLY_GAIN:
+            return []
+
+        # Para investidor, o custo de oportunidade da anuidade é o framing central
+        annuity_monthly = best.annuity_effective / 12
+        interval = self._make_interval(best)
+        effort = InsightEffort.BAIXO
+        confidence = round(min(stage_confidence * best.confidence_score * 1.15, 0.90), 3)
+
+        if best.annuity_waived:
+            annuity_note = f"anuidade isenta no seu volume de gastos"
+        elif annuity_monthly > 0:
+            annuity_note = f"anuidade de R${annuity_monthly:.0f}/mês coberta pelo retorno"
+        else:
+            annuity_note = "sem anuidade"
+
+        return [ActionableInsight(
+            type=InsightType.MUDAR_CATEGORIA,
+            title=f"Retorno líquido superior com {best.card_name}",
+            description=(
+                f"Como investidor ativo, cada real em anuidade é custo de oportunidade. "
+                f"O {best.card_name} ({annuity_note}) pode retornar "
+                f"{interval.display_text()} líquidos sobre seu padrão de gastos."
+            ),
+            gain_interval=interval,
+            effort=effort,
+            confidence_score=confidence,
+            priority_score=self._priority(monthly_gain, effort, confidence),
+            card_id=best.card_id,
+            card_name=best.card_name,
+            tags=["investidor_premium", "retorno_liquido", BenefitTag.CASHBACK.value],
+        )]
+
+    def _life_stage_solteiro_urbano(
+        self,
+        best: CardSimulationResult,
+        profile: "UserProfile",
+        stage_confidence: float,
+    ) -> list[ActionableInsight]:
+        trends = getattr(profile, "category_trends", {})
+        delivery_monthly = trends.get("_delivery", {}).get("current_monthly", 0.0)
+        if delivery_monthly == 0:
+            delivery_monthly = profile.spend_by_category.get("delivery", 0.0)
+
+        food_spend = profile.spend_by_category.get("alimentacao", 0.0)
+        relevant_spend = max(delivery_monthly, food_spend)
+
+        if relevant_spend < 100:
+            return []
+
+        # Delivery/alimentação: ~3% cashback em cartões especializados
+        gain_monthly = round(relevant_spend * 0.03, 2)
+        interval = InsightInterval(
+            conservative=gain_monthly * 0.60,
+            expected=gain_monthly,
+            optimistic=gain_monthly * 1.50,
+        )
+        effort = InsightEffort.BAIXO
+        confidence = round(min(stage_confidence * best.confidence_score * 1.2, 0.90), 3)
+
+        if delivery_monthly > 0:
+            spend_desc = f"R${delivery_monthly:.0f}/mês em delivery"
+        else:
+            spend_desc = f"R${food_spend:.0f}/mês em alimentação"
+
+        return [ActionableInsight(
+            type=InsightType.MUDAR_CATEGORIA,
+            title="Cashback em alimentação e delivery",
+            description=(
+                f"Com {spend_desc} e pouco supermercado, seu perfil urbano "
+                f"aproveita melhor cashback em restaurantes e apps. "
+                f"O {best.card_name} pode retornar {interval.display_text()} nessas categorias."
+            ),
+            gain_interval=interval,
+            effort=effort,
+            confidence_score=confidence,
+            priority_score=self._priority(gain_monthly, effort, confidence),
+            card_id=best.card_id,
+            card_name=best.card_name,
+            tags=["solteiro_urbano", "delivery", "alimentacao", BenefitTag.CASHBACK.value],
+        )]
 
     def _generate_cluster_insights(
         self,

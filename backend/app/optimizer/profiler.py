@@ -113,6 +113,13 @@ class UserProfile:
     # Vazio quando não há dados históricos suficientes (< 2 meses de baseline).
     category_trends: dict = field(default_factory=dict)
 
+    # ── Campos de Estágio de Vida (LifeStageDetector) ────────────────────────
+    # Estágio de vida inferido por combinação de sinais comportamentais.
+    # Valores: FAMILIA_BEBE | NOMADE_DIGITAL | INVESTIDOR_PREMIUM | SOLTEIRO_URBANO | NAO_IDENTIFICADO
+    life_stage: str = "NAO_IDENTIFICADO"
+    life_stage_confidence: float = 0.0              # score do estágio primário (0.0–1.0)
+    life_stage_scores: dict = field(default_factory=dict)  # afinidade por estágio
+
 
 def _calc_merchant_diversity(df: pl.DataFrame) -> float:
     """Score 0–100: quanto mais merchants únicos, mais diversificado."""
@@ -308,6 +315,14 @@ class ConsumptionProfiler:
             enriched_recent_df=df,   # df já enriquecido (90 dias) — habilita _pix e _delivery
         )
 
+        # Estágio de vida (LifeStageDetector) — deve rodar DEPOIS de TrendDetector pois
+        # usa category_trends._delivery para detectar SOLTEIRO_URBANO com mais precisão.
+        from app.optimizer.detectors.life_stage_detector import LifeStageDetector
+        life_stage_result = LifeStageDetector().detect(profile)
+        profile.life_stage = life_stage_result["life_stage"]
+        profile.life_stage_confidence = life_stage_result["life_stage_confidence"]
+        profile.life_stage_scores = life_stage_result["life_stage_scores"]
+
         logger.info(
             f"ConsumptionProfiler: avg_spend={profile.monthly_avg_spend:.2f}, "
             f"income_net={income_profile.monthly_net_income:.2f} "
@@ -316,7 +331,8 @@ class ConsumptionProfiler:
             f"conf={income_profile.confidence:.2f}), "
             f"coverage={profile.data_coverage_months}m, "
             f"stability={profile.spending_stability:.2f}, "
-            f"cluster={profile.lifestyle_cluster}"
+            f"cluster={profile.lifestyle_cluster}, "
+            f"life_stage={profile.life_stage}({profile.life_stage_confidence:.2f})"
         )
 
         return profile

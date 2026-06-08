@@ -513,15 +513,17 @@ class OptimizerService:
         import uuid
         
         user_profile_summary = {
-            "lifestyle_cluster":   getattr(profile_data, "lifestyle_cluster",   "NAO_CLASSIFICADO"),
-            "secondary_clusters":  getattr(profile_data, "secondary_clusters",  []),
-            "fss_level":           getattr(profile_data, "fss_level",           "SAUDAVEL"),
-            "fss":                 round(getattr(profile_data, "fss", 0.0), 1),
-            "investor_type":       getattr(profile_data, "investor_type",       "NONE"),
-            "savings_rate":        round(getattr(profile_data, "savings_rate", 0.0), 1),
-            "monthly_avg_spend":   round(getattr(profile_data, "monthly_avg_spend", 0.0), 2),
-            "is_likely_mei":       getattr(profile_data, "is_likely_mei",       False),
-            "is_family_with_kids": getattr(profile_data, "is_family_with_kids", False),
+            "lifestyle_cluster":      getattr(profile_data, "lifestyle_cluster",      "NAO_CLASSIFICADO"),
+            "secondary_clusters":     getattr(profile_data, "secondary_clusters",     []),
+            "fss_level":              getattr(profile_data, "fss_level",              "SAUDAVEL"),
+            "fss":                    round(getattr(profile_data, "fss", 0.0), 1),
+            "investor_type":          getattr(profile_data, "investor_type",          "NONE"),
+            "savings_rate":           round(getattr(profile_data, "savings_rate", 0.0), 1),
+            "monthly_avg_spend":      round(getattr(profile_data, "monthly_avg_spend", 0.0), 2),
+            "is_likely_mei":          getattr(profile_data, "is_likely_mei",          False),
+            "is_family_with_kids":    getattr(profile_data, "is_family_with_kids",    False),
+            "life_stage":             getattr(profile_data, "life_stage",             "NAO_IDENTIFICADO"),
+            "life_stage_confidence":  round(getattr(profile_data, "life_stage_confidence", 0.0), 3),
         }
 
         report = OptimizationReport(
