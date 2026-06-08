@@ -20,17 +20,28 @@ TravelDetector, InvestorDetector e LifestyleClassifier.
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+from app.optimizer.constants import (
+    LIFE_STAGE_FAMILIA_BEBE,
+    LIFE_STAGE_NOMADE_DIGITAL,
+    LIFE_STAGE_INVESTIDOR_PREMIUM,
+    LIFE_STAGE_SOLTEIRO_URBANO,
+    LIFE_STAGE_NAO_IDENTIFICADO,
+    LIFE_STAGE_PRIMARY_THRESHOLD as _PRIMARY_THRESHOLD,
+)
+
 if TYPE_CHECKING:
     from app.optimizer.profiler import UserProfile
 
-
-LIFE_STAGE_FAMILIA_BEBE        = "FAMILIA_BEBE"
-LIFE_STAGE_NOMADE_DIGITAL      = "NOMADE_DIGITAL"
-LIFE_STAGE_INVESTIDOR_PREMIUM  = "INVESTIDOR_PREMIUM"
-LIFE_STAGE_SOLTEIRO_URBANO     = "SOLTEIRO_URBANO"
-LIFE_STAGE_NAO_IDENTIFICADO    = "NAO_IDENTIFICADO"
-
-_PRIMARY_THRESHOLD = 0.40
+# Re-export para imports externos que já usam este módulo como fonte dos nomes
+__all__ = [
+    "LIFE_STAGE_FAMILIA_BEBE",
+    "LIFE_STAGE_NOMADE_DIGITAL",
+    "LIFE_STAGE_INVESTIDOR_PREMIUM",
+    "LIFE_STAGE_SOLTEIRO_URBANO",
+    "LIFE_STAGE_NAO_IDENTIFICADO",
+    "LifeStageDetector",
+    "refine_with_life_events",
+]
 
 
 class LifeStageDetector:
@@ -224,3 +235,36 @@ class LifeStageDetector:
             score += 0.05
 
         return min(score, 1.0)
+
+
+def refine_with_life_events(profile: "UserProfile", life_events: list[dict]) -> None:
+    """
+    Reforça FAMILIA_BEBE quando LifeEventsDetector detectou evento new_baby recente.
+
+    Chamada em optimizer_service.py APÓS a execução do LifeEventsDetector, onde os
+    eventos já foram calculados. O LifeStageDetector só tem acesso ao perfil derivado
+    (sem transações brutas), então não consegue consumir o sinal de new_baby diretamente.
+    Esta função fecha essa lacuna: se new_baby com confiança ≥ 0.60 for detectado,
+    o estágio é promovido/reforçado para FAMILIA_BEBE.
+
+    Modifica profile.life_stage, life_stage_confidence e life_stage_scores in-place.
+    """
+    new_baby = next(
+        (e for e in life_events if e.get("event") == "new_baby" and e.get("confidence", 0.0) >= 0.60),
+        None,
+    )
+    if new_baby is None:
+        return
+
+    baby_confidence = float(new_baby["confidence"])
+
+    if profile.life_stage == LIFE_STAGE_FAMILIA_BEBE:
+        # Já classificado: eleva a confiança com o reforço do evento
+        profile.life_stage_confidence = round(min(profile.life_stage_confidence + 0.10, 1.0), 3)
+    else:
+        # Promove para FAMILIA_BEBE: new_baby é evidência forte que o detector de perfil
+        # pode ter perdido por falta de histórico transacional suficiente
+        profile.life_stage = LIFE_STAGE_FAMILIA_BEBE
+        profile.life_stage_confidence = round(min(baby_confidence + 0.10, 0.95), 3)
+
+    profile.life_stage_scores[LIFE_STAGE_FAMILIA_BEBE] = profile.life_stage_confidence

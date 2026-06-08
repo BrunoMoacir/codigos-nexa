@@ -362,6 +362,12 @@ class OptimizerService:
                     }
                     for e in detected
                 ]
+
+                # Refina o estágio de vida com sinais do LifeEventsDetector que não
+                # estavam disponíveis quando o LifeStageDetector rodou no profiler.
+                from app.optimizer.detectors.life_stage_detector import refine_with_life_events
+                refine_with_life_events(profile, life_events_raw)
+
         except Exception as _exc:
             logger.warning("LifeEventsDetector falhou: %s", _exc)
 
