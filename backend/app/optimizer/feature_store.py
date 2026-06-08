@@ -41,7 +41,7 @@ _L2_TO_L1: dict[str, str] = {
     "ACADEMIA":     "saude",
     "ESCOLA":       "educacao",
     "STREAMING":    "streaming",
-    "COWORKING":    "outros",
+    "COWORKING":    "coworking",   # própria categoria L1: sinal direto para NOMADE_DIGITAL
     "CORRETORA":    "outros",
 }
 
@@ -56,6 +56,7 @@ CAT_STREAMING    = "streaming"
 CAT_TRANSPORTE   = "transporte"
 CAT_LAZER        = "lazer"
 CAT_FINANCAS     = "financas"
+CAT_COWORKING    = "coworking"
 CAT_OUTROS       = "outros"
 
 # ── Keywords por domínio (fonte única de verdade) ──────────────────────────────
