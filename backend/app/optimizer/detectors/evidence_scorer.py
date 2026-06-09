@@ -10,17 +10,26 @@ das transações e computa um score composto a partir de cinco dimensões:
     diversity   × 0.15  — merchants distintos corroborando o sinal
     quality     × 0.10  — especificidade intrínseca das keywords do evento
 
-Evidência negativa (penalidade multiplicativa, até −30%):
-    Aplica penalidade quando o sinal não tem corroboração independente.
-    Um gasto único em merchant único em mês único = isolamento total (−30%).
-    Cada sinal corroborante (2+ txns, 2+ merchants, 2+ meses) reduz a penalidade.
+Evidência negativa — dois mecanismos complementares:
 
-Um único gasto isolado no threshold gera composite ≈ 0.35 (após penalidade).
-Três sinais corroborantes (merchants, meses, volume alto) empurram para 0.80+.
+  1. Hard gate (isolated_hard_gate=True):
+     Bloqueia completamente sinais isolados para eventos com keywords ambíguas
+     (wedding soft, home_change). Um único BUFFET ou LEROY MERLIN isolado retorna
+     composite=0 independente do volume. Requer ao menos 1 sinal corroborante.
 
-Exemplo wedding:
-    "BUFFET" isolado (R$1.100):          composite ≈ 0.35  (< MIN_CONFIDENCE)
-    BUFFET + DECORAÇÃO + FOTÓGRAFO:      composite ≈ 0.80
+  2. Penalidade suave, modulada por quality:
+     Para eventos com keywords específicas (quality ≥ 0.85: PAMPERS, FACULDADE,
+     CERIMONIAL), aplica penalidade máxima de 15% por isolamento.
+     Para keywords intermediárias (quality < 0.85), penalidade máxima de 20%.
+
+Exemplos wedding:
+    BUFFET isolado (soft, hard_gate=True):       composite = 0.00  (bloqueado)
+    CERIMONIAL isolado (anchor, hard_gate=False): composite ≈ 0.50  (detectado)
+    BUFFET + NOIVAS + FOTÓGRAFO:                 composite ≈ 0.80+ (forte)
+
+Exemplos baby/education:
+    PAMPERS isolado (quality=0.85):              composite ≈ 0.43  (detectado, confiança média)
+    FRALDA + HUGGIES + CHICCO × 2 meses:        composite ≈ 0.80+ (forte)
 
 Uso:
     recent_spend, txn_count, merchant_count, months, hist_spend = gather_evidence(
@@ -28,9 +37,11 @@ Uso:
     )
     ev = compute_evidence_score(
         recent_spend, txn_count, merchant_count, months, hist_spend,
-        spend_threshold=1_000, history_baseline=200, quality=0.72,
+        spend_threshold=1_000, history_baseline=200,
+        quality=0.55,          # soft keyword: BUFFET
+        isolated_hard_gate=True,
     )
-    # ev.composite → confiança 0.0–1.0
+    # ev.composite → 0.0 se isolado, >0 se corroborado
 """
 
 from __future__ import annotations
@@ -162,19 +173,23 @@ def compute_evidence_score(
     spend_threshold: float,
     history_baseline: float,
     quality: float = 0.75,
+    isolated_hard_gate: bool = False,
 ) -> EvidenceScore:
     """
     Computa confiança multi-sinal para um evento de vida detectado.
 
     Args:
-        recent_spend:        gasto total matching na janela recente
-        txn_count:           número de transações que fizeram match
-        merchant_count:      descriptions únicas que fizeram match
-        months_with_signal:  meses distintos com pelo menos 1 match
-        historical_spend:    gasto total matching na janela histórica
-        spend_threshold:     mínimo de gasto para disparar detecção (gate do caller)
-        history_baseline:    máximo de histórico considerado "ausente"
-        quality:             força intrínseca do conjunto de keywords do evento (0–1)
+        recent_spend:         gasto total matching na janela recente
+        txn_count:            número de transações que fizeram match
+        merchant_count:       descriptions únicas que fizeram match
+        months_with_signal:   meses distintos com pelo menos 1 match
+        historical_spend:     gasto total matching na janela histórica
+        spend_threshold:      mínimo de gasto para disparar detecção (gate do caller)
+        history_baseline:     máximo de histórico considerado "ausente"
+        quality:              força intrínseca do conjunto de keywords do evento (0–1)
+        isolated_hard_gate:   se True, bloqueia sinais completamente isolados (neg==1.0)
+                              independente do volume — adequado para keywords ambíguas
+                              como BUFFET ou LEROY MERLIN.
 
     Returns:
         EvidenceScore com composite em [0.0, 1.0] após penalidade negativa.
@@ -206,11 +221,17 @@ def compute_evidence_score(
         + 0.10 * quality
     )
 
-    # Evidência negativa: penaliza sinal isolado sem corroboração independente.
-    # Cap de 20% preserva keywords específicas (PAMPERS, FACULDADE quality≥0.85)
-    # mesmo em transação única, enquanto bloqueia keywords ambíguas (BUFFET quality≤0.72).
     negative_evidence = compute_negative_evidence(txn_count, merchant_count, months_with_signal)
-    composite = composite_raw * (1.0 - 0.20 * negative_evidence)
+
+    if isolated_hard_gate and negative_evidence == 1.0:
+        # Sinal completamente isolado com keyword ambígua — exige ao menos 1 corroboração.
+        # BUFFET sozinho, LEROY MERLIN sozinho: composite=0 independente do valor.
+        composite = 0.0
+    else:
+        # Penalidade suave modulada por quality:
+        # keywords específicas (quality ≥ 0.85) → cap 15%; demais → cap 20%
+        penalty_cap = 0.15 if quality >= 0.85 else 0.20
+        composite = composite_raw * (1.0 - penalty_cap * negative_evidence)
 
     return EvidenceScore(
         volume=round(volume, 4),

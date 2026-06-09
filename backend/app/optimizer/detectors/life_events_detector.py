@@ -78,6 +78,12 @@ _WEDDING_KEYWORDS = [
     "MUITO PELO RISO", "ALUGUEL VESTIDO", "DECORACAO FESTA",
 ]
 
+# Subset altamente específico de keywords de casamento — podem detectar isoladas.
+# Contrasta com soft keywords (BUFFET, FESTAS) que exigem corroboração obrigatória.
+_WEDDING_ANCHOR_KEYWORDS = [
+    "CERIMONIAL", "FOTOGRAFO CASAMENTO", "NOIVAS", "ALUGUEL VESTIDO",
+]
+
 _EDUCATION_KEYWORDS = [
     "FACULDADE", "UNIVERSIDADE", "MENSALIDADE EAD", "ESTACIO",
     "ANHANGUERA", "UNIP", "SENAC", "FIES", "PROUNI",
@@ -88,18 +94,20 @@ _SALARY_DROP_THRESHOLD = -0.20
 
 # Padrões pré-compilados — re.escape garante que keywords com caracteres especiais
 # (ex: pontos, parênteses) não sejam interpretados como metacaracteres regex.
-_P_BABY      = re.compile("|".join(re.escape(k) for k in _BABY_KEYWORDS),      re.IGNORECASE)
-_P_MOVING    = re.compile("|".join(re.escape(k) for k in _MOVING_KEYWORDS),    re.IGNORECASE)
-_P_WEDDING   = re.compile("|".join(re.escape(k) for k in _WEDDING_KEYWORDS),   re.IGNORECASE)
-_P_EDUCATION = re.compile("|".join(re.escape(k) for k in _EDUCATION_KEYWORDS), re.IGNORECASE)
+_P_BABY           = re.compile("|".join(re.escape(k) for k in _BABY_KEYWORDS),          re.IGNORECASE)
+_P_MOVING         = re.compile("|".join(re.escape(k) for k in _MOVING_KEYWORDS),        re.IGNORECASE)
+_P_WEDDING        = re.compile("|".join(re.escape(k) for k in _WEDDING_KEYWORDS),       re.IGNORECASE)
+_P_WEDDING_ANCHOR = re.compile("|".join(re.escape(k) for k in _WEDDING_ANCHOR_KEYWORDS), re.IGNORECASE)
+_P_EDUCATION      = re.compile("|".join(re.escape(k) for k in _EDUCATION_KEYWORDS),     re.IGNORECASE)
 
 # Qualidade intrínseca das keywords por tipo de evento (0–1).
 # Alta: keywords muito específicas (PAMPERS, CERIMONIAL, FACULDADE).
 # Baixa: keywords ambíguas que sozinhas não identificam o evento (BUFFET, LEROY MERLIN).
-_QUALITY_BABY      = 0.85  # FRALDA/PAMPERS → fortíssimo sinal
-_QUALITY_MOVING    = 0.65  # LEROY MERLIN pode ser reforma pontual; IMOVEL é mais forte
-_QUALITY_WEDDING   = 0.72  # CERIMONIAL/NOIVAS forte; BUFFET ambíguo sozinho
-_QUALITY_EDUCATION = 0.85  # FACULDADE/UNIVERSIDADE → muito específico
+_QUALITY_BABY             = 0.85  # FRALDA/PAMPERS → sinal específico, detecta isolado
+_QUALITY_MOVING           = 0.65  # LEROY MERLIN é ambíguo; isolated_hard_gate obrigatório
+_QUALITY_WEDDING_ANCHOR   = 0.90  # CERIMONIAL/NOIVAS/FOTOGRAFO: pode detectar isolado
+_QUALITY_WEDDING_SOFT     = 0.55  # BUFFET/FESTAS: isolado sempre bloqueado (hard gate)
+_QUALITY_EDUCATION        = 0.85  # FACULDADE/UNIVERSIDADE → sinal específico, detecta isolado
 
 
 class LifeEventsDetector:
@@ -229,6 +237,7 @@ class LifeEventsDetector:
             spend_threshold=spend_gate,
             history_baseline=history_gate,
             quality=_QUALITY_MOVING,
+            isolated_hard_gate=True,  # LEROY MERLIN/MADEIRAMADEIRA sozinhos são ambíguos
         )
         if ev.composite < _MIN_EVENT_CONFIDENCE:
             return None
@@ -270,11 +279,20 @@ class LifeEventsDetector:
         if recent_spend <= spend_gate or hist_spend >= history_gate:
             return None
 
+        # Keywords âncora (CERIMONIAL, NOIVAS, FOTOGRAFO, ALUGUEL VESTIDO) são altamente
+        # específicas e podem detectar isoladas. Keywords soft (BUFFET, FESTAS) exigem
+        # corroboração obrigatória — isolated_hard_gate bloqueia sinais sem ao menos 1 ponto.
+        anchor_spend, *_ = gather_evidence(recent, history, _P_WEDDING_ANCHOR)
+        has_anchor = anchor_spend > 0
+        quality = _QUALITY_WEDDING_ANCHOR if has_anchor else _QUALITY_WEDDING_SOFT
+        isolated_hard_gate = not has_anchor
+
         ev = compute_evidence_score(
             recent_spend, txn_count, merchant_count, months, hist_spend,
             spend_threshold=spend_gate,
             history_baseline=history_gate,
-            quality=_QUALITY_WEDDING,
+            quality=quality,
+            isolated_hard_gate=isolated_hard_gate,
         )
         if ev.composite < _MIN_EVENT_CONFIDENCE:
             return None
@@ -284,6 +302,7 @@ class LifeEventsDetector:
             f"wedding_historical=R${hist_spend:.0f}",
             f"txn_count={txn_count}",
             f"merchant_diversity={merchant_count}",
+            f"wedding_anchor={'sim' if has_anchor else 'nao'}",
         ] + ev.as_signals()
         if baseline is not None and baseline.has_data():
             signals.append(f"spend_level_ratio={ratio:.2f}")
