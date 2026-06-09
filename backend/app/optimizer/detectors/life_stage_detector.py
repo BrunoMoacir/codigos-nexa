@@ -109,15 +109,18 @@ class LifeStageDetector:
         """
         Nômade digital: Airbnb regular + viagens frequentes + ferramentas SaaS/coworking.
 
-        Sinal primário: is_digital_nomad (já detectado pelo TravelDetector T2.5).
-        Reforços: is_airbnb_user, travel_spend, subscription_burn, coworking spend.
+        is_digital_nomad contribui como sinal base forte (0.55), mas não faz short-circuit —
+        sinais extras de viagem, assinaturas e coworking acumulam para diferenciar nômades
+        casuais de intensos. is_airbnb_user sozinho não basta: precisa combinar com ao menos
+        um outro sinal para cruzar o threshold de 0.40.
         """
-        if getattr(profile, "is_digital_nomad", False):
-            return 0.85
-
         score = 0.0
 
-        if getattr(profile, "is_airbnb_user", False):
+        # is_digital_nomad é o sinal primário: já captura Airbnb regular + coworking
+        # via TravelDetector T2.5. Usa como base, não como retorno antecipado.
+        if getattr(profile, "is_digital_nomad", False):
+            score += 0.55
+        elif getattr(profile, "is_airbnb_user", False):
             score += 0.30
 
         travel = getattr(profile, "travel_spend_monthly", 0.0)
@@ -135,7 +138,7 @@ class LifeStageDetector:
         elif subscriptions > 80:
             score += 0.08
 
-        # Coworking: normalmente cai em "outros" (L2→L1), mas alguns bancos enviam L1 explícito
+        # Coworking: mapeado para L1 próprio "coworking" em feature_store.py
         coworking = profile.spend_by_category.get("coworking", 0.0)
         if coworking > 100:
             score += 0.20
