@@ -8,6 +8,13 @@ from app.optimizer.profiler import UserProfile
 from app.optimizer.models import (
     CardSimulationResult, CardFlag, LiquidityRisk, BenefitTag
 )
+from app.optimizer.constants import (
+    LIFE_STAGE_FAMILIA_BEBE,
+    LIFE_STAGE_NOMADE_DIGITAL,
+    LIFE_STAGE_INVESTIDOR_PREMIUM,
+    LIFE_STAGE_SOLTEIRO_URBANO,
+    LIFE_STAGE_NAO_IDENTIFICADO,
+)
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────────

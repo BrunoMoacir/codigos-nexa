@@ -84,11 +84,21 @@ class TestFamiliaBebe:
 
 class TestNomadeDigital:
 
-    def test_is_digital_nomad_retorna_085(self):
+    def test_is_digital_nomad_classifica_acima_do_threshold(self):
         p = _profile(is_digital_nomad=True)
         result = _detect(p)
         assert result["life_stage"] == LIFE_STAGE_NOMADE_DIGITAL
-        assert result["life_stage_confidence"] == pytest.approx(0.85, abs=0.01)
+        assert result["life_stage_confidence"] >= LIFE_STAGE_MIN_CONFIDENCE
+
+    def test_is_digital_nomad_acumula_sinais_extras(self):
+        base = _profile(is_digital_nomad=True)
+        intenso = _profile(
+            is_digital_nomad=True,
+            travel_spend_monthly=900,
+            subscription_burn_monthly=200,
+            spend_by_category={"coworking": 200},
+        )
+        assert _detect(intenso)["life_stage_confidence"] > _detect(base)["life_stage_confidence"]
 
     def test_airbnb_mais_viagem_alta(self):
         p = _profile(is_airbnb_user=True, travel_spend_monthly=900)
