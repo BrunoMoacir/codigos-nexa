@@ -10,11 +10,16 @@ das transações e computa um score composto a partir de cinco dimensões:
     diversity   × 0.15  — merchants distintos corroborando o sinal
     quality     × 0.10  — especificidade intrínseca das keywords do evento
 
-Um único gasto isolado no threshold gera composite ≈ 0.40–0.55.
+Evidência negativa (penalidade multiplicativa, até −30%):
+    Aplica penalidade quando o sinal não tem corroboração independente.
+    Um gasto único em merchant único em mês único = isolamento total (−30%).
+    Cada sinal corroborante (2+ txns, 2+ merchants, 2+ meses) reduz a penalidade.
+
+Um único gasto isolado no threshold gera composite ≈ 0.31 (após penalidade).
 Três sinais corroborantes (merchants, meses, volume alto) empurram para 0.80+.
 
 Exemplo wedding:
-    "BUFFET" isolado (R$1.100):          composite ≈ 0.44
+    "BUFFET" isolado (R$1.100):          composite ≈ 0.31  (< MIN_CONFIDENCE)
     BUFFET + DECORAÇÃO + FOTÓGRAFO:      composite ≈ 0.80
 
 Uso:
@@ -40,21 +45,25 @@ import polars as pl
 class EvidenceScore:
     """Score de confiança multi-sinal para um evento de vida detectado."""
 
-    volume: float       # gasto vs threshold normalizado (0–1)
-    recurrence: float   # recorrência de transações / meses (0–1)
-    absence: float      # ausência do padrão no histórico (0–1)
-    diversity: float    # merchants distintos corroborando (0–1)
-    quality: float      # especificidade intrínseca das keywords (0–1, caller-set)
-    composite: float    # soma ponderada — usar como confidence (0–1)
+    volume: float             # gasto vs threshold normalizado (0–1)
+    recurrence: float         # recorrência de transações / meses (0–1)
+    absence: float            # ausência do padrão no histórico (0–1)
+    diversity: float          # merchants distintos corroborando (0–1)
+    quality: float            # especificidade intrínseca das keywords (0–1, caller-set)
+    negative_evidence: float  # penalidade por ausência de corroboração (0–1)
+    composite: float          # score final após penalidade negativa — usar como confidence (0–1)
 
     def as_signals(self) -> list[str]:
         """Retorna lista de strings para incluir em supporting_signals."""
-        return [
+        signals = [
             f"ev_volume={self.volume:.2f}",
             f"ev_recurrence={self.recurrence:.2f}",
             f"ev_absence={self.absence:.2f}",
             f"ev_diversity={self.diversity:.2f}",
         ]
+        if self.negative_evidence > 0:
+            signals.append(f"ev_negative={self.negative_evidence:.2f}")
+        return signals
 
 
 def gather_evidence(
@@ -114,6 +123,36 @@ def gather_evidence(
     return recent_spend, txn_count, merchant_count, months_with_signal, historical_spend
 
 
+def compute_negative_evidence(
+    txn_count: int,
+    merchant_count: int,
+    months_with_signal: int,
+) -> float:
+    """
+    Evidência negativa por ausência de corroboração [0.0–1.0].
+
+    Penaliza sinais isolados sem confirmação independente — reduz falsos positivos
+    de gastos únicos que casualmente correspondem a keywords de eventos de vida.
+
+    Cada sinal corroborante presente reduz a penalidade:
+        txn_count >= 2      → 1 ponto (múltiplas visitas ao mesmo padrão)
+        merchant_count >= 2 → 1 ponto (múltiplos fornecedores diferentes)
+        months >= 2         → 1 ponto (padrão sustentado em meses distintos)
+
+    0 pontos → 1.0 (sinal completamente isolado)
+    1 ponto  → 0.5 (corroboração parcial)
+    2+ pontos → 0.0 (corroboração suficiente, sem penalidade)
+    """
+    corroboration = 0
+    if txn_count >= 2:
+        corroboration += 1
+    if merchant_count >= 2:
+        corroboration += 1
+    if months_with_signal >= 2:
+        corroboration += 1
+    return max(0.0, 1.0 - corroboration / 2)
+
+
 def compute_evidence_score(
     recent_spend: float,
     txn_count: int,
@@ -138,7 +177,7 @@ def compute_evidence_score(
         quality:             força intrínseca do conjunto de keywords do evento (0–1)
 
     Returns:
-        EvidenceScore com composite em [0.0, 1.0].
+        EvidenceScore com composite em [0.0, 1.0] após penalidade negativa.
     """
     # Volume: 0.5 no threshold, 1.0 em 2× threshold (motivação: "quase lá" é incerto)
     volume = min(recent_spend / (spend_threshold * 2), 1.0) if spend_threshold > 0 else 0.0
@@ -159,7 +198,7 @@ def compute_evidence_score(
     # 1 merchant = 0, 2 = 0.33, 3 = 0.67, 4+ = 1.0
     diversity = min((merchant_count - 1) / 3, 1.0) if merchant_count > 1 else 0.0
 
-    composite = (
+    composite_raw = (
         0.30 * volume
         + 0.25 * recurrence
         + 0.20 * absence
@@ -167,12 +206,17 @@ def compute_evidence_score(
         + 0.10 * quality
     )
 
+    # Evidência negativa: penaliza sinal isolado sem corroboração independente
+    negative_evidence = compute_negative_evidence(txn_count, merchant_count, months_with_signal)
+    composite = composite_raw * (1.0 - 0.30 * negative_evidence)
+
     return EvidenceScore(
         volume=round(volume, 4),
         recurrence=round(recurrence, 4),
         absence=round(absence, 4),
         diversity=round(diversity, 4),
         quality=round(quality, 4),
+        negative_evidence=round(negative_evidence, 4),
         composite=round(min(composite, 1.0), 4),
     )
 
@@ -197,4 +241,6 @@ def missing_signals_from_evidence(ev: EvidenceScore) -> list[str]:
         missing.append("merchants_insuficientes")
     if ev.absence < 0.50:
         missing.append("historico_existente")
+    if ev.negative_evidence >= 0.50:
+        missing.append("sinal_isolado_sem_corroboracao")
     return missing
