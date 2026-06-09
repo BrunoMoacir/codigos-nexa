@@ -816,8 +816,10 @@ class TestLifeEventsDetector:
         assert not any(e.event == "new_baby" for e in events)
 
     def test_home_change_detected_with_leroy_merlin(self):
+        # LEROY MERLIN é keyword ambígua (quality=0.65): sem corroboração precisa de
+        # volume alto (≥2× spend_gate = R$1.000) para superar a penalidade de evidência negativa.
         from app.optimizer.detectors.life_events_detector import LifeEventsDetector
-        recent = self._df([_txn(-700, "LEROY MERLIN REFORMA")])
+        recent = self._df([_txn(-1000, "LEROY MERLIN REFORMA")])
         history = self._df([])
         events = LifeEventsDetector().detect_all(recent, history, 5000.0, 5000.0)
         assert any(e.event == "home_change" for e in events)

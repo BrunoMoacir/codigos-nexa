@@ -15,11 +15,11 @@ Evidência negativa (penalidade multiplicativa, até −30%):
     Um gasto único em merchant único em mês único = isolamento total (−30%).
     Cada sinal corroborante (2+ txns, 2+ merchants, 2+ meses) reduz a penalidade.
 
-Um único gasto isolado no threshold gera composite ≈ 0.31 (após penalidade).
+Um único gasto isolado no threshold gera composite ≈ 0.35 (após penalidade).
 Três sinais corroborantes (merchants, meses, volume alto) empurram para 0.80+.
 
 Exemplo wedding:
-    "BUFFET" isolado (R$1.100):          composite ≈ 0.31  (< MIN_CONFIDENCE)
+    "BUFFET" isolado (R$1.100):          composite ≈ 0.35  (< MIN_CONFIDENCE)
     BUFFET + DECORAÇÃO + FOTÓGRAFO:      composite ≈ 0.80
 
 Uso:
@@ -206,9 +206,11 @@ def compute_evidence_score(
         + 0.10 * quality
     )
 
-    # Evidência negativa: penaliza sinal isolado sem corroboração independente
+    # Evidência negativa: penaliza sinal isolado sem corroboração independente.
+    # Cap de 20% preserva keywords específicas (PAMPERS, FACULDADE quality≥0.85)
+    # mesmo em transação única, enquanto bloqueia keywords ambíguas (BUFFET quality≤0.72).
     negative_evidence = compute_negative_evidence(txn_count, merchant_count, months_with_signal)
-    composite = composite_raw * (1.0 - 0.30 * negative_evidence)
+    composite = composite_raw * (1.0 - 0.20 * negative_evidence)
 
     return EvidenceScore(
         volume=round(volume, 4),
