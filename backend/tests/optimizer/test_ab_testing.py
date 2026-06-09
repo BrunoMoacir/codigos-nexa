@@ -300,21 +300,28 @@ class TestOptimizerServiceABRanker:
 
     def test_life_events_nudge_control_passes_empty_events(self):
         svc = self._make_service()
-        uid = self._find_user_for_variant("life_events_nudge", ABVariant.CONTROL)
+        uid = "test-control-user"
 
-        # LifeEventsDetector é importado localmente no método — patch no módulo de origem
+        # life_events_nudge tem traffic_pct=1.0 (100% TREATMENT) — nenhum usuário cai em
+        # CONTROL via hash. Forçamos CONTROL diretamente para testar o code path.
+        def _mock_variant(user_id, experiment_name):
+            if experiment_name == "life_events_nudge":
+                return ABVariant.CONTROL
+            return get_variant(user_id, experiment_name)
+
         _LED_PATH = "app.optimizer.detectors.life_events_detector.LifeEventsDetector"
-        with patch(_LED_PATH) as mock_led:
-            mock_led.return_value.detect_all.return_value = [
-                MagicMock(event="NOVO_BEBE", confidence=0.9,
-                          detected_at=MagicMock(isoformat=lambda: "2026-04-01"),
-                          trigger_action="REBALANCEAR", supporting_signals=[])
-            ]
-            with patch.object(svc, "_build_report") as mock_report:
-                mock_report.return_value = MagicMock()
-                self._run_analyze(svc, uid)
-                call_kwargs = mock_report.call_args.kwargs
-                assert call_kwargs["life_events"] == []
+        with patch("app.core.ab_testing.get_variant", side_effect=_mock_variant):
+            with patch(_LED_PATH) as mock_led:
+                mock_led.return_value.detect_all.return_value = [
+                    MagicMock(event="NOVO_BEBE", confidence=0.9,
+                              detected_at=MagicMock(isoformat=lambda: "2026-04-01"),
+                              trigger_action="REBALANCEAR", supporting_signals=[])
+                ]
+                with patch.object(svc, "_build_report") as mock_report:
+                    mock_report.return_value = MagicMock()
+                    self._run_analyze(svc, uid)
+                    call_kwargs = mock_report.call_args.kwargs
+                    assert call_kwargs["life_events"] == []
 
     def test_life_events_nudge_treatment_passes_detected_events(self):
         svc = self._make_service()

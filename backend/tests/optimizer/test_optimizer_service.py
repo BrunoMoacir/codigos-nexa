@@ -278,8 +278,8 @@ class TestCardSimulatorAnnuity:
         # Gasto de R$ 2.000/mês = R$ 24.000/ano → isenta threshold de R$ 12.000
         card = _card_cashback_com_anuidade(annuity=600.0, threshold=12_000.0)
         rows = [
-            _make_txn(-2000.0, txn_date=date(2026, 2, 5),  txn_id="a"),
-            _make_txn(-2000.0, txn_date=date(2026, 1, 5),  txn_id="b"),
+            _make_txn(-2000.0, txn_date=date(2026, 2, 5),  txn_id="a", transaction_type="CREDIT"),
+            _make_txn(-2000.0, txn_date=date(2026, 1, 5),  txn_id="b", transaction_type="CREDIT"),
         ]
         profile = ConsumptionProfiler().build(_df(*rows), reference_date=TODAY)
         result = sim.simulate(card, profile, safe_to_spend=3000.0)
@@ -293,7 +293,7 @@ class TestCardSimulatorBenefitValue:
         card = _card_cashback_flat(cashback_pct=0.01)  # 1% no gasto
         # Gasto de R$ 1.000/mês → cashback esperado = R$ 1.000 * 12 * 0.01 = R$ 120
         profile = ConsumptionProfiler().build(
-            _df(_make_txn(-1000.0, txn_date=date(2026, 2, 5))),
+            _df(_make_txn(-1000.0, txn_date=date(2026, 2, 5), transaction_type="CREDIT")),
             reference_date=TODAY,
         )
         result = sim.simulate(card, profile, safe_to_spend=2000.0)
@@ -329,8 +329,8 @@ class TestCardSimulatorBenefitValue:
         # Gasto de R$ 600/mês em alimentação → cashback 3% = R$ 18/mês, mas cap = R$ 50/mês
         profile = ConsumptionProfiler().build(
             _df(
-                _make_txn(-600.0, txn_date=date(2026, 2, 5), category="alimentacao", txn_id="alim"),
-                _make_txn(-200.0, txn_date=date(2026, 2, 10), category="transporte", txn_id="transp"),
+                _make_txn(-600.0, txn_date=date(2026, 2, 5), category="alimentacao", txn_id="alim", transaction_type="CREDIT"),
+                _make_txn(-200.0, txn_date=date(2026, 2, 10), category="transporte", txn_id="transp", transaction_type="CREDIT"),
             ),
             reference_date=TODAY,
         )

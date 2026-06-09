@@ -116,7 +116,7 @@ async def analyze_cards(
 
     except ValueError as ve:
         logger.error("[API] Erro de validação na otimização: %s", ve)
-        raise HTTPException(status_code=422, detail="Dados inválidos para análise de cartões.")
+        raise HTTPException(status_code=400, detail=str(ve))
     
     except Exception as e:
         logger.error("[API] Erro interno durante otimização: %s", e, exc_info=True)

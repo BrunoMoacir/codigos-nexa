@@ -3,10 +3,12 @@ from fastapi.testclient import TestClient
 
 # Mocking external dependencies before importing the main app router
 from app.optimizer.router import router as optimizer_router
+from app.core.security import get_current_user
 from fastapi import FastAPI
 
 app = FastAPI()
 app.include_router(optimizer_router)
+app.dependency_overrides[get_current_user] = lambda: "test_user"
 client = TestClient(app)
 
 class MockConnection:
@@ -53,15 +55,15 @@ def test_analyze_endpoint_success(monkeypatch):
     response = client.post(
         "/optimizer/analyze",
         json={
-            "user_id": "test_user_api",
+            "user_id": "test_user",
             "safe_to_spend": 1500,
             "monthly_income": 4000,
             "current_cards": []
         }
     )
-    
+
     assert response.status_code == 200
     data = response.json()
     assert "report_id" in data
-    assert data["user_id"] == "test_user_api"
+    assert data["user_id"] == "test_user"
     assert "recommendation_type" in data
