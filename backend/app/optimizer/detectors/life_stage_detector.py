@@ -148,10 +148,15 @@ class LifeStageDetector:
 
         Sinal primário: investor_type ATIVO ou DIVERSIFICADO (InvestorDetector).
         Reforços: renda mensal líquida > R$7k, committed_percentage baixo, savings_rate alto.
-        """
-        score = 0.0
 
+        Gate duro: sem atividade de corretora (investor_type="NONE") → score=0 independente
+        da renda. Renda alta sem investir não é perfil de investidor premium.
+        """
         investor_type = getattr(profile, "investor_type", "NONE")
+        if investor_type == "NONE":
+            return 0.0
+
+        score = 0.0
         if investor_type in ("ATIVO", "DIVERSIFICADO"):
             score += 0.40
         elif investor_type == "CASUAL":
