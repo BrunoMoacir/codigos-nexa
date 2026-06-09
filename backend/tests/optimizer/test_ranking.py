@@ -236,3 +236,166 @@ class TestMinimumEligibilityRule:
         result = ranking.rank([good, other], _make_profile())
         # eligibility 0.5 >= 0.4 → sem promoção forçada
         assert result[0].card_id == "good"
+
+
+# ─── Bônus de estágio de vida ────────────────────────────────────────────────
+
+def _make_result_with_annuity(
+    card_id: str,
+    net_gain_expected: float,
+    annuity_effective: float = 0.0,
+    benefit_tags: list[BenefitTag] = None,
+) -> CardSimulationResult:
+    return CardSimulationResult(
+        card_id=card_id,
+        card_name=card_id,
+        issuer="Bank",
+        flag=CardFlag.VISA,
+        annuity_effective=annuity_effective,
+        annuity_waived=(annuity_effective == 0.0),
+        points_value_min=net_gain_expected * 0.8,
+        points_value_expected=net_gain_expected,
+        points_value_max=net_gain_expected * 1.2,
+        net_gain_min=net_gain_expected * 0.8,
+        net_gain_expected=net_gain_expected,
+        net_gain_max=net_gain_expected * 1.2,
+        liquidity_impact=0.0,
+        liquidity_risk=LiquidityRisk.SAFE,
+        confidence_score=0.8,
+        eligibility_score=0.9,
+        benefit_tags=benefit_tags or [],
+    )
+
+
+def _profile_with_stage(stage: str, confidence: float = 1.0, **kwargs) -> UserProfile:
+    p = UserProfile(monthly_avg_spend=2000.0)
+    p.life_stage = stage
+    p.life_stage_confidence = confidence
+    for k, v in kwargs.items():
+        setattr(p, k, v)
+    return p
+
+
+class TestLifeStageBonus:
+    """
+    Testa _life_stage_score_bonus: verifica que cada estágio de vida altera
+    o score bruto e pode alterar a ordenação final do ranking.
+    """
+
+    def test_familia_bebe_bonus_aumenta_score_cashback(self, ranking):
+        cashback = _make_result(card_id="cashback", net_gain_expected=400.0,
+                                benefit_tags=[BenefitTag.CASHBACK])
+        sem = _make_profile()
+        com = _profile_with_stage(
+            LIFE_STAGE_FAMILIA_BEBE,
+            spend_by_category={"farmacia": 500, "supermercado": 1000},
+        )
+        # family_spend=1500 → bonus=1500×0.006×1.0=9 → score 409 > 400
+        assert ranking._compute_score(cashback, com) > ranking._compute_score(cashback, sem)
+
+    def test_familia_bebe_nao_bonifica_card_sem_cashback(self, ranking):
+        travel_card = _make_result(card_id="travel", net_gain_expected=400.0,
+                                   benefit_tags=[BenefitTag.TRAVEL])
+        com = _profile_with_stage(
+            LIFE_STAGE_FAMILIA_BEBE,
+            spend_by_category={"farmacia": 500, "supermercado": 1000},
+        )
+        # Sem CASHBACK tag → bonus = 0
+        assert ranking._life_stage_score_bonus(travel_card, com) == 0.0
+
+    def test_familia_bebe_pode_inverter_ranking(self, ranking):
+        # cashback_card perde em ganho puro mas vence com bônus familiar
+        # bonus = 2000×0.006×1.0 = 12 → cashback: 490+12=502 > plain: 500
+        cashback = _make_result(card_id="cashback", net_gain_expected=490.0,
+                                benefit_tags=[BenefitTag.CASHBACK])
+        plain = _make_result(card_id="plain", net_gain_expected=500.0)
+        profile = _profile_with_stage(
+            LIFE_STAGE_FAMILIA_BEBE,
+            spend_by_category={"farmacia": 1000, "supermercado": 1000},
+        )
+        ranked = ranking.rank([plain, cashback], profile)
+        assert ranked[0].card_id == "cashback"
+
+    def test_nomade_digital_bonus_aumenta_score_internacional(self, ranking):
+        intl = _make_result(card_id="intl", net_gain_expected=400.0,
+                            benefit_tags=[BenefitTag.INTERNACIONAL])
+        sem = _make_profile()
+        com = _profile_with_stage(LIFE_STAGE_NOMADE_DIGITAL)
+        # bonus = 80×1.0 = 80 → score 480 > 400
+        assert ranking._compute_score(intl, com) > ranking._compute_score(intl, sem)
+
+    def test_nomade_digital_bonus_travel_proporcional_ao_gasto(self, ranking):
+        travel_card = _make_result(card_id="travel", net_gain_expected=400.0,
+                                   benefit_tags=[BenefitTag.TRAVEL])
+        p_baixo = _profile_with_stage(LIFE_STAGE_NOMADE_DIGITAL,
+                                      travel_spend_monthly=400)
+        p_alto  = _profile_with_stage(LIFE_STAGE_NOMADE_DIGITAL,
+                                      travel_spend_monthly=1000)
+        # Mais viagem → maior bônus de travel
+        assert ranking._life_stage_score_bonus(travel_card, p_alto) > \
+               ranking._life_stage_score_bonus(travel_card, p_baixo)
+
+    def test_investidor_premium_penaliza_anuidade_alta_sem_roi(self, ranking):
+        # net_gain=400 < annuity(800)*1.5=1200 → penalty=-70×1.0=-70
+        card = _make_result_with_annuity("premium", net_gain_expected=400.0,
+                                         annuity_effective=800.0)
+        sem = _make_profile()
+        com = _profile_with_stage(LIFE_STAGE_INVESTIDOR_PREMIUM)
+        assert ranking._compute_score(card, com) < ranking._compute_score(card, sem)
+
+    def test_investidor_premium_premia_anuidade_zero(self, ranking):
+        card = _make_result_with_annuity("free", net_gain_expected=400.0,
+                                          annuity_effective=0.0,
+                                          benefit_tags=[BenefitTag.CASHBACK])
+        sem = _make_profile()
+        com = _profile_with_stage(LIFE_STAGE_INVESTIDOR_PREMIUM)
+        # bonus=60×1.0=60 → score 460 > 400
+        assert ranking._compute_score(card, com) > ranking._compute_score(card, sem)
+
+    def test_investidor_premium_premia_roi_claro(self, ranking):
+        # net_gain=2000 >= annuity(800)*2.0=1600 → bonus=50
+        card = _make_result_with_annuity("roi_card", net_gain_expected=2000.0,
+                                          annuity_effective=800.0)
+        sem = _make_profile()
+        com = _profile_with_stage(LIFE_STAGE_INVESTIDOR_PREMIUM)
+        assert ranking._compute_score(card, com) > ranking._compute_score(card, sem)
+
+    def test_solteiro_urbano_bonus_cashback_delivery_alto(self, ranking):
+        # cashback(490, annuity=0): urban_spend=1200 → +6; annuity=0 → +30; total=36 → score 526
+        # plain(500, annuity=100): sem CASHBACK → +0; annuity≠0 → +0; score 500
+        cashback = _make_result(card_id="cashback", net_gain_expected=490.0,
+                                benefit_tags=[BenefitTag.CASHBACK])
+        plain = _make_result_with_annuity("plain", net_gain_expected=500.0,
+                                          annuity_effective=100.0)
+        profile = _profile_with_stage(
+            LIFE_STAGE_SOLTEIRO_URBANO,
+            category_trends={"_delivery": {"current_monthly": 800.0}},
+            spend_by_category={"alimentacao": 400},
+        )
+        ranked = ranking.rank([plain, cashback], profile)
+        assert ranked[0].card_id == "cashback"
+
+    def test_sem_stage_bonus_zero(self, ranking):
+        card = _make_result(net_gain_expected=500.0, benefit_tags=[BenefitTag.CASHBACK])
+        profile = _make_profile()
+        profile.life_stage = LIFE_STAGE_NAO_IDENTIFICADO
+        assert ranking._life_stage_score_bonus(card, profile) == 0.0
+
+    def test_confianca_baixa_bonus_zero(self, ranking):
+        card = _make_result(net_gain_expected=500.0, benefit_tags=[BenefitTag.CASHBACK])
+        profile = _profile_with_stage(
+            LIFE_STAGE_FAMILIA_BEBE,
+            confidence=0.45,  # abaixo do LIFE_STAGE_MIN_CONFIDENCE (0.50)
+            spend_by_category={"farmacia": 500, "supermercado": 500},
+        )
+        assert ranking._life_stage_score_bonus(card, profile) == 0.0
+
+    def test_confianca_escala_bonus_proporcionalmente(self, ranking):
+        card = _make_result(net_gain_expected=400.0, benefit_tags=[BenefitTag.CASHBACK])
+        p_low  = _profile_with_stage(LIFE_STAGE_FAMILIA_BEBE, confidence=0.60,
+                                     spend_by_category={"farmacia": 500, "supermercado": 500})
+        p_high = _profile_with_stage(LIFE_STAGE_FAMILIA_BEBE, confidence=1.00,
+                                     spend_by_category={"farmacia": 500, "supermercado": 500})
+        bonus_low  = ranking._life_stage_score_bonus(card, p_low)
+        bonus_high = ranking._life_stage_score_bonus(card, p_high)
+        assert bonus_high > bonus_low
