@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import TYPE_CHECKING
 
 from app.optimizer.constants import INTL_SPEND_THRESHOLD, TRAVEL_SPEND_THRESHOLD
@@ -136,6 +137,7 @@ class InsightGenerator:
         current_card_id: str | None = None,
         current_card_monthly_return: float | None = 0.0,
         enable_cluster_tone: bool = True,
+        feedback_weights: dict[str, float] | None = None,
     ) -> list[ActionableInsight]:
         """
         Gera lista de insights ranqueados por priority_score.
@@ -205,9 +207,19 @@ class InsightGenerator:
         # 10. Insights por estágio de vida (LifeStageDetector)
         insights.extend(self._try_life_stage_insights(ranked_results, profile))
 
-        # 11. Filtrar e ranquear
+        # 11. Filtrar, aplicar pesos de feedback e ranquear
         valid = [i for i in insights if self._passes_gates(i)]
+
+        if feedback_weights:
+            for insight in valid:
+                weight = feedback_weights.get(insight.type.value, 1.0)
+                insight.priority_score = round(insight.priority_score * weight, 2)
+
         valid.sort(key=lambda i: i.priority_score, reverse=True)
+
+        # Atribuir UUIDs únicos para rastreamento de feedback
+        for insight in valid:
+            insight.insight_id = str(uuid.uuid4())
 
         return valid
 
