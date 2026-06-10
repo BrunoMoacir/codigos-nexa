@@ -266,18 +266,89 @@ def get_feedback_stats(
         db.close()
 
 
-def get_feedback_weights() -> dict[str, float]:
+_GLOBAL_MIN_SAMPLES = 10  # amostras mínimas globais para peso global
+_USER_MIN_SAMPLES   = 5   # amostras mínimas do usuário para peso individual
+_USER_WEIGHT_MIN    = 0.75
+_USER_WEIGHT_MAX    = 1.25
+
+
+def get_global_feedback_weights() -> dict[str, float]:
     """
-    Retorna um multiplicador por insight_type derivado da taxa de aceitação.
+    Peso global por insight_type calculado sobre todos os usuários.
 
-    Fórmula:  weight = 0.5 + acceptance_rate          (range 0.5 – 1.5)
-    Com floor em 10 feedbacks para evitar overfitting em amostras pequenas.
-
-    Usado pelo ranking para ajustar o priority_score dos insights.
+    Fórmula: weight = 0.5 + acceptance_rate  → range [0.5, 1.5]
+    Floor: ≥ 10 amostras por tipo para evitar overfitting.
     """
     stats = get_feedback_stats()
     weights: dict[str, float] = {}
     for s in stats:
-        if s["total"] >= 10:
+        if s["total"] >= _GLOBAL_MIN_SAMPLES:
             weights[s["insight_type"]] = round(0.5 + s["acceptance_rate"], 4)
     return weights
+
+
+def get_user_feedback_weights(user_id: str) -> dict[str, float]:
+    """
+    Peso individual por insight_type calculado sobre o histórico deste usuário.
+
+    Só incluído quando o usuário tem ≥ 5 feedbacks para o tipo.
+    Peso clamped em [0.75, 1.25] para não destruir o ranking com poucos dados:
+    mesmo aceitação 100% produz 1.25×, não 1.5× — o global já captura isso.
+    """
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(RecommendationFeedback)
+            .filter(RecommendationFeedback.user_id == user_id)
+            .all()
+        )
+    except Exception as e:
+        logger.error("Erro ao buscar feedbacks do usuário %s: %s", user_id, e)
+        return {}
+    finally:
+        db.close()
+
+    by_type: dict[str, list] = defaultdict(list)
+    for row in rows:
+        by_type[row.insight_type].append(row)
+
+    weights: dict[str, float] = {}
+    for itype, type_rows in by_type.items():
+        if len(type_rows) < _USER_MIN_SAMPLES:
+            continue
+        total = len(type_rows)
+        accepted = sum(1 for r in type_rows if r.outcome.upper() == "ACCEPTED")
+        raw = 0.5 + accepted / total
+        weights[itype] = round(max(_USER_WEIGHT_MIN, min(_USER_WEIGHT_MAX, raw)), 4)
+
+    return weights
+
+
+def get_feedback_weights(user_id: str | None = None) -> dict[str, float]:
+    """
+    Peso final por insight_type = peso_global × peso_usuário.
+
+    peso_global ∈ [0.5, 1.5]    — aprende com todos os usuários (≥ 10 amostras)
+    peso_usuário ∈ [0.75, 1.25] — ajusta preferências individuais (≥ 5 amostras)
+
+    Se o usuário não tiver dados suficientes, só o peso global é aplicado.
+    Se nenhum dado global disponível para o tipo, retorna 1.0 implícito (ausência de chave).
+
+    Exemplo:
+        global TROCAR_PRIMARIO = 1.30  (80% aceitação global)
+        user   TROCAR_PRIMARIO = 0.75  (usuário rejeita sempre)
+        final                  = 0.975
+    """
+    global_w = get_global_feedback_weights()
+    if user_id is None:
+        return global_w
+
+    user_w = get_user_feedback_weights(user_id)
+    if not user_w:
+        return global_w
+
+    all_types = set(global_w) | set(user_w)
+    return {
+        itype: round(global_w.get(itype, 1.0) * user_w.get(itype, 1.0), 4)
+        for itype in all_types
+    }

@@ -422,9 +422,10 @@ class OptimizerService:
                         current_card_id, _roi_err,
                     )
 
-        # Carregar pesos aprendidos com feedback (floor: ≥ 10 amostras por tipo)
+        # Carregar pesos aprendidos com feedback.
+        # get_feedback_weights combina nível global × nível do usuário automaticamente.
         try:
-            feedback_weights = get_feedback_weights()
+            feedback_weights = get_feedback_weights(user_id=str(request.user_id))
         except Exception:
             feedback_weights = {}
 

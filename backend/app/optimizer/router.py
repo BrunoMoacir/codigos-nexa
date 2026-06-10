@@ -28,6 +28,8 @@ from app.optimizer.queries import (
     find_insight_in_report,
     get_feedback_stats,
     get_feedback_weights,
+    get_global_feedback_weights,
+    get_user_feedback_weights,
     get_optimization_report_by_id,
     get_optimization_reports,
     save_recommendation_feedback,
@@ -545,12 +547,24 @@ async def feedback_stats(
 @router.get("/feedback/weights")
 async def feedback_weights(current_user: str = Depends(get_current_user)):
     """
-    Retorna os multiplicadores de peso por insight_type derivados do feedback acumulado.
+    Retorna os pesos finais por insight_type para o usuário autenticado.
 
-    Somente calculado para tipos com ≥ 10 feedbacks (floor anti-overfitting).
-    Range: 0.5 (alto rejeito) → 1.5 (alta aceitação).
+    **Dois níveis combinados (multiplicados):**
+    - `global_weights`: aprendido com todos os usuários — range [0.5, 1.5], floor ≥ 10 amostras.
+    - `user_weights`: ajuste individual — range [0.75, 1.25], floor ≥ 5 amostras do usuário.
+    - `final_weights`: `global × user` — aplicado ao priority_score no ranking.
+
+    Se o usuário não tem dados suficientes, `user_weights` fica vazio e `final = global`.
     """
-    return {"weights": get_feedback_weights()}
+    global_w = get_global_feedback_weights()
+    user_w   = get_user_feedback_weights(current_user)
+    final_w  = get_feedback_weights(user_id=current_user)
+    return {
+        "user_id":       current_user,
+        "global_weights": global_w,
+        "user_weights":   user_w,
+        "final_weights":  final_w,
+    }
 
 
 
