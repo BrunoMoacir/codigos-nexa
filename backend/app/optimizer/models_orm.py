@@ -1,5 +1,5 @@
 # app/models/optimization_report.py
-from sqlalchemy import Column, String, Float, Text
+from sqlalchemy import Column, DateTime, String, Float, Text, text
 from app.core.database import Base
 
 
@@ -22,3 +22,21 @@ class OptimizationReport(Base):
     strategy_text = Column(String, nullable=True)
     warnings = Column(String, nullable=True)
     full_report_json = Column(Text, nullable=True)
+
+
+class RecommendationFeedback(Base):
+    __tablename__ = "recommendation_feedback"
+
+    id = Column(String(36), primary_key=True)
+    recommendation_id = Column(String(36), nullable=False, index=True)
+    user_id = Column(String(100), nullable=False, index=True)
+    insight_type = Column(String(50), nullable=False, index=True)
+    detector = Column(String(100), nullable=False)
+    signals_json = Column(Text, nullable=True)
+    outcome = Column(String(20), nullable=False)
+    reason = Column(Text, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )

@@ -12,11 +12,24 @@ from pydantic import BaseModel as _BaseModel
 from app.core.db.queries import get_transactions_for_user
 from app.core.security import get_current_user, require_owner
 from app.optimizer.card_loader import CardKnowledgeBase
-from app.optimizer.models import CurrentCardROI, OptimizationReport, OptimizationRequest
+from app.optimizer.models import (
+    CurrentCardROI,
+    FeedbackStats,
+    OptimizationReport,
+    OptimizationRequest,
+    RecommendationFeedbackRequest,
+    RecommendationFeedbackResponse,
+)
 from app.optimizer.opportunity_cost import OpportunityCostCalculator
 from app.optimizer.profiler import ConsumptionProfiler
 from app.optimizer.promotion_tracker import PromotionTracker
-from app.optimizer.queries import get_optimization_report_by_id, get_optimization_reports
+from app.optimizer.queries import (
+    get_feedback_stats,
+    get_feedback_weights,
+    get_optimization_report_by_id,
+    get_optimization_reports,
+    save_recommendation_feedback,
+)
 from app.optimizer.services.optimizer_service import OptimizerService
 from app.optimizer.simulator import CardSimulator
 from fastapi.responses import JSONResponse
@@ -445,6 +458,101 @@ async def get_card_roi(
         raise HTTPException(status_code=500, detail="Erro ao calcular ROI do cartão.")
 
     return roi
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Aprendizado com feedback — M2.8
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post(
+    "/recommendations/{recommendation_id}/feedback",
+    response_model=RecommendationFeedbackResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def submit_recommendation_feedback(
+    recommendation_id: str,
+    body: RecommendationFeedbackRequest,
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Registra a resposta do usuário a um insight do relatório de otimização.
+
+    **Outcomes:**
+    - `ACCEPTED` — usuário vai executar a recomendação
+    - `IGNORED`  — fechou sem interagir
+    - `REJECTED` — marcou como irrelevante
+
+    O feedback é associado ao `recommendation_id` (report_id retornado por
+    `POST /optimizer/analyze`) e ao `insight_type` escolhido pelo cliente.
+    Os sinais do perfil são extraídos automaticamente do relatório salvo.
+    """
+    report = get_optimization_report_by_id(recommendation_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Relatório não encontrado")
+    if report.get("user_id") != current_user:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+
+    profile = report.get("user_profile_summary", {})
+    try:
+        feedback_id = save_recommendation_feedback(
+            recommendation_id=recommendation_id,
+            user_id=current_user,
+            insight_type=body.insight_type.value,
+            outcome=body.outcome.value,
+            reason=body.reason,
+            report_profile=profile,
+        )
+    except Exception as e:
+        logger.error("[API] Erro ao salvar feedback: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro ao registrar feedback")
+
+    from datetime import datetime as _dt
+    return RecommendationFeedbackResponse(
+        feedback_id=feedback_id,
+        recommendation_id=recommendation_id,
+        insight_type=body.insight_type.value,
+        detector=_INSIGHT_DETECTOR_MAP.get(body.insight_type.value, "Unknown"),
+        outcome=body.outcome.value,
+        created_at=_dt.utcnow().isoformat(),
+    )
+
+
+@router.get("/feedback/stats", response_model=list[FeedbackStats])
+async def feedback_stats(
+    insight_type: Optional[str] = None,
+    detector: Optional[str] = None,
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Retorna estatísticas de aceitação de insights agrupadas por (detector, insight_type).
+
+    Útil para calibrar manualmente o ranking ou auditar quais recomendações
+    os usuários mais aceitam ou rejeitam.
+    """
+    return get_feedback_stats(insight_type=insight_type, detector=detector)
+
+
+@router.get("/feedback/weights")
+async def feedback_weights(current_user: str = Depends(get_current_user)):
+    """
+    Retorna os multiplicadores de peso por insight_type derivados do feedback acumulado.
+
+    Somente calculado para tipos com ≥ 10 feedbacks (floor anti-overfitting).
+    Range: 0.5 (alto rejeito) → 1.5 (alta aceitação).
+    """
+    return {"weights": get_feedback_weights()}
+
+
+# Mapa estático exposto para a camada de rota (evita import circular com queries)
+_INSIGHT_DETECTOR_MAP: dict[str, str] = {
+    "TROCAR_PRIMARIO":   "LifestyleClassifier",
+    "PORTFOLIO_MULTI":   "MultiCardStrategist",
+    "ATIVAR_BENEFICIO":  "BenefitViabilityFilter",
+    "CANCELAR_CARTAO":   "CardSimulator",
+    "ATINGIR_ISENCAO":   "CardSimulator",
+    "MUDAR_CATEGORIA":   "TrendDetector",
+    "SOLICITAR_UPGRADE": "CardKnowledgeBase",
+}
 
 
 @router.get("/health")

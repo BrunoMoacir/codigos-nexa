@@ -6,10 +6,14 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Optional
+import uuid
+from collections import defaultdict
+from typing import Any, Optional
+
+from sqlalchemy import func
 
 from app.core.database import SessionLocal
-from app.optimizer.models_orm import OptimizationReport
+from app.optimizer.models_orm import OptimizationReport, RecommendationFeedback
 
 logger = logging.getLogger(__name__)
 
@@ -125,3 +129,144 @@ def get_optimization_report_by_id(report_id: str) -> Optional[dict]:
         return None
     finally:
         db.close()
+
+
+# ─── Feedback de recomendações ────────────────────────────────────────────────
+
+# Mapa estático: InsightType → detector responsável por gerar o sinal
+_INSIGHT_DETECTOR: dict[str, str] = {
+    "TROCAR_PRIMARIO":   "LifestyleClassifier",
+    "PORTFOLIO_MULTI":   "MultiCardStrategist",
+    "ATIVAR_BENEFICIO":  "BenefitViabilityFilter",
+    "CANCELAR_CARTAO":   "CardSimulator",
+    "ATINGIR_ISENCAO":   "CardSimulator",
+    "MUDAR_CATEGORIA":   "TrendDetector",
+    "SOLICITAR_UPGRADE": "CardKnowledgeBase",
+}
+
+# Campos do user_profile_summary relevantes por tipo de insight
+_INSIGHT_SIGNAL_KEYS: dict[str, list[str]] = {
+    "TROCAR_PRIMARIO":   ["lifestyle_cluster", "monthly_avg_spend", "travel_frequency_score", "foodie_score", "life_stage", "fss_level"],
+    "PORTFOLIO_MULTI":   ["lifestyle_cluster", "monthly_avg_spend", "spend_by_category", "fss_level"],
+    "ATIVAR_BENEFICIO":  ["lifestyle_cluster", "travel_frequency_score", "foodie_score", "benefit_tags"],
+    "CANCELAR_CARTAO":   ["monthly_avg_spend", "fss_level", "fss"],
+    "ATINGIR_ISENCAO":   ["monthly_avg_spend", "fss_level"],
+    "MUDAR_CATEGORIA":   ["lifestyle_cluster", "category_trends", "spend_by_category"],
+    "SOLICITAR_UPGRADE": ["lifestyle_cluster", "monthly_avg_spend", "life_stage", "investor_type"],
+}
+
+
+def _extract_signals(profile: dict[str, Any], insight_type: str) -> dict[str, Any]:
+    keys = _INSIGHT_SIGNAL_KEYS.get(insight_type, ["lifestyle_cluster", "monthly_avg_spend", "fss_level"])
+    return {k: profile[k] for k in keys if k in profile}
+
+
+def save_recommendation_feedback(
+    recommendation_id: str,
+    user_id: str,
+    insight_type: str,
+    outcome: str,
+    reason: Optional[str],
+    report_profile: dict[str, Any],
+) -> str:
+    """
+    Persiste o feedback do usuário sobre um insight específico.
+
+    Retorna o feedback_id gerado (UUID).
+    """
+    feedback_id = str(uuid.uuid4())
+    detector = _INSIGHT_DETECTOR.get(insight_type, "Unknown")
+    signals = _extract_signals(report_profile, insight_type)
+
+    db = SessionLocal()
+    try:
+        row = RecommendationFeedback(
+            id=feedback_id,
+            recommendation_id=recommendation_id,
+            user_id=user_id,
+            insight_type=insight_type,
+            detector=detector,
+            signals_json=json.dumps(signals, default=str),
+            outcome=outcome,
+            reason=reason,
+        )
+        db.add(row)
+        db.commit()
+        logger.info(
+            "Feedback %s salvo: report=%s insight=%s outcome=%s",
+            feedback_id, recommendation_id, insight_type, outcome,
+        )
+        return feedback_id
+    except Exception as e:
+        db.rollback()
+        logger.error("Erro ao salvar feedback: %s", e)
+        raise
+    finally:
+        db.close()
+
+
+def get_feedback_stats(
+    insight_type: Optional[str] = None,
+    detector: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """
+    Retorna estatísticas de aceitação agrupadas por (detector, insight_type).
+
+    Usado pelo endpoint GET /optimizer/feedback/stats e pela função
+    get_feedback_weights() para alimentar o ranking com pesos aprendidos.
+    """
+    db = SessionLocal()
+    try:
+        q = db.query(RecommendationFeedback)
+        if insight_type:
+            q = q.filter(RecommendationFeedback.insight_type == insight_type)
+        if detector:
+            q = q.filter(RecommendationFeedback.detector == detector)
+
+        rows = q.all()
+
+        # Agrega em memória — volume esperado é pequeno (< 10k linhas)
+        buckets: dict[tuple[str, str], dict[str, int]] = defaultdict(
+            lambda: {"total": 0, "accepted": 0, "ignored": 0, "rejected": 0}
+        )
+        for r in rows:
+            key = (r.detector, r.insight_type)
+            buckets[key]["total"] += 1
+            buckets[key][r.outcome.lower()] = buckets[key].get(r.outcome.lower(), 0) + 1
+
+        result = []
+        for (det, ins), counts in sorted(buckets.items()):
+            total = counts["total"]
+            accepted = counts.get("accepted", 0)
+            result.append({
+                "detector": det,
+                "insight_type": ins,
+                "total": total,
+                "accepted": accepted,
+                "ignored": counts.get("ignored", 0),
+                "rejected": counts.get("rejected", 0),
+                "acceptance_rate": round(accepted / total, 4) if total else 0.0,
+            })
+        return result
+    except Exception as e:
+        logger.error("Erro ao buscar feedback stats: %s", e)
+        return []
+    finally:
+        db.close()
+
+
+def get_feedback_weights() -> dict[str, float]:
+    """
+    Retorna um multiplicador por insight_type derivado da taxa de aceitação.
+
+    Fórmula:  weight = 0.5 + acceptance_rate          (range 0.5 – 1.5)
+    Com floor em 10 feedbacks para evitar overfitting em amostras pequenas.
+
+    Usado pelo ranking para ajustar o priority_score dos insights.
+    """
+    stats = get_feedback_stats()
+    weights: dict[str, float] = {}
+    for s in stats:
+        if s["total"] >= 10:
+            weights[s["insight_type"]] = round(0.5 + s["acceptance_rate"], 4)
+    return weights

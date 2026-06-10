@@ -258,3 +258,39 @@ class CurrentCardROI(BaseModel):
     benefits_unused: list[str] = []          # benefícios que o perfil NÃO usa
     verdict: CardROIVerdict
     explanation: str
+
+
+# ─── Aprendizado com feedback ─────────────────────────────────────────────────
+
+class FeedbackOutcome(str, Enum):
+    ACCEPTED = "ACCEPTED"   # usuário aceitou / vai executar a recomendação
+    IGNORED  = "IGNORED"    # usuário fechou sem interagir
+    REJECTED = "REJECTED"   # usuário recusou / marcou como irrelevante
+
+
+class RecommendationFeedbackRequest(BaseModel):
+    """Payload enviado pelo cliente ao registrar a resposta a um insight."""
+    insight_type: InsightType
+    outcome: FeedbackOutcome
+    reason: Optional[str] = None   # texto livre — por que aceitou/rejeitou
+
+
+class RecommendationFeedbackResponse(BaseModel):
+    """Confirmação retornada após salvar o feedback."""
+    feedback_id: str
+    recommendation_id: str
+    insight_type: str
+    detector: str
+    outcome: str
+    created_at: str
+
+
+class FeedbackStats(BaseModel):
+    """Estatísticas de aceitação por (detector, insight_type) — alimenta o ranking."""
+    detector: str
+    insight_type: str
+    total: int
+    accepted: int
+    ignored: int
+    rejected: int
+    acceptance_rate: float   # accepted / total (0-1)
