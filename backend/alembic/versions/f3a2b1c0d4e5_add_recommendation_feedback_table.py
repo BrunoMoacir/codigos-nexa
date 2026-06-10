@@ -22,6 +22,7 @@ def upgrade() -> None:
         "recommendation_feedback",
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column("recommendation_id", sa.String(36), nullable=False, index=True),
+        sa.Column("insight_id", sa.String(36), nullable=False, index=True),
         sa.Column("user_id", sa.String(100), nullable=False, index=True),
         sa.Column("insight_type", sa.String(50), nullable=False, index=True),
         sa.Column("detector", sa.String(100), nullable=False),
