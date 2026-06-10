@@ -134,7 +134,7 @@ def get_optimization_report_by_id(report_id: str) -> Optional[dict]:
 # ─── Feedback de recomendações ────────────────────────────────────────────────
 
 # Mapa estático: InsightType → detector responsável por gerar o sinal
-_INSIGHT_DETECTOR: dict[str, str] = {
+INSIGHT_DETECTOR: dict[str, str] = {
     "TROCAR_PRIMARIO":   "LifestyleClassifier",
     "PORTFOLIO_MULTI":   "MultiCardStrategist",
     "ATIVAR_BENEFICIO":  "BenefitViabilityFilter",
@@ -144,45 +144,56 @@ _INSIGHT_DETECTOR: dict[str, str] = {
     "SOLICITAR_UPGRADE": "CardKnowledgeBase",
 }
 
-# Campos do user_profile_summary relevantes por tipo de insight
-_INSIGHT_SIGNAL_KEYS: dict[str, list[str]] = {
-    "TROCAR_PRIMARIO":   ["lifestyle_cluster", "monthly_avg_spend", "travel_frequency_score", "foodie_score", "life_stage", "fss_level"],
-    "PORTFOLIO_MULTI":   ["lifestyle_cluster", "monthly_avg_spend", "spend_by_category", "fss_level"],
-    "ATIVAR_BENEFICIO":  ["lifestyle_cluster", "travel_frequency_score", "foodie_score", "benefit_tags"],
-    "CANCELAR_CARTAO":   ["monthly_avg_spend", "fss_level", "fss"],
-    "ATINGIR_ISENCAO":   ["monthly_avg_spend", "fss_level"],
-    "MUDAR_CATEGORIA":   ["lifestyle_cluster", "category_trends", "spend_by_category"],
-    "SOLICITAR_UPGRADE": ["lifestyle_cluster", "monthly_avg_spend", "life_stage", "investor_type"],
-}
+
+def _extract_insight_signals(insight: dict[str, Any]) -> dict[str, Any]:
+    """Extrai sinais diretamente do objeto insight salvo no relatório."""
+    gain = insight.get("gain_interval") or {}
+    return {k: v for k, v in {
+        "card_id":                insight.get("card_id"),
+        "card_name":              insight.get("card_name"),
+        "confidence_score":       insight.get("confidence_score"),
+        "gain_expected_monthly":  gain.get("expected"),
+        "gain_conservative_monthly": gain.get("conservative"),
+        "effort":                 insight.get("effort"),
+        "tags":                   insight.get("tags", []),
+    }.items() if v is not None}
 
 
-def _extract_signals(profile: dict[str, Any], insight_type: str) -> dict[str, Any]:
-    keys = _INSIGHT_SIGNAL_KEYS.get(insight_type, ["lifestyle_cluster", "monthly_avg_spend", "fss_level"])
-    return {k: profile[k] for k in keys if k in profile}
+def find_insight_in_report(report: dict[str, Any], insight_id: str) -> Optional[dict[str, Any]]:
+    """Retorna o dict do insight com o dado insight_id, ou None se não encontrado."""
+    for insight in report.get("insights", []):
+        if insight.get("insight_id") == insight_id:
+            return insight
+    return None
 
 
 def save_recommendation_feedback(
     recommendation_id: str,
     user_id: str,
+    insight_id: str,
     insight_type: str,
     outcome: str,
     reason: Optional[str],
-    report_profile: dict[str, Any],
+    insight_data: dict[str, Any],
 ) -> str:
     """
     Persiste o feedback do usuário sobre um insight específico.
 
+    Sinais são extraídos do próprio dict do insight (não do user_profile_summary),
+    garantindo que reflitam os valores exatos usados na geração da recomendação.
+
     Retorna o feedback_id gerado (UUID).
     """
     feedback_id = str(uuid.uuid4())
-    detector = _INSIGHT_DETECTOR.get(insight_type, "Unknown")
-    signals = _extract_signals(report_profile, insight_type)
+    detector = INSIGHT_DETECTOR.get(insight_type, "Unknown")
+    signals = _extract_insight_signals(insight_data)
 
     db = SessionLocal()
     try:
         row = RecommendationFeedback(
             id=feedback_id,
             recommendation_id=recommendation_id,
+            insight_id=insight_id,
             user_id=user_id,
             insight_type=insight_type,
             detector=detector,

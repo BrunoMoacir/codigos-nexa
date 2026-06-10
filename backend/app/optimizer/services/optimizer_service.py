@@ -22,7 +22,7 @@ from app.optimizer.simulator import CardSimulator
 from app.optimizer.ranking import CardRanking
 from app.optimizer.insight_generator import InsightGenerator
 from app.optimizer.validators.input_validator import InputValidator
-from app.optimizer.queries import save_optimization_report
+from app.optimizer.queries import get_feedback_weights, save_optimization_report
 
 # ── Camada 3 Anti-Falsos-Positivos — Gates globais ───────────────────────
 # ConfidenceGate: threshold abaixo do qual o resultado não é surfaçado ao usuário
@@ -422,12 +422,19 @@ class OptimizerService:
                         current_card_id, _roi_err,
                     )
 
+        # Carregar pesos aprendidos com feedback (floor: ≥ 10 amostras por tipo)
+        try:
+            feedback_weights = get_feedback_weights()
+        except Exception:
+            feedback_weights = {}
+
         insights = self.insight_generator.generate(
             ranked_results=ranked_results,
             profile=profile,
             current_card_id=current_card_id,
             current_card_monthly_return=current_card_monthly_return,
             enable_cluster_tone=ab_tone is ABVariant.TREATMENT,
+            feedback_weights=feedback_weights or None,
         )
 
         # 9. Formatar o Relatório

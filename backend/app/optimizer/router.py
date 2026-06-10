@@ -24,6 +24,8 @@ from app.optimizer.opportunity_cost import OpportunityCostCalculator
 from app.optimizer.profiler import ConsumptionProfiler
 from app.optimizer.promotion_tracker import PromotionTracker
 from app.optimizer.queries import (
+    INSIGHT_DETECTOR,
+    find_insight_in_report,
     get_feedback_stats,
     get_feedback_weights,
     get_optimization_report_by_id,
@@ -492,15 +494,23 @@ async def submit_recommendation_feedback(
     if report.get("user_id") != current_user:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
 
-    profile = report.get("user_profile_summary", {})
+    insight = find_insight_in_report(report, body.insight_id)
+    if not insight:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Insight '{body.insight_id}' não encontrado neste relatório",
+        )
+
+    insight_type = insight.get("type", "")
     try:
         feedback_id = save_recommendation_feedback(
             recommendation_id=recommendation_id,
             user_id=current_user,
-            insight_type=body.insight_type.value,
+            insight_id=body.insight_id,
+            insight_type=insight_type,
             outcome=body.outcome.value,
             reason=body.reason,
-            report_profile=profile,
+            insight_data=insight,
         )
     except Exception as e:
         logger.error("[API] Erro ao salvar feedback: %s", e, exc_info=True)
@@ -510,8 +520,8 @@ async def submit_recommendation_feedback(
     return RecommendationFeedbackResponse(
         feedback_id=feedback_id,
         recommendation_id=recommendation_id,
-        insight_type=body.insight_type.value,
-        detector=_INSIGHT_DETECTOR_MAP.get(body.insight_type.value, "Unknown"),
+        insight_type=insight_type,
+        detector=INSIGHT_DETECTOR.get(insight_type, "Unknown"),
         outcome=body.outcome.value,
         created_at=_dt.utcnow().isoformat(),
     )
@@ -542,17 +552,6 @@ async def feedback_weights(current_user: str = Depends(get_current_user)):
     """
     return {"weights": get_feedback_weights()}
 
-
-# Mapa estático exposto para a camada de rota (evita import circular com queries)
-_INSIGHT_DETECTOR_MAP: dict[str, str] = {
-    "TROCAR_PRIMARIO":   "LifestyleClassifier",
-    "PORTFOLIO_MULTI":   "MultiCardStrategist",
-    "ATIVAR_BENEFICIO":  "BenefitViabilityFilter",
-    "CANCELAR_CARTAO":   "CardSimulator",
-    "ATINGIR_ISENCAO":   "CardSimulator",
-    "MUDAR_CATEGORIA":   "TrendDetector",
-    "SOLICITAR_UPGRADE": "CardKnowledgeBase",
-}
 
 
 @router.get("/health")

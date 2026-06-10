@@ -29,6 +29,7 @@ class RecommendationFeedback(Base):
 
     id = Column(String(36), primary_key=True)
     recommendation_id = Column(String(36), nullable=False, index=True)
+    insight_id = Column(String(36), nullable=False, index=True)
     user_id = Column(String(100), nullable=False, index=True)
     insight_type = Column(String(50), nullable=False, index=True)
     detector = Column(String(100), nullable=False)

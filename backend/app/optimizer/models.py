@@ -224,6 +224,7 @@ class ActionableInsight(BaseModel):
     Ranqueados por priority_score = monthly_gain × effort_multiplier × confidence_score.
     Só são surfaçados se confidence ≥ 0.65 e gain_interval.conservative ≥ R$10/mês.
     """
+    insight_id: str = ""   # UUID atribuído pelo InsightGenerator após filtragem
     type: InsightType
     title: str
     description: str
@@ -270,7 +271,7 @@ class FeedbackOutcome(str, Enum):
 
 class RecommendationFeedbackRequest(BaseModel):
     """Payload enviado pelo cliente ao registrar a resposta a um insight."""
-    insight_type: InsightType
+    insight_id: str                # UUID do insight retornado no relatório
     outcome: FeedbackOutcome
     reason: Optional[str] = None   # texto livre — por que aceitou/rejeitou
 
