@@ -111,6 +111,12 @@ class UserProfile:
     # Alimenta _compute_category_confidence() no CardSimulator.
     category_source: str = "raw"
 
+    # Confiança média do classificador canônico por categoria (0–1), calculada como
+    # média ponderada pelo valor das transações quando category_canonical_confidence
+    # estiver presente no DataFrame. Vazio quando a coluna não existe.
+    # Exemplo: {"supermercado": 0.94, "alimentacao": 0.87}
+    category_confidences: dict = field(default_factory=dict)
+
     # ── Campos de Tendência (TrendDetector) ───────────────────────────────────
     # Dict categoria → {direction, ratio, baseline_monthly, current_monthly}.
     # Direções: SUBINDO | ESTAVEL | CAINDO | REEMERGINDO | DESAPARECENDO
@@ -215,7 +221,7 @@ class ConsumptionProfiler:
         monthly_avg_spend = float(monthly_totals.mean()) if len(monthly_totals) > 0 else 0.0
         spending_stability, spend_stability_cv = self._spending_stability(monthly_totals)
 
-        spend_by_category, category_source = self._spend_by_category(df, data_coverage_months)
+        spend_by_category, category_source, category_confidences = self._spend_by_category(df, data_coverage_months)
         spend_by_source = self._spend_by_source(df, data_coverage_months)
         international_spend_monthly = self._international_spend(df, data_coverage_months)
         travel_spend_monthly = self._travel_spend(df, data_coverage_months)
@@ -261,6 +267,7 @@ class ConsumptionProfiler:
             committed_percentage=round(committed_percentage, 4),
             spend_by_category=spend_by_category,
             category_source=category_source,
+            category_confidences=category_confidences,
             spend_by_source=spend_by_source,
             international_spend_monthly=round(international_spend_monthly, 2),
             travel_spend_monthly=round(effective_travel_spend, 2),
@@ -411,7 +418,7 @@ class ConsumptionProfiler:
 
     def _spend_by_category(
         self, df: pl.DataFrame, coverage_months: int
-    ) -> tuple[dict, str]:
+    ) -> tuple[dict, str, dict]:
         """
         Gasto médio mensal por categoria (apenas despesas).
 
@@ -421,9 +428,10 @@ class ConsumptionProfiler:
         "Alimentação" + "alimentacao" dos detectors.
         Fallback para raw `category` quando category_canonical não existe.
 
-        Retorna (spend_dict, source) onde source é "canonical" ou "raw" — propagado
-        para UserProfile.category_source e usado pelo CardSimulator para ajustar
-        a confiança da classificação de categorias.
+        Retorna (spend_dict, source, confidences) onde:
+          source       = "canonical" | "raw"
+          confidences  = dict categoria → confiança média ponderada do classificador (0–1),
+                         vazio quando category_canonical_confidence não existe no DataFrame.
         """
         if "category_canonical" in df.columns:
             cat_col = "category_canonical"
@@ -432,11 +440,11 @@ class ConsumptionProfiler:
             cat_col = "category"
             source = "raw"
         else:
-            return {}, "raw"
+            return {}, "raw", {}
 
         expenses = df.filter(pl.col("amount") < 0)
         if expenses.is_empty():
-            return {}, source
+            return {}, source, {}
 
         months = max(coverage_months, 1)
 
@@ -447,14 +455,51 @@ class ConsumptionProfiler:
             .with_columns((pl.col("total") / months).alias("monthly_avg"))
         )
 
-        return (
-            {
-                row[cat_col]: round(row["monthly_avg"], 2)
-                for row in result.to_dicts()
-                if row[cat_col] is not None and row[cat_col] != "outros"
-            },
-            source,
+        spend_dict = {
+            row[cat_col]: round(row["monthly_avg"], 2)
+            for row in result.to_dicts()
+            if row[cat_col] is not None and row[cat_col] != "outros"
+        }
+        confidences = self._category_confidences(df, cat_col)
+        return spend_dict, source, confidences
+
+    def _category_confidences(self, df: pl.DataFrame, cat_col: str) -> dict:
+        """
+        Confiança média do classificador canônico por categoria (0–1).
+
+        Só executa quando `category_canonical_confidence` existe no DataFrame — coluna
+        emitida pelo classificador NLP que atribui score de certeza por transação.
+        Calcula a média ponderada pelo valor absoluto da transação, assim categorias
+        com poucos tickets de baixo valor não distorcem a confiança de categorias de alto gasto.
+
+        Retorna dict vazio quando a coluna não existe (dados sem classificador canônico).
+        """
+        conf_col = "category_canonical_confidence"
+        if conf_col not in df.columns or cat_col not in df.columns:
+            return {}
+
+        expenses = df.filter(pl.col("amount") < 0)
+        if expenses.is_empty():
+            return {}
+
+        result = (
+            expenses
+            .with_columns(pl.col("amount").abs().alias("abs_amount"))
+            .group_by(cat_col)
+            .agg(
+                (pl.col(conf_col) * pl.col("abs_amount")).sum().alias("conf_weighted"),
+                pl.col("abs_amount").sum().alias("total_amount"),
+            )
+            .with_columns(
+                (pl.col("conf_weighted") / pl.col("total_amount")).alias("avg_confidence")
+            )
         )
+
+        return {
+            row[cat_col]: round(float(row["avg_confidence"]), 4)
+            for row in result.to_dicts()
+            if row[cat_col] is not None and row[cat_col] != "outros"
+        }
 
     def _spend_by_source(self, df: pl.DataFrame, coverage_months: int) -> dict:
         """
