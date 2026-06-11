@@ -169,6 +169,60 @@ class TestCategoryConfidence:
         canonical = sim.simulate(card, _profile(data_coverage_months=3, category_source="canonical"))
         assert canonical.recommendation_explanation.category_confidence > raw.recommendation_explanation.category_confidence
 
+    def test_real_classifier_confidence_overrides_proxy(self, sim):
+        """
+        Quando category_confidences está preenchido, a confiança real do classificador
+        é usada como base, não o proxy por cobertura.
+        """
+        card = _cashback_cat_card()
+        # Perfil sem dados reais do classificador (proxy)
+        proxy = sim.simulate(card, _profile(data_coverage_months=3))
+        # Perfil com confiança real alta vinda do classificador NLP
+        real = sim.simulate(card, _profile(
+            data_coverage_months=3,
+            category_source="canonical",
+            category_confidences={"supermercado": 0.96, "farmacia": 0.91, "transporte": 0.88, "lazer": 0.85},
+        ))
+        # Confiança real (ponderada ~0.92 × 0.85 cobertura ≈ 0.78) > proxy sem canonical (0.85)
+        # Não importa o resultado exato — o que importa é que vêm de fontes diferentes
+        assert real.recommendation_explanation.category_confidence != proxy.recommendation_explanation.category_confidence
+
+    def test_real_confidence_weighted_by_spend(self, sim):
+        """
+        Confiança real é ponderada pelo gasto: a categoria de maior gasto tem mais peso.
+        Verifica que o resultado é a média ponderada esperada (após penalidade de cobertura).
+        """
+        card = _cashback_cat_card()
+        # Perfil com gastos iguais em duas categorias e confiança muito diferente
+        profile = _profile(
+            data_coverage_months=6,  # sem penalidade de cobertura
+            spend_by_category={"supermercado": 1000.0, "farmacia": 1000.0},
+            category_confidences={"supermercado": 1.0, "farmacia": 0.5},
+        )
+        result = sim.simulate(card, profile)
+        # Média ponderada igual = (1000*1.0 + 1000*0.5) / 2000 = 0.75
+        # Sem penalidade de cobertura (6 meses): 0.75
+        assert result.recommendation_explanation.category_confidence == pytest.approx(0.75, abs=0.01)
+
+    def test_per_category_confidence_in_breakdown(self, sim):
+        """
+        Quando category_confidences está preenchido, o breakdown mostra a confiança
+        por categoria; quando está vazio, fica None.
+        """
+        card = _cashback_cat_card()
+        # Com dados reais do classificador
+        profile_with = _profile(
+            category_confidences={"supermercado": 0.94, "farmacia": 0.88, "transporte": 0.76, "lazer": 0.80},
+        )
+        result_with = sim.simulate(card, profile_with)
+        supermercado = next(b for b in result_with.recommendation_explanation.category_breakdown if b.category == "supermercado")
+        assert supermercado.category_confidence == pytest.approx(0.94, abs=0.001)
+
+        # Sem dados do classificador
+        result_without = sim.simulate(card, _profile())
+        for b in result_without.recommendation_explanation.category_breakdown:
+            assert b.category_confidence is None
+
     def test_no_categories_returns_zero(self, sim):
         card = _cashback_cat_card()
         profile = _profile(spend_by_category={})

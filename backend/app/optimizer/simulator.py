@@ -189,39 +189,53 @@ class CardSimulator:
         confidence_score do cartão: reflete a qualidade dos dados de categoria,
         não a incerteza financeira da simulação.
 
-        Penalidades por cobertura:
-          ≥ 6 meses: sem penalidade
-          3–5 meses: ×0.85
-          2 meses:   ×0.60
-          < 2 meses: ×0.35 — categorias instáveis
-        Teto de 0.40 quando spend_is_estimated=True (gastos sintéticos, sem categorias reais).
-        Sem categorias detectadas: 0.0.
+        Quando category_canonical_confidence existia no DataFrame, profile.category_confidences
+        contém a confiança média ponderada por valor para cada categoria. Nesse caso usa
+        a média ponderada pelo gasto — confiança real do classificador NLP linha a linha.
 
-        Bônus de fonte canônica:
-          category_source="canonical" → ×1.15 (classificador NLP normalizado).
-          category_source="raw"       → sem bônus (strings brutas do banco, sem garantia).
+        Quando category_confidences está vazio, cai no proxy por cobertura/fonte:
+          ≥ 6 meses: sem penalidade
+          3–5 meses: ×0.85  |  2 meses: ×0.60  |  < 2 meses: ×0.35
+          category_source="canonical" → ×1.15 (NLP normalizado vs. strings brutas do banco)
+          spend_is_estimated=True → teto 0.40 (gastos sintéticos sem categorias reais)
+          sem spend_by_category → 0.0
         """
         if not profile.spend_by_category:
             return 0.0
 
-        score = 1.0
+        category_confidences = getattr(profile, "category_confidences", {})
+
+        if category_confidences:
+            # Confiança real: média ponderada pelo gasto — categorias de alto volume pesam mais
+            total_spend = sum(profile.spend_by_category.values()) or 1.0
+            weighted_conf = sum(
+                profile.spend_by_category.get(cat, 0.0) * conf
+                for cat, conf in category_confidences.items()
+            )
+            base_score = weighted_conf / total_spend
+        else:
+            base_score = 1.0
+
+        # Penalidades de qualidade de dados — aplicadas sobre qualquer base (real ou proxy)
         months = profile.data_coverage_months
         if months >= 6:
             pass
         elif months >= 3:
-            score *= 0.85
+            base_score *= 0.85
         elif months >= 2:
-            score *= 0.60
+            base_score *= 0.60
         else:
-            score *= 0.35
+            base_score *= 0.35
 
         if getattr(profile, "spend_is_estimated", False):
-            score = min(score, 0.40)
+            base_score = min(base_score, 0.40)
 
-        if getattr(profile, "category_source", "raw") == "canonical":
-            score = min(score * 1.15, 1.0)
+        # Bônus de fonte canônica — aplicado após penalidades para que cobertura curta
+        # com canonical ainda supere cobertura curta com raw (não absorvido pelo teto)
+        if not category_confidences and getattr(profile, "category_source", "raw") == "canonical":
+            base_score = min(base_score * 1.15, 1.0)
 
-        return round(min(score, 1.0), 4)
+        return round(min(base_score, 1.0), 4)
 
     def _build_recommendation_explanation(
         self,
@@ -252,6 +266,8 @@ class CardSimulator:
 
         breakdown: list[CategoryCashbackBreakdown] = []
 
+        category_confidences = getattr(profile, "category_confidences", {})
+
         if card.card_type in (CardType.CASHBACK, CardType.INVESTBACK) and card.cashback_categories:
             category_rules: dict = {r.category: r for r in card.cashback_categories}
             default_pct = card.cashback_default_pct or card.cashback_pct or 0.0
@@ -273,6 +289,7 @@ class CardSimulator:
                         cashback_rate=rate,
                         expected_monthly_cashback=round(monthly_cb, 2),
                         capped=capped,
+                        category_confidence=category_confidences.get(category),
                     )
                 )
 
