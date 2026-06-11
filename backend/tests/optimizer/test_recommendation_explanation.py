@@ -65,6 +65,7 @@ def _profile(
     spend_by_category: dict | None = None,
     spend_is_estimated: bool = False,
     category_source: str = "raw",
+    category_confidences: dict | None = None,
 ) -> UserProfile:
     return UserProfile(
         monthly_avg_spend=monthly_avg_spend,
@@ -84,6 +85,7 @@ def _profile(
         estimated_monthly_income=8000.0,
         spend_is_estimated=spend_is_estimated,
         category_source=category_source,
+        category_confidences=category_confidences or {},
     )
 
 
