@@ -141,7 +141,7 @@ class RecommendationExplanation(BaseModel):
     card_name: str
     top_category: str                        # categoria com maior gasto
     top_category_pct: float                  # fração do gasto total nessa categoria (0–1)
-    category_confidence: float               # confiança da simulação (0–1)
+    category_confidence: float               # confiança na classificação canônica das categorias (0–1)
     eligible_monthly_spend: float            # gasto mensal elegível para retorno (R$)
     expected_cashback_monthly: float         # retorno esperado mensal (R$)
     category_breakdown: list[CategoryCashbackBreakdown] = []
