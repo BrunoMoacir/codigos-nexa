@@ -14,7 +14,9 @@ from app.optimizer.models import (
     CardROIVerdict,
     CardSimulationResult,
     CardType,
+    CategoryCashbackBreakdown,
     CurrentCardROI,
+    RecommendationExplanation,
 )
 from app.optimizer.profiler import UserProfile
 from app.optimizer.validators.liquidity_checker import LiquidityChecker
@@ -128,6 +130,9 @@ class CardSimulator:
         explanation_steps = self._build_explanation_steps(
             card, profile, spend_annual, annuity_effective, annuity_waived, values, net_gain_expected
         )
+        recommendation_explanation = self._build_recommendation_explanation(
+            card, profile, confidence_score, values["expected"]
+        )
 
         waiver_threshold = (
             card.waiver_rules.threshold
@@ -173,9 +178,71 @@ class CardSimulator:
             waiver_threshold=waiver_threshold,
             points_per_brl_actual=points_per_brl_actual,
             point_value_brl=point_value_brl,
+            recommendation_explanation=recommendation_explanation,
         )
 
     # ─── Helpers privados ─────────────────────────────────────────────────────
+
+    def _build_recommendation_explanation(
+        self,
+        card: CardRecord,
+        profile: UserProfile,
+        confidence_score: float,
+        expected_annual_value: float,
+    ) -> RecommendationExplanation:
+        """
+        Constrói a explicação estruturada de por que este cartão foi recomendado.
+
+        Para cashback com categorias (M2.5): detalha cada categoria com taxa,
+        gasto mensal e cashback esperado. Para demais tipos: usa o gasto elegível
+        total e o valor anual simulado.
+        """
+        eligible_monthly = profile.monthly_avg_spend * profile.credit_spend_ratio
+        expected_monthly = round(expected_annual_value / 12, 2)
+
+        # Top category por gasto absoluto
+        sorted_cats = sorted(
+            profile.spend_by_category.items(), key=lambda x: x[1], reverse=True
+        )
+        top_category = sorted_cats[0][0] if sorted_cats else ""
+        total_category_spend = sum(v for _, v in sorted_cats) or 1.0
+        top_category_pct = sorted_cats[0][1] / total_category_spend if sorted_cats else 0.0
+
+        breakdown: list[CategoryCashbackBreakdown] = []
+
+        if card.card_type in (CardType.CASHBACK, CardType.INVESTBACK) and card.cashback_categories:
+            category_rules: dict = {r.category: r for r in card.cashback_categories}
+            default_pct = card.cashback_default_pct or card.cashback_pct or 0.0
+
+            for category, monthly_spend in sorted_cats:
+                rule = category_rules.get(category)
+                rate = rule.pct if rule else default_pct
+                raw_cashback = monthly_spend * rate
+                capped = False
+                if rule and rule.cap_monthly is not None and raw_cashback > rule.cap_monthly:
+                    raw_cashback = rule.cap_monthly
+                    capped = True
+                breakdown.append(
+                    CategoryCashbackBreakdown(
+                        category=category,
+                        monthly_spend=round(monthly_spend, 2),
+                        spend_pct=round(monthly_spend / total_category_spend, 4),
+                        cashback_rate=rate,
+                        expected_monthly_cashback=round(raw_cashback, 2),
+                        capped=capped,
+                    )
+                )
+
+        return RecommendationExplanation(
+            card_id=card.card_id,
+            card_name=card.name,
+            top_category=top_category,
+            top_category_pct=round(top_category_pct, 4),
+            category_confidence=round(confidence_score, 4),
+            eligible_monthly_spend=round(eligible_monthly, 2),
+            expected_cashback_monthly=expected_monthly,
+            category_breakdown=breakdown,
+        )
 
     def _compute_annuity(self, card: CardRecord, spend_annual: float) -> tuple[float, bool]:
         """

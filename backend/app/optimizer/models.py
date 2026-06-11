@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 from typing import Optional
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, computed_field
 
 
 # ─── Enums ────────────────────────────────────────────────────────────────────
@@ -118,6 +118,53 @@ class CardRecord(BaseModel):
     last_updated: str
 
 
+# ─── Explicabilidade forte (Camada de Rastreabilidade) ───────────────────────
+
+class CategoryCashbackBreakdown(BaseModel):
+    """Detalhamento do cashback por categoria para explicabilidade."""
+    category: str
+    monthly_spend: float
+    spend_pct: float                    # fração do gasto total elegível (0–1)
+    cashback_rate: float                # taxa aplicada (0.02 = 2%)
+    expected_monthly_cashback: float    # cashback esperado mensal (R$)
+    capped: bool = False                # True se atingiu cap_monthly
+
+
+class RecommendationExplanation(BaseModel):
+    """
+    Explicação estruturada de por que um cartão foi recomendado.
+
+    Responde à pergunta: "Por que esse cartão para mim?"
+    com dados rastreáveis e auditáveis.
+    """
+    card_id: str
+    card_name: str
+    top_category: str                        # categoria com maior gasto
+    top_category_pct: float                  # fração do gasto total nessa categoria (0–1)
+    category_confidence: float               # confiança da simulação (0–1)
+    eligible_monthly_spend: float            # gasto mensal elegível para retorno (R$)
+    expected_cashback_monthly: float         # retorno esperado mensal (R$)
+    category_breakdown: list[CategoryCashbackBreakdown] = []
+
+    def to_text(self) -> str:
+        """Texto pronto para exibição ao usuário."""
+        lines = [f"Recomendei {self.card_name} porque:"]
+        if self.top_category:
+            lines.append(
+                f"- {self.top_category_pct * 100:.0f}% do gasto é em {self.top_category}"
+            )
+        lines.append(
+            f"- categoria canônica detectada com confiança {self.category_confidence:.2f}"
+        )
+        lines.append(
+            f"- gasto médio mensal elegível: R$ {self.eligible_monthly_spend:,.0f}"
+        )
+        lines.append(
+            f"- cashback esperado: R$ {self.expected_cashback_monthly:.0f}/mês"
+        )
+        return "\n".join(lines)
+
+
 # ─── Modelos de saída ─────────────────────────────────────────────────────────
 
 class CardSimulationResult(BaseModel):
@@ -149,6 +196,7 @@ class CardSimulationResult(BaseModel):
     # Campos usados pelo ArchitectService para calcular CardOptimizationBonus
     points_per_brl_actual: Optional[float] = None   # pts/R$ acumulados (None para cashback)
     point_value_brl: Optional[float] = None         # R$ por ponto (None para cashback)
+    recommendation_explanation: Optional[RecommendationExplanation] = None
 
 
 class OptimizationReport(BaseModel):
