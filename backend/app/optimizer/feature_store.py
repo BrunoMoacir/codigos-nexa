@@ -387,26 +387,48 @@ class TransactionFeatureEnricher:
 
         return df.with_columns(expr.alias("merchant_category_l1"))
 
+    # Aliases que recebem mapeamento explícito (pós-normalização de acentos).
+    # Usados tanto no mapeamento canônico quanto no cálculo de confiança.
+    _ALIAS_NORMALIZED: frozenset = frozenset([
+        "restaurante", "refeicao",
+        "drogaria",
+        "saude e bem-estar", "bem-estar",
+        "turismo", "turismo e viagem", "hotel",
+        "entretenimento", "diversao",
+        "aplicacao",
+    ])
+
     def _add_category_canonical(self, df: pl.DataFrame) -> pl.DataFrame:
         """
-        Normaliza a categoria raw do banco (campo `category`) para formato canônico:
-        lowercase, sem acento, sem espaço extra — alinhado com knowledge_cards.json.
+        Normaliza a categoria raw do banco para formato canônico e emite
+        `category_canonical_confidence` (0–1) refletindo a certeza do mapeamento.
 
-        Ex: "Alimentação" → "alimentacao", "Saúde" → "saude", None → "outros".
-
-        Quando merchant_category_l1 está disponível e a categoria raw é ausente/genérica
-        ("Outros", None), usa o L1 como fallback para máxima cobertura.
+        Confiança por caminho de derivação:
+          1.00 — DataFrame já trazia category_canonical (fonte externa confiável)
+          0.90 — merchant_category_l1 usado como fonte primária (sem coluna raw)
+          0.85 — alias explícito mapeado ("restaurante" → "alimentacao", etc.)
+          0.80 — normalização direta (lowercase + remoção de acento, sem alias)
+          0.75 — fallback: L1 substituiu "outros" gerado pelo raw
+          0.60 — "outros" sem L1 disponível (categoria desconhecida)
+          0.50 — sem nenhuma informação de categoria
         """
         if "category_canonical" in df.columns:
+            if "category_canonical_confidence" not in df.columns:
+                return df.with_columns(
+                    pl.lit(1.0).cast(pl.Float64).alias("category_canonical_confidence")
+                )
             return df
 
         if "category" not in df.columns:
-            # Sem coluna raw: tenta usar merchant_category_l1 como proxy
             if "merchant_category_l1" in df.columns:
                 return df.with_columns(
-                    pl.col("merchant_category_l1").fill_null(CAT_OUTROS).alias("category_canonical")
+                    pl.col("merchant_category_l1").fill_null(CAT_OUTROS).alias("category_canonical"),
+                    pl.lit(0.90).cast(pl.Float64).alias("category_canonical_confidence"),
                 )
-            return df.with_columns(pl.lit(CAT_OUTROS).alias("category_canonical"))
+            return df.with_columns(
+                pl.lit(CAT_OUTROS).alias("category_canonical"),
+                pl.lit(0.50).cast(pl.Float64).alias("category_canonical_confidence"),
+            )
 
         # Passo 1: normalizar texto — lowercase + remover acentos comuns do português
         normalized = (
@@ -441,6 +463,15 @@ class TransactionFeatureEnricher:
             .otherwise(normalized)
         )
 
+        # Confiança base: alias explícito > normalização direta > "outros" desconhecido
+        confidence = (
+            pl.when(normalized.is_in(self._ALIAS_NORMALIZED))
+            .then(pl.lit(0.85))
+            .when(normalized == CAT_OUTROS)
+            .then(pl.lit(0.60))
+            .otherwise(pl.lit(0.80))
+        )
+
         # Passo 3: quando raw category é genérica ("outros"), prefere merchant_category_l1
         if "merchant_category_l1" in df.columns:
             canonical = (
@@ -448,8 +479,19 @@ class TransactionFeatureEnricher:
                 .then(pl.col("merchant_category_l1"))
                 .otherwise(canonical)
             )
+            # L1 fallback melhora o canônico mas tem confiança menor que alias direto
+            confidence = (
+                pl.when(
+                    (normalized == CAT_OUTROS) & pl.col("merchant_category_l1").is_not_null()
+                )
+                .then(pl.lit(0.75))
+                .otherwise(confidence)
+            )
 
-        return df.with_columns(canonical.alias("category_canonical"))
+        return df.with_columns(
+            canonical.alias("category_canonical"),
+            confidence.cast(pl.Float64).alias("category_canonical_confidence"),
+        )
 
     def _add_merchant_normalized(self, df: pl.DataFrame) -> pl.DataFrame:
         """

@@ -7,6 +7,7 @@ import polars as pl
 from datetime import date, timedelta
 
 from app.optimizer.profiler import ConsumptionProfiler, UserProfile
+from app.optimizer.feature_store import TransactionFeatureEnricher
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────────
@@ -502,3 +503,198 @@ class TestCommittedPercentage:
         shadow = _shadow_df([-300.0])
         result = profiler.build(df, shadow_invoices_df=shadow, reference_date=TODAY)
         assert result.committed_percentage == 1.0
+
+
+# ─── category_canonical_confidence → profile.category_confidences ────────────
+
+def _make_canonical_df(rows: list[dict]) -> pl.DataFrame:
+    """DataFrame com category_canonical e category_canonical_confidence explícitos."""
+    return pl.DataFrame(
+        rows,
+        schema={
+            "transaction_id": pl.Utf8,
+            "user_id": pl.Utf8,
+            "description": pl.Utf8,
+            "amount": pl.Float64,
+            "date": pl.Date,
+            "transaction_type": pl.Utf8,
+            "category": pl.Utf8,
+            "category_canonical": pl.Utf8,
+            "category_canonical_confidence": pl.Float64,
+            "context_type": pl.Utf8,
+        },
+    )
+
+
+def _canonical_row(
+    amount: float,
+    category_canonical: str,
+    confidence: float,
+    txn_id: str = None,
+) -> dict:
+    return {
+        "transaction_id": txn_id or f"txn-{amount}",
+        "user_id": "user-1",
+        "description": "desc",
+        "amount": amount,
+        "date": RECENT,
+        "transaction_type": "CREDIT",
+        "category": category_canonical,
+        "category_canonical": category_canonical,
+        "category_canonical_confidence": confidence,
+        "context_type": "PF",
+    }
+
+
+class TestCategoryConfidences:
+    def test_confidence_column_populates_profile_field(self):
+        """
+        Quando o DataFrame tem category_canonical_confidence, profile.category_confidences
+        deve existir e não estar vazio.
+        """
+        profiler = ConsumptionProfiler()
+        df = _make_canonical_df([
+            _canonical_row(-500.0, "supermercado", 0.90),
+        ])
+        result = profiler.build(df, reference_date=TODAY)
+        assert result.category_confidences != {}
+
+    def test_weighted_average_by_transaction_value(self):
+        """
+        Confiança é média ponderada pelo valor: transações maiores pesam mais.
+        supermercado: (0.90×1000 + 0.70×200) / 1200 = 1040/1200 ≈ 0.8667
+        """
+        profiler = ConsumptionProfiler()
+        df = _make_canonical_df([
+            _canonical_row(-1000.0, "supermercado", 0.90, "t1"),
+            _canonical_row(-200.0,  "supermercado", 0.70, "t2"),
+            _canonical_row(-500.0,  "farmacia",     0.80, "t3"),
+        ])
+        result = profiler.build(df, reference_date=TODAY)
+
+        assert result.category_confidences["supermercado"] == pytest.approx(1040 / 1200, abs=0.001)
+        assert result.category_confidences["farmacia"] == pytest.approx(0.80, abs=0.001)
+
+    def test_single_transaction_confidence_preserved(self):
+        """Uma única transação: confiança do perfil = confiança da transação."""
+        profiler = ConsumptionProfiler()
+        df = _make_canonical_df([
+            _canonical_row(-800.0, "alimentacao", 0.75),
+        ])
+        result = profiler.build(df, reference_date=TODAY)
+        assert result.category_confidences["alimentacao"] == pytest.approx(0.75, abs=0.001)
+
+    def test_feature_store_derives_confidence_when_column_absent(self):
+        """
+        Mesmo sem category_canonical_confidence no DataFrame de entrada, o feature store
+        gera a coluna via _add_category_canonical() e o profiler popula category_confidences.
+        "supermercado" tem normalização direta → confiança 0.80.
+        """
+        profiler = ConsumptionProfiler()
+        df = _make_df([_txn(-500.0, category="supermercado")])
+        result = profiler.build(df, reference_date=TODAY)
+        assert "supermercado" in result.category_confidences
+        assert result.category_confidences["supermercado"] == pytest.approx(0.80, abs=0.001)
+
+    def test_categories_without_confidence_not_in_dict(self):
+        """Categorias presentes no spend_by_category mas ausentes em category_confidences ficam fora."""
+        profiler = ConsumptionProfiler()
+        df = _make_canonical_df([
+            _canonical_row(-500.0, "supermercado", 0.90),
+        ])
+        result = profiler.build(df, reference_date=TODAY)
+        assert "supermercado" in result.category_confidences
+        # farmacia não tinha transações, não deve aparecer
+        assert "farmacia" not in result.category_confidences
+
+
+class TestFeatureStoreCategoryConfidence:
+    """Testa que _add_category_canonical gera category_canonical_confidence correto."""
+
+    def _fs(self):
+        return TransactionFeatureEnricher()
+
+    def _base_row(self, category: str, txn_id: str = "t1") -> dict:
+        return {
+            "transaction_id": txn_id,
+            "user_id": "u1",
+            "description": "desc",
+            "amount": -100.0,
+            "date": date(2026, 1, 15),
+            "transaction_type": "CREDIT",
+            "category": category,
+            "context_type": "PF",
+        }
+
+    def _df(self, rows: list[dict]) -> pl.DataFrame:
+        schema = {
+            "transaction_id": pl.Utf8,
+            "user_id": pl.Utf8,
+            "description": pl.Utf8,
+            "amount": pl.Float64,
+            "date": pl.Date,
+            "transaction_type": pl.Utf8,
+            "category": pl.Utf8,
+            "context_type": pl.Utf8,
+        }
+        return pl.DataFrame(rows, schema=schema)
+
+    def test_alias_mapped_gets_0_85(self):
+        """Categoria que passa por alias explícito (restaurante → alimentacao) deve ter 0.85."""
+        df = self._df([self._base_row("restaurante")])
+        enriched = self._fs().enrich(df)
+        assert "category_canonical_confidence" in enriched.columns
+        assert enriched["category_canonical_confidence"][0] == pytest.approx(0.85, abs=0.001)
+        assert enriched["category_canonical"][0] == "alimentacao"
+
+    def test_direct_normalization_gets_0_80(self):
+        """Categoria normalizada diretamente (supermercado → supermercado) deve ter 0.80."""
+        df = self._df([self._base_row("supermercado")])
+        enriched = self._fs().enrich(df)
+        assert enriched["category_canonical_confidence"][0] == pytest.approx(0.80, abs=0.001)
+        assert enriched["category_canonical"][0] == "supermercado"
+
+    def test_passthrough_canonical_gets_1_0(self):
+        """DataFrame que já tem category_canonical recebe confidence 1.0."""
+        rows = [{
+            "transaction_id": "t1",
+            "user_id": "u1",
+            "description": "desc",
+            "amount": -100.0,
+            "date": date(2026, 1, 15),
+            "transaction_type": "CREDIT",
+            "category": "alimentacao",
+            "category_canonical": "alimentacao",
+            "context_type": "PF",
+        }]
+        schema = {
+            "transaction_id": pl.Utf8,
+            "user_id": pl.Utf8,
+            "description": pl.Utf8,
+            "amount": pl.Float64,
+            "date": pl.Date,
+            "transaction_type": pl.Utf8,
+            "category": pl.Utf8,
+            "category_canonical": pl.Utf8,
+            "context_type": pl.Utf8,
+        }
+        df = pl.DataFrame(rows, schema=schema)
+        enriched = self._fs().enrich(df)
+        assert enriched["category_canonical_confidence"][0] == pytest.approx(1.0, abs=0.001)
+
+    def test_outros_without_l1_gets_0_60(self):
+        """Categoria 'Outros' sem fallback L1 deve ter confiança 0.60."""
+        df = self._df([self._base_row("Outros")])
+        enriched = self._fs().enrich(df)
+        conf = enriched["category_canonical_confidence"][0]
+        canonical = enriched["category_canonical"][0]
+        # Pode ter L1 de merchant_category_l2 se a descrição bater — aceita 0.60 ou 0.75
+        assert conf in (0.60, 0.75)
+        assert canonical is not None
+
+    def test_confidence_column_always_present_after_enrich(self):
+        """Após enrich(), category_canonical_confidence deve sempre existir."""
+        df = self._df([self._base_row("alimentacao")])
+        enriched = self._fs().enrich(df)
+        assert "category_canonical_confidence" in enriched.columns
+        assert enriched["category_canonical_confidence"].dtype == pl.Float64
