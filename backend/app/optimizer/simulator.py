@@ -131,7 +131,7 @@ class CardSimulator:
             card, profile, spend_annual, annuity_effective, annuity_waived, values, net_gain_expected
         )
         recommendation_explanation = self._build_recommendation_explanation(
-            card, profile, confidence_score, values["expected"]
+            card, profile, values["expected"]
         )
 
         waiver_threshold = (
@@ -183,24 +183,55 @@ class CardSimulator:
 
     # ─── Helpers privados ─────────────────────────────────────────────────────
 
+    def _compute_category_confidence(self, profile: UserProfile) -> float:
+        """
+        Confiança na classificação de categorias (0–1). Distinto do confidence_score
+        do cartão: reflete quanto os dados de categoria são confiáveis, não a
+        incerteza financeira da simulação.
+
+        Penalidades:
+          < 2 meses de dados: ×0.35 — categorias instáveis
+          2–2 meses: ×0.60
+          3–5 meses: ×0.85
+          spend_is_estimated: teto em 0.40 — gastos sintéticos não têm categorias reais
+          sem spend_by_category: 0.0
+        """
+        if not profile.spend_by_category:
+            return 0.0
+
+        score = 1.0
+        months = profile.data_coverage_months
+        if months >= 6:
+            pass
+        elif months >= 3:
+            score *= 0.85
+        elif months >= 2:
+            score *= 0.60
+        else:
+            score *= 0.35
+
+        if getattr(profile, "spend_is_estimated", False):
+            score = min(score, 0.40)
+
+        return round(min(score, 1.0), 4)
+
     def _build_recommendation_explanation(
         self,
         card: CardRecord,
         profile: UserProfile,
-        confidence_score: float,
         expected_annual_value: float,
     ) -> RecommendationExplanation:
         """
         Constrói a explicação estruturada de por que este cartão foi recomendado.
 
-        Para cashback com categorias (M2.5): detalha cada categoria com taxa,
-        gasto mensal e cashback esperado. Para demais tipos: usa o gasto elegível
-        total e o valor anual simulado.
+        Para cashback com categorias (M2.5): detalha cada categoria aplicando o
+        mesmo fator de escala que _compute_category_cashback() usa, garantindo que
+        sum(breakdown.expected_monthly_cashback) reconcilie com expected_monthly.
         """
         eligible_monthly = profile.monthly_avg_spend * profile.credit_spend_ratio
         expected_monthly = round(expected_annual_value / 12, 2)
+        category_confidence = self._compute_category_confidence(profile)
 
-        # Top category por gasto absoluto
         sorted_cats = sorted(
             profile.spend_by_category.items(), key=lambda x: x[1], reverse=True
         )
@@ -208,27 +239,31 @@ class CardSimulator:
         total_category_spend = sum(v for _, v in sorted_cats) or 1.0
         top_category_pct = sorted_cats[0][1] / total_category_spend if sorted_cats else 0.0
 
+        # Mesmo fator de escala de _compute_category_cashback(): garante reconciliação
+        scale = eligible_monthly / total_category_spend
+
         breakdown: list[CategoryCashbackBreakdown] = []
 
         if card.card_type in (CardType.CASHBACK, CardType.INVESTBACK) and card.cashback_categories:
             category_rules: dict = {r.category: r for r in card.cashback_categories}
             default_pct = card.cashback_default_pct or card.cashback_pct or 0.0
 
-            for category, monthly_spend in sorted_cats:
+            for category, raw_monthly_spend in sorted_cats:
+                scaled_monthly = raw_monthly_spend * scale
                 rule = category_rules.get(category)
                 rate = rule.pct if rule else default_pct
-                raw_cashback = monthly_spend * rate
+                monthly_cb = scaled_monthly * rate
                 capped = False
-                if rule and rule.cap_monthly is not None and raw_cashback > rule.cap_monthly:
-                    raw_cashback = rule.cap_monthly
+                if rule and rule.cap_monthly is not None and monthly_cb > rule.cap_monthly:
+                    monthly_cb = rule.cap_monthly
                     capped = True
                 breakdown.append(
                     CategoryCashbackBreakdown(
                         category=category,
-                        monthly_spend=round(monthly_spend, 2),
-                        spend_pct=round(monthly_spend / total_category_spend, 4),
+                        monthly_spend=round(scaled_monthly, 2),
+                        spend_pct=round(raw_monthly_spend / total_category_spend, 4),
                         cashback_rate=rate,
-                        expected_monthly_cashback=round(raw_cashback, 2),
+                        expected_monthly_cashback=round(monthly_cb, 2),
                         capped=capped,
                     )
                 )
@@ -238,7 +273,7 @@ class CardSimulator:
             card_name=card.name,
             top_category=top_category,
             top_category_pct=round(top_category_pct, 4),
-            category_confidence=round(confidence_score, 4),
+            category_confidence=category_confidence,
             eligible_monthly_spend=round(eligible_monthly, 2),
             expected_cashback_monthly=expected_monthly,
             category_breakdown=breakdown,
