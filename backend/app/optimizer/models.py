@@ -124,10 +124,12 @@ class CategoryCashbackBreakdown(BaseModel):
     """Detalhamento do cashback por categoria para explicabilidade."""
     category: str
     monthly_spend: float
-    spend_pct: float                    # fração do gasto total elegível (0–1)
-    cashback_rate: float                # taxa aplicada (0.02 = 2%)
-    expected_monthly_cashback: float    # cashback esperado mensal (R$)
-    capped: bool = False                # True se atingiu cap_monthly
+    spend_pct: float                            # fração do gasto total elegível (0–1)
+    cashback_rate: float                        # taxa aplicada (0.02 = 2%)
+    expected_monthly_cashback: float            # cashback esperado mensal (R$)
+    capped: bool = False                        # True se atingiu cap_monthly
+    category_confidence: Optional[float] = None # confiança do classificador para esta categoria;
+                                                # None quando category_canonical_confidence ausente
 
 
 class RecommendationExplanation(BaseModel):
