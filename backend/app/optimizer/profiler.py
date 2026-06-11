@@ -106,6 +106,11 @@ class UserProfile:
     # OptimizerService para emitir warning no relatório.
     spend_is_estimated: bool = False
 
+    # "canonical" quando spend_by_category veio da coluna category_canonical (classificador NLP).
+    # "raw" quando usou a coluna category bruta do banco (sem canonicalização).
+    # Alimenta _compute_category_confidence() no CardSimulator.
+    category_source: str = "raw"
+
     # ── Campos de Tendência (TrendDetector) ───────────────────────────────────
     # Dict categoria → {direction, ratio, baseline_monthly, current_monthly}.
     # Direções: SUBINDO | ESTAVEL | CAINDO | REEMERGINDO | DESAPARECENDO
@@ -210,7 +215,7 @@ class ConsumptionProfiler:
         monthly_avg_spend = float(monthly_totals.mean()) if len(monthly_totals) > 0 else 0.0
         spending_stability, spend_stability_cv = self._spending_stability(monthly_totals)
 
-        spend_by_category = self._spend_by_category(df, data_coverage_months)
+        spend_by_category, category_source = self._spend_by_category(df, data_coverage_months)
         spend_by_source = self._spend_by_source(df, data_coverage_months)
         international_spend_monthly = self._international_spend(df, data_coverage_months)
         travel_spend_monthly = self._travel_spend(df, data_coverage_months)
@@ -255,6 +260,7 @@ class ConsumptionProfiler:
             monthly_avg_spend=round(monthly_avg_spend, 2),
             committed_percentage=round(committed_percentage, 4),
             spend_by_category=spend_by_category,
+            category_source=category_source,
             spend_by_source=spend_by_source,
             international_spend_monthly=round(international_spend_monthly, 2),
             travel_spend_monthly=round(effective_travel_spend, 2),
@@ -403,7 +409,9 @@ class ConsumptionProfiler:
         stability = max(round(1.0 - min(cv, 1.0), 4), 0.0)
         return stability, round(min(cv, 1.0), 4)
 
-    def _spend_by_category(self, df: pl.DataFrame, coverage_months: int) -> dict:
+    def _spend_by_category(
+        self, df: pl.DataFrame, coverage_months: int
+    ) -> tuple[dict, str]:
         """
         Gasto médio mensal por categoria (apenas despesas).
 
@@ -412,14 +420,23 @@ class ConsumptionProfiler:
         ("alimentacao", "supermercado", "farmacia"...) e eliminam o dual-lookup
         "Alimentação" + "alimentacao" dos detectors.
         Fallback para raw `category` quando category_canonical não existe.
+
+        Retorna (spend_dict, source) onde source é "canonical" ou "raw" — propagado
+        para UserProfile.category_source e usado pelo CardSimulator para ajustar
+        a confiança da classificação de categorias.
         """
-        cat_col = "category_canonical" if "category_canonical" in df.columns else "category"
-        if cat_col not in df.columns:
-            return {}
+        if "category_canonical" in df.columns:
+            cat_col = "category_canonical"
+            source = "canonical"
+        elif "category" in df.columns:
+            cat_col = "category"
+            source = "raw"
+        else:
+            return {}, "raw"
 
         expenses = df.filter(pl.col("amount") < 0)
         if expenses.is_empty():
-            return {}
+            return {}, source
 
         months = max(coverage_months, 1)
 
@@ -430,11 +447,14 @@ class ConsumptionProfiler:
             .with_columns((pl.col("total") / months).alias("monthly_avg"))
         )
 
-        return {
-            row[cat_col]: round(row["monthly_avg"], 2)
-            for row in result.to_dicts()
-            if row[cat_col] is not None and row[cat_col] != "outros"
-        }
+        return (
+            {
+                row[cat_col]: round(row["monthly_avg"], 2)
+                for row in result.to_dicts()
+                if row[cat_col] is not None and row[cat_col] != "outros"
+            },
+            source,
+        )
 
     def _spend_by_source(self, df: pl.DataFrame, coverage_months: int) -> dict:
         """

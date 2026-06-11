@@ -185,16 +185,21 @@ class CardSimulator:
 
     def _compute_category_confidence(self, profile: UserProfile) -> float:
         """
-        Confiança na classificação de categorias (0–1). Distinto do confidence_score
-        do cartão: reflete quanto os dados de categoria são confiáveis, não a
-        incerteza financeira da simulação.
+        Confiança na classificação canônica das categorias (0–1). Distinto do
+        confidence_score do cartão: reflete a qualidade dos dados de categoria,
+        não a incerteza financeira da simulação.
 
-        Penalidades:
-          < 2 meses de dados: ×0.35 — categorias instáveis
-          2–2 meses: ×0.60
+        Penalidades por cobertura:
+          ≥ 6 meses: sem penalidade
           3–5 meses: ×0.85
-          spend_is_estimated: teto em 0.40 — gastos sintéticos não têm categorias reais
-          sem spend_by_category: 0.0
+          2 meses:   ×0.60
+          < 2 meses: ×0.35 — categorias instáveis
+        Teto de 0.40 quando spend_is_estimated=True (gastos sintéticos, sem categorias reais).
+        Sem categorias detectadas: 0.0.
+
+        Bônus de fonte canônica:
+          category_source="canonical" → ×1.15 (classificador NLP normalizado).
+          category_source="raw"       → sem bônus (strings brutas do banco, sem garantia).
         """
         if not profile.spend_by_category:
             return 0.0
@@ -212,6 +217,9 @@ class CardSimulator:
 
         if getattr(profile, "spend_is_estimated", False):
             score = min(score, 0.40)
+
+        if getattr(profile, "category_source", "raw") == "canonical":
+            score = min(score * 1.15, 1.0)
 
         return round(min(score, 1.0), 4)
 
