@@ -64,6 +64,7 @@ def _profile(
     data_coverage_months: int = 6,
     spend_by_category: dict | None = None,
     spend_is_estimated: bool = False,
+    category_source: str = "raw",
 ) -> UserProfile:
     return UserProfile(
         monthly_avg_spend=monthly_avg_spend,
@@ -82,6 +83,7 @@ def _profile(
         international_spend_monthly=0.0,
         estimated_monthly_income=8000.0,
         spend_is_estimated=spend_is_estimated,
+        category_source=category_source,
     )
 
 
@@ -146,15 +148,26 @@ class TestCategoryConfidence:
         assert result.recommendation_explanation.category_confidence <= 0.40
 
     def test_category_confidence_independent_from_card_confidence(self, sim):
-        """category_confidence deve ser baseada em cobertura de dados, não no cartão."""
+        """
+        category_confidence é baseada em cobertura/fonte de dados; confidence_score
+        do cartão é limitado por data_trust_score (0.7 por padrão). Com 6 meses de
+        cobertura e sem gasto estimado, category_confidence deve ser 1.0 enquanto
+        confidence_score fica em 0.7 — provando que as duas métricas são independentes.
+        """
         card = _cashback_cat_card()
         result = sim.simulate(card, _profile(data_coverage_months=6))
-        # Se viessem da mesma fonte, seriam idênticos — mas não devem ser obrigatoriamente
         exp = result.recommendation_explanation
-        # category_confidence é baseada apenas em data_coverage_months (= 1.0 com 6 meses)
         assert exp.category_confidence == 1.0
-        # card confidence_score pode diferir (depende de data_trust_score, income, etc.)
-        assert exp.category_confidence != result.confidence_score or True  # independência explícita
+        # confidence_score é bounded por data_trust_score=0.7 do _cashback_cat_card()
+        assert result.confidence_score == pytest.approx(0.7, abs=0.01)
+        assert exp.category_confidence != result.confidence_score
+
+    def test_canonical_source_boosts_confidence(self, sim):
+        """category_source='canonical' deve produzir confiança maior que 'raw' com mesma cobertura."""
+        card = _cashback_cat_card()
+        raw = sim.simulate(card, _profile(data_coverage_months=3))
+        canonical = sim.simulate(card, _profile(data_coverage_months=3, category_source="canonical"))
+        assert canonical.recommendation_explanation.category_confidence > raw.recommendation_explanation.category_confidence
 
     def test_no_categories_returns_zero(self, sim):
         card = _cashback_cat_card()
