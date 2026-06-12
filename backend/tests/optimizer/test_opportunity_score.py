@@ -7,7 +7,7 @@ import pytest
 from app.optimizer.opportunity_score import compute_opportunity_score
 from app.optimizer.models import CardSimulationResult, CardFlag, LiquidityRisk, BenefitTag
 from app.optimizer.profiler import UserProfile
-from app.forecast.etl.income_profiler import IncomeProfile
+from app.forecast.etl.income_profiler import IncomeProfile, IncomePattern
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -37,20 +37,28 @@ def _result(
     )
 
 
+def _income(confidence: float = 0.85) -> IncomeProfile:
+    return IncomeProfile(
+        monthly_net_income=5000.0,
+        income_pattern=IncomePattern.CLT,
+        income_stability=0.9,
+        confidence=confidence,
+        salary_monthly=5000.0,
+        freelance_monthly=0.0,
+        raw_monthly_credits=5200.0,
+        excluded_monthly=200.0,
+    )
+
+
 def _profile(
     spending_stability: float = 0.80,
     income_confidence: float = 0.85,
     category_trends: dict | None = None,
 ) -> UserProfile:
-    income = IncomeProfile(
-        monthly_net_income=5000.0,
-        income_pattern="CLT",
-        confidence=income_confidence,
-    )
     return UserProfile(
         monthly_avg_spend=3000.0,
         spending_stability=spending_stability,
-        income_profile=income,
+        income_profile=_income(income_confidence),
         category_trends=category_trends or {},
     )
 
@@ -92,11 +100,10 @@ class TestComputeOpportunityScore:
     def test_profile_confidence_combina_sim_e_renda(self):
         # sim_conf=1.0, income_conf=0.0 → profile_confidence = 0.60×1 + 0.40×0 = 0.60
         result = _result(confidence_score=1.0, eligibility_score=1.0)
-        income = IncomeProfile(monthly_net_income=5000.0, income_pattern="CLT", confidence=0.0)
         profile = UserProfile(
             monthly_avg_spend=3000.0,
             spending_stability=1.0,
-            income_profile=income,
+            income_profile=_income(confidence=0.0),
             category_trends={},
         )
         score, breakdown = compute_opportunity_score(result, profile)
