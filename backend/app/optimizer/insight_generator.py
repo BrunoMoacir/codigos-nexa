@@ -896,6 +896,77 @@ class InsightGenerator:
                     tags=["mei", BenefitTag.CASHBACK.value],
                 ))
 
+        elif cluster == "FAMILIA_ESTRUTURADA":
+            top_card = ranked[0] if ranked else None
+            if top_card and BenefitTag.CASHBACK in top_card.benefit_tags:
+                family_spend = (
+                    profile.spend_by_category.get("supermercado", 0)
+                    + profile.spend_by_category.get("farmacia", 0)
+                )
+                if family_spend > 300:
+                    effort = InsightEffort.BAIXO
+                    interval = self._make_interval(top_card)
+                    insights.append(ActionableInsight(
+                        type=InsightType.MUDAR_CATEGORIA,
+                        title="Cashback em supermercado e farmácia",
+                        description=(
+                            f"Sua família gasta R${family_spend:.0f}/mês em supermercado e farmácia. "
+                            f"O {top_card.card_name} pode devolver {interval.display_text()} "
+                            f"nessas categorias do dia a dia."
+                        ),
+                        gain_interval=interval,
+                        effort=effort,
+                        confidence_score=top_card.confidence_score,
+                        priority_score=self._priority(interval.expected, effort, top_card.confidence_score),
+                        tags=["familia", BenefitTag.CASHBACK.value],
+                    ))
+
+        elif cluster == "URBANO_FOODIE":
+            top_card = ranked[0] if ranked else None
+            food_spend = (
+                profile.spend_by_category.get("alimentacao", 0)
+                + profile.spend_by_category.get("restaurante", 0)
+            )
+            if top_card and BenefitTag.CASHBACK in top_card.benefit_tags and food_spend > 400:
+                effort = InsightEffort.BAIXO
+                interval = self._make_interval(top_card)
+                insights.append(ActionableInsight(
+                    type=InsightType.MUDAR_CATEGORIA,
+                    title="Seu gasto em alimentação merece cashback",
+                    description=(
+                        f"Você gasta R${food_spend:.0f}/mês em alimentação e restaurantes. "
+                        f"O {top_card.card_name} pode retornar {interval.display_text()} "
+                        f"sobre esses gastos frequentes."
+                    ),
+                    gain_interval=interval,
+                    effort=effort,
+                    confidence_score=top_card.confidence_score,
+                    priority_score=self._priority(interval.expected, effort, top_card.confidence_score),
+                    tags=["alimentacao", BenefitTag.CASHBACK.value],
+                ))
+
+        elif cluster == "ESTRESSE_FINANCEIRO":
+            # Para perfis estressados: priorizar cartões sem anuidade para reduzir custo fixo.
+            free_cards = [r for r in ranked if r.annuity_effective == 0 or r.annuity_waived]
+            if free_cards:
+                top_free = free_cards[0]
+                effort = InsightEffort.BAIXO
+                interval = self._make_interval(top_free)
+                if interval.expected >= _TRIGGER_GAIN_ATIVAR_BENEFICIO:
+                    insights.append(ActionableInsight(
+                        type=InsightType.MUDAR_CATEGORIA,
+                        title="Cartão sem anuidade reduz custo fixo",
+                        description=(
+                            f"O {top_free.card_name} não cobra anuidade e ainda pode gerar "
+                            f"{interval.display_text()} de retorno — sem comprometer seu orçamento."
+                        ),
+                        gain_interval=interval,
+                        effort=effort,
+                        confidence_score=top_free.confidence_score,
+                        priority_score=self._priority(interval.expected, effort, top_free.confidence_score),
+                        tags=["sem_anuidade", "estresse_financeiro"],
+                    ))
+
         return insights
 
     def _try_tendencia_insights(
@@ -1098,8 +1169,9 @@ class InsightGenerator:
         tone = _CLUSTER_TONE.get(cluster)
         if not tone:
             return base_description
+        _desc = base_description[:1].lower() + base_description[1:] if base_description else base_description
         return (
-            f"{tone['prefix']}, {base_description.lower()} "
+            f"{tone['prefix']}, {_desc} "
             f"Foco em {tone['emphasis']} — equivale a R${gain_annual:.0f}/ano."
         )
 
@@ -1124,6 +1196,12 @@ class InsightGenerator:
             return 70.0  # R$70/uso × ~1 uso/mês
         if tag == BenefitTag.INTERNACIONAL and profile.international_spend_monthly > INTL_SPEND_THRESHOLD:
             return 25.0  # estimativa de economia em IOF
+        if tag == BenefitTag.TRAVEL and profile.travel_spend_monthly > 200:
+            return 30.0  # seguro viagem e assistência — estimativa conservadora
+        if tag == BenefitTag.INSURANCE and profile.travel_spend_monthly > 150:
+            return 35.0  # seguro de compra/viagem — custo equivalente de mercado
+        if tag == BenefitTag.PREMIUM and profile.monthly_avg_spend > 5000:
+            return 80.0  # concierge, sala VIP e benefícios premium
         return 0.0
 
     def _priority(self, monthly_gain: float, effort: InsightEffort, confidence: float) -> float:
