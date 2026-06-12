@@ -1202,6 +1202,11 @@ class InsightGenerator:
             return 35.0  # seguro de compra/viagem — custo equivalente de mercado
         if tag == BenefitTag.PREMIUM and profile.monthly_avg_spend > 5000:
             return 80.0  # concierge, sala VIP e benefícios premium
+        if tag == BenefitTag.CASHBACK:
+            # Usuário com alto gasto em PIX/débito pode migrar para o cartão e capturar cashback
+            untapped = profile.monthly_avg_spend * (1.0 - getattr(profile, "credit_spend_ratio", 1.0))
+            if untapped > 2000:
+                return round(untapped * 0.01, 2)  # conservador: 1% sobre gasto não-crédito
         return 0.0
 
     def _priority(self, monthly_gain: float, effort: InsightEffort, confidence: float) -> float:

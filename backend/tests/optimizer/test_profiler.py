@@ -698,3 +698,74 @@ class TestFeatureStoreCategoryConfidence:
         enriched = self._fs().enrich(df)
         assert "category_canonical_confidence" in enriched.columns
         assert enriched["category_canonical_confidence"].dtype == pl.Float64
+
+
+# ─── FSS → LifestyleClassifier sequencing ─────────────────────────────────────
+
+class TestFSSBeforeLifestyleClassifier:
+    """
+    Garante que o FSS é calculado dentro de profiler.build() ANTES do LifestyleClassifier.
+    Antes do fix, fss_level = "SAUDAVEL" (default) quando o classifier rodava, fazendo
+    _score_financial_stress() ignorar o sinal de CRITICO/ALERTA.
+    """
+
+    def _df(self, rows: list[dict]) -> pl.DataFrame:
+        schema = {
+            "transaction_id": pl.Utf8,
+            "user_id": pl.Utf8,
+            "description": pl.Utf8,
+            "amount": pl.Float64,
+            "date": pl.Date,
+            "transaction_type": pl.Utf8,
+            "category": pl.Utf8,
+            "context_type": pl.Utf8,
+        }
+        return pl.DataFrame(rows, schema=schema)
+
+    def test_fss_level_e_populado_antes_do_classifier(self):
+        """fss e fss_level não devem ser os defaults após build()."""
+        from unittest.mock import patch
+
+        rows = [_txn(-500.0, RECENT) for _ in range(10)]
+        df = self._df(rows)
+
+        captured = {}
+
+        original_classify = __import__(
+            "app.optimizer.detectors.lifestyle_classifier",
+            fromlist=["LifestyleClassifier"]
+        ).LifestyleClassifier.classify
+
+        def capturing_classify(self_inner, profile):
+            captured["fss"] = profile.fss
+            captured["fss_level"] = profile.fss_level
+            return original_classify(self_inner, profile)
+
+        with patch(
+            "app.optimizer.detectors.lifestyle_classifier.LifestyleClassifier.classify",
+            capturing_classify,
+        ):
+            ConsumptionProfiler().build(df, reference_date=TODAY)
+
+        assert "fss_level" in captured, "classify() não foi chamado"
+        assert captured["fss_level"] != "", "fss_level estava vazio ao entrar no classifier"
+        # fss_level válido (não importa qual — só que não seja o default de string vazia)
+        assert captured["fss_level"] in ("SAUDAVEL", "ATENCAO", "ALERTA", "CRITICO")
+
+    def test_fss_critico_leva_a_cluster_estresse_financeiro(self):
+        """Quando FSSCalculator retorna CRITICO, o cluster deve ser ESTRESSE_FINANCEIRO."""
+        from unittest.mock import patch
+
+        rows = [_txn(-500.0, RECENT) for _ in range(10)]
+        df = self._df(rows)
+
+        fss_critico = {"fss": 90.0, "fss_level": "CRITICO", "signals": []}
+
+        with patch(
+            "app.optimizer.detectors.fss_calculator.FSSCalculator.calc_fss",
+            return_value=fss_critico,
+        ):
+            profile = ConsumptionProfiler().build(df, reference_date=TODAY)
+
+        assert profile.fss_level == "CRITICO"
+        assert profile.lifestyle_cluster == "ESTRESSE_FINANCEIRO"

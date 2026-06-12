@@ -261,26 +261,20 @@ class CardSimulator:
         total_category_spend = sum(v for _, v in sorted_cats) or 1.0
         top_category_pct = sorted_cats[0][1] / total_category_spend if sorted_cats else 0.0
 
-        # Mesmo fator de escala de _compute_category_cashback(): garante reconciliação
-        scale = eligible_monthly / total_category_spend
-
         breakdown: list[CategoryCashbackBreakdown] = []
 
         category_confidences = getattr(profile, "category_confidences", {})
 
         if card.card_type in (CardType.CASHBACK, CardType.INVESTBACK) and card.cashback_categories:
-            category_rules: dict = {r.category: r for r in card.cashback_categories}
-            default_pct = card.cashback_default_pct or card.cashback_pct or 0.0
-
+            # Usa _category_cashback_items para garantir que breakdown e simulação
+            # compartilhem o mesmo fator de escala e lógica de cap.
+            items_by_cat = {
+                cat: (scaled, rate, capped, monthly_cb)
+                for cat, scaled, rate, capped, monthly_cb
+                in self._category_cashback_items(card, profile, eligible_monthly)
+            }
             for category, raw_monthly_spend in sorted_cats:
-                scaled_monthly = raw_monthly_spend * scale
-                rule = category_rules.get(category)
-                rate = rule.pct if rule else default_pct
-                monthly_cb = scaled_monthly * rate
-                capped = False
-                if rule and rule.cap_monthly is not None and monthly_cb > rule.cap_monthly:
-                    monthly_cb = rule.cap_monthly
-                    capped = True
+                scaled_monthly, rate, capped, monthly_cb = items_by_cat[category]
                 breakdown.append(
                     CategoryCashbackBreakdown(
                         category=category,
@@ -396,49 +390,48 @@ class CardSimulator:
 
         return 0.0
 
+    def _category_cashback_items(
+        self,
+        card: CardRecord,
+        profile: "UserProfile",
+        eligible_monthly: float,
+    ) -> list[tuple[str, float, float, bool, float]]:
+        """
+        Detalhes de cashback por categoria: (category, scaled_monthly, rate, capped, monthly_cb).
+
+        Compartilhado por _compute_category_cashback e _build_recommendation_explanation para
+        garantir que ambos usem o mesmo fator de escala e lógica de cap — eliminando a
+        duplicação que causava risco de divergência entre simulação e explicação.
+        """
+        total = sum(profile.spend_by_category.values()) or 1.0
+        scale = eligible_monthly / total
+        rules = {r.category: r for r in card.cashback_categories}
+        default_pct = card.cashback_default_pct or card.cashback_pct or 0.0
+
+        items: list[tuple[str, float, float, bool, float]] = []
+        for cat, raw_monthly in profile.spend_by_category.items():
+            scaled = raw_monthly * scale
+            rule = rules.get(cat)
+            if rule:
+                cb = scaled * rule.pct
+                capped = rule.cap_monthly is not None and cb > rule.cap_monthly
+                if capped:
+                    cb = rule.cap_monthly
+                items.append((cat, scaled, rule.pct, capped, cb))
+            else:
+                items.append((cat, scaled, default_pct, False, scaled * default_pct))
+        return items
+
     def _compute_category_cashback(
         self,
         card: CardRecord,
         profile: "UserProfile",
         spend_annual_scaled: float,
     ) -> float:
-        """M2.5 — Calcula cashback usando regras diferenciadas por categoria.
+        """M2.5 — Calcula cashback usando regras diferenciadas por categoria."""
+        items = self._category_cashback_items(card, profile, spend_annual_scaled / 12)
+        total_cashback = sum(cb * 12 for _, _, _, _, cb in items)
 
-        Para cada categoria no perfil do usuário:
-          1. Busca regra específica em card.cashback_categories
-          2. Se encontrar: aplica pct da regra, respeitando cap_monthly anualizado
-          3. Se não encontrar: aplica cashback_default_pct (ou cashback_pct como fallback)
-
-        O spend_annual_scaled é usado para escalar proporcionalmente o gasto
-        de cada categoria (mantém a distribuição relativa do perfil).
-        """
-        from app.optimizer.models import CashbackCategoryRule
-
-        # Fator de escala: spend_annual_scaled / soma real das categorias
-        total_category_spend = sum(profile.spend_by_category.values())
-        scale = (spend_annual_scaled / 12) / total_category_spend if total_category_spend > 0 else 1.0
-
-        # Índice de regras por categoria para lookup O(1)
-        category_rules: dict[str, CashbackCategoryRule] = {
-            rule.category: rule for rule in card.cashback_categories
-        }
-
-        # Taxa padrão para categorias não cobertas
-        default_pct = card.cashback_default_pct or card.cashback_pct or 0.0
-
-        total_cashback = 0.0
-        for category, monthly_spend in profile.spend_by_category.items():
-            scaled_monthly = monthly_spend * scale
-            rule = category_rules.get(category)
-            if rule:
-                monthly_cb = scaled_monthly * rule.pct
-                if rule.cap_monthly is not None:
-                    monthly_cb = min(monthly_cb, rule.cap_monthly)
-            else:
-                monthly_cb = scaled_monthly * default_pct
-            total_cashback += monthly_cb * 12  # anualizar
-
-        # Teto geral do cartão (se definido)
         if card.cashback_cap:
             total_cashback = min(total_cashback, card.cashback_cap * 12)
 
