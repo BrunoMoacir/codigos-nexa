@@ -308,6 +308,17 @@ class ConsumptionProfiler:
         profile.peak_spend_day_of_month = temporal_result["peak_spend_day_of_month"]
         profile.best_notification_day = temporal_result["best_notification_day"]
 
+        # FSS deve rodar ANTES do LifestyleClassifier para que _score_financial_stress
+        # possa usar fss_level real em vez do default "SAUDAVEL".
+        # df já é a janela de 90 dias filtrada e enriquecida — equivalente a _txns_90d do serviço.
+        from app.optimizer.detectors.fss_calculator import FSSCalculator
+        _fss_result = FSSCalculator().calc_fss(
+            profile, df,
+            resilience_score=int(profile.resilience_score),
+        )
+        profile.fss = _fss_result["fss"]
+        profile.fss_level = _fss_result["fss_level"]
+
         # Clustering de estilo de vida (T1.7) — usa family_score e is_airbnb_user acima
         from app.optimizer.detectors.lifestyle_classifier import LifestyleClassifier
         cluster_result = LifestyleClassifier().classify(profile)
