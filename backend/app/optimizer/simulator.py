@@ -735,9 +735,8 @@ class CardSimulator:
             monthly_current = profile.monthly_avg_spend
             if monthly_current > 0:
                 spend_needed_for_waiver = max(monthly_needed - monthly_current, 0)
-                months_to_reach_waiver = (
-                    None  # threshold é de gasto acumulado anual, não há prazo fixo
-                )
+                # Meses no ritmo atual para acumular o threshold anual
+                months_to_reach_waiver = round(card.waiver_rules.threshold / monthly_current, 1)
             else:
                 spend_needed_for_waiver = monthly_needed
 
