@@ -180,10 +180,10 @@ class TestPortfolioMulti:
         profile = _profile()
         assert gen._try_portfolio_multi([_result()], profile) is None
 
-    def test_retorna_none_quando_ganho_incremental_abaixo_de_30_mes(self):
-        # Dois cartões com ganhos próximos → diferença marginal
+    def test_retorna_none_quando_segundo_cartao_contribui_menos_de_30_mes(self):
+        # portfolio_gain = r2.net_gain/12 = 200/12 ≈ 16.67/mês — abaixo de R$30
         r1 = _result(card_id="a", net_gain_expected=1200.0, confidence_score=0.9)
-        r2 = _result(card_id="b", net_gain_expected=1210.0, confidence_score=0.9)
+        r2 = _result(card_id="b", net_gain_expected=200.0, confidence_score=0.9)
         profile = _profile()
         assert gen._try_portfolio_multi([r1, r2], profile) is None
 
