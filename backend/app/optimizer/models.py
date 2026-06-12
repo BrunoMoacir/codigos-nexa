@@ -199,6 +199,8 @@ class CardSimulationResult(BaseModel):
     points_per_brl_actual: Optional[float] = None   # pts/R$ acumulados (None para cashback)
     point_value_brl: Optional[float] = None         # R$ por ponto (None para cashback)
     recommendation_explanation: Optional[RecommendationExplanation] = None
+    # Dinheiro recuperável real (R$/ano): net_gain × confiança × estabilidade × recorrência × elegibilidade
+    opportunity_score: float = 0.0
 
 
 class OptimizationReport(BaseModel):
@@ -215,6 +217,9 @@ class OptimizationReport(BaseModel):
     strategy_text: str = ""
     warnings: list[str] = []
     life_events: list[dict] = []
+    # Dinheiro recuperável real do melhor cartão (R$/ano) com breakdown dos quatro fatores
+    opportunity_score: float = 0.0
+    opportunity_score_breakdown: dict = {}
 
 
 # ─── Camada 5 — Insights Acionáveis ──────────────────────────────────────────

@@ -23,6 +23,7 @@ from app.optimizer.ranking import CardRanking
 from app.optimizer.insight_generator import InsightGenerator
 from app.optimizer.validators.input_validator import InputValidator
 from app.optimizer.queries import get_feedback_weights, save_optimization_report
+from app.optimizer.opportunity_score import compute_opportunity_score
 
 # ── Camada 3 Anti-Falsos-Positivos — Gates globais ───────────────────────
 # ConfidenceGate: threshold abaixo do qual o resultado não é surfaçado ao usuário
@@ -394,6 +395,20 @@ class OptimizerService:
                 profile=profile,
             )
 
+        # 7. Opportunity Score — dinheiro recuperável real por cartão
+        # Computado após o ranking (eligibility_score já foi injetado) e antes dos insights,
+        # para que a re-ordenação reflita a priorização por ganho real, não só por perfil.
+        _best_opp_breakdown: dict = {}
+        for _r in ranked_results:
+            _opp_score, _opp_breakdown = compute_opportunity_score(_r, profile)
+            _r.opportunity_score = _opp_score
+            if not _best_opp_breakdown and _opp_score > 0:
+                _best_opp_breakdown = _opp_breakdown
+
+        # Re-ordenar por opportunity_score (sort estável: preserva a ordem do ranker
+        # para cartões com scores iguais, ex. todos com spending_stability=0).
+        ranked_results.sort(key=lambda r: r.opportunity_score, reverse=True)
+
         # 8. Camada 5 — Gerar insights acionáveis
         current_card_id = request.current_cards[0] if request.current_cards else None
 
@@ -444,6 +459,7 @@ class OptimizerService:
         return self._build_report(
             request=request, ranked_results=ranked_results, profile_data=profile,
             insights=insights, life_events=active_life_events,
+            opportunity_score_breakdown=_best_opp_breakdown,
         )
 
     def _build_report(
@@ -453,6 +469,7 @@ class OptimizerService:
         profile_data,
         insights: list | None = None,
         life_events: list | None = None,
+        opportunity_score_breakdown: dict | None = None,
     ) -> OptimizationReport:
 
         warnings = []
@@ -540,6 +557,7 @@ class OptimizerService:
             "life_stage_confidence":  round(getattr(profile_data, "life_stage_confidence", 0.0), 3),
         }
 
+        _opp_breakdown = opportunity_score_breakdown or {}
         report = OptimizationReport(
             report_id=str(uuid.uuid4()),
             user_id=request.user_id,
@@ -553,6 +571,8 @@ class OptimizerService:
             data_sources=["pluggy", "internal_knowledge_base"],
             life_events=life_events or [],
             user_profile_summary=user_profile_summary,
+            opportunity_score=_opp_breakdown.get("opportunity_score", 0.0),
+            opportunity_score_breakdown=_opp_breakdown,
         )
 
         try:
