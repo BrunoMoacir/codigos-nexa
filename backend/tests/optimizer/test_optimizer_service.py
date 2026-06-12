@@ -713,6 +713,87 @@ class TestOptimizerServiceFluxoCompleto:
         )
         assert has_warning or len(report.warnings) >= 1
 
+    # ── Testes de integração: opportunity_score ───────────────────────────────
+
+    def test_cartao_com_maior_opp_score_vira_best_card(self, service, perfil_clt_medio):
+        """O best_card deve ser o cartão com maior opportunity_score após a re-ordenação."""
+        request = OptimizationRequest(
+            user_id="user-opp",
+            current_cards=[],
+            safe_to_spend=3000.0,
+            monthly_income=8000.0,
+        )
+        report = service.analyze(
+            request=request,
+            transactions_df=perfil_clt_medio,
+            reference_date=TODAY,
+        )
+        if report.recommendation_type != RecommendationType.SWITCH_RECOMMENDED:
+            pytest.skip("Sem SWITCH_RECOMMENDED nesse perfil — teste não se aplica")
+
+        assert report.best_card is not None
+        best_opp = report.best_card.opportunity_score
+        for card in report.all_cards[1:]:
+            assert card.opportunity_score <= best_opp, (
+                f"{card.card_id} (opp={card.opportunity_score:.2f}) "
+                f"supera best_card {report.best_card.card_id} (opp={best_opp:.2f})"
+            )
+
+    def test_report_opportunity_score_bate_com_best_card(self, service, perfil_clt_medio):
+        """report.opportunity_score deve ser igual a report.best_card.opportunity_score."""
+        request = OptimizationRequest(
+            user_id="user-opp-match",
+            current_cards=[],
+            safe_to_spend=3000.0,
+            monthly_income=8000.0,
+        )
+        report = service.analyze(
+            request=request,
+            transactions_df=perfil_clt_medio,
+            reference_date=TODAY,
+        )
+        if report.recommendation_type != RecommendationType.SWITCH_RECOMMENDED:
+            pytest.skip("Sem SWITCH_RECOMMENDED nesse perfil — teste não se aplica")
+
+        assert report.best_card is not None
+        assert report.opportunity_score == pytest.approx(
+            report.best_card.opportunity_score, abs=0.01
+        ), (
+            f"report.opportunity_score={report.opportunity_score:.2f} "
+            f"!= best_card.opportunity_score={report.best_card.opportunity_score:.2f}"
+        )
+
+    def test_opportunity_score_breakdown_pertence_ao_best_card(self, service, perfil_clt_medio):
+        """O breakdown do relatório deve referenciar o mesmo cartão que best_card."""
+        request = OptimizationRequest(
+            user_id="user-opp-breakdown",
+            current_cards=[],
+            safe_to_spend=3000.0,
+            monthly_income=8000.0,
+        )
+        report = service.analyze(
+            request=request,
+            transactions_df=perfil_clt_medio,
+            reference_date=TODAY,
+        )
+        if report.recommendation_type != RecommendationType.SWITCH_RECOMMENDED:
+            pytest.skip("Sem SWITCH_RECOMMENDED nesse perfil — teste não se aplica")
+
+        assert report.best_card is not None
+        bd = report.opportunity_score_breakdown
+
+        assert "opportunity_score" in bd, "Breakdown ausente"
+        assert bd["opportunity_score"] == pytest.approx(
+            report.best_card.opportunity_score, abs=0.01
+        ), (
+            f"Breakdown (opp={bd['opportunity_score']:.2f}) não pertence ao best_card "
+            f"(opp={report.best_card.opportunity_score:.2f})"
+        )
+        # net_gain_expected do breakdown deve bater com o best_card
+        assert bd["net_gain_expected"] == pytest.approx(
+            report.best_card.net_gain_expected, abs=0.01
+        )
+
 
 class TestCardKnowledgeBaseIntegracao:
     def test_carrega_cartoes_reais(self):

@@ -398,16 +398,18 @@ class OptimizerService:
         # 7. Opportunity Score — dinheiro recuperável real por cartão
         # Computado após o ranking (eligibility_score já foi injetado) e antes dos insights,
         # para que a re-ordenação reflita a priorização por ganho real, não só por perfil.
-        _best_opp_breakdown: dict = {}
         for _r in ranked_results:
-            _opp_score, _opp_breakdown = compute_opportunity_score(_r, profile)
-            _r.opportunity_score = _opp_score
-            if not _best_opp_breakdown and _opp_score > 0:
-                _best_opp_breakdown = _opp_breakdown
+            _r.opportunity_score, _ = compute_opportunity_score(_r, profile)
 
         # Re-ordenar por opportunity_score (sort estável: preserva a ordem do ranker
         # para cartões com scores iguais, ex. todos com spending_stability=0).
         ranked_results.sort(key=lambda r: r.opportunity_score, reverse=True)
+
+        # Breakdown extraído do topo da lista pós-sort — garante que pertence ao best_card.
+        _, _best_opp_breakdown = (
+            compute_opportunity_score(ranked_results[0], profile)
+            if ranked_results else (0.0, {})
+        )
 
         # 8. Camada 5 — Gerar insights acionáveis
         current_card_id = request.current_cards[0] if request.current_cards else None
