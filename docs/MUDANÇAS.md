@@ -1,0 +1,655 @@
+# Nexa — O Que Precisa Mudar para Chegar no Roadmap
+
+Este documento mapeia cada mudança técnica necessária para implementar as features do ROADMAP.md,
+organizado por camada: infraestrutura → banco de dados → módulos existentes → novos módulos.
+
+---
+
+## 1. INFRAESTRUTURA — Bloqueadores Críticos
+
+Estas são as mudanças que desbloqueiam múltiplas features ao mesmo tempo.
+Sem elas, 60%+ do roadmap não pode ser entregue.
+
+---
+
+### 1.1 Scheduler de Jobs (bloqueia: D2, D4, R1.c, OPP, V2)
+
+**Estado atual:** zero. Não existe nenhum job periódico no projeto.
+Todas as análises são reativas — só rodam quando o usuário abre o app.
+
+**O que precisa existir:**
+Um scheduler leve integrado ao FastAPI, com jobs diários e mensais.
+
+**Proposta técnica:**
+```
+backend/app/core/scheduler.py       # APScheduler configurado e registrado no lifespan do FastAPI
+backend/app/jobs/                   # Pasta de jobs agendados
+  daily_digest.py                   # R1.c: compila eventos do dia e envia
+  fee_snapshot.py                   # D2/D4: persiste snapshot de tarifas por usuário
+  opportunity_scan.py               # OPP: detecta dinheiro parado para todos os usuários
+  health_score_snapshot.py          # MX.1: persiste score diário para histórico
+  notification_scheduler.py         # MX.3: gera notificações proativas (sem precisar o user abrir)
+```
+
+**Frequência dos jobs:**
+- `fee_snapshot`: diário, 02h00
+- `opportunity_scan`: diário, 03h00
+- `health_score_snapshot`: diário, 04h00
+- `daily_digest`: diário, 07h00 (após os anteriores)
+- `notification_scheduler`: a cada 6h
+
+**Impacto no main.py:**
+```python
+# backend/app/main.py
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler.start()          # adicionar
+    yield
+    scheduler.shutdown()       # adicionar
+```
+
+---
+
+### 1.2 Sistema de Envio (bloqueia: R1.c Daily Digest)
+
+**Estado atual:** notificações existem apenas como payload JSON no endpoint.
+Não há envio real para push, email ou SMS.
+
+**O que precisa existir:**
+Canal de entrega. Para MVP: email (SMTP ou SendGrid).
+Para futura versão mobile: Firebase Cloud Messaging.
+
+**Proposta técnica:**
+```
+backend/app/core/notifications/
+  email_sender.py       # SMTP / SendGrid adapter
+  push_sender.py        # FCM adapter (futuro, quando tiver app mobile)
+  delivery_service.py   # orquestra qual canal usar por usuário
+```
+
+**Configuração nova em config.py:**
+```python
+SMTP_HOST: str = ""
+SMTP_PORT: int = 587
+SMTP_USER: str = ""
+SMTP_PASSWORD: str = ""
+SENDGRID_API_KEY: str | None = None
+```
+
+---
+
+## 2. BANCO DE DADOS — Tabelas a Criar
+
+Novas tabelas via Alembic migration. Nenhuma tabela existente precisa ser removida.
+
+---
+
+### 2.1 `bank_fee_history` — Histórico de Tarifas por Usuário
+**Necessária para:** D1, D2, D4
+
+```sql
+CREATE TABLE bank_fee_history (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     VARCHAR NOT NULL,
+    month       VARCHAR(7) NOT NULL,       -- "YYYY-MM"
+    bank_name   VARCHAR NOT NULL,
+    fee_type    VARCHAR NOT NULL,           -- FeeType enum
+    amount      DECIMAL(10, 2) NOT NULL,
+    description VARCHAR,
+    captured_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (user_id, month, bank_name, fee_type)
+);
+CREATE INDEX idx_bank_fee_history_user ON bank_fee_history(user_id, month);
+```
+
+---
+
+### 2.2 `bank_fee_trends` — Baseline de Mercado por Banco
+**Necessária para:** D4 (detectar aumento unilateral), D2 (o que é normal vs. indevido)
+
+```sql
+CREATE TABLE bank_fee_trends (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bank_name   VARCHAR NOT NULL,
+    fee_type    VARCHAR NOT NULL,
+    month       VARCHAR(7) NOT NULL,
+    market_avg  DECIMAL(10, 2),            -- média de mercado (de todos os usuários Nexa, anonimizado)
+    market_p25  DECIMAL(10, 2),
+    market_p75  DECIMAL(10, 2),
+    sample_size INT,
+    captured_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (bank_name, fee_type, month)
+);
+```
+
+---
+
+### 2.3 `notification_delivery_log` — Log de Entrega de Notificações
+**Necessária para:** MX.3 (proativo), R1.c, R5.c
+
+```sql
+CREATE TABLE notification_delivery_log (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         VARCHAR NOT NULL,
+    notification_id VARCHAR NOT NULL,
+    channel         VARCHAR NOT NULL,    -- "email" | "push" | "in_app"
+    status          VARCHAR NOT NULL,    -- "sent" | "delivered" | "failed" | "opened"
+    sent_at         TIMESTAMP,
+    delivered_at    TIMESTAMP,
+    opened_at       TIMESTAMP,
+    error_msg       VARCHAR
+);
+```
+
+---
+
+### 2.4 `daily_digest_log` — Controle de Digests Enviados
+**Necessária para:** R1.c
+
+```sql
+CREATE TABLE daily_digest_log (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id    VARCHAR NOT NULL,
+    date       DATE NOT NULL,
+    events_qty INT,
+    sent_at    TIMESTAMP,
+    UNIQUE (user_id, date)
+);
+```
+
+---
+
+### 2.5 `user_badges` — Badges e Gamificação
+**Necessária para:** R2.b (Health Score gamificado)
+
+```sql
+CREATE TABLE user_badges (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     VARCHAR NOT NULL,
+    badge_type  VARCHAR NOT NULL,     -- ex: "PRIMEIRO_INSIGHT", "ECONOMIZOU_500", "3_MESES_VERDE"
+    earned_at   TIMESTAMP NOT NULL,
+    metadata    JSONB,
+    UNIQUE (user_id, badge_type)      -- cada badge é ganho uma vez
+);
+CREATE INDEX idx_user_badges_user ON user_badges(user_id);
+```
+
+**Badge types planejados:**
+- `PRIMEIRO_INSIGHT` — primeiro uso do app
+- `NEGOCIADOR` — usou F13 pela primeira vez
+- `ECONOMIZOU_100` / `_500` / `_1000` — marcos de economia
+- `3_MESES_VERDE` / `6_MESES_VERDE` — score acima de 70 por N meses consecutivos
+- `TARIFA_ELIMINADA` — conseguiu isenção de anuidade
+- `META_ATINGIDA` — completou uma meta financeira
+
+---
+
+### 2.6 `user_settings` — Preferências de Usuário
+**Necessária para:** MX.3 proativo, R1.c, R5.b (pause)
+
+```sql
+CREATE TABLE user_settings (
+    user_id                 VARCHAR PRIMARY KEY,
+    notification_channels   JSONB DEFAULT '["email"]',   -- ["email", "push"]
+    notification_frequency  VARCHAR DEFAULT 'daily',     -- "realtime" | "daily" | "weekly" | "off"
+    digest_time             TIME DEFAULT '07:00',
+    subscription_status     VARCHAR DEFAULT 'active',    -- "active" | "paused" | "cancelled"
+    paused_until            TIMESTAMP,
+    updated_at              TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+### 2.7 `negotiation_history` — Histórico de Negociações
+**Necessária para:** F13 (follow-up), futura detecção de sucesso pós-negociação
+
+```sql
+CREATE TABLE negotiation_history (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id        VARCHAR NOT NULL,
+    bank_name      VARCHAR NOT NULL,
+    trigger_type   VARCHAR NOT NULL,     -- NegotiationTrigger enum
+    potential_gain DECIMAL(10, 2),
+    generated_at   TIMESTAMP NOT NULL,
+    result_status  VARCHAR,              -- "sucesso" | "parcial" | "recusado" | "nao_tentou"
+    result_gain    DECIMAL(10, 2),
+    resolved_at    TIMESTAMP
+);
+CREATE INDEX idx_negotation_history_user ON negotiation_history(user_id, generated_at);
+```
+
+---
+
+### 2.8 `opportunity_snapshots` — Histórico do Radar de Oportunidades
+**Necessária para:** OPP, V2 (Wrapped)
+
+```sql
+CREATE TABLE opportunity_snapshots (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         VARCHAR NOT NULL,
+    captured_at     TIMESTAMP NOT NULL,
+    idle_amount     DECIMAL(10, 2),
+    monthly_loss    DECIMAL(10, 2),
+    top_opportunity VARCHAR,             -- banco recomendado
+    top_gain_brl    DECIMAL(10, 2),
+    cdi_at_capture  DECIMAL(5, 4)
+);
+CREATE INDEX idx_opp_snapshots_user ON opportunity_snapshots(user_id, captured_at);
+```
+
+---
+
+## 3. MÓDULOS EXISTENTES — O Que Muda
+
+Módulos que já existem mas precisam ser modificados para suportar o roadmap.
+
+---
+
+### 3.1 `backend/app/costs/` — F5: Raio-X de Custos
+**Mudanças necessárias para:** D1, D2, D4
+
+**Problema atual:**
+`BankFeeAnalyzer.analyze()` calcula snapshot do período mas não persiste.
+Sem histórico, não dá para detectar D4 (aumento unilateral) nem D2 (cobrança indevida nova).
+
+**O que muda:**
+
+1. **Persistir resultado em `bank_fee_history`**
+   ```python
+   # bank_fee_analyzer.py — adicionar após o cálculo
+   async def _persist_snapshot(self, report: BankCostReport, db: Session): ...
+   ```
+
+2. **Novo método: comparar mês atual vs. histórico**
+   ```python
+   def detect_new_fees(self, user_id: str, current_fees: list[FeeEntry]) -> list[FeeEntry]:
+       """Retorna tarifas que apareceram este mês e não existiam no histórico."""
+   ```
+
+3. **Novo método: comparar vs. baseline de mercado**
+   ```python
+   def compare_to_market_baseline(self, user_id: str, bank_name: str) -> dict:
+       """Compara tarifas do usuário com mediana anônima de outros usuários no mesmo banco."""
+   ```
+
+4. **Novo FeeType:** `SEGURO_EMBUTIDO` para detectar D1 (venda casada)
+   - Padrão: tarifa de seguro cobrada no mesmo mês em que produto de crédito foi contratado
+
+---
+
+### 3.2 `backend/app/negotiator/` — F13: Negociador
+**Mudanças necessárias para:** D3
+
+**Problema atual:**
+`_detect_juros_rotativo()` compara com taxa hardcoded (`_ANUIDADE_MARKET_MONTHLY_AVG = 30.0`),
+não com a taxa real BACEN.
+
+**O que muda:**
+
+1. **Novo conector BACEN para crédito rotativo**
+   ```python
+   # backend/app/architect/connectors/bacen_credit.py
+   class BacenCreditConnector(BaseConnector):
+       # SGS 20714 = taxa média de juros no crédito rotativo PF
+       # SGS 20715 = taxa máxima no crédito rotativo
+       _ROTATIVO_SERIES = 20714
+       _ROTATIVO_MAX_SERIES = 20715
+   ```
+
+2. **Substituir hardcode pelo conector**
+   ```python
+   # opportunity_detector.py
+   # ANTES: market_rate = _ANUIDADE_MARKET_MONTHLY_AVG
+   # DEPOIS:
+   def _fetch_market_rate_monthly(self) -> float:
+       rates = BacenCreditConnector().get_rates()
+       return rates["rotativo_monthly"]   # SGS 20714 / 12
+   ```
+
+3. **Novo trigger: `CHEQUE_ESPECIAL_ALTO`**
+   - Limite legal: 8% a.m. (Lei 14.905/2024)
+   - Detectar se usuário está pagando acima desse limite
+
+4. **Persistir em `negotiation_history`** após geração de script
+
+---
+
+### 3.3 `backend/app/notifications/` — MX.3: Notificações
+**Mudanças necessárias para:** D4, R1.c
+
+**Problema atual:**
+Notificações são geradas apenas quando o usuário chama `GET /notifications/{user_id}`.
+São reativas, não proativas.
+
+**O que muda:**
+
+1. **Novo `NotificationType.TARIFA_AUMENTO_UNILATERAL`**
+   ```python
+   # notifier.py — novo método
+   def _gen_tarifa_aumento(self, fee_delta: FeeDelta) -> Optional[Notification]:
+       """Gera notificação quando tarifa aumentou mais de 10% vs. mês anterior."""
+   ```
+
+2. **Desacoplar geração de notificações do request HTTP**
+   - Criar `NotificationEngine` independente que pode ser chamado pelo scheduler
+   ```python
+   # backend/app/notifications/engine.py
+   class NotificationEngine:
+       async def run_for_user(self, user_id: str) -> list[Notification]: ...
+       async def run_for_all_users(self) -> dict[str, list[Notification]]: ...
+   ```
+
+3. **Integrar com `delivery_service.py`** (novo, da seção 1.2)
+   - Após gerar notificação → entrega via canal configurado em `user_settings`
+
+---
+
+### 3.4 `backend/app/health_score/` — MX.1: Health Score
+**Mudanças necessárias para:** R2.b
+
+**Problema atual:**
+Score calculado sem gamificação. Não há badges, desafios nem marcos.
+
+**O que muda:**
+
+1. **Novo serviço de badges**
+   ```python
+   # backend/app/health_score/badge_service.py
+   class BadgeService:
+       def evaluate_badges(self, user_id: str, current_score: int, history: list) -> list[Badge]:
+           """Avalia se algum badge novo foi conquistado. Persiste em user_badges."""
+   ```
+
+2. **Novo endpoint de badges**
+   ```
+   GET /api/v1/health-score/badges/{user_id}
+   ```
+
+3. **Hook no cálculo de score** — após calcular, chamar `BadgeService.evaluate_badges()`
+
+---
+
+### 3.5 `backend/app/agent/` — LangGraph Agent
+**Mudanças necessárias para:** OPP, T3, V2, D1–D3
+
+**Problema atual:**
+Agent tem 15 tools mas não tem tools para as novas verticais.
+
+**O que muda — novas tools a adicionar:**
+
+```python
+# backend/app/agent/tools/
+get_opportunities()           # OPP: radar de dinheiro parado + comparação de bancos
+get_forgotten_rights()        # T3: SVR BACEN, FGTS, PIS/PASEP
+get_annual_wrapped()          # V2: resumo anual vs. bancos
+detect_abusive_fees()         # D1: detector de venda casada
+detect_wrongful_charges()     # D2: cobranças indevidas
+detect_abusive_interest()     # D3: juros acima da taxa BACEN
+```
+
+---
+
+### 3.6 `backend/app/fiscal/` — M4.1: Fiscal
+**Mudanças necessárias para:** T1, T2
+
+**Problema atual:**
+Suporta apenas MEI/PJ (DAS, receita de serviços). Sem IR pessoa física.
+
+**O que muda:**
+
+1. **Novo `FiscalPFService`** para cálculo de IR em investimentos
+   ```python
+   # backend/app/fiscal/services/ir_pf_calculator.py
+   class IRPFCalculator:
+       def calc_ir_on_cdb(self, amount: float, holding_months: int) -> float:
+           """Calcula alíquota progressiva (22.5% → 15%)"""
+       def calc_ir_on_lci_lca(self, amount: float) -> float:
+           """Sempre 0% — isento"""
+       def calc_breakeven_lci(self, cdb_rate_pct: float) -> float:
+           """Taxa mínima de LCI que equivale ao CDB após IR"""
+   ```
+
+---
+
+## 4. NOVOS MÓDULOS A CRIAR
+
+Features inteiramente novas que não têm base no código atual.
+
+---
+
+### 4.1 `backend/app/opportunities/` — OPP: Radar de Oportunidades
+
+**Proposta de estrutura:**
+```
+backend/app/opportunities/
+  __init__.py
+  models.py                        # OpportunitiesRequest / OpportunitiesResponse
+  router.py                        # GET /opportunities/{user_id}
+  services/
+    idle_money_detector.py         # calcula dinheiro parado via histórico DuckDB
+    bank_comparator.py             # compara CDB/LCI/LCA de 12+ bancos
+    opportunity_engine.py          # orquestra e ranqueia por retorno líquido após IR
+backend/data/bank_products.json    # catálogo curado de produtos bancários
+```
+
+**Lógica central:**
+- Idle = avg_income_3m − avg_expenses_3m (acumulado por meses sem uso)
+- Ranqueia por `annual_rate_net_pct` (após IR, não taxa bruta)
+- CDI live via BacenConnector já existente (série 432)
+- Para LCI/LCA: equivalência bruta = taxa_lci / (1 − aliquota_ir)
+
+**Endpoint:**
+```
+GET /api/v1/opportunities/{user_id}
+POST /api/v1/opportunities/compare  # comparação ad hoc com valor específico
+```
+
+---
+
+### 4.2 `backend/app/defense/` — D1–D5: Defesa do Consumidor
+
+**Proposta de estrutura:**
+```
+backend/app/defense/
+  __init__.py
+  models.py                             # DefenseAnalysis, EvidenceDossier, ContestationLetter
+  router.py                             # /defense/* endpoints
+  services/
+    tied_sale_detector.py               # D1: venda casada — seguro embutido em crédito
+    wrongful_charge_detector.py         # D2: tarifas duplicadas, pós-cancelamento, sem contrato
+    abusive_interest_detector.py        # D3: taxa implícita vs. BACEN SGS 20714/20715
+    unilateral_change_detector.py       # D4: tarifa que subiu >10% sem notificação prévia
+    evidence_builder.py                 # D5: monta dossiê com timeline e cálculo de correção
+templates/
+  contestation_letter.md               # D2: template de carta de contestação
+  procon_dossier.md                    # D5: template de dossiê para PROCON
+  jec_petition.md                      # D5: modelo de petição para juizado especial
+```
+
+**D5 — Cálculo de Correção Monetária:**
+```python
+# evidence_builder.py
+def calc_monetary_correction(
+    original_value: float,
+    charge_date: date,
+    reference_date: date,
+    index: Literal["IPCA", "SELIC", "INPC"]
+) -> float:
+    """Usa IpcaConnector (já existe) para calcular correção acumulada."""
+```
+
+---
+
+### 4.3 `backend/app/rights/` — T3: Monitor de Direitos Esquecidos
+
+**Proposta de estrutura:**
+```
+backend/app/rights/
+  __init__.py
+  models.py                         # RightsCheckResult, ForgottenRight
+  router.py                         # GET /rights/{user_id}
+  services/
+    svr_bacen_client.py             # SVR BACEN: valores a receber (API pública)
+    fgts_checker.py                 # FGTS via API Caixa / scraping
+    pis_pasep_checker.py            # PIS/PASEP via Dataprev (scraping ou API gov)
+    ir_restituicao_checker.py       # Restituição IR via Receita Federal
+```
+
+**APIs públicas a integrar:**
+```
+SVR BACEN:    https://valoresareceber.bcb.gov.br/publico/api/cpf/{cpf}
+FGTS:         https://acessoseguro.saque-fgts.caixa.gov.br/cidadao/api/v1/fgts
+PIS/PASEP:    https://servicos.dataprev.gov.br/pis-pasep/api/v1/consultar
+```
+
+**Notas:**
+- SVR BACEN é pública e gratuita, sem autenticação
+- FGTS requer CPF + login GOV.BR (pode redirecionar ou instruir usuário)
+- PIS/PASEP: Dataprev tem API; verificar documentação atual
+
+---
+
+### 4.4 `backend/app/tax/` — T1/T2: Otimização de IR em Investimentos
+
+**Proposta de estrutura:**
+```
+backend/app/tax/
+  __init__.py
+  models.py                            # TaxAnalysis, TaxOpportunity, BreakevenCalc
+  router.py                            # GET /tax/optimize/{user_id}
+  services/
+    ir_calculator.py                   # alíquotas progressivas, equivalência LCI/LCA
+    tax_loss_harvesting.py             # T1: identifica oportunidades de vender com prejuízo para abater IR
+    zero_tax_mode.py                   # T2: CDB→LCI/LCA, come-cotas→CDB, breakeven
+    investment_profiler.py             # usa Pluggy investimentos para mapear carteira atual
+```
+
+**Fonte de dados:** Pluggy já retorna investimentos (CDB, LCI, LCA, fundos, ações) via Open Finance
+
+---
+
+### 4.5 `backend/app/viral/` — V1/V2: Viral & Wrapped
+
+**Proposta de estrutura:**
+```
+backend/app/viral/
+  __init__.py
+  models.py                        # SavingsCard, WrappedReport
+  router.py                        # GET /viral/savings-card/{user_id}, GET /viral/wrapped/{user_id}/{year}
+  services/
+    savings_consolidator.py        # agrega insights de F2, F5, F13 em um único valor
+    wrapped_generator.py           # gera relatório anual "Banco vs Você"
+    card_renderer.py               # gera imagem PNG/SVG compartilhável (pode usar Pillow ou HTML→screenshot)
+```
+
+**V1 — Consolidação de economia:**
+- F2 Optimizer → `net_gain_expected` por ano
+- F5 Costs → `savings_opportunity` mensal × 12
+- F13 Negotiator → `potential_saving_monthly` × 12
+- Total = soma auditada, exibida como "A Nexa te ajudou a guardar R$X em Y meses"
+
+**V2 — Dados do Wrapped:**
+- Maior desperdício identificado
+- Tarifa mais absurda paga
+- Cartão que mais renderia (se tivesse usado)
+- Oportunidade de investimento que ficou na conta corrente
+- Score de evolução financeira no ano
+
+---
+
+## 5. CONECTORES — Novas Integrações Externas
+
+---
+
+### 5.1 BACEN SGS — Séries de Crédito (D3)
+
+```python
+# backend/app/architect/connectors/bacen_credit.py
+class BacenCreditConnector(BaseConnector):
+    _ROTATIVO_PF_SERIES = 20714      # Juros crédito rotativo PF (% a.m.)
+    _ROTATIVO_MAX_SERIES = 20715     # Juros máximos rotativo PF (% a.m.)
+    _CHEQUE_ESPECIAL_SERIES = 20706  # Juros cheque especial (% a.m.)
+    _CONSIGNADO_SERIES = 25433       # Juros crédito consignado INSS (% a.m.)
+```
+
+---
+
+### 5.2 SVR BACEN — Valores a Receber (T3)
+
+```python
+# backend/app/rights/services/svr_bacen_client.py
+# API pública: GET https://valoresareceber.bcb.gov.br/publico/api/cpf/{cpf_hash}
+# Retorna: lista de instituições com saldo a receber
+# Autenticação: nenhuma — só precisa do CPF (hasheado conforme spec do BCB)
+```
+
+---
+
+### 5.3 Open Finance Webhook (opcional — upgrade futuro)
+
+```
+POST /api/v1/webhooks/pluggy
+  → Recebe eventos de novas transações em tempo real
+  → Dispara fee_snapshot e opportunity_scan para o usuário afetado
+  → Elimina necessidade de polling diário para usuários ativos
+```
+
+---
+
+## 6. RESUMO: O QUE MUDA E EM QUAL ORDEM
+
+### Mudanças que desbloqueiam mais coisas (fazer primeiro)
+
+| # | O que muda | Arquivo(s) | Desbloqueia |
+|---|-----------|------------|-------------|
+| 1 | Criar scheduler APScheduler | `core/scheduler.py` + `main.py` | D2, D4, R1.c, OPP, V2 |
+| 2 | Migration: 7 tabelas novas | Alembic `versions/` | D1–D4, R2.b, R1.c, OPP |
+| 3 | Novo conector BACEN crédito | `connectors/bacen_credit.py` | D3 (juros abusivos reais) |
+| 4 | Persistir F5 em `bank_fee_history` | `costs/bank_fee_analyzer.py` | D1, D2, D4 |
+| 5 | `NotificationEngine` desacoplado | `notifications/engine.py` | D4, R1.c, R1.d |
+
+### Mudanças em módulos existentes
+
+| Módulo | O que muda | Para quê |
+|--------|-----------|----------|
+| `costs/` | Persistir snapshot + `detect_new_fees()` | D1, D2, D4 |
+| `negotiator/` | Trocar hardcode por BacenCreditConnector | D3 |
+| `notifications/` | Novo tipo `TARIFA_AUMENTO` + desacoplar de HTTP | D4, R1.c |
+| `health_score/` | Badge service + hook no cálculo | R2.b |
+| `agent/` | +6 tools novas | OPP, T3, V2, D1–D3 |
+| `fiscal/` | Novo `IRPFCalculator` para PF | T1, T2 |
+| `main.py` | Registrar scheduler no lifespan | todos os jobs |
+| `router.py` | Registrar routers dos 4 novos módulos | OPP, defense, rights, tax, viral |
+| `config.py` | SMTP/SendGrid, SVR_BACEN_BASE_URL | R1.c, T3 |
+
+### Novos módulos a criar do zero
+
+| Módulo | Features | Complexidade |
+|--------|----------|-------------|
+| `opportunities/` | OPP — dinheiro parado + comparação bancos | Média |
+| `defense/` | D1–D5 — defesa do consumidor | Alta |
+| `rights/` | T3 — direitos esquecidos | Média |
+| `tax/` | T1/T2 — IR optimizer | Alta |
+| `viral/` | V1/V2 — wrapped + placar compartilhável | Média |
+| `jobs/` | Todos os jobs do scheduler | Baixa |
+
+---
+
+## 7. O QUE NÃO MUDA
+
+Módulos sólidos que não precisam de alteração estrutural para o roadmap:
+
+- `backend/app/forecast/` — ETL, cashflow, safe-to-spend: completo
+- `backend/app/architect/` — simulador de financiamento/consórcio: completo
+- `backend/app/optimizer/` — otimizador de cartões: completo
+- `backend/app/divider/` — classificador PF/PJ: completo
+- `backend/app/purchase/` — F7 modo compra: completo
+- `backend/app/budget/` — orçamento 50/30/20: completo
+- `backend/app/subscriptions/` — detector de assinaturas: completo
+- `backend/app/goals/` — metas financeiras: completo
+- `backend/app/peers/` — comparação com pares: completo
+- `backend/app/core/security.py` — JWT auth: completo
+- `backend/app/core/cache.py` — Redis cache: completo
+- `backend/app/architect/connectors/` — BACEN/ANBIMA/IPCA: completo
+- `frontend-react/` — frontend atual é de teste; nova UI planejada do zero com 2 páginas
