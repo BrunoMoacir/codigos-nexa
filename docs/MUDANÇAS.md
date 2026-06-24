@@ -6,6 +6,10 @@ organizado por camada: infraestrutura → banco de dados → módulos existentes
 > **Auditoria de 2026-06-24:** conferido linha a linha contra `backend/app/`, `backend/alembic/versions/` e
 > `backend/tests/`. Correções estão marcadas com "↳ verificado". Nenhum conteúdo original foi removido.
 
+> **Revisão complementar de 2026-06-24:** corrigidas inconsistências de contagem, unidades das séries BACEN,
+> maturidade do frontend e viabilidade presumida de APIs externas. Este documento descreve uma proposta técnica;
+> itens externos ou jurídicos só podem virar compromisso de sprint depois de uma spike de validação.
+
 ---
 
 ## 1. INFRAESTRUTURA — Bloqueadores Críticos
@@ -51,6 +55,10 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()       # adicionar
 ```
 
+**Requisito de produção:** não executar um APScheduler independente em cada worker/réplica do FastAPI.
+Usar um worker dedicado ou lock distribuído (Redis/PostgreSQL), com jobs idempotentes, para impedir execuções
+duplicadas. O lifespan acima é aceitável apenas para desenvolvimento ou instância única.
+
 ---
 
 ### 1.2 Sistema de Envio (bloqueia: R1.c Daily Digest)
@@ -84,6 +92,14 @@ SENDGRID_API_KEY: str | None = None
 ## 2. BANCO DE DADOS — Tabelas a Criar
 
 Novas tabelas via Alembic migration. Nenhuma tabela existente precisa ser removida.
+
+**Regras de modelagem antes da migration:**
+- alinhar `user_id` ao tipo `String` usado por `users.user_id` e adicionar foreign keys onde aplicável;
+- preferir `DATE` para competência mensal em vez de `VARCHAR(7)`;
+- não usar uma restrição que elimine cobranças duplicadas, pois duplicidade é evidência necessária para D2;
+- padronizar timestamps com timezone, índices, retenção e política de exclusão;
+- incluir idempotency key, tentativas e último erro nos fluxos de jobs e entrega;
+- documentar a extensão PostgreSQL necessária antes de usar `gen_random_uuid()`.
 
 ---
 
@@ -326,14 +342,15 @@ específico não existe.**
    @staticmethod
    def _fetch_market_rate_monthly() -> float:
        rates = BacenCreditConnector().get_rates()
-       return rates["rotativo_monthly"]   # SGS 20714 / 12 — taxa real de mercado p/ rotativo PF
+       return rates["rotativo_monthly"]   # SGS 20714 já vem em % a.m.; normalizar para decimal sem dividir por 12
    ```
    (a anuidade continua usando seu próprio benchmark — ver nota acima; não precisa de conector BACEN,
    mas pode evoluir para usar dados reais de mercado de anuidades se houver fonte confiável)
 
 3. **Novo trigger: `CHEQUE_ESPECIAL_ALTO`**
-   - Limite legal: 8% a.m. (Lei 14.905/2024)
-   - Detectar se usuário está pagando acima desse limite
+   - Comparar a taxa efetiva do contrato com a série BACEN e com a norma aplicável ao perfil/produto.
+   - O possível teto de 8% a.m. deve ser validado por jurídico com fonte, vigência, escopo e exceções antes
+     de ser codificado; não atribuir automaticamente essa regra à Lei 14.905/2024.
 
 4. **Persistir em `negotiation_history`** após geração de script
 
@@ -460,7 +477,7 @@ backend/data/bank_products.json    # catálogo curado de produtos bancários
 **Lógica central:**
 - Idle = avg_income_3m − avg_expenses_3m (acumulado por meses sem uso)
 - Ranqueia por `annual_rate_net_pct` (após IR, não taxa bruta)
-- CDI live via BacenConnector já existente (série 432)
+- CDI via `AnbimaConnector` já existente (BCB SGS série 12); a série 432 do `BacenConnector` é SELIC meta
 - Para LCI/LCA: equivalência bruta = taxa_lci / (1 − aliquota_ir)
 
 **Endpoint:**
@@ -514,23 +531,18 @@ backend/app/rights/
   models.py                         # RightsCheckResult, ForgottenRight
   router.py                         # GET /rights/{user_id}
   services/
-    svr_bacen_client.py             # SVR BACEN: valores a receber (API pública)
-    fgts_checker.py                 # FGTS via API Caixa / scraping
-    pis_pasep_checker.py            # PIS/PASEP via Dataprev (scraping ou API gov)
+    svr_bacen_client.py             # SVR BACEN: integração condicionada a canal oficial autorizado
+    fgts_checker.py                 # FGTS: viabilidade/autorização a validar; fallback para orientação ao usuário
+    pis_pasep_checker.py            # PIS/PASEP: viabilidade/autorização a validar
     ir_restituicao_checker.py       # Restituição IR via Receita Federal
 ```
 
-**APIs públicas a integrar:**
-```
-SVR BACEN:    https://valoresareceber.bcb.gov.br/publico/api/cpf/{cpf}
-FGTS:         https://acessoseguro.saque-fgts.caixa.gov.br/cidadao/api/v1/fgts
-PIS/PASEP:    https://servicos.dataprev.gov.br/pis-pasep/api/v1/consultar
-```
-
-**Notas:**
-- SVR BACEN é pública e gratuita, sem autenticação
-- FGTS requer CPF + login GOV.BR (pode redirecionar ou instruir usuário)
-- PIS/PASEP: Dataprev tem API; verificar documentação atual
+**Spike obrigatória de viabilidade:**
+- confirmar documentação oficial, autenticação, autorização de uso e tratamento de CPF para cada fonte;
+- os caminhos anteriormente tratados como APIs retornaram HTML ou não resolveram DNS na auditoria, portanto
+  não devem ser usados como contrato de integração;
+- quando não houver API oficial, oferecer link/orientação ao usuário em vez de scraping de área autenticada;
+- registrar análise LGPD, consentimento, retenção e base legal antes de armazenar resultados.
 
 ---
 
@@ -603,9 +615,9 @@ class BacenCreditConnector(BaseConnector):
 
 ```python
 # backend/app/rights/services/svr_bacen_client.py
-# API pública: GET https://valoresareceber.bcb.gov.br/publico/api/cpf/{cpf_hash}
-# Retorna: lista de instituições com saldo a receber
-# Autenticação: nenhuma — só precisa do CPF (hasheado conforme spec do BCB)
+# A definir somente após confirmação de uma API oficial documentada e autorizada.
+# A URL pública do portal não deve ser presumida como endpoint JSON por CPF.
+# Fallback seguro: direcionar o usuário ao serviço oficial sem coletar credenciais GOV.BR.
 ```
 
 ---
@@ -628,7 +640,7 @@ POST /api/v1/webhooks/pluggy
 | # | O que muda | Arquivo(s) | Desbloqueia |
 |---|-----------|------------|-------------|
 | 1 | Criar scheduler APScheduler | `core/scheduler.py` + `main.py` | D2, D4, R1.c, OPP, V2 |
-| 2 | Migration: 7 tabelas novas | Alembic `versions/` | D1–D4, R2.b, R1.c, OPP |
+| 2 | Migration: 8 tabelas novas | Alembic `versions/` | D1–D4, R2.b, R1.c, OPP |
 | 3 | Novo conector BACEN crédito | `connectors/bacen_credit.py` | D3 (juros abusivos reais) |
 | 4 | Persistir F5 em `bank_fee_history` | `costs/bank_fee_analyzer.py` | D1, D2, D4 |
 | 5 | `NotificationEngine` desacoplado | `notifications/engine.py` | D4, R1.c, R1.d |
@@ -644,7 +656,7 @@ POST /api/v1/webhooks/pluggy
 | `agent/` | +6 tools novas | OPP, T3, V2, D1–D3 |
 | `fiscal/` | Novo `IRPFCalculator` para PF | T1, T2 |
 | `main.py` | Registrar scheduler no lifespan | todos os jobs |
-| `router.py` | Registrar routers dos 4 novos módulos | OPP, defense, rights, tax, viral |
+| `router.py` | Registrar routers dos 5 novos módulos | OPP, defense, rights, tax, viral |
 | `config.py` | SMTP/SendGrid, SVR_BACEN_BASE_URL | R1.c, T3 |
 
 ### Novos módulos a criar do zero
@@ -660,9 +672,10 @@ POST /api/v1/webhooks/pluggy
 
 ---
 
-## 7. O QUE NÃO MUDA
+## 7. BASES EXISTENTES A REUTILIZAR
 
-Módulos sólidos que não precisam de alteração estrutural para o roadmap:
+Módulos existentes que podem ser reutilizados. “Reutilizar” não significa que estejam completos para todos os
+cenários do roadmap; cada integração nova ainda exige contrato, testes e critérios de aceite.
 
 - `backend/app/forecast/` — ETL, cashflow, safe-to-spend: completo
 - `backend/app/architect/` — simulador de financiamento/consórcio: completo
@@ -676,7 +689,8 @@ Módulos sólidos que não precisam de alteração estrutural para o roadmap:
 - `backend/app/core/security.py` — JWT auth: completo
 - `backend/app/core/cache.py` — Redis cache: completo
 - `backend/app/architect/connectors/` — BACEN/ANBIMA/IPCA: completo
-- `frontend-react/` — frontend atual é de teste; nova UI planejada do zero com 2 páginas
+- `frontend-react/` — frontend funcional com 7 páginas, autenticação e integrações de API; a visão de 2 páginas
+  é um redesign futuro e precisa de plano de migração, não de descarte automático
 
 ---
 
@@ -697,5 +711,20 @@ marcadas com "↳ verificado" nas seções acima):
 | Fiscal só MEI/PJ, sem IRPF (§3.6) | Confirmado — `fiscal/` só tem DAS/Simples Nacional, sem cálculo de IR sobre CDB/LCI/LCA |
 | `opportunities/`, `defense/`, `rights/`, `tax/`, `viral/` (§4) | Nenhuma dessas pastas existe — 100% greenfield (corrige a seção "Arquivos Criados como Base Técnica" do ROADMAP.md, que afirmava o contrário) |
 | Conectores BACEN existentes (§5.1) | 8 conectores em `architect/connectors/`: `bacen.py` (SELIC, séries 432/4390), `anbima.py` (CDI, série 12), `ipca.py` (série 433 + IBGE SIDRA), `market_rates.py` (CETs, séries 25497/25501/20722), `abac.py`, `consortium_rate_provider.py`, `real_estate.py`, `base.py`. Nenhum cobre as séries de rotativo/cheque especial (20714/20715/20706/25433) |
-| Seção 7 "O que não muda" | Confirmado para todos os módulos listados — todos têm `router.py` + services e estão registrados em `api/v1/router.py`. `optimizer/` cresceu desde a versão anterior deste documento (novos detectores: `life_stage_detector.py`, `personal_baseline.py`, `trend_detector.py`, `opportunity_score.py`), reforçando que está "completo" e até mais maduro |
-| Testes | 1.757 testes coletados via `pytest --collect-only` (2026-06-24); 3 erros de coleção conhecidos (ver ROADMAP.md) |
+| Seção 7 "Bases existentes" | Os módulos listados existem e seus routers aplicáveis estão registrados. Nem todos possuem pasta `services/`, e “existente” não equivale a “completo”. O `optimizer/` ganhou `life_stage_detector.py`, `personal_baseline.py`, `trend_detector.py` e `opportunity_score.py` |
+| Frontend | 7 páginas reais (`home`, `dashboard`, `goals`, `strategies`, `connections`, `chat`, `profile`) e 4 arquivos de teste frontend; não é apenas um frontend de teste |
+| Testes | 1.757 testes coletados via `pytest --collect-only` (2026-06-24), mas a coleção termina com 3 erros; isso não deve ser descrito como suíte passando nem como cobertura comprovada |
+
+---
+
+## 9. Gaps Transversais Ainda Não Detalhados
+
+1. **Fonte única de dependências:** `pyproject.toml` e `requirements.txt` divergem em versões e bibliotecas.
+   Definir qual arquivo governa build, CI e produção antes de adicionar scheduler ou novos SDKs.
+2. **Critérios de aceite:** cada feature deve declarar entrada, saída, regra de negócio, fallback, observabilidade,
+   testes mínimos e definição de pronto.
+3. **Segurança e LGPD:** documentar consentimento, minimização de CPF/dados bancários, retenção, exclusão,
+   auditoria de acesso e proibição de armazenar credenciais GOV.BR.
+4. **Operação:** definir retries, timeout, circuit breaker, idempotência, métricas, alertas e runbook para jobs e APIs.
+5. **Frontend:** mapear as 7 páginas atuais para a futura experiência de Feed + Chat e preservar funções sem
+   concentrar toda a complexidade em uma única tela.

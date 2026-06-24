@@ -43,7 +43,7 @@ Interface de conversa direta com o agente LangGraph ReAct.
 | M4.1 | Fiscal PJ | Relatório fiscal para MEI e PJ |
 | MX.1 | Health Score | Score financeiro 0–100 com histórico mensal |
 | MX.2 | Metas Financeiras | Rastreamento de objetivos com projeção de prazo |
-| MX.3 | Notificações Proativas | Alertas contextuais em tempo real |
+| MX.3 | Notificações Contextuais | Parcial: geração sob demanda via API; scheduler e entrega ainda não existem |
 | MX.4 | Peers | Benchmark anônimo com perfis financeiros similares |
 | AI Chat | Agente LangGraph ReAct | Consultor financeiro conversacional com 15 tools |
 
@@ -137,8 +137,8 @@ Bradesco, Santander, BB, Caixa, Sicoob, Tesouro Direto.
 
 | ID | Funcionalidade | Prioridade | Status |
 |----|----------------|------------|--------|
-| R1.a | F7 Modo Compra no momento da compra | — | Implementado |
-| R1.b | MX.3 Notificações proativas | — | Implementado |
+| R1.a | F7 Modo Compra no momento da compra | — | Parcial — endpoint de análise implementado; experiência contextual/checkout ausente |
+| R1.b | MX.3 Notificações proativas | — | Parcial — regras e endpoint implementados; execução automática e entrega ausentes |
 | R1.c | Daily digest (email ou push) | Média | A desenvolver — requer scheduler |
 | R1.d | Widget safe-to-spend (homescreen mobile) | Baixa | Requer app mobile |
 | R2.a | OPP Radar de Produtos | — | A desenvolver (ver acima) |
