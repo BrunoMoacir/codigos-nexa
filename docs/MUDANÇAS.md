@@ -3,6 +3,9 @@
 Este documento mapeia cada mudança técnica necessária para implementar as features do ROADMAP.md,
 organizado por camada: infraestrutura → banco de dados → módulos existentes → novos módulos.
 
+> **Auditoria de 2026-06-24:** conferido linha a linha contra `backend/app/`, `backend/alembic/versions/` e
+> `backend/tests/`. Correções estão marcadas com "↳ verificado". Nenhum conteúdo original foi removido.
+
 ---
 
 ## 1. INFRAESTRUTURA — Bloqueadores Críticos
@@ -253,6 +256,13 @@ Módulos que já existem mas precisam ser modificados para suportar o roadmap.
 `BankFeeAnalyzer.analyze()` calcula snapshot do período mas não persiste.
 Sem histórico, não dá para detectar D4 (aumento unilateral) nem D2 (cobrança indevida nova).
 
+↳ **verificado 2026-06-24:** já existe `backend/app/costs/market_fees_db.py` com uma `MarketFeesDB` — uma tabela
+estática hardcoded (`_BANK_FEES_DB`) com a tarifa mensal média por banco, usada hoje pelo `BankFeeAnalyzer` para
+calcular `_calc_savings_opportunity`. Ou seja, **já existe comparação com benchmark de mercado** — o que falta não
+é a comparação em si, é (a) tornar esse benchmark dinâmico/histórico em vez de estático no código, e (b) persistir
+o histórico **por usuário** (`bank_fee_history`) para poder detectar variação mês a mês, que é o que realmente
+falta para D2/D4.
+
 **O que muda:**
 
 1. **Persistir resultado em `bank_fee_history`**
@@ -281,9 +291,20 @@ Sem histórico, não dá para detectar D4 (aumento unilateral) nem D2 (cobrança
 ### 3.2 `backend/app/negotiator/` — F13: Negociador
 **Mudanças necessárias para:** D3
 
-**Problema atual:**
-`_detect_juros_rotativo()` compara com taxa hardcoded (`_ANUIDADE_MARKET_MONTHLY_AVG = 30.0`),
-não com a taxa real BACEN.
+**Problema atual (corrigido — verificado 2026-06-24):**
+A descrição original deste documento estava imprecisa. O que existe de fato em
+`backend/app/negotiator/opportunity_detector.py`:
+
+- `_detect_juros_rotativo()` (linha 126) **já busca a taxa de mercado dinamicamente** via
+  `_fetch_market_rate_monthly()` (linha 291), que chama `BacenConnector().get_selic()` e soma um spread fixo de
+  2,5 p.p. — com fallback de 3,99% a.m. se a API do BACEN cair. **Não é hardcoded.**
+- `_ANUIDADE_MARKET_MONTHLY_AVG = 30.0` (linha 36) existe, sim, mas é usado por `_detect_anuidade_alta()`
+  (trigger de anuidade alta), um detector **diferente** do de juros rotativo.
+
+O problema real não é "hardcode vs. BACEN" — é que a taxa usada para juros rotativo é uma aproximação genérica
+(SELIC + spread de CDC), e não a série SGS específica de crédito rotativo PF (20714/20715) ou cheque especial
+(20706), que o BACEN publica e que dão um benchmark muito mais preciso para alegar abuso. **Esse conector
+específico não existe.**
 
 **O que muda:**
 
@@ -297,15 +318,18 @@ não com a taxa real BACEN.
        _ROTATIVO_MAX_SERIES = 20715
    ```
 
-2. **Substituir hardcode pelo conector**
+2. **Trocar a aproximação SELIC+spread pela série SGS real**
    ```python
    # opportunity_detector.py
-   # ANTES: market_rate = _ANUIDADE_MARKET_MONTHLY_AVG
+   # ANTES (linha 291): SELIC + spread de 2.5 p.p., fallback 3.99% a.m.
    # DEPOIS:
-   def _fetch_market_rate_monthly(self) -> float:
+   @staticmethod
+   def _fetch_market_rate_monthly() -> float:
        rates = BacenCreditConnector().get_rates()
-       return rates["rotativo_monthly"]   # SGS 20714 / 12
+       return rates["rotativo_monthly"]   # SGS 20714 / 12 — taxa real de mercado p/ rotativo PF
    ```
+   (a anuidade continua usando seu próprio benchmark — ver nota acima; não precisa de conector BACEN,
+   mas pode evoluir para usar dados reais de mercado de anuidades se houver fonte confiável)
 
 3. **Novo trigger: `CHEQUE_ESPECIAL_ALTO`**
    - Limite legal: 8% a.m. (Lei 14.905/2024)
@@ -653,3 +677,25 @@ Módulos sólidos que não precisam de alteração estrutural para o roadmap:
 - `backend/app/core/cache.py` — Redis cache: completo
 - `backend/app/architect/connectors/` — BACEN/ANBIMA/IPCA: completo
 - `frontend-react/` — frontend atual é de teste; nova UI planejada do zero com 2 páginas
+
+---
+
+## 8. Checklist de Verificação (auditoria 2026-06-24)
+
+Itens conferidos diretamente no código e confirmados como **corretos sem alteração** (além das correções já
+marcadas com "↳ verificado" nas seções acima):
+
+| Item | Confirmado |
+|------|-----------|
+| Scheduler de jobs (§1.1) | Não existe nada — nem `core/scheduler.py`, nem `app/jobs/`, nem APScheduler/Celery no projeto |
+| Sistema de envio (§1.2) | Não existe — `notifications/` tem só `notifier.py`, `router.py`, `state_store.py`, `relevance_filter.py`; nenhum `email_sender`/`push_sender`/`delivery_service` |
+| As 8 tabelas novas (§2) | Nenhuma existe; migrations atuais (6 arquivos em `alembic/versions/`) cobrem `users`, `health_score_history`, `transactions_clean`, `context_overrides`, goals/architect/optimizer, `chat_messages`, feedback/calibration e (mais recente) `recommendation_feedback` — nenhuma delas é uma das 8 propostas aqui |
+| `negotiation_history` não é persistido (§3.2) | Confirmado — `opportunity_detector.py` só retorna lista em memória |
+| Notificações são só reativas (§3.3) | Confirmado — geradas só no `GET /notifications/{user_id}` |
+| Health Score sem badges (§3.4) | Confirmado — `health_score/` só tem `models.py`/`router.py`, sem gamificação |
+| Agent com 15 tools (§3.5) | Confirmado — 15 arquivos em `app/agent/tools/`, nomes batem com a lista do ROADMAP.md |
+| Fiscal só MEI/PJ, sem IRPF (§3.6) | Confirmado — `fiscal/` só tem DAS/Simples Nacional, sem cálculo de IR sobre CDB/LCI/LCA |
+| `opportunities/`, `defense/`, `rights/`, `tax/`, `viral/` (§4) | Nenhuma dessas pastas existe — 100% greenfield (corrige a seção "Arquivos Criados como Base Técnica" do ROADMAP.md, que afirmava o contrário) |
+| Conectores BACEN existentes (§5.1) | 8 conectores em `architect/connectors/`: `bacen.py` (SELIC, séries 432/4390), `anbima.py` (CDI, série 12), `ipca.py` (série 433 + IBGE SIDRA), `market_rates.py` (CETs, séries 25497/25501/20722), `abac.py`, `consortium_rate_provider.py`, `real_estate.py`, `base.py`. Nenhum cobre as séries de rotativo/cheque especial (20714/20715/20706/25433) |
+| Seção 7 "O que não muda" | Confirmado para todos os módulos listados — todos têm `router.py` + services e estão registrados em `api/v1/router.py`. `optimizer/` cresceu desde a versão anterior deste documento (novos detectores: `life_stage_detector.py`, `personal_baseline.py`, `trend_detector.py`, `opportunity_score.py`), reforçando que está "completo" e até mais maduro |
+| Testes | 1.757 testes coletados via `pytest --collect-only` (2026-06-24); 3 erros de coleção conhecidos (ver ROADMAP.md) |

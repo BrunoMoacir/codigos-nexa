@@ -3,6 +3,11 @@
 **Visão:** Um app que otimiza cada centavo do usuário, sem parcialidade entre bancos.
 O consultor financeiro que os bancos não querem que você tenha.
 
+> **Auditoria de 2026-06-24:** este documento foi conferido linha a linha contra o código real
+> (`backend/app/`, `backend/alembic/versions/`, `backend/tests/`). Onde a afirmação original estava
+> errada ou desatualizada, foi corrigida no lugar e marcada com "↳ verificado". Nenhum conteúdo
+> original foi removido — apenas corrigido ou complementado.
+
 ---
 
 ## App — Estrutura Final (2 páginas)
@@ -42,8 +47,14 @@ Interface de conversa direta com o agente LangGraph ReAct.
 | MX.4 | Peers | Benchmark anônimo com perfis financeiros similares |
 | AI Chat | Agente LangGraph ReAct | Consultor financeiro conversacional com 15 tools |
 
-**Infra:** Python 3.12 + FastAPI + PostgreSQL + DuckDB + Redis + LangGraph + Anthropic/OpenAI
-**Testes:** 414 passando, cobertura 89%
+**Infra:** Python 3.11+ (`pyproject.toml`, roda em 3.13 localmente) + FastAPI + PostgreSQL + DuckDB + Redis + LangGraph + LangChain.
+↳ **verificado 2026-06-24:** Anthropic/OpenAI são usados via import dinâmico (`architect/services/llm_reasoner.py`,
+`negotiator/script_generator.py`) e via `langchain-anthropic`/`langchain-openai`; os SDKs puros `anthropic`/`openai`
+não estão pinados em `requirements.txt`.
+**Testes:** ↳ **verificado 2026-06-24:** 1.757 testes coletados via `pytest --collect-only` (o número "414 passando,
+cobertura 89%" está desatualizado e não há relatório de cobertura no repo). 3 erros de coleção conhecidos:
+`test_goals_2.py` (conflito de tabela SQLite `financial_goals` ao rodar em paralelo), `tests/architect/test_api.py`,
+`tests/test_e2e_production_ready.py`.
 
 ---
 
@@ -56,12 +67,20 @@ Interface de conversa direta com o agente LangGraph ReAct.
 |----|----------------|------------|--------------|------------------------|
 | D1 | Detector de Venda Casada (CDC art. 39) | Alta | 2–3 sem | F5 costs + Pluggy |
 | D2 | Recuperador de Cobranças Indevidas | Alta | 2–3 sem | F5 + baseline histórico |
-| D3 | Detector de Juros Abusivos (BACEN SGS 20714/20715 + STJ REsp 1.061.530) | Alta | 1–2 sem | F13 + BacenConnector |
+| D3 | Detector de Juros Abusivos (BACEN SGS 20714/20715 + STJ REsp 1.061.530) | Alta | 1–2 sem | F13 + BacenConnector (parcial — ver nota ↓) |
 | D4 | Alerta de Mudança Unilateral de Tarifa | Média | 1–2 sem | MX.3 + baseline banco |
 | D5 | Central de Evidências (dossiê PROCON / JEC) | Média | 4+ sem | D1+D2+D3 + validação jurídica |
 | D6 | Simulador de Portabilidade Total (conta + cartão + crédito + salário + investimentos) | Baixa | 4+ sem | F3 + Res. BACEN 4.292/2013 |
 
 **Fluxo D5 (maior impacto):** Detecta → Calcula valor a recuperar → Gera dossiê → Modelo de petição JEC
+
+↳ **Nota sobre D3 (verificado 2026-06-24):** `backend/app/negotiator/opportunity_detector.py` já tem um detector
+de juros rotativo (`_detect_juros_rotativo`) que busca a SELIC via `BacenConnector` dinamicamente (com fallback de
+3,99% a.m. se a API cair) — **não é hardcoded**. O que falta é trocar essa aproximação genérica (SELIC + spread)
+pelas séries SGS específicas de crédito rotativo PF (20714/20715) e cheque especial (20706), que ainda não têm
+conector (ver [MUDANÇAS.md §3.2 e §5.1](MUDANÇAS.md)). Já existe, sim, um valor hardcoded no mesmo arquivo —
+`_ANUIDADE_MARKET_MONTHLY_AVG = 30.0` — mas ele é usado pelo detector de **anuidade alta** (`_detect_anuidade_alta`),
+não pelo de juros rotativo.
 
 ---
 
@@ -191,16 +210,19 @@ Sem isso, não lançar D5/D6 para evitar responsabilidade por orientação jurí
 
 ## Arquivos Criados como Base Técnica
 
-Os arquivos abaixo foram criados como rascunho estrutural do módulo OPP,
-mas o desenvolvimento completo não foi iniciado ainda:
+> ⚠️ **Correção (verificado 2026-06-24):** nenhum dos arquivos abaixo existe no repositório atual.
+> `backend/app/opportunities/` **não existe** (nenhum arquivo, nenhuma pasta) e `backend/data/bank_products.json`
+> **não existe**. O módulo OPP é 100% greenfield — não há rascunho estrutural iniciado, contrário ao que esta
+> seção afirmava antes. A lista abaixo é mantida como **proposta de estrutura inicial** (não como inventário do
+> que já existe):
 
-- `backend/data/bank_products.json` — catálogo curado de 19 produtos de 12 bancos
-- `backend/app/opportunities/__init__.py` — módulo vazio
-- `backend/app/opportunities/models.py` — modelos Pydantic (request/response)
-- `backend/app/opportunities/services/__init__.py` — pasta de serviços vazia
-- `backend/app/opportunities/services/bank_comparator.py` — rascunho do comparador
+- `backend/data/bank_products.json` — catálogo curado de produtos por banco (a criar)
+- `backend/app/opportunities/__init__.py` — módulo (a criar)
+- `backend/app/opportunities/models.py` — modelos Pydantic (request/response) (a criar)
+- `backend/app/opportunities/services/__init__.py` — pasta de serviços (a criar)
+- `backend/app/opportunities/services/bank_comparator.py` — comparador (a criar)
 
-Nenhum router foi registrado — não quebra nada no estado atual.
+Nenhum router está registrado em `backend/app/api/v1/router.py` — começar este módulo não quebra nada no estado atual.
 
 ---
 
@@ -208,8 +230,8 @@ Nenhum router foi registrado — não quebra nada no estado atual.
 
 | Métrica | Estado Atual | Meta 6 meses |
 |---------|--------------|--------------|
-| Módulos implementados | 15 | 22+ |
-| Cobertura de testes | 89% | ≥ 85% |
+| Módulos implementados | 15 (todos confirmados registrados em `api/v1/router.py`, verificado 2026-06-24) | 22+ |
+| Cobertura de testes | desconhecida — sem relatório no repo (1.757 testes coletados via pytest em 2026-06-24; "89%" não pôde ser confirmado) | ≥ 85% |
 | Valor identificado por usuário/mês | — | R$50–500/mês |
 | Features de defesa do consumidor | 0 | 4 (D1–D4) |
 | Tempo até primeiro insight após conexão | — | < 30s |
