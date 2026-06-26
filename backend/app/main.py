@@ -68,9 +68,23 @@ def _create_db_tables() -> None:
 async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────
     _create_db_tables()
+
+    from app.core.scheduler import scheduler, register_jobs
+    if settings.SCHEDULER_ENABLED:
+        register_jobs()
+        scheduler.start()
+        logger.info("[Scheduler] Iniciado com %d jobs", len(scheduler.get_jobs()))
+    else:
+        logger.info("[Scheduler] Desativado (SCHEDULER_ENABLED=false)")
+
     yield
     # ── Shutdown ─────────────────────────────────────────────────────
     logger.info("Shutting down Nexa API — closing DB and cache connections")
+
+    from app.core.scheduler import scheduler as _scheduler
+    if _scheduler.running:
+        _scheduler.shutdown(wait=False)
+        logger.info("[Scheduler] Encerrado")
     try:
         engine.dispose()
         logger.info("DB connection pool closed")

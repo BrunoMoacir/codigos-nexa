@@ -90,6 +90,11 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"   # "development" | "production"
     LOG_LEVEL: str = "INFO"
 
+    # Scheduler de jobs periódicos
+    # False em development — jobs não sobem automaticamente.
+    # True em produção para ativar fee_snapshot, opportunity_scan, etc.
+    SCHEDULER_ENABLED: bool = False
+
     @model_validator(mode="after")
     def _validate_production_secrets(self) -> "Settings":
         if self.APP_ENV == "production":

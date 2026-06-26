@@ -1,0 +1,82 @@
+"""
+app/core/scheduler.py — Scheduler de jobs periódicos (APScheduler)
+
+Jobs registrados:
+  02h00  fee_snapshot          D2/D4 — snapshot de tarifas bancárias por usuário
+  03h00  opportunity_scan      OPP   — detecta dinheiro parado para todos os usuários
+  04h00  health_score_snapshot MX.1  — persiste score diário para histórico
+  */6h   notification_scheduler MX.3 — gera notificações proativas sem o usuário abrir o app
+  07h00  daily_digest          R1.c  — compila eventos do dia e envia por email
+
+Controle:
+  SCHEDULER_ENABLED=true  em produção ativa os jobs.
+  Em development (padrão false) o scheduler sobe mas não agenda nada,
+  permitindo disparar jobs manualmente via endpoint de admin.
+"""
+
+import logging
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+logger = logging.getLogger(__name__)
+
+scheduler = AsyncIOScheduler(timezone="America/Sao_Paulo")
+
+
+def register_jobs() -> None:
+    """
+    Registra todos os jobs no scheduler.
+    Só deve ser chamado quando SCHEDULER_ENABLED=true.
+    """
+    from app.jobs.fee_snapshot import run_fee_snapshot
+    from app.jobs.opportunity_scan import run_opportunity_scan
+    from app.jobs.health_score_snapshot import run_health_score_snapshot
+    from app.jobs.notification_scheduler import run_notification_scheduler
+    from app.jobs.daily_digest import run_daily_digest
+
+    scheduler.add_job(
+        run_fee_snapshot,
+        CronTrigger(hour=2, minute=0),
+        id="fee_snapshot",
+        name="Fee Snapshot Diário (D2/D4)",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    scheduler.add_job(
+        run_opportunity_scan,
+        CronTrigger(hour=3, minute=0),
+        id="opportunity_scan",
+        name="Radar de Oportunidades (OPP)",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    scheduler.add_job(
+        run_health_score_snapshot,
+        CronTrigger(hour=4, minute=0),
+        id="health_score_snapshot",
+        name="Health Score Snapshot (MX.1)",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    scheduler.add_job(
+        run_notification_scheduler,
+        CronTrigger(hour="*/6"),
+        id="notification_scheduler",
+        name="Notificações Proativas (MX.3)",
+        replace_existing=True,
+        misfire_grace_time=1800,
+    )
+    scheduler.add_job(
+        run_daily_digest,
+        CronTrigger(hour=7, minute=0),
+        id="daily_digest",
+        name="Daily Digest (R1.c)",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
+    logger.info(
+        "[Scheduler] %d jobs registrados: %s",
+        len(scheduler.get_jobs()),
+        [j.id for j in scheduler.get_jobs()],
+    )

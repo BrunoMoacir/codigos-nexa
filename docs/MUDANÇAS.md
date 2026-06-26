@@ -19,7 +19,7 @@ Sem elas, 60%+ do roadmap não pode ser entregue.
 
 ---
 
-### 1.1 Scheduler de Jobs (bloqueia: D2, D4, R1.c, OPP, V2)
+### 1.1 Scheduler de Jobs (bloqueia: D2, D4, R1.c, OPP, V2) ✅ FEITO
 
 **Estado atual:** zero. Não existe nenhum job periódico no projeto.
 Todas as análises são reativas — só rodam quando o usuário abre o app.
