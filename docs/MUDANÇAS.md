@@ -19,45 +19,26 @@ Sem elas, 60%+ do roadmap não pode ser entregue.
 
 ---
 
-### 1.1 Scheduler de Jobs (bloqueia: D2, D4, R1.c, OPP, V2) ✅ FEITO
+### 1.1 Scheduler de Jobs (bloqueia: D2, D4, R1.c, OPP, V2) ✅ INFRAESTRUTURA PRONTA — jobs ainda são stubs
 
-**Estado atual:** zero. Não existe nenhum job periódico no projeto.
-Todas as análises são reativas — só rodam quando o usuário abre o app.
+**Implementado em:**
+- `backend/requirements.txt` e `backend/requirements.railway.txt` — `apscheduler>=3.10.0` adicionado em ambos
+- `backend/app/core/scheduler.py` — `AsyncIOScheduler` + `register_jobs()` com 5 jobs e seus horários
+- `backend/app/jobs/_base.py` — `get_active_user_ids()` + `@job_guard` com **lock distribuído Redis** (`SET NX EX 7200`) e fallback em memória
+- `backend/app/jobs/fee_snapshot.py` — stub 02h00 (D2/D4)
+- `backend/app/jobs/opportunity_scan.py` — stub 03h00 (OPP)
+- `backend/app/jobs/health_score_snapshot.py` — stub 04h00 (MX.1)
+- `backend/app/jobs/notification_scheduler.py` — stub a cada 6h (MX.3)
+- `backend/app/jobs/daily_digest.py` — stub 07h00 (R1.c)
+- `backend/app/core/config.py` — `SCHEDULER_ENABLED: bool = False` (ativa com env var em produção)
+- `backend/app/main.py` — lifespan sobe/derruba o scheduler conforme a flag
 
-**O que precisa existir:**
-Um scheduler leve integrado ao FastAPI, com jobs diários e mensais.
-
-**Proposta técnica:**
-```
-backend/app/core/scheduler.py       # APScheduler configurado e registrado no lifespan do FastAPI
-backend/app/jobs/                   # Pasta de jobs agendados
-  daily_digest.py                   # R1.c: compila eventos do dia e envia
-  fee_snapshot.py                   # D2/D4: persiste snapshot de tarifas por usuário
-  opportunity_scan.py               # OPP: detecta dinheiro parado para todos os usuários
-  health_score_snapshot.py          # MX.1: persiste score diário para histórico
-  notification_scheduler.py         # MX.3: gera notificações proativas (sem precisar o user abrir)
-```
-
-**Frequência dos jobs:**
-- `fee_snapshot`: diário, 02h00
-- `opportunity_scan`: diário, 03h00
-- `health_score_snapshot`: diário, 04h00
-- `daily_digest`: diário, 07h00 (após os anteriores)
-- `notification_scheduler`: a cada 6h
-
-**Impacto no main.py:**
-```python
-# backend/app/main.py
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    scheduler.start()          # adicionar
-    yield
-    scheduler.shutdown()       # adicionar
-```
-
-**Requisito de produção:** não executar um APScheduler independente em cada worker/réplica do FastAPI.
-Usar um worker dedicado ou lock distribuído (Redis/PostgreSQL), com jobs idempotentes, para impedir execuções
-duplicadas. O lifespan acima é aceitável apenas para desenvolvimento ou instância única.
+**Pendente (stubs serão preenchidos nos itens seguintes):**
+- Lógica real de `fee_snapshot` → item 3.1 (costs/)
+- Lógica real de `opportunity_scan` → item 4.1 (opportunities/)
+- Lógica real de `health_score_snapshot` → item 3.4 (health_score/)
+- Lógica real de `notification_scheduler` → item 3.3 (notifications/)
+- Lógica real de `daily_digest` → item 1.2 (sistema de envio)
 
 ---
 
