@@ -95,6 +95,21 @@ class Settings(BaseSettings):
     # True em produção para ativar fee_snapshot, opportunity_scan, etc.
     SCHEDULER_ENABLED: bool = False
 
+    # Email — remetente padrão
+    EMAIL_FROM: str = "noreply@nexa.app"
+    EMAIL_FROM_NAME: str = "Nexa"
+
+    # Backend SMTP (dev / self-hosted)
+    # Deixar SMTP_HOST vazio desativa o backend SMTP.
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+
+    # Backend SendGrid (produção recomendado)
+    # Tem precedência sobre SMTP quando definido.
+    SENDGRID_API_KEY: str | None = None
+
     @model_validator(mode="after")
     def _validate_production_secrets(self) -> "Settings":
         if self.APP_ENV == "production":

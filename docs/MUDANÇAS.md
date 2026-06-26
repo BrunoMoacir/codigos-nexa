@@ -42,37 +42,29 @@ Sem elas, 60%+ do roadmap não pode ser entregue.
 
 ---
 
-### 1.2 Sistema de Envio (bloqueia: R1.c Daily Digest)
+### 1.2 Sistema de Envio (bloqueia: R1.c Daily Digest) ✅ INFRAESTRUTURA PRONTA
 
-**Estado atual:** notificações existem apenas como payload JSON no endpoint.
-Não há envio real para push, email ou SMS.
+**Implementado em:**
+- `backend/app/core/notifications/email_sender.py` — dois backends: SendGrid (HTTP API v3 via `requests`) e SMTP (`smtplib` nativo). Se nenhum estiver configurado, ignora silenciosamente com log WARNING.
+- `backend/app/core/notifications/delivery_service.py` — consulta `user_settings.notification_channels` (quando a tabela existir, item 2.x); fallback: email se algum backend estiver configurado, senão `in_app`. Canal `push` reservado para quando o app mobile existir.
+- `backend/app/core/config.py` — novas vars: `EMAIL_FROM`, `EMAIL_FROM_NAME`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SENDGRID_API_KEY`.
 
-**O que precisa existir:**
-Canal de entrega. Para MVP: email (SMTP ou SendGrid).
-Para futura versão mobile: Firebase Cloud Messaging.
-
-**Proposta técnica:**
-```
-backend/app/core/notifications/
-  email_sender.py       # SMTP / SendGrid adapter
-  push_sender.py        # FCM adapter (futuro, quando tiver app mobile)
-  delivery_service.py   # orquestra qual canal usar por usuário
-```
-
-**Configuração nova em config.py:**
-```python
-SMTP_HOST: str = ""
-SMTP_PORT: int = 587
-SMTP_USER: str = ""
-SMTP_PASSWORD: str = ""
-SENDGRID_API_KEY: str | None = None
-```
+**Pendente:**
+- `push_sender.py` (FCM) → depende de app mobile (sem prazo)
+- Lógica real do `daily_digest.py` que chama `delivery_service.deliver()` → item R1.c (depois de 2.x)
 
 ---
 
-## 2. BANCO DE DADOS — Tabelas a Criar
+## 2. BANCO DE DADOS — Tabelas a Criar ✅ FEITO
 
 Novas tabelas via Alembic migration. Nenhuma tabela existente precisa ser removida.
+
+**Implementado em:** `backend/alembic/versions/e1a2b3c4d5f6_add_nexa_roadmap_tables.py`
+- Todas as 8 tabelas criadas com `upgrade()` + `downgrade()` completo
+- Índices criados: `idx_bank_fee_history_user`, `idx_notif_delivery_user`, `idx_notif_delivery_notif_id`, `idx_user_badges_user`, `idx_negotiation_history_user`, `idx_opp_snapshots_user`
+- Constraints de unicidade: `uq_bank_fee_history`, `uq_bank_fee_trends`, `uq_daily_digest_log`, `uq_user_badges`
+- Tipos seguem o padrão do projeto: `sa.String(36)` para IDs, `sa.Text()` para JSON, `sa.DateTime(timezone=True)` para timestamps
+- Chain Alembic verificada: `e1a2b3c4d5f6 ← f3a2b1c0d4e5`
 
 **Regras de modelagem antes da migration:**
 - alinhar `user_id` ao tipo `String` usado por `users.user_id` e adicionar foreign keys onde aplicável;
