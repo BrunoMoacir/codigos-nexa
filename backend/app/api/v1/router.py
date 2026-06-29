@@ -79,6 +79,9 @@ from app.opportunities.router import router as opportunities_router
 # Defense — Defesa do Consumidor (D1–D5)
 from app.defense.router import router as defense_router
 
+# Rights — Monitor de Direitos Esquecidos (T3)
+from app.rights.router import router as rights_router
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CRIAR ROUTER PRINCIPAL
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -156,3 +159,6 @@ router.include_router(opportunities_router)
 
 # Defense — Defesa do Consumidor
 router.include_router(defense_router)
+
+# Rights — Direitos Esquecidos (T3)
+router.include_router(rights_router)

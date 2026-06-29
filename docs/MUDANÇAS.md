@@ -574,7 +574,20 @@ def calc_monetary_correction(
 
 ---
 
-### 4.3 `backend/app/rights/` — T3: Monitor de Direitos Esquecidos
+### 4.3 `backend/app/rights/` — T3: Monitor de Direitos Esquecidos ✅ FEITO
+
+**Implementado em:**
+- `backend/app/rights/__init__.py`
+- `backend/app/rights/models.py` — `ForgottenRight`, `RightsResponse` (Pydantic)
+- `backend/app/rights/services/svr_bacen_client.py` — heurística via bank_fee_history + orientação portal SVR
+- `backend/app/rights/services/fgts_checker.py` — detecta padrão CLT nas transações, estima 8% × meses
+- `backend/app/rights/services/pis_pasep_checker.py` — verifica elegibilidade abono salarial (≤5 SM), orienta CEF/BB
+- `backend/app/rights/services/ir_restituicao_checker.py` — escaneia transações por IRRF retido, orienta e-CAC
+- `backend/app/rights/router.py` — `GET /rights/{user_id}` (require_owner)
+- `backend/app/api/v1/router.py` — `rights_router` registrado
+
+**Abordagem:** sem scraping e sem chamadas a APIs privadas — toda verificação real é feita pelo usuário
+nos canais oficiais. Os checkers usam transações Pluggy para contextualizar relevância e estimar valores.
 
 **Proposta de estrutura:**
 ```
