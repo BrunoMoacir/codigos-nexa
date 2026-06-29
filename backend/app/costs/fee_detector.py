@@ -89,6 +89,8 @@ _BANK_KEYWORD_RES = [(re.compile(p), name) for p, name in _BANK_KEYWORDS]
 _FEE_PATTERNS: list[tuple[FeeType, re.Pattern]] = [
     (FeeType.ANUIDADE_CARTAO,    re.compile(r"\banuidade\b|\bannual.?fee\b")),
     (FeeType.SEGURO_PRESTAMISTA, re.compile(r"\bseguro\s+(prestamista|vida|credito|credit)\b")),
+    # SEGURO_EMBUTIDO: seguros não-crédito vinculados a produtos bancários — correlação D1 completa fica em defense/
+    (FeeType.SEGURO_EMBUTIDO,    re.compile(r"\bseguro\s+(habitacional|automovel|residencial|protecao|garantia|cobertura)\b")),
     (FeeType.PACOTE_SERVICOS,    re.compile(r"\bpacote\s+(de\s+)?(servicos?|tarifas?)\b")),
     (FeeType.JUROS_ROTATIVO,     re.compile(r"\bjuros\b|\bencargo\b|\brotativo\b|\bjuro\s+rotativo\b")),
     (FeeType.IOF,                re.compile(r"\biof\b|\bimposto\s+sobre\s+operac")),

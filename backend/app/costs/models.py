@@ -18,7 +18,8 @@ class FeeType(str, Enum):
     TED_DOC            = "TED_DOC"             # transferências com custo
     SAQUE              = "SAQUE"               # saque em caixa eletrônico
     JUROS_ROTATIVO     = "JUROS_ROTATIVO"      # juros do crédito rotativo
-    SEGURO_PRESTAMISTA = "SEGURO_PRESTAMISTA"  # seguro embutido em crédito
+    SEGURO_PRESTAMISTA = "SEGURO_PRESTAMISTA"  # seguro de vida/crédito em operação de crédito
+    SEGURO_EMBUTIDO    = "SEGURO_EMBUTIDO"     # seguro habitacional/auto/residencial — sinal de D1 (venda casada)
     PACOTE_SERVICOS    = "PACOTE_SERVICOS"     # pacote mensal de serviços
     IOF                = "IOF"                 # IOF em operações de crédito
     OUTROS_CUSTOS      = "OUTROS_CUSTOS"       # tarifas não classificadas

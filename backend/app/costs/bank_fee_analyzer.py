@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import uuid
 from collections import defaultdict
 from datetime import date
 
@@ -115,6 +116,169 @@ class BankFeeAnalyzer:
             warnings=warnings,
             data_sources=data_sources,
         )
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # MÉTODOS DE HISTÓRICO (usam bank_fee_history / bank_fee_trends)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def persist_snapshot(self, report: BankCostReport) -> None:
+        """
+        Persiste o snapshot de tarifas do report em bank_fee_history.
+
+        Agrega por (month, bank_name, fee_type) antes de inserir para respeitar
+        a constraint UNIQUE. Chame APÓS detect_new_fees() — o detector lê o
+        histórico *antes* de este snapshot ser salvo.
+
+        Falha silenciosamente: se a tabela ainda não existir (migration pendente)
+        ou a DB estiver inacessível, apenas loga WARNING e retorna.
+        """
+        if not report.fees_detected:
+            return
+
+        agg: dict[tuple[str, str, str], dict] = defaultdict(
+            lambda: {"amount": 0.0, "description": ""}
+        )
+        for fee in report.fees_detected:
+            key = (fee.transaction_date.strftime("%Y-%m"), fee.bank_name, fee.fee_type.value)
+            agg[key]["amount"] += fee.amount
+            agg[key]["description"] = fee.description
+
+        try:
+            from app.core.database import SessionLocal
+            from sqlalchemy import text
+
+            with SessionLocal() as db:
+                for (month, bank_name, fee_type), data in agg.items():
+                    db.execute(
+                        text(
+                            "INSERT INTO bank_fee_history"
+                            " (id, user_id, month, bank_name, fee_type, amount, description)"
+                            " VALUES (:id, :uid, :month, :bank, :ftype, :amount, :desc)"
+                            " ON CONFLICT ON CONSTRAINT uq_bank_fee_history DO NOTHING"
+                        ),
+                        {
+                            "id": str(uuid.uuid4()),
+                            "uid": report.user_id,
+                            "month": month,
+                            "bank": bank_name,
+                            "ftype": fee_type,
+                            "amount": round(data["amount"], 2),
+                            "desc": data["description"],
+                        },
+                    )
+                db.commit()
+            logger.info(
+                "BankFeeAnalyzer | persisted %d fee-type rows for user=%s",
+                len(agg),
+                report.user_id,
+            )
+        except Exception as exc:
+            logger.warning("BankFeeAnalyzer | persist_snapshot falhou: %s", exc)
+
+    @staticmethod
+    def detect_new_fees(user_id: str, current_fees: list[FeeEntry]) -> list[FeeEntry]:
+        """
+        Retorna as tarifas em current_fees cujo (bank_name, fee_type) nunca
+        apareceu antes no histórico desse usuário.
+
+        Deve ser chamado ANTES de persist_snapshot() para que o histórico
+        consultado ainda não contenha o período atual.
+
+        Retorna lista vazia em caso de erro (falha graciosamente).
+        """
+        if not current_fees:
+            return []
+
+        try:
+            from app.core.database import SessionLocal
+            from sqlalchemy import text
+
+            with SessionLocal() as db:
+                rows = db.execute(
+                    text(
+                        "SELECT DISTINCT bank_name, fee_type"
+                        " FROM bank_fee_history"
+                        " WHERE user_id = :uid"
+                    ),
+                    {"uid": user_id},
+                ).fetchall()
+
+            known = {(r[0], r[1]) for r in rows}
+            return [
+                fee for fee in current_fees
+                if (fee.bank_name, fee.fee_type.value) not in known
+            ]
+
+        except Exception as exc:
+            logger.warning("BankFeeAnalyzer | detect_new_fees falhou: %s", exc)
+            return []
+
+    @staticmethod
+    def compare_to_market_baseline(user_id: str, bank_name: str) -> dict:
+        """
+        Compara o custo médio mensal do usuário neste banco com o benchmark de mercado.
+
+        Prioridade de fonte do benchmark:
+          1. bank_fee_trends (dinâmico, baseado em dados anônimos Nexa)
+          2. MarketFeesDB estático (fallback sempre disponível)
+
+        Returns:
+            {
+                "bank_name": str,
+                "user_monthly_avg": float | None,  # média dos últimos 3 meses
+                "market_avg": float | None,
+                "excess_brl": float | None,        # quanto acima do mercado (0 se abaixo)
+                "data_source": "bank_fee_trends" | "static",
+            }
+        """
+        result: dict = {
+            "bank_name": bank_name,
+            "user_monthly_avg": None,
+            "market_avg": None,
+            "excess_brl": None,
+            "data_source": "static",
+        }
+
+        try:
+            from app.core.database import SessionLocal
+            from sqlalchemy import text
+
+            with SessionLocal() as db:
+                user_row = db.execute(
+                    text(
+                        "SELECT AVG(amount) FROM bank_fee_history"
+                        " WHERE user_id = :uid AND bank_name = :bank"
+                        " AND month >= to_char(NOW() - INTERVAL '3 months', 'YYYY-MM')"
+                    ),
+                    {"uid": user_id, "bank": bank_name},
+                ).fetchone()
+                if user_row and user_row[0] is not None:
+                    result["user_monthly_avg"] = round(float(user_row[0]), 2)
+
+                trend_row = db.execute(
+                    text(
+                        "SELECT market_avg FROM bank_fee_trends"
+                        " WHERE bank_name = :bank"
+                        " ORDER BY month DESC LIMIT 1"
+                    ),
+                    {"bank": bank_name},
+                ).fetchone()
+                if trend_row and trend_row[0] is not None:
+                    result["market_avg"] = round(float(trend_row[0]), 2)
+                    result["data_source"] = "bank_fee_trends"
+
+        except Exception as exc:
+            logger.warning("BankFeeAnalyzer | compare_to_market_baseline db falhou: %s", exc)
+
+        if result["market_avg"] is None:
+            from app.costs.market_fees_db import MarketFeesDB
+            result["market_avg"] = MarketFeesDB().get_avg_for_bank(bank_name)
+
+        if result["user_monthly_avg"] is not None:
+            excess = result["user_monthly_avg"] - result["market_avg"]
+            result["excess_brl"] = round(max(excess, 0.0), 2)
+
+        return result
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # HELPERS PRIVADOS

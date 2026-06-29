@@ -238,7 +238,7 @@ Módulos que já existem mas precisam ser modificados para suportar o roadmap.
 
 ---
 
-### 3.1 `backend/app/costs/` — F5: Raio-X de Custos
+### 3.1 `backend/app/costs/` — F5: Raio-X de Custos ✅ FEITO
 **Mudanças necessárias para:** D1, D2, D4
 
 **Problema atual:**
