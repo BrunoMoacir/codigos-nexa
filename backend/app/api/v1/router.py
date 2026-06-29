@@ -82,6 +82,9 @@ from app.defense.router import router as defense_router
 # Rights — Monitor de Direitos Esquecidos (T3)
 from app.rights.router import router as rights_router
 
+# Tax — Otimização de IR em Investimentos (T1/T2)
+from app.tax.router import router as tax_router
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CRIAR ROUTER PRINCIPAL
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -162,3 +165,6 @@ router.include_router(defense_router)
 
 # Rights — Direitos Esquecidos (T3)
 router.include_router(rights_router)
+
+# Tax — Otimização de IR (T1/T2)
+router.include_router(tax_router)

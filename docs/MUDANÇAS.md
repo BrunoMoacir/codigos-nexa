@@ -611,7 +611,17 @@ backend/app/rights/
 
 ---
 
-### 4.4 `backend/app/tax/` — T1/T2: Otimização de IR em Investimentos
+### 4.4 `backend/app/tax/` — T1/T2: Otimização de IR em Investimentos ✅ FEITO
+
+**Implementado em:**
+- `backend/app/tax/__init__.py`
+- `backend/app/tax/models.py` — `InvestmentPosition`, `TaxOpportunity`, `TaxAnalysisResponse`, `BreakevenRequest/Response`
+- `backend/app/tax/services/investment_profiler.py` — lê `pluggy_items` DB → `PluggyClient.get_investments()` → mapeia para `InvestmentPosition` com IR calculado via `IRPFCalculator`
+- `backend/app/tax/services/ir_calculator.py` — `calc_portfolio_ir()`, `calc_breakeven()`, `ir_rate_for_months()` — delega ao `IRPFCalculator` existente
+- `backend/app/tax/services/tax_loss_harvesting.py` — T1: detecta posições com perda não realizada (harvest_loss) e posições perto do próximo bracket IR (hold_longer)
+- `backend/app/tax/services/zero_tax_mode.py` — T2: CDB→LCI/LCA usando `BankComparator` para verificar breakeven real; come-cotas → CDB para diferir IR semestral
+- `backend/app/tax/router.py` — `GET /tax/optimize/{user_id}` (require_owner) + `POST /tax/breakeven` (get_current_user)
+- `backend/app/api/v1/router.py` — `tax_router` registrado
 
 **Proposta de estrutura:**
 ```
