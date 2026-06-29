@@ -1,20 +1,56 @@
 """
 app/api/v1/routes/negotiator.py — F13: Negotiator Bot
 
-Endpoint: POST /negotiator/generate-script
+Endpoints:
+  POST  /negotiator/generate-script          — detecta oportunidades e gera roteiro
+  GET   /negotiator/history/{user_id}        — lista histórico de negociações
+  PATCH /negotiator/history/{record_id}      — registra resultado da negociação
 """
 
 import logging
+from datetime import datetime, timezone
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_owner
+from app.core.database import get_db
+from sqlalchemy.orm import Session
 from app.negotiator.models import NegotiationReport, NegotiationRequest
 from app.negotiator.opportunity_detector import NegotiationOpportunityDetector
 from app.negotiator.script_generator import NegotiationScriptGenerator
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/negotiator", tags=["Negotiator Bot (F13)"])
+
+ResultStatus = Literal["sucesso", "parcial", "recusado", "nao_tentou"]
+
+
+# ── Schemas de histórico ──────────────────────────────────────────────
+
+class NegotiationHistoryItem(BaseModel):
+    id: str
+    bank_name: str
+    trigger_type: str
+    potential_gain: Optional[float] = None
+    generated_at: datetime
+    result_status: Optional[str] = None
+    result_gain: Optional[float] = None
+    resolved_at: Optional[datetime] = None
+
+
+class NegotiationHistoryResponse(BaseModel):
+    user_id: str
+    total: int
+    items: list[NegotiationHistoryItem]
+    total_potential_gain: float
+    total_realized_gain: float
+
+
+class NegotiationResultUpdate(BaseModel):
+    result_status: ResultStatus
+    result_gain: Optional[float] = None  # ganho real obtido (R$/mês), se houver
 
 
 @router.post("/generate-script", response_model=NegotiationReport)
@@ -110,6 +146,161 @@ async def generate_negotiation_script(
         confidence_score=confidence,
         data_sources=["transactions_clean", "fee_detector", "bacen_sgs_credito", "claude-haiku-4-5-20251001"],
         warnings=list(dict.fromkeys(warnings)),  # deduplica mantendo ordem
+    )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 2.7 — Follow-up do histórico de negociações
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@router.get("/history/{user_id}", response_model=NegotiationHistoryResponse)
+def get_negotiation_history(
+    user_id: str = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> NegotiationHistoryResponse:
+    """
+    Lista o histórico de negociações do usuário, do mais recente ao mais antigo.
+
+    Inclui status do resultado quando o usuário já reportou (via PATCH /history/{id}).
+    Usado pelo agent (V2/Wrapped) e pelo daily digest para detectar negociações recentes.
+    """
+    from sqlalchemy import text
+
+    try:
+        rows = db.execute(
+            text(
+                "SELECT id, bank_name, trigger_type, potential_gain, generated_at,"
+                "       result_status, result_gain, resolved_at"
+                " FROM negotiation_history"
+                " WHERE user_id = :uid"
+                " ORDER BY generated_at DESC"
+                " LIMIT 200"
+            ),
+            {"uid": user_id},
+        ).fetchall()
+    except Exception as exc:
+        logger.error("[negotiator] get_history user=%s: %s", user_id, exc)
+        raise HTTPException(status_code=500, detail="Erro ao buscar histórico de negociações.")
+
+    items = [
+        NegotiationHistoryItem(
+            id=r[0],
+            bank_name=r[1],
+            trigger_type=r[2],
+            potential_gain=float(r[3]) if r[3] is not None else None,
+            generated_at=r[4],
+            result_status=r[5],
+            result_gain=float(r[6]) if r[6] is not None else None,
+            resolved_at=r[7],
+        )
+        for r in rows
+    ]
+
+    total_potential = sum(i.potential_gain or 0.0 for i in items)
+    total_realized = sum(
+        i.result_gain or 0.0
+        for i in items
+        if i.result_status in ("sucesso", "parcial")
+    )
+
+    return NegotiationHistoryResponse(
+        user_id=user_id,
+        total=len(items),
+        items=items,
+        total_potential_gain=round(total_potential, 2),
+        total_realized_gain=round(total_realized, 2),
+    )
+
+
+@router.patch("/history/{record_id}", response_model=NegotiationHistoryItem)
+def update_negotiation_result(
+    record_id: str,
+    body: NegotiationResultUpdate,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> NegotiationHistoryItem:
+    """
+    Registra o resultado de uma negociação já gerada.
+
+    O usuário informa o que aconteceu depois de usar o roteiro:
+    - **sucesso** — banco aceitou, ganho real informado via `result_gain`
+    - **parcial** — aceitou parcialmente (ex: reduziu mas não zerou anuidade)
+    - **recusado** — banco recusou a negociação
+    - **nao_tentou** — usuário não chegou a usar o roteiro
+
+    Esses dados alimentam:
+    - Badge NEGOCIADOR (health_score/badge_service.py)
+    - Wrapped anual (agent/tools/get_annual_wrapped.py)
+    - Relatório de sucesso no daily digest
+    """
+    from sqlalchemy import text
+
+    try:
+        row = db.execute(
+            text("SELECT user_id FROM negotiation_history WHERE id = :rid"),
+            {"rid": record_id},
+        ).fetchone()
+    except Exception as exc:
+        logger.error("[negotiator] patch history read record=%s: %s", record_id, exc)
+        raise HTTPException(status_code=500, detail="Erro ao buscar registro.")
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Registro de negociação não encontrado.")
+
+    if row[0] != current_user:
+        raise HTTPException(status_code=403, detail="Acesso negado.")
+
+    now = datetime.now(timezone.utc)
+
+    try:
+        db.execute(
+            text(
+                "UPDATE negotiation_history"
+                " SET result_status = :st,"
+                "     result_gain   = :gain,"
+                "     resolved_at   = :res"
+                " WHERE id = :rid"
+            ),
+            {
+                "st":   body.result_status,
+                "gain": body.result_gain,
+                "res":  now,
+                "rid":  record_id,
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error("[negotiator] patch history write record=%s: %s", record_id, exc)
+        raise HTTPException(status_code=500, detail="Erro ao salvar resultado.")
+
+    try:
+        updated = db.execute(
+            text(
+                "SELECT id, bank_name, trigger_type, potential_gain, generated_at,"
+                "       result_status, result_gain, resolved_at"
+                " FROM negotiation_history WHERE id = :rid"
+            ),
+            {"rid": record_id},
+        ).fetchone()
+    except Exception as exc:
+        logger.error("[negotiator] patch history re-read record=%s: %s", record_id, exc)
+        raise HTTPException(status_code=500, detail="Resultado salvo mas falhou ao reler.")
+
+    logger.info(
+        "[negotiator] resultado registrado: record=%s status=%s gain=%s",
+        record_id, body.result_status, body.result_gain,
+    )
+
+    return NegotiationHistoryItem(
+        id=updated[0],
+        bank_name=updated[1],
+        trigger_type=updated[2],
+        potential_gain=float(updated[3]) if updated[3] is not None else None,
+        generated_at=updated[4],
+        result_status=updated[5],
+        result_gain=float(updated[6]) if updated[6] is not None else None,
+        resolved_at=updated[7],
     )
 
 
