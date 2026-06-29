@@ -33,12 +33,12 @@ Sem elas, 60%+ do roadmap não pode ser entregue.
 - `backend/app/core/config.py` — `SCHEDULER_ENABLED: bool = False` (ativa com env var em produção)
 - `backend/app/main.py` — lifespan sobe/derruba o scheduler conforme a flag
 
-**Pendente (stubs serão preenchidos nos itens seguintes):**
-- Lógica real de `fee_snapshot` → item 3.1 (costs/)
-- Lógica real de `opportunity_scan` → item 4.1 (opportunities/)
-- Lógica real de `health_score_snapshot` → item 3.4 (health_score/)
-- Lógica real de `notification_scheduler` → item 3.3 (notifications/)
-- Lógica real de `daily_digest` → item 1.2 (sistema de envio)
+**Status dos jobs:**
+- ✅ Lógica real de `fee_snapshot` → item 3.1 (costs/) — FEITO
+- ⏳ Lógica real de `opportunity_scan` → item 4.1 (opportunities/) — pendente
+- ✅ Lógica real de `health_score_snapshot` → item 3.4 (health_score/) — FEITO
+- ✅ Lógica real de `notification_scheduler` → item 3.3 (notifications/) — FEITO
+- ✅ Lógica real de `daily_digest` → item 1.2 (sistema de envio) — FEITO
 
 ---
 
@@ -49,9 +49,9 @@ Sem elas, 60%+ do roadmap não pode ser entregue.
 - `backend/app/core/notifications/delivery_service.py` — consulta `user_settings.notification_channels` (quando a tabela existir, item 2.x); fallback: email se algum backend estiver configurado, senão `in_app`. Canal `push` reservado para quando o app mobile existir.
 - `backend/app/core/config.py` — novas vars: `EMAIL_FROM`, `EMAIL_FROM_NAME`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SENDGRID_API_KEY`.
 
-**Pendente:**
-- `push_sender.py` (FCM) → depende de app mobile (sem prazo)
-- Lógica real do `daily_digest.py` que chama `delivery_service.deliver()` → item R1.c (depois de 2.x)
+**Status:**
+- ✅ Lógica real do `daily_digest.py` que chama `delivery_service.deliver()` — FEITO (jobs/daily_digest.py implementado com 4 coletores de eventos, formatter HTML, idempotência e log)
+- ⏳ `push_sender.py` (FCM) → depende de app mobile (sem prazo)
 
 ---
 
@@ -176,8 +176,14 @@ CREATE INDEX idx_user_badges_user ON user_badges(user_id);
 
 ---
 
-### 2.6 `user_settings` — Preferências de Usuário
+### 2.6 `user_settings` — Preferências de Usuário ✅ FEITO (DDL + código)
 **Necessária para:** MX.3 proativo, R1.c, R5.b (pause)
+
+**Implementado em:**
+- Migration `e1a2b3c4d5f6` — tabela criada
+- `backend/app/settings/router.py` — `GET /settings/{user_id}` (retorna defaults quando linha não existe) + `PUT /settings/{user_id}` (upsert com merge de campos) + `create_default_settings()` helper
+- `backend/app/api/v1/router.py` — `settings_router` registrado
+- `backend/app/api/v1/routes/auth.py` — hook no `register` cria linha padrão (try/except — nunca bloqueia cadastro)
 
 ```sql
 CREATE TABLE user_settings (
@@ -193,8 +199,12 @@ CREATE TABLE user_settings (
 
 ---
 
-### 2.7 `negotiation_history` — Histórico de Negociações
+### 2.7 `negotiation_history` — Histórico de Negociações ✅ FEITO (DDL + código)
 **Necessária para:** F13 (follow-up), futura detecção de sucesso pós-negociação
+
+**Implementado em:**
+- Migration `e1a2b3c4d5f6` — tabela criada
+- `backend/app/negotiator/router.py` — `_persist_negotiation()` insere ao gerar roteiro + `GET /negotiator/history/{user_id}` (lista histórico com totais) + `PATCH /negotiator/history/{record_id}` (usuário reporta resultado: sucesso/parcial/recusado/nao_tentou; preenche `result_status`, `result_gain`, `resolved_at`)
 
 ```sql
 CREATE TABLE negotiation_history (
@@ -359,11 +369,16 @@ São reativas, não proativas.
 
 ---
 
-### 3.4 `backend/app/health_score/` — MX.1: Health Score
+### 3.4 `backend/app/health_score/` — MX.1: Health Score ✅ FEITO
 **Mudanças necessárias para:** R2.b
 
 **Problema atual:**
 Score calculado sem gamificação. Não há badges, desafios nem marcos.
+
+**Implementado em:**
+- `backend/app/health_score/badge_service.py` — `BadgeService.evaluate_badges()` com 7 tipos de badge; persiste em `user_badges` com ON CONFLICT DO NOTHING (idempotente)
+- `backend/app/health_score/router.py` — novo `GET /health-score/badges/{user_id}` + hook após cálculo de score
+- `backend/app/jobs/health_score_snapshot.py` — stub substituído por implementação completa: calcula score para todos os usuários ativos, salva snapshot e avalia badges
 
 **O que muda:**
 
@@ -384,11 +399,20 @@ Score calculado sem gamificação. Não há badges, desafios nem marcos.
 
 ---
 
-### 3.5 `backend/app/agent/` — LangGraph Agent
+### 3.5 `backend/app/agent/` — LangGraph Agent ✅ FEITO
 **Mudanças necessárias para:** OPP, T3, V2, D1–D3
 
 **Problema atual:**
 Agent tem 15 tools mas não tem tools para as novas verticais.
+
+**Implementado em:**
+- `backend/app/agent/tools/get_opportunities.py` — OPP: detecta dinheiro parado (avg_income−avg_expenses), compara CDB vs LCI/LCA com breakeven
+- `backend/app/agent/tools/get_forgotten_rights.py` — T3: orienta SVR BACEN, FGTS, PIS/PASEP, Restituição IR via canais oficiais (sem scraping)
+- `backend/app/agent/tools/get_annual_wrapped.py` — V2: retrospectiva financeira anual por score, tarifas, negociações e badges
+- `backend/app/agent/tools/detect_abusive_fees.py` — D1: venda casada (seguro embutido em crédito) via BankFeeAnalyzer
+- `backend/app/agent/tools/detect_wrongful_charges.py` — D2: tarifas duplicadas, cobranças pós-cancelamento, bancos sem transações há 60 dias
+- `backend/app/agent/tools/detect_abusive_interest.py` — D3: juros acima de BACEN SGS via BacenCreditConnector
+- `backend/app/agent/graph.py` — atualizado para 21 tools; SYSTEM_PROMPT expandido com instruções para cada nova tool
 
 **O que muda — novas tools a adicionar:**
 
@@ -404,11 +428,16 @@ detect_abusive_interest()     # D3: juros acima da taxa BACEN
 
 ---
 
-### 3.6 `backend/app/fiscal/` — M4.1: Fiscal
+### 3.6 `backend/app/fiscal/` — M4.1: Fiscal ✅ FEITO
 **Mudanças necessárias para:** T1, T2
 
 **Problema atual:**
 Suporta apenas MEI/PJ (DAS, receita de serviços). Sem IR pessoa física.
+
+**Implementado em:**
+- `backend/app/fiscal/ir_pf_calculator.py` — `IRPFCalculator` completo: `calc_ir_on_cdb()`, `calc_ir_on_lci_lca()`, `calc_breakeven_lci()`, `compare()`; tabela regressiva Lei 8.981/1995 (22,5%→15%); isenção total para LCI/LCA/CRI/CRA
+- `backend/app/fiscal/router.py` — dois novos endpoints: `GET /fiscal-report/ir-pf/compare` (CDB vs LCI/LCA) e `GET /fiscal-report/ir-pf/breakeven` (taxa mínima de LCI equivalente)
+- `backend/app/settings/router.py` — **gap adicional**: `GET /settings/{user_id}` e `PUT /settings/{user_id}` + `create_default_settings()` chamado no cadastro; preenche `user_settings` que ficava sempre vazia
 
 **O que muda:**
 
