@@ -640,7 +640,16 @@ backend/app/tax/
 
 ---
 
-### 4.5 `backend/app/viral/` — V1/V2: Viral & Wrapped
+### 4.5 `backend/app/viral/` — V1/V2: Viral & Wrapped ✅ FEITO
+
+**Implementado em:**
+- `backend/app/viral/__init__.py`
+- `backend/app/viral/models.py` — `SavingsSource`, `SavingsCard`, `WrappedHighlight`, `WrappedReport`
+- `backend/app/viral/services/savings_consolidator.py` — V1: agrega `net_gain_expected` (optimizer), `savings_opportunity×12` (costs), `SUM(potential_gain)` não recusado (negotiator), `top_gain_brl×12` (opportunity_snapshots)
+- `backend/app/viral/services/wrapped_generator.py` — V2: 5 highlights (biggest_waste, worst_fee, best_card_missed, idle_money, score_evolution) via `bank_fee_history`, optimizer, `opportunity_snapshots`, `health_score_history`, `user_badges`
+- `backend/app/viral/services/card_renderer.py` — gera SVG puro (sem Pillow) para savings-card e wrapped, sem dependências externas
+- `backend/app/viral/router.py` — `GET /viral/savings-card/{user_id}` (+`/svg`), `GET /viral/wrapped/{user_id}/{year}` (+`/svg`)
+- `backend/app/api/v1/router.py` — `viral_router` registrado
 
 **Proposta de estrutura:**
 ```
