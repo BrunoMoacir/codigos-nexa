@@ -70,6 +70,9 @@ from app.peers.router import router as peers_router
 # AI Chat Agent
 from app.agent.router import router as agent_router
 
+# User Settings (preferências de notificação)
+from app.settings.router import router as settings_router
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CRIAR ROUTER PRINCIPAL
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -138,3 +141,6 @@ router.include_router(peers_router)
 
 # AI Chat Agent
 router.include_router(agent_router)
+
+# User Settings
+router.include_router(settings_router)

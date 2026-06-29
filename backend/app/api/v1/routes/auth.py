@@ -70,6 +70,14 @@ async def register(request: Request, user: UserCreate, db: Session = Depends(get
         ip=ip,
         request_id=req_id,
     )
+
+    # Cria linha de preferências padrão para o novo usuário
+    try:
+        from app.settings.router import create_default_settings
+        create_default_settings(user_id=new_user["user_id"], db=db)
+    except Exception:
+        pass  # nunca bloqueia o cadastro
+
     return {"message": "Usuário criado com sucesso", "user_id": new_user["user_id"]}
 
 
