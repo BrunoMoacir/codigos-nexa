@@ -65,6 +65,7 @@ NotificationType = Literal[
     "GOAL_PROGRESS",
     "SAFE_TO_SPEND_LOW",
     "LIFE_EVENT",
+    "TARIFA_AUMENTO_UNILATERAL",
 ]
 
 # Thresholds para safe-to-spend baixo
@@ -213,6 +214,16 @@ class LifeEventInput:
 
 
 @dataclass
+class FeeDeltaInput:
+    """Tarifa que aumentou vs. mês anterior (detectada em bank_fee_history)."""
+    bank_name: str
+    fee_type: str       # FeeType.value — ex: "TARIFA_MANUTENCAO"
+    old_amount: float   # valor cobrado no mês anterior (R$)
+    new_amount: float   # valor cobrado no mês atual (R$)
+    delta_pct: float    # (new - old) / old — ex: 0.15 = +15%
+
+
+@dataclass
 class NotificationContext:
     """
     Contexto completo para geração de notificações proativas.
@@ -250,6 +261,9 @@ class NotificationContext:
 
     # Eventos de vida detectados pelo LifeEventsDetector
     life_events: list[LifeEventInput] = field(default_factory=list)
+
+    # Tarifas que aumentaram vs. mês anterior (detectadas em bank_fee_history)
+    fee_deltas: list[FeeDeltaInput] = field(default_factory=list)
 
     # Dia do mês atual (para contexto em mensagens)
     current_day: int = 0
@@ -648,6 +662,55 @@ def generate_safe_to_spend_low_notification(
     )]
 
 
+_TARIFA_AUMENTO_MIN_DELTA_PCT = 0.10   # 10% — abaixo disso pode ser arredondamento
+
+
+def generate_tarifa_aumento_notifications(
+    fee_deltas: list[FeeDeltaInput],
+) -> list[Notification]:
+    """
+    TARIFA_AUMENTO_UNILATERAL — tarifa aumentou ≥10% vs. mês anterior.
+
+    Gerada quando bank_fee_history registra aumento em qualquer (bank_name, fee_type).
+    Usado pelo NotificationEngine proativo (D4 — detecção de mudança unilateral).
+    """
+    notes: list[Notification] = []
+    for delta in fee_deltas:
+        if delta.delta_pct < _TARIFA_AUMENTO_MIN_DELTA_PCT:
+            continue
+
+        pct_display = int(delta.delta_pct * 100)
+        fee_label = delta.fee_type.replace("_", " ").title()
+        extra_annual = round((delta.new_amount - delta.old_amount) * 12, 2)
+
+        notes.append(Notification(
+            id=_new_id(),
+            type="TARIFA_AUMENTO_UNILATERAL",
+            priority="WARNING",
+            title=f"⚠️ {delta.bank_name}: {fee_label} +{pct_display}%",
+            message=(
+                f"{delta.bank_name} aumentou sua {fee_label} de "
+                f"R${delta.old_amount:.2f} para R${delta.new_amount:.2f} "
+                f"(+{pct_display}%). Isso representa R${extra_annual:.2f} a mais por ano."
+            ),
+            generated_at=_now(),
+            metadata={
+                "bank_name":     delta.bank_name,
+                "fee_type":      delta.fee_type,
+                "old_amount":    round(delta.old_amount, 2),
+                "new_amount":    round(delta.new_amount, 2),
+                "delta_pct":     round(delta.delta_pct * 100, 1),
+                "extra_annual":  extra_annual,
+            },
+            action_hint=(
+                "O banco deve comunicar alterações de tarifa com 30 dias de antecedência "
+                "(Resolução BACEN 3.919/2010). Verifique se houve aviso prévio."
+            ),
+        ))
+
+    return notes
+
+
 _LIFE_EVENT_CONFIG: dict[str, dict] = {
     "new_baby": {
         "priority": "WARNING",
@@ -837,6 +900,9 @@ class ProactiveNotifier:
         # 10. Eventos de vida
         notes.extend(generate_life_event_notifications(ctx.life_events))
 
+        # 11. Tarifas aumentadas unilateralmente (D4 — proativo via scheduler)
+        notes.extend(generate_tarifa_aumento_notifications(ctx.fee_deltas))
+
         # Ordenar por prioridade
         notes.sort(key=lambda n: _PRIORITY_ORDER.get(n.priority, 3))
 
@@ -879,4 +945,6 @@ __all__ = [
     "generate_goal_progress_notifications",
     "generate_safe_to_spend_low_notification",
     "generate_life_event_notifications",
+    "FeeDeltaInput",
+    "generate_tarifa_aumento_notifications",
 ]

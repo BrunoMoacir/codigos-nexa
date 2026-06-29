@@ -1,22 +1,26 @@
 """
 app/jobs/notification_scheduler.py — Job a cada 6h (MX.3)
 
-Gera notificações proativas para todos os usuários ativos sem precisar que
-o usuário abra o app. Quando NotificationEngine estiver pronto, substitui
-o modelo reativo atual.
-
-Status: STUB — NotificationEngine será desacoplado no item 3.3.
+Delega para NotificationEngine.run_for_all_users(), que:
+  1. Para cada usuário ativo, detecta tarifas aumentadas em bank_fee_history.
+  2. Gera notificações TARIFA_AUMENTO_UNILATERAL quando delta >= 10%.
+  3. Entrega via delivery_service (email ou in_app conforme user_settings).
 """
 
 import logging
-from app.jobs._base import get_active_user_ids, job_guard
+from app.jobs._base import job_guard
 
 logger = logging.getLogger(__name__)
 
 
 @job_guard("notification_scheduler")
 async def run_notification_scheduler() -> None:
-    user_ids = get_active_user_ids()
-    logger.info("[notification_scheduler] %d usuários ativos — geração proativa pendente de implementação", len(user_ids))
-    # TODO: para cada user_id, chamar NotificationEngine.run_for_user()
-    #       e delivery_service.deliver() para enviar pelo canal configurado
+    from app.notifications.engine import NotificationEngine
+
+    results = await NotificationEngine().run_for_all_users()
+
+    total = sum(len(v) for v in results.values())
+    logger.info(
+        "[notification_scheduler] %d notificações entregues para %d usuários",
+        total, len(results),
+    )

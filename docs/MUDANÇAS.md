@@ -329,7 +329,7 @@ específico não existe.**
 
 ---
 
-### 3.3 `backend/app/notifications/` — MX.3: Notificações
+### 3.3 `backend/app/notifications/` — MX.3: Notificações ✅ FEITO
 **Mudanças necessárias para:** D4, R1.c
 
 **Problema atual:**
