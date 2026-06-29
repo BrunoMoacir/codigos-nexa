@@ -35,7 +35,7 @@ Sem elas, 60%+ do roadmap não pode ser entregue.
 
 **Status dos jobs:**
 - ✅ Lógica real de `fee_snapshot` → item 3.1 (costs/) — FEITO
-- ⏳ Lógica real de `opportunity_scan` → item 4.1 (opportunities/) — pendente
+- ✅ Lógica real de `opportunity_scan` → item 2.8 (opportunity_snapshots) — FEITO
 - ✅ Lógica real de `health_score_snapshot` → item 3.4 (health_score/) — FEITO
 - ✅ Lógica real de `notification_scheduler` → item 3.3 (notifications/) — FEITO
 - ✅ Lógica real de `daily_digest` → item 1.2 (sistema de envio) — FEITO
@@ -76,8 +76,13 @@ Novas tabelas via Alembic migration. Nenhuma tabela existente precisa ser removi
 
 ---
 
-### 2.1 `bank_fee_history` — Histórico de Tarifas por Usuário
+### 2.1 `bank_fee_history` — Histórico de Tarifas por Usuário ✅ FEITO (DDL + código)
 **Necessária para:** D1, D2, D4
+
+**Implementado em:**
+- Migration `e1a2b3c4d5f6` — tabela criada
+- `backend/app/costs/bank_fee_analyzer.py` — `INSERT INTO bank_fee_history` após análise de tarifas
+- `backend/app/jobs/fee_snapshot.py` — job diário popula histórico por usuário
 
 ```sql
 CREATE TABLE bank_fee_history (
@@ -96,8 +101,12 @@ CREATE INDEX idx_bank_fee_history_user ON bank_fee_history(user_id, month);
 
 ---
 
-### 2.2 `bank_fee_trends` — Baseline de Mercado por Banco
+### 2.2 `bank_fee_trends` — Baseline de Mercado por Banco ✅ FEITO (DDL + código)
 **Necessária para:** D4 (detectar aumento unilateral), D2 (o que é normal vs. indevido)
+
+**Implementado em:**
+- Migration `e1a2b3c4d5f6` — tabela criada
+- `backend/app/jobs/fee_snapshot.py` — `INSERT INTO bank_fee_trends` agrega baseline de mercado por banco/tipo
 
 ```sql
 CREATE TABLE bank_fee_trends (
@@ -116,8 +125,13 @@ CREATE TABLE bank_fee_trends (
 
 ---
 
-### 2.3 `notification_delivery_log` — Log de Entrega de Notificações
+### 2.3 `notification_delivery_log` — Log de Entrega de Notificações ✅ FEITO (DDL + código)
 **Necessária para:** MX.3 (proativo), R1.c, R5.c
+
+**Implementado em:**
+- Migration `e1a2b3c4d5f6` — tabela criada
+- `backend/app/core/notifications/delivery_service.py` — grava log a cada entrega (status sent/failed/in_app)
+- `backend/app/jobs/daily_digest.py` — lê log para verificar se já foi entregue nas últimas 24h
 
 ```sql
 CREATE TABLE notification_delivery_log (
@@ -135,8 +149,12 @@ CREATE TABLE notification_delivery_log (
 
 ---
 
-### 2.4 `daily_digest_log` — Controle de Digests Enviados
+### 2.4 `daily_digest_log` — Controle de Digests Enviados ✅ FEITO (DDL + código)
 **Necessária para:** R1.c
+
+**Implementado em:**
+- Migration `e1a2b3c4d5f6` — tabela criada
+- `backend/app/jobs/daily_digest.py` — verifica idempotência antes de enviar (`_already_sent_today`) e grava log após entrega (`_log_digest`); constraint `uq_daily_digest_log (user_id, date)` garante 1 digest/dia
 
 ```sql
 CREATE TABLE daily_digest_log (
@@ -151,8 +169,14 @@ CREATE TABLE daily_digest_log (
 
 ---
 
-### 2.5 `user_badges` — Badges e Gamificação
+### 2.5 `user_badges` — Badges e Gamificação ✅ FEITO (DDL + código)
 **Necessária para:** R2.b (Health Score gamificado)
+
+**Implementado em:**
+- Migration `e1a2b3c4d5f6` — tabela criada
+- `backend/app/health_score/badge_service.py` — `BadgeService.evaluate_badges()` persiste badges com `ON CONFLICT DO NOTHING` (idempotente); 7 tipos: PRIMEIRO_INSIGHT, 3_MESES_VERDE, 6_MESES_VERDE, NEGOCIADOR, ECONOMIZOU_100/500/1000
+- `backend/app/health_score/router.py` — hook após cálculo de score + `GET /health-score/badges/{user_id}`
+- `backend/app/jobs/health_score_snapshot.py` — avalia badges para todos os usuários ativos
 
 ```sql
 CREATE TABLE user_badges (
@@ -223,8 +247,12 @@ CREATE INDEX idx_negotation_history_user ON negotiation_history(user_id, generat
 
 ---
 
-### 2.8 `opportunity_snapshots` — Histórico do Radar de Oportunidades
+### 2.8 `opportunity_snapshots` — Histórico do Radar de Oportunidades ✅ FEITO (DDL + código)
 **Necessária para:** OPP, V2 (Wrapped)
+
+**Implementado em:**
+- Migration `e1a2b3c4d5f6` — tabela criada
+- `backend/app/jobs/opportunity_scan.py` — stub substituído por implementação completa: calcula `idle_amount` (avg_income_3m − avg_expenses_3m), CDI via AnbimaConnector, seleciona `top_opportunity` (LCI/LCA ou CDB), persiste snapshot por usuário ativo
 
 ```sql
 CREATE TABLE opportunity_snapshots (
