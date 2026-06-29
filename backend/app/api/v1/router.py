@@ -73,6 +73,9 @@ from app.agent.router import router as agent_router
 # User Settings (preferências de notificação)
 from app.settings.router import router as settings_router
 
+# OPP — Radar de Oportunidades
+from app.opportunities.router import router as opportunities_router
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CRIAR ROUTER PRINCIPAL
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -144,3 +147,6 @@ router.include_router(agent_router)
 
 # User Settings
 router.include_router(settings_router)
+
+# OPP — Radar de Oportunidades
+router.include_router(opportunities_router)

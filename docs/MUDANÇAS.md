@@ -489,7 +489,18 @@ Features inteiramente novas que não têm base no código atual.
 
 ---
 
-### 4.1 `backend/app/opportunities/` — OPP: Radar de Oportunidades
+### 4.1 `backend/app/opportunities/` — OPP: Radar de Oportunidades ✅ FEITO
+
+**Implementado em:**
+- `backend/app/opportunities/__init__.py`
+- `backend/app/opportunities/models.py` — `OpportunityItem`, `OpportunitiesResponse`, `CompareRequest`, `CompareResponse`
+- `backend/app/opportunities/services/idle_money_detector.py` — `IdleMoneyDetector.detect()` calcula avg_income_3m − avg_expenses_3m
+- `backend/app/opportunities/services/bank_comparator.py` — `BankComparator.rank()` carrega catálogo JSON, calcula taxa líquida via `IRPFCalculator`, ranqueia por `annual_rate_net_pct`
+- `backend/app/opportunities/services/opportunity_engine.py` — `OpportunityEngine.analyze()` orquestra detector + comparador + snapshot
+- `backend/app/opportunities/router.py` — `GET /opportunities/{user_id}` e `POST /opportunities/compare`
+- `backend/data/bank_products.json` — 20 produtos de 10 bancos (taxas em % do CDI)
+- `backend/app/api/v1/router.py` — `opportunities_router` registrado
+- `backend/app/jobs/opportunity_scan.py` — job diário delegado ao `OpportunityEngine`
 
 **Proposta de estrutura:**
 ```
