@@ -92,8 +92,10 @@ class NegotiationOpportunityDetector:
         # Detectar todas as tarifas do histórico
         all_fees = self._fee_detector.detect(transactions_df)
 
-        # Taxa de mercado resolvida uma única vez — evita múltiplas chamadas HTTP ao BACEN
-        market_rate = self._fetch_market_rate_monthly()
+        # Taxas de mercado resolvidas uma única vez — evita múltiplas chamadas HTTP ao BACEN
+        from app.architect.connectors.bacen_credit import BacenCreditConnector
+        credit_rates = BacenCreditConnector().get_rates()
+        market_rate = credit_rates["rotativo_monthly"]
 
         # ── Trigger 1: Juros rotativos acima do mercado ───────────────
         juros_opps = self._detect_juros_rotativo(all_fees, health_score, ref, market_rate)
@@ -103,9 +105,13 @@ class NegotiationOpportunityDetector:
         anuidade_opps = self._detect_anuidade_alta(all_fees, health_score, ref)
         opportunities.extend(anuidade_opps)
 
-        # ── Trigger 3: Health score alto sem outros triggers ──────────
-        # Adiciona oportunidade genérica de renegociação se score alto
-        # mas o usuário não pagou juros ou anuidade acima do mercado
+        # ── Trigger 3: Cheque especial ────────────────────────────────
+        cheque_opps = self._detect_cheque_especial(
+            all_fees, health_score, ref, credit_rates["cheque_especial_monthly"]
+        )
+        opportunities.extend(cheque_opps)
+
+        # ── Trigger 4: Health score alto sem outros triggers ──────────
         if health_score >= _MIN_HEALTH_SCORE_FOR_BARGAIN and not opportunities:
             opp = self._detect_score_only(all_fees, health_score, ref, market_rate)
             if opp:
@@ -287,16 +293,71 @@ class NegotiationOpportunityDetector:
     # HELPERS PRIVADOS
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    @staticmethod
-    def _fetch_market_rate_monthly() -> float:
-        """Taxa CDC média de mercado via BACEN. Fallback: 3.99% a.m."""
-        try:
-            from app.architect.connectors.bacen import BacenConnector
-            selic_annual = BacenConnector().get_selic()
-            return round((selic_annual / 12) + 0.025, 4)
-        except Exception as exc:
-            logger.warning("NegotiationOpportunityDetector | BACEN indisponível: %s", exc)
-            return 0.0399
+    def _detect_cheque_especial(
+        self,
+        fees: list[FeeEntry],
+        health_score: int,
+        ref: date,
+        cheque_market_rate: float,
+    ) -> list[NegotiationOpportunity]:
+        """
+        Detecta cobranças relacionadas a cheque especial na janela de 3 meses.
+        Usa SGS 20706 como benchmark de mercado.
+
+        Nota: a existência de qualquer cobrança de cheque especial já justifica
+        a oportunidade, pois trata-se de uma das modalidades mais caras do Brasil.
+        Validação de teto legal (eventual Lei 14.905/2024) deve ser feita com
+        jurídico antes de ser codificada aqui.
+        """
+        import unicodedata
+
+        def _norm(s: str) -> str:
+            n = unicodedata.normalize("NFKD", s)
+            return "".join(c for c in n if not unicodedata.combining(c)).lower()
+
+        _CHEQUE_KEYWORDS = ("cheque especial", "limite especial", "juros cheque", "esp especial")
+
+        cutoff = _date_months_ago(ref, _JUROS_WINDOW_MONTHS)
+        cheque_fees = [
+            f for f in fees
+            if f.transaction_date >= cutoff
+            and any(kw in _norm(f.description) for kw in _CHEQUE_KEYWORDS)
+        ]
+
+        if not cheque_fees:
+            return []
+
+        by_bank: dict[str, list[FeeEntry]] = defaultdict(list)
+        for fee in cheque_fees:
+            by_bank[fee.bank_name].append(fee)
+
+        good_payer_months = self._count_good_payer_months(fees, ref)
+        opportunities = []
+
+        for bank_name, entries in by_bank.items():
+            total = sum(e.amount for e in entries)
+            monthly_avg = round(total / _JUROS_WINDOW_MONTHS, 2)
+
+            opportunities.append(
+                NegotiationOpportunity(
+                    trigger=NegotiationTrigger.CHEQUE_ESPECIAL_ALTO,
+                    bank_name=bank_name,
+                    product="Cheque Especial",
+                    user_fee_monthly=monthly_avg,
+                    market_rate_monthly=cheque_market_rate,
+                    potential_saving_monthly=round(monthly_avg, 2),
+                    health_score=health_score,
+                    months_as_good_payer=good_payer_months,
+                    description=(
+                        f"Você pagou em média R$ {monthly_avg:.2f}/mês em cheque especial "
+                        f"para {bank_name}. A taxa média de mercado (BACEN SGS 20706) é "
+                        f"{cheque_market_rate * 100:.1f}% a.m. Negocie uma linha de crédito "
+                        "pessoal com taxa menor ou peça redução do spread."
+                    ),
+                )
+            )
+
+        return opportunities
 
     @staticmethod
     def _count_good_payer_months(fees: list[FeeEntry], ref: date) -> int:

@@ -94,6 +94,7 @@ async def generate_negotiation_script(
         script = generator.generate(opp)
         scripts.append(script)
         warnings.extend(script.warnings)
+        _persist_negotiation(request.user_id, opp)
 
     # ── 5. Montar relatório final ────────────────────────────────
     total_saving = sum(o.potential_saving_monthly for o in opportunities)
@@ -107,7 +108,7 @@ async def generate_negotiation_script(
         scripts=scripts,
         summary=summary,
         confidence_score=confidence,
-        data_sources=["transactions_clean", "fee_detector", "bacen_selic", "claude-haiku-4-5-20251001"],
+        data_sources=["transactions_clean", "fee_detector", "bacen_sgs_credito", "claude-haiku-4-5-20251001"],
         warnings=list(dict.fromkeys(warnings)),  # deduplica mantendo ordem
     )
 
@@ -138,6 +139,36 @@ def _compute_confidence(health_score: int, n_opportunities: int, n_transactions:
     score_factor = (health_score / 100) * 0.3     # até 0.3 pelo health score
     opp_factor = 0.2 if n_opportunities > 0 else 0.0
     return round(min(base + score_factor + opp_factor, 1.0), 2)
+
+
+def _persist_negotiation(user_id: str, opp) -> None:
+    """Persiste oportunidade gerada em negotiation_history. Falha silenciosamente."""
+    import uuid
+    from datetime import datetime, timezone
+
+    try:
+        from app.core.database import SessionLocal
+        from sqlalchemy import text
+
+        with SessionLocal() as db:
+            db.execute(
+                text(
+                    "INSERT INTO negotiation_history"
+                    " (id, user_id, bank_name, trigger_type, potential_gain, generated_at)"
+                    " VALUES (:id, :uid, :bank, :trigger, :gain, :gen_at)"
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "uid": user_id,
+                    "bank": opp.bank_name,
+                    "trigger": opp.trigger.value,
+                    "gain": float(opp.potential_saving_monthly),
+                    "gen_at": datetime.now(timezone.utc),
+                },
+            )
+            db.commit()
+    except Exception as exc:
+        logger.warning("[API] F13 persist_negotiation falhou: %s", exc)
 
 
 def _build_summary(opportunities, total_saving: float, health_score: int) -> str:

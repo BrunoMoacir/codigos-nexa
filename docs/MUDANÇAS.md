@@ -277,7 +277,7 @@ falta para D2/D4.
 
 ---
 
-### 3.2 `backend/app/negotiator/` — F13: Negociador
+### 3.2 `backend/app/negotiator/` — F13: Negociador ✅ FEITO
 **Mudanças necessárias para:** D3
 
 **Problema atual (corrigido — verificado 2026-06-24):**
