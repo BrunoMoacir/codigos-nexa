@@ -17,6 +17,12 @@ Ferramentas disponíveis:
  11. get_purchase_recommendation → Melhor forma de pagamento para uma compra (F7)
  12. get_bank_cost_analysis      → Raio-X de custos e tarifas bancárias (F5)
  13. get_negotiation_script      → Detecta oportunidades e gera roteiro de negociação bancária (F13)
+ 14. get_opportunities           → Radar de dinheiro parado + comparação de investimentos (OPP)
+ 15. get_forgotten_rights        → SVR BACEN, FGTS, PIS/PASEP, Restituição IR (T3)
+ 16. get_annual_wrapped          → Resumo anual "Banco vs Você" (V2)
+ 17. detect_abusive_fees         → Venda casada e tarifas abusivas (D1)
+ 18. detect_wrongful_charges     → Cobranças indevidas e duplicatas (D2)
+ 19. detect_abusive_interest     → Juros acima da taxa BACEN (D3)
 """
 import logging
 from langchain_core.messages import BaseMessage
@@ -38,6 +44,12 @@ from app.agent.tools.get_purchase_recommendation import get_purchase_recommendat
 from app.agent.tools.get_bank_cost_analysis import get_bank_cost_analysis
 from app.agent.tools.get_negotiation_script import get_negotiation_script
 from app.agent.tools.get_expert_card_analysis import get_expert_card_analysis
+from app.agent.tools.get_opportunities import get_opportunities
+from app.agent.tools.get_forgotten_rights import get_forgotten_rights
+from app.agent.tools.get_annual_wrapped import get_annual_wrapped
+from app.agent.tools.detect_abusive_fees import detect_abusive_fees
+from app.agent.tools.detect_wrongful_charges import detect_wrongful_charges
+from app.agent.tools.detect_abusive_interest import detect_abusive_interest
 
 logger = logging.getLogger(__name__)
 
@@ -230,6 +242,56 @@ USE QUANDO o usuário perguntar sobre:
 - Qualquer pedido de ajuda para negociar com banco.
 - bank_name: se o usuário mencionar um banco específico (ex: "Itaú"), passe-o. Senão, omita.
 
+### `get_opportunities(user_id)`
+USE QUANDO o usuário perguntar sobre:
+- "Tenho dinheiro parado na conta?"
+- "Quanto estou perdendo sem investir?"
+- "Qual o melhor investimento para minha reserva?"
+- "CDB, LCI ou LCA — o que rende mais para mim?"
+- "Meu dinheiro está rendendo?"
+- Radar de oportunidades de investimento, dinheiro ocioso.
+
+### `get_forgotten_rights(user_id)`
+USE QUANDO o usuário perguntar sobre:
+- "Tenho dinheiro esquecido em algum banco?" / "SVR BACEN"
+- "Tenho FGTS esquecido de empregos antigos?"
+- "Tenho PIS ou PASEP a receber?"
+- "Como verifico minha restituição do IR?"
+- Qualquer pergunta sobre direitos financeiros não resgatados.
+
+### `get_annual_wrapped(user_id, year=0)`
+USE QUANDO o usuário perguntar sobre:
+- "Como foi meu ano financeiro?"
+- "Meu Wrapped financeiro" / "Resumo anual das minhas finanças"
+- "Qual minha evolução de score no ano?"
+- "Quanto paguei de tarifas no ano?"
+- Qualquer balanço ou retrospectiva financeira anual.
+- year: 0 = ano corrente. Use o ano específico se mencionado (ex: "2025").
+
+### `detect_abusive_fees(user_id)`
+USE QUANDO o usuário perguntar sobre:
+- "Estou pagando tarifa abusiva?"
+- "O banco me cobrou um seguro que não pedi?" / "Venda casada"
+- "Quais tarifas posso contestar?"
+- "Me cobram seguro junto com meu crédito, isso é legal?"
+- Qualquer suspeita de cobrança abusiva ou seguro embutido.
+
+### `detect_wrongful_charges(user_id)`
+USE QUANDO o usuário perguntar sobre:
+- "Estou sendo cobrado indevidamente?"
+- "Tenho cobrança duplicada na fatura?"
+- "Ainda me cobram depois que cancelei a conta."
+- "Como identifico cobranças erradas?"
+- Suspeita de cobrança não autorizada, duplicada ou pós-cancelamento.
+
+### `detect_abusive_interest(user_id)`
+USE QUANDO o usuário perguntar sobre:
+- "Estou pagando juros abusivos?"
+- "Meus juros estão acima da média do mercado?"
+- "O banco cobra mais de 10% ao mês no rotativo?"
+- "Cheque especial com juros absurdos — o que faço?"
+- Qualquer dúvida sobre taxas de juros abusivas ou acima da taxa BACEN.
+
 ## REGRAS DE COMPORTAMENTO:
 1. **NUNCA peça informações que já estão na mensagem do usuário** — se o usuário disse "minha renda é R$ 8.500", use esse valor diretamente na tool. Se o usuário informou gasto mensal (ex: "gasto R$ 4.000/mês"), passe como `monthly_spend` em `get_card_optimization`.
 2. **SEMPRE chame a ferramenta** quando a pergunta se encaixar nos critérios acima — mesmo sem dados explícitos.
@@ -332,6 +394,12 @@ def build_financial_agent():
         get_bank_cost_analysis,
         get_negotiation_script,
         get_expert_card_analysis,
+        get_opportunities,
+        get_forgotten_rights,
+        get_annual_wrapped,
+        detect_abusive_fees,
+        detect_wrongful_charges,
+        detect_abusive_interest,
     ]
 
     # 2. LLM — Claude (preferencial) ou OpenAI (fallback)
