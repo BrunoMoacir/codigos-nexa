@@ -18,7 +18,9 @@ Fluxo:
   5. Retorna resposta
 """
 
+import json
 import logging
+from datetime import datetime
 from typing import List, Literal, Optional
 
 import polars as pl
@@ -65,6 +67,18 @@ class HealthScoreHistoryResponse(BaseModel):
     fss_score: Optional[float] = None         # Financial Stress Score do FSSCalculator (0–100, 100 = máximo estresse)
     fss_level: Optional[str] = None           # SAUDAVEL | ATENCAO | ALERTA | CRITICO
     fss_signals: Optional[List[str]] = None   # sinais que compõem o FSS (ex: "overdraft_usage=12%")
+
+
+class BadgeResponse(BaseModel):
+    badge_type: str
+    earned_at: datetime
+    metadata: Optional[dict] = None
+
+
+class BadgesListResponse(BaseModel):
+    user_id: str
+    badges: List[BadgeResponse]
+    total: int
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -244,6 +258,14 @@ def get_health_score_history_endpoint(
         for row in raw_history
     ]
 
+    # ── 4b. Avaliar badges ──────────────────────────────────────────
+    if current_score is not None:
+        try:
+            from app.health_score.badge_service import BadgeService
+            BadgeService().evaluate_badges(user_id, current_score, raw_history)
+        except Exception as badge_err:
+            logger.debug("[health-score] badge evaluation falhou: %s", badge_err)
+
     # ── 5. Score atual: calculado agora ou último do histórico ──────
     # Quando NO_TRANSACTIONS, não calculamos um novo score — usamos o
     # último snapshot salvo para não poluir o histórico com score=0.
@@ -268,3 +290,50 @@ def get_health_score_history_endpoint(
         fss_level=current_fss_level,
         fss_signals=current_fss_signals,
     )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ENDPOINT — BADGES
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@router.get("/badges/{user_id}", response_model=BadgesListResponse)
+def get_badges_endpoint(
+    user_id: str = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> BadgesListResponse:
+    """
+    Retorna os badges de gamificação conquistados pelo usuário.
+
+    Badges disponíveis:
+      - PRIMEIRO_INSIGHT — primeiro uso do app
+      - 3_MESES_VERDE / 6_MESES_VERDE — score >= 70 por N meses consecutivos
+      - NEGOCIADOR — gerou ao menos um script de negociação
+      - ECONOMIZOU_100 / _500 / _1000 — marcos de economia potencial
+    """
+    try:
+        from sqlalchemy import text
+
+        rows = db.execute(
+            text(
+                "SELECT badge_type, earned_at, metadata"
+                " FROM user_badges"
+                " WHERE user_id = :uid"
+                " ORDER BY earned_at DESC"
+            ),
+            {"uid": user_id},
+        ).fetchall()
+
+        badges = [
+            BadgeResponse(
+                badge_type=r[0],
+                earned_at=r[1],
+                metadata=json.loads(r[2]) if r[2] else None,
+            )
+            for r in rows
+        ]
+
+        return BadgesListResponse(user_id=user_id, badges=badges, total=len(badges))
+
+    except Exception as exc:
+        logger.error("[health-score] get_badges user=%s: %s", user_id, exc)
+        raise HTTPException(status_code=500, detail="Erro ao buscar badges.")
