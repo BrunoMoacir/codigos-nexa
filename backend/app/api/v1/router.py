@@ -76,6 +76,9 @@ from app.settings.router import router as settings_router
 # OPP — Radar de Oportunidades
 from app.opportunities.router import router as opportunities_router
 
+# Defense — Defesa do Consumidor (D1–D5)
+from app.defense.router import router as defense_router
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CRIAR ROUTER PRINCIPAL
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -150,3 +153,6 @@ router.include_router(settings_router)
 
 # OPP — Radar de Oportunidades
 router.include_router(opportunities_router)
+
+# Defense — Defesa do Consumidor
+router.include_router(defense_router)

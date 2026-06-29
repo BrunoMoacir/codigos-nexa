@@ -529,7 +529,18 @@ POST /api/v1/opportunities/compare  # comparação ad hoc com valor específico
 
 ---
 
-### 4.2 `backend/app/defense/` — D1–D5: Defesa do Consumidor
+### 4.2 `backend/app/defense/` — D1–D5: Defesa do Consumidor ✅ FEITO
+
+**Implementado em:**
+- `backend/app/defense/models.py` — `DefenseFinding`, `MonetaryCorrection`, `EvidenceDossier`, `DefenseResponse`
+- `backend/app/defense/services/tied_sale_detector.py` — D1: detecta venda casada via BankFeeAnalyzer + bank_fee_history
+- `backend/app/defense/services/wrongful_charge_detector.py` — D2: duplicatas + bancos inativos cobrando + tarifas novas sem histórico
+- `backend/app/defense/services/abusive_interest_detector.py` — D3: juros acima BACEN SGS via negotiation_history + transações
+- `backend/app/defense/services/unilateral_change_detector.py` — D4: compara bank_fee_history mês atual vs anterior, flag >10%
+- `backend/app/defense/services/evidence_builder.py` — D5: correção monetária (IPCA/SELIC), renderiza 3 templates
+- `backend/app/defense/router.py` — `GET /defense/{user_id}` e `GET /defense/{user_id}/dossier`
+- `backend/templates/contestation_letter.md`, `procon_dossier.md`, `jec_petition.md`
+- `backend/app/api/v1/router.py` — `defense_router` registrado
 
 **Proposta de estrutura:**
 ```
