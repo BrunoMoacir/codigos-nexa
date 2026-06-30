@@ -682,16 +682,22 @@ backend/app/viral/
 
 ---
 
-### 5.1 BACEN SGS — Séries de Crédito (D3)
+### 5.1 BACEN SGS — Séries de Crédito (D3) ✅ FEITO
+
+**Implementado em:** `backend/app/architect/connectors/bacen_credit.py`
 
 ```python
 # backend/app/architect/connectors/bacen_credit.py
 class BacenCreditConnector(BaseConnector):
-    _ROTATIVO_PF_SERIES = 20714      # Juros crédito rotativo PF (% a.m.)
-    _ROTATIVO_MAX_SERIES = 20715     # Juros máximos rotativo PF (% a.m.)
-    _CHEQUE_ESPECIAL_SERIES = 20706  # Juros cheque especial (% a.m.)
-    _CONSIGNADO_SERIES = 25433       # Juros crédito consignado INSS (% a.m.)
+    _ROTATIVO_SERIES        = 20714   # Juros crédito rotativo PF (% a.m.)
+    _ROTATIVO_MAX_SERIES    = 20715   # Juros máximos rotativo PF (% a.m.)
+    _CHEQUE_ESPECIAL_SERIES = 20706   # Juros cheque especial (% a.m.)
+    _CONSIGNADO_SERIES      = 25433   # Juros crédito consignado INSS (% a.m.)
 ```
+
+**Métodos:** `get_rates()` → dict com 4 chaves, `get_rotativo_monthly()`, `get_cheque_especial_monthly()`, `get_consignado_monthly()`.
+**Fallback:** valores de mar/2026 (rotativo 15,67%, cheque 10,80%, consignado 1,75%).
+**Cache:** 6h (séries mudam mensalmente).
 
 ---
 

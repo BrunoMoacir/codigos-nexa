@@ -5,6 +5,7 @@ Séries SGS utilizadas:
   20714 — Taxa média de juros: crédito rotativo PF (% a.m.)
   20715 — Taxa máxima de juros: crédito rotativo PF (% a.m.)
   20706 — Taxa média de juros: cheque especial PF (% a.m.)
+  25433 — Taxa média de juros: crédito consignado INSS (% a.m.)
 
 Atenção: estas séries já vêm em % a.m. na API. O valor "15.67" significa
 15,67% a.m. = decimal 0.1567. NÃO dividir por 12.
@@ -44,9 +45,10 @@ class BacenCreditConnector(BaseConnector):
         "/dados/ultimos/1?formato=json"
     )
 
-    _ROTATIVO_SERIES       = 20714   # crédito rotativo PF — taxa média (% a.m.)
-    _ROTATIVO_MAX_SERIES   = 20715   # crédito rotativo PF — taxa máxima (% a.m.)
-    _CHEQUE_ESPECIAL_SERIES = 20706  # cheque especial PF — taxa média (% a.m.)
+    _ROTATIVO_SERIES        = 20714   # crédito rotativo PF — taxa média (% a.m.)
+    _ROTATIVO_MAX_SERIES    = 20715   # crédito rotativo PF — taxa máxima (% a.m.)
+    _CHEQUE_ESPECIAL_SERIES = 20706   # cheque especial PF — taxa média (% a.m.)
+    _CONSIGNADO_SERIES      = 25433   # crédito consignado INSS — taxa média (% a.m.)
 
     def __init__(self, **kwargs) -> None:
         kwargs.setdefault("cache_ttl_seconds", 21600)  # 6h — séries mudam mensalmente
@@ -60,9 +62,10 @@ class BacenCreditConnector(BaseConnector):
 
         Returns:
             {
-                "rotativo_monthly":       float,  # ex: 0.1567 = 15.67% a.m.
-                "rotativo_max_monthly":   float,
+                "rotativo_monthly":        float,  # ex: 0.1567 = 15.67% a.m.
+                "rotativo_max_monthly":    float,
                 "cheque_especial_monthly": float,
+                "consignado_monthly":      float,  # ex: 0.0175 = 1.75% a.m.
             }
 
         Raises:
@@ -73,6 +76,7 @@ class BacenCreditConnector(BaseConnector):
             self._ROTATIVO_SERIES:        "rotativo_monthly",
             self._ROTATIVO_MAX_SERIES:    "rotativo_max_monthly",
             self._CHEQUE_ESPECIAL_SERIES: "cheque_especial_monthly",
+            self._CONSIGNADO_SERIES:      "consignado_monthly",
         }
 
         with httpx.Client(timeout=self.timeout) as client:
@@ -104,6 +108,7 @@ class BacenCreditConnector(BaseConnector):
             "rotativo_monthly":        0.1567,   # 15.67% a.m. (mar/2026)
             "rotativo_max_monthly":    0.1770,   # 17.70% a.m.
             "cheque_especial_monthly": 0.1080,   # 10.80% a.m.
+            "consignado_monthly":      0.0175,   #  1.75% a.m. (mar/2026)
         }
 
     # ── Convenience ──────────────────────────────────────────────────────
@@ -115,6 +120,10 @@ class BacenCreditConnector(BaseConnector):
     def get_cheque_especial_monthly(self) -> float:
         """Taxa média do cheque especial PF em decimal (ex: 0.1080)."""
         return self.get_rates()["cheque_especial_monthly"]
+
+    def get_consignado_monthly(self) -> float:
+        """Taxa média do crédito consignado INSS em decimal (ex: 0.0175)."""
+        return self.get_rates()["consignado_monthly"]
 
 
 __all__ = ["BacenCreditConnector"]
