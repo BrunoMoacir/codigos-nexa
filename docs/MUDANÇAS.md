@@ -784,26 +784,40 @@ cenários do roadmap; cada integração nova ainda exige contrato, testes e crit
 
 ---
 
-## 8. Checklist de Verificação (auditoria 2026-06-24)
+## 8. Checklist de Verificação
 
-Itens conferidos diretamente no código e confirmados como **corretos sem alteração** (além das correções já
-marcadas com "↳ verificado" nas seções acima):
+### Auditoria original (2026-06-24) — estado antes das implementações
 
-| Item | Confirmado |
-|------|-----------|
-| Scheduler de jobs (§1.1) | Não existe nada — nem `core/scheduler.py`, nem `app/jobs/`, nem APScheduler/Celery no projeto |
-| Sistema de envio (§1.2) | Não existe — `notifications/` tem só `notifier.py`, `router.py`, `state_store.py`, `relevance_filter.py`; nenhum `email_sender`/`push_sender`/`delivery_service` |
-| As 8 tabelas novas (§2) | Nenhuma existe; migrations atuais (6 arquivos em `alembic/versions/`) cobrem `users`, `health_score_history`, `transactions_clean`, `context_overrides`, goals/architect/optimizer, `chat_messages`, feedback/calibration e (mais recente) `recommendation_feedback` — nenhuma delas é uma das 8 propostas aqui |
-| `negotiation_history` não é persistido (§3.2) | Confirmado — `opportunity_detector.py` só retorna lista em memória |
-| Notificações são só reativas (§3.3) | Confirmado — geradas só no `GET /notifications/{user_id}` |
-| Health Score sem badges (§3.4) | Confirmado — `health_score/` só tem `models.py`/`router.py`, sem gamificação |
-| Agent com 15 tools (§3.5) | Confirmado — 15 arquivos em `app/agent/tools/`, nomes batem com a lista do ROADMAP.md |
-| Fiscal só MEI/PJ, sem IRPF (§3.6) | Confirmado — `fiscal/` só tem DAS/Simples Nacional, sem cálculo de IR sobre CDB/LCI/LCA |
-| `opportunities/`, `defense/`, `rights/`, `tax/`, `viral/` (§4) | Nenhuma dessas pastas existe — 100% greenfield (corrige a seção "Arquivos Criados como Base Técnica" do ROADMAP.md, que afirmava o contrário) |
-| Conectores BACEN existentes (§5.1) | 8 conectores em `architect/connectors/`: `bacen.py` (SELIC, séries 432/4390), `anbima.py` (CDI, série 12), `ipca.py` (série 433 + IBGE SIDRA), `market_rates.py` (CETs, séries 25497/25501/20722), `abac.py`, `consortium_rate_provider.py`, `real_estate.py`, `base.py`. Nenhum cobre as séries de rotativo/cheque especial (20714/20715/20706/25433) |
-| Seção 7 "Bases existentes" | Os módulos listados existem e seus routers aplicáveis estão registrados. Nem todos possuem pasta `services/`, e “existente” não equivale a “completo”. O `optimizer/` ganhou `life_stage_detector.py`, `personal_baseline.py`, `trend_detector.py` e `opportunity_score.py` |
-| Frontend | 7 páginas reais (`home`, `dashboard`, `goals`, `strategies`, `connections`, `chat`, `profile`) e 4 arquivos de teste frontend; não é apenas um frontend de teste |
-| Testes | 1.757 testes coletados via `pytest --collect-only` (2026-06-24), mas a coleção termina com 3 erros; isso não deve ser descrito como suíte passando nem como cobertura comprovada |
+| Item | Estado em 24/06/2026 |
+|------|---------------------|
+| Scheduler de jobs (§1.1) | Não existia — nem `core/scheduler.py`, nem `app/jobs/`, nem APScheduler/Celery |
+| Sistema de envio (§1.2) | Não existia — `notifications/` tinha só `notifier.py`, `router.py`, `state_store.py`, `relevance_filter.py` |
+| As 8 tabelas novas (§2) | Nenhuma existia; migrations cobriam apenas `users`, `health_score_history`, `transactions_clean`, `context_overrides`, goals/architect/optimizer, `chat_messages`, feedback/calibration, `recommendation_feedback` |
+| `negotiation_history` não persistido (§3.2) | Confirmado — `opportunity_detector.py` só retornava lista em memória |
+| Notificações só reativas (§3.3) | Confirmado — geradas só no `GET /notifications/{user_id}` |
+| Health Score sem badges (§3.4) | Confirmado — `health_score/` só tinha `models.py`/`router.py`, sem gamificação |
+| Agent com 15 tools (§3.5) | Confirmado — 15 arquivos em `app/agent/tools/` |
+| Fiscal só MEI/PJ, sem IRPF (§3.6) | Confirmado — `fiscal/` só tinha DAS/Simples Nacional |
+| `opportunities/`, `defense/`, `rights/`, `tax/`, `viral/` (§4) | Nenhuma existia — 100% greenfield |
+| Conectores BACEN sem séries de crédito (§5.1) | 8 conectores existiam; nenhum cobria 20714/20715/20706/25433 |
+
+### Estado atual (2026-06-30) — após implementação do roadmap ✅
+
+| Item | Estado atual |
+|------|-------------|
+| Scheduler de jobs (§1.1) | ✅ `core/scheduler.py` + `app/jobs/` com 5 jobs (fee_snapshot, opportunity_scan, health_score_snapshot, daily_digest, notification_scheduler) registrados no `lifespan` do `main.py` |
+| Sistema de envio (§1.2) | ✅ `notifications/engine.py` (NotificationEngine proativo) + `core/notifications/delivery_service.py`; SMTP e SendGrid configuráveis via env vars em `config.py` |
+| As 8 tabelas novas (§2) | ✅ Todas criadas via Alembic: `negotiation_history`, `opportunity_snapshots`, `bank_fee_history`, `bank_fee_snapshots`, `health_score_history` (badge_type col), `user_badges`, `notification_log`, `scheduled_jobs` |
+| `negotiation_history` persistido (§3.2) | ✅ `opportunity_detector.py` persiste cada oportunidade; `GET /negotiator/history/{user_id}` + `PATCH /negotiator/history/{record_id}` para registrar resultado |
+| Notificações proativas (§3.3) | ✅ `NotificationEngine` com `TARIFA_AUMENTO_UNILATERAL` dispara via job `notification_scheduler` |
+| Health Score com badges (§3.4) | ✅ `badge_service.py` com 7 badges (VERDE_3_MESES, ECONOMIA_100, etc.) |
+| Agent com 21 tools (§3.5) | ✅ +6 tools: `get_opportunities.py`, `get_defense_findings.py`, `get_forgotten_rights.py`, `get_tax_optimization.py`, `get_savings_card.py`, `get_wrapped_report.py` |
+| Fiscal com IRPFCalculator PF (§3.6) | ✅ `fiscal/ir_pf_calculator.py` com tabela regressiva, compare CDB vs LCI, breakeven |
+| `opportunities/`, `defense/`, `rights/`, `tax/`, `viral/` (§4) | ✅ Todos implementados (4.1–4.5) e registrados no router principal |
+| Conectores BACEN com séries de crédito (§5.1) | ✅ `bacen_credit.py` cobre 20714, 20715, 20706 e 25433 (consignado INSS) com fallback e cache 6h |
+| Seção 7 “Bases existentes” | ✅ Todos os módulos listados existem e são reutilizados pelos novos módulos |
+| Frontend | 7 páginas funcionais (`home`, `dashboard`, `goals`, `strategies`, `connections`, `chat`, `profile`) |
+| Testes | 1.757 testes coletados em 24/06; suíte não verificada novamente após as implementações desta sessão |
 
 ---
 
