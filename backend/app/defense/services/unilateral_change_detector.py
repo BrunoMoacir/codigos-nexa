@@ -1,11 +1,18 @@
 """
 app/defense/services/unilateral_change_detector.py — D4: Alteração Unilateral de Tarifas
 
-Detecta tarifas que aumentaram mais de 10% em relação ao mês anterior
-sem notificação prévia ao cliente (30 dias de antecedência exigidos).
+Detecta tarifas que aumentaram sem comprovante de notificação prévia ao cliente.
 
-Base legal: Resolução BACEN 3.919/2010, art. 3º — alterações de tarifas
-            devem ser comunicadas ao cliente com no mínimo 30 dias antes.
+Base legal:
+  Res. CMN 3.919/2010, art. 3º — qualquer alteração de tarifa exige comunicação
+  prévia ao cliente com no mínimo 30 dias de antecedência.
+  CDC art. 51 — cláusulas que permitem modificação unilateral sem previsão
+  contratual são nulas de pleno direito.
+
+IMPORTANTE: qualquer aumento, independentemente do percentual, pode ser
+contestável se não houver comprovante de aviso prévio. O percentual define
+apenas a SEVERIDADE do achado — não sua existência.
+Nunca escrever "limite legal sem aviso: 10%" — isso está juridicamente errado.
 """
 
 from __future__ import annotations
@@ -18,34 +25,58 @@ from app.defense.models import DefenseFinding
 logger = logging.getLogger(__name__)
 
 _LEGAL_BASIS = (
-    "Resolução BACEN 3.919/2010, art. 3º — alterações de tarifas bancárias "
-    "exigem comunicação prévia ao cliente com no mínimo 30 dias de antecedência. "
-    "Aumentos sem aviso são passíveis de contestação e estorno."
+    "Res. CMN 3.919/2010, art. 3º — qualquer alteração de tarifa bancária "
+    "exige comunicação prévia ao cliente com no mínimo 30 dias de antecedência. "
+    "CDC art. 51 — cláusulas que permitem modificação unilateral sem previsão contratual "
+    "são nulas de pleno direito. Súmula 297/STJ — CDC aplica-se a bancos."
 )
 
 _ACTION = (
     "1. Solicite ao banco o comprovante de notificação enviada 30 dias antes do aumento.\n"
-    "2. Se não houver comprovante, exija estorno da diferença cobrada.\n"
+    "2. Se não houver comprovante, exija estorno da diferença cobrada indevidamente.\n"
     "3. Registre no Banco Central (bcb.gov.br/meubc) — prazo de resolução: 10 dias úteis.\n"
-    "4. Para aumentos recorrentes, avalie portabilidade de conta (gratuita)."
+    "4. Para aumentos recorrentes, avalie portabilidade de conta (gratuita por lei)."
 )
 
-# Aumento mínimo para disparar alerta (10%)
-_INCREASE_THRESHOLD = 0.10
+
+def _severity_from_pct(increase_pct: float) -> str:
+    """
+    O percentual decide SEVERIDADE, não existência do achado.
+    Qualquer aumento sem aviso prévio é contestável.
+    """
+    if increase_pct >= 0.25:
+        return "high"
+    if increase_pct >= 0.10:
+        return "medium"
+    return "low"
 
 
 class UnilateralChangeDetector:
     """
     D4 — Detecta aumentos de tarifas sem notificação prévia.
 
-    Compara o valor de cada (bank, fee_type) no mês atual com o mês anterior.
-    Flag se o aumento for superior a 10%.
+    CORREÇÃO JURÍDICA v2: qualquer aumento (> 0%) sem aviso prévio de 30 dias
+    é contestável. O percentual determina severidade (low/medium/high),
+    não a existência do achado.
+    Integra Olinda Tarifas quando disponível para verificar teto oficial por IF.
     """
 
     def detect(self, user_id: str) -> list[DefenseFinding]:
-        findings = self._compare_months(user_id)
-        logger.info("[D4] user=%s → %d achados", user_id, len(findings))
-        return findings
+        findings: list[DefenseFinding] = []
+        findings.extend(self._compare_months(user_id))
+        findings.extend(self._check_above_bacen_ceiling(user_id))
+        # Deduplica por banco + tarifa
+        seen: set[tuple[str, str]] = set()
+        unique = []
+        for f in findings:
+            key = (f.bank_name, f.title)
+            if key not in seen:
+                seen.add(key)
+                unique.append(f)
+        logger.info("[D4] user=%s → %d achados", user_id, len(unique))
+        return unique
+
+    # ── D4a: Compara mês atual vs anterior ────────────────────────────
 
     def _compare_months(self, user_id: str) -> list[DefenseFinding]:
         try:
@@ -54,7 +85,6 @@ class UnilateralChangeDetector:
 
             today = date.today()
             current_month = today.strftime("%Y-%m")
-            # mês anterior
             first_of_current = today.replace(day=1)
             last_of_prev = first_of_current - timedelta(days=1)
             prev_month = last_of_prev.strftime("%Y-%m")
@@ -80,32 +110,30 @@ class UnilateralChangeDetector:
 
             findings = []
             for bank, ftype, cur_amt, prev_amt in rows:
-                cur_amt = float(cur_amt)
+                cur_amt  = float(cur_amt)
                 prev_amt = float(prev_amt)
-                if prev_amt <= 0:
-                    continue
+                if prev_amt <= 0 or cur_amt <= prev_amt:
+                    continue  # sem aumento — não é achado
 
                 increase_pct = (cur_amt - prev_amt) / prev_amt
-                if increase_pct < _INCREASE_THRESHOLD:
-                    continue
-
-                severity = "high" if increase_pct >= 0.25 else "medium"
-                disputed = round(cur_amt - prev_amt, 2)
+                severity  = _severity_from_pct(increase_pct)
+                disputed  = round(cur_amt - prev_amt, 2)
 
                 findings.append(DefenseFinding(
                     detector="D4",
                     severity=severity,
                     bank_name=bank,
                     title=(
-                        f"Aumento unilateral de {increase_pct*100:.1f}% — "
-                        f"{ftype.replace('_', ' ')}"
+                        f"Aumento de tarifa sem aviso verificado — "
+                        f"{ftype.replace('_', ' ')} (+{increase_pct*100:.1f}%)"
                     ),
                     description=(
-                        f"{bank} aumentou {ftype.replace('_', ' ').lower()} "
+                        f"{bank} aumentou '{ftype.replace('_', ' ').lower()}' "
                         f"de R$ {prev_amt:.2f} para R$ {cur_amt:.2f} "
-                        f"({increase_pct*100:.1f}% de alta), "
-                        f"de {prev_month} para {current_month}, "
-                        "sem comprovante de notificação prévia."
+                        f"(+{increase_pct*100:.1f}%, R$ {disputed:.2f} a mais) "
+                        f"de {prev_month} para {current_month}. "
+                        f"Qualquer aumento exige notificação prévia de 30 dias "
+                        f"(Res. CMN 3.919/2010, art. 3º) — solicite o comprovante."
                     ),
                     amount_disputed=disputed,
                     legal_basis=_LEGAL_BASIS,
@@ -115,11 +143,76 @@ class UnilateralChangeDetector:
                         f"Tarifa: {ftype}",
                         f"Valor anterior ({prev_month}): R$ {prev_amt:.2f}",
                         f"Valor atual ({current_month}): R$ {cur_amt:.2f}",
-                        f"Aumento: R$ {disputed:.2f} ({increase_pct*100:.1f}%)",
-                        "Limite legal sem aviso: até 10% — acima exige notificação 30 dias antes",
+                        f"Aumento: R$ {disputed:.2f} (+{increase_pct*100:.1f}%)",
+                        "Qualquer aumento sem aviso prévio de 30 dias é contestável.",
+                        "Solicite comprovante de notificação ao banco.",
                     ],
                 ))
             return findings
         except Exception as exc:
             logger.debug("[D4] _compare_months: %s", exc)
+            return []
+
+    # ── D4b: Tarifa acima do teto BACEN/Olinda ─────────────────────────
+
+    def _check_above_bacen_ceiling(self, user_id: str) -> list[DefenseFinding]:
+        """
+        Verifica se o valor cobrado excede o ValorMaximo registrado no BACEN
+        para aquela IF e código de serviço (via OlindaBankFeeConnector).
+        Alta severidade — evidência objetiva e direta.
+        """
+        try:
+            from app.architect.connectors.olinda_bank_fee import OlindaBankFeeConnector
+            from app.core.database import SessionLocal
+            from sqlalchemy import text
+
+            connector = OlindaBankFeeConnector()
+            current_month = date.today().strftime("%Y-%m")
+
+            with SessionLocal() as db:
+                rows = db.execute(
+                    text(
+                        "SELECT bank_name, fee_type, amount"
+                        " FROM bank_fee_history"
+                        " WHERE user_id = :uid AND month = :month"
+                    ),
+                    {"uid": user_id, "month": current_month},
+                ).fetchall()
+
+            findings = []
+            for bank, ftype, amount in rows:
+                amount_f = float(amount)
+                ceiling = connector.get_max_fee(bank_name=bank, fee_code=ftype)
+                if ceiling is None or amount_f <= ceiling:
+                    continue
+
+                excedente = round(amount_f - ceiling, 2)
+                findings.append(DefenseFinding(
+                    detector="D4",
+                    severity="high",
+                    bank_name=bank,
+                    title=f"Tarifa acima do teto BACEN — {ftype.replace('_', ' ')}",
+                    description=(
+                        f"{bank} cobrou R$ {amount_f:.2f} por "
+                        f"'{ftype.replace('_', ' ').lower()}', "
+                        f"acima do valor máximo registrado no BACEN "
+                        f"(R$ {ceiling:.2f}). "
+                        f"Excedente: R$ {excedente:.2f}. "
+                        f"Evidência objetiva via Olinda BACEN Tarifas."
+                    ),
+                    amount_disputed=excedente,
+                    legal_basis=_LEGAL_BASIS,
+                    recommended_action=_ACTION,
+                    evidence_points=[
+                        f"Banco: {bank}",
+                        f"Tarifa: {ftype}",
+                        f"Valor cobrado: R$ {amount_f:.2f}",
+                        f"Teto BACEN (Olinda): R$ {ceiling:.2f}",
+                        f"Excedente contestável: R$ {excedente:.2f}",
+                        "Fonte: BACEN Olinda ListaTarifasPorInstituicaoFinanceira",
+                    ],
+                ))
+            return findings
+        except Exception as exc:
+            logger.debug("[D4] _check_above_bacen_ceiling: %s", exc)
             return []
