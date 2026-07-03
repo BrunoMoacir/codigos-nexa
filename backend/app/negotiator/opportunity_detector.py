@@ -4,14 +4,20 @@ app/negotiator/opportunity_detector.py — F13: Detector de Oportunidades de Neg
 Detecta quando o usuário tem poder de barganha para negociar taxas ou anuidades,
 cruzando 3 fontes de dados:
 
-  1. FeeDetector (F5)     → tarifas pagas nos últimos meses (JUROS_ROTATIVO, ANUIDADE_CARTAO)
-  2. BacenConnector       → taxa SELIC como base para estimar custo de mercado
-  3. UserProfileAnalyzer  → health score como proxy de poder de barganha
+  1. FeeDetector (F5)        → tarifas pagas nos últimos meses (JUROS_ROTATIVO, ANUIDADE_CARTAO)
+  2. BacenCreditConnector    → séries SGS reais de crédito PF:
+                               20714 (rotativo), 20706 (cheque especial), 25433 (consignado)
+                               Não mais SELIC+spread — benchmark direto por modalidade.
+  3. UserProfileAnalyzer     → health score como proxy de poder de barganha
 
 Limitação conhecida:
   O sistema não tem acesso a dados de crédito (Serasa/SCR/BACEN). O proxy de
   "bom pagador" é a ausência de JUROS_ROTATIVO nos últimos N meses — válido
   como sinal de comportamento, mas não substitui score de crédito real.
+
+Nota (roadmap §3.2/§5.1): a substituição SELIC+spread → séries SGS específicas
+foi implementada. _ANUIDADE_MARKET_MONTHLY_AVG (R$ 30/mês) é usado apenas
+pelo detector de anuidade alta — não interfere no benchmark de juros rotativos.
 """
 
 from __future__ import annotations
