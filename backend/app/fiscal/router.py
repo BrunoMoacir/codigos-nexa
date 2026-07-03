@@ -12,12 +12,16 @@ from app.fiscal.fiscal_report import FiscalReportService, SubcategoryLine
 from app.fiscal.ir_pf_calculator import IRPFCalculator, InvestmentType
 from app.forecast.etl.mixed_use_detector import MixedUseDetector
 
+from app.fiscal.rights_monitor.models import ForgottenRightsReport
+from app.fiscal.rights_monitor.services.monitor import RightsMonitorAggregator
+
 router = APIRouter(prefix="/fiscal-report", tags=["Fiscal Report"])
 logger = logging.getLogger(__name__)
 
 _service = FiscalReportService()
 _mixed_use_detector = MixedUseDetector()
 _ir_calc = IRPFCalculator()
+_rights_monitor = RightsMonitorAggregator()
 
 
 class SubcategoryLineOut(BaseModel):
@@ -264,3 +268,24 @@ def get_ir_pf_breakeven(
         raise HTTPException(status_code=500, detail="Erro ao calcular breakeven.")
 
     return BreakevenOut(**vars(bk))
+
+# ---------------------------------------------------------------------------
+# T3 — Monitor de Direitos Esquecidos
+# ---------------------------------------------------------------------------
+
+@router.get("/forgotten-rights", response_model=ForgottenRightsReport)
+async def get_forgotten_rights(
+    user_id: str = Depends(require_owner),
+    cpf: str = Query(..., description="CPF do usuário para consulta (somente números)"),
+):
+    """
+    T3 - Monitor de Direitos Esquecidos.
+    Consulta SVR BACEN, FGTS Inativo e Restituição IRPF usando o CPF.
+    Retorna o total estimado esquecido e os detalhes de cada candidato.
+    """
+    try:
+        report = await _rights_monitor.run_scan(user_id=user_id, cpf=cpf)
+        return report
+    except Exception as exc:
+        logger.error("Erro ao buscar direitos esquecidos user=%s: %s", user_id, exc)
+        raise HTTPException(status_code=500, detail="Erro ao buscar direitos esquecidos.")
