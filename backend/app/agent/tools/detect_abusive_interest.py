@@ -106,9 +106,10 @@ def detect_abusive_interest(user_id: str) -> str:
         lines += [
             "── O que fazer ──",
             "1. Use a ferramenta get_negotiation_script para obter o roteiro completo de negociação.",
-            "2. Solicite portabilidade de crédito — gratuita pela Resolução BACEN 3.401/2006.",
+            "2. Solicite portabilidade de crédito — gratuita por lei (Res. CMN 5.057/2022).",
             "3. Se o banco negar redução, registre reclamação no Banco Central (bcb.gov.br/meubc).",
-            "4. Para rotativo acumulado, avalie renegociação via SERASA Limpa Nome ou CPC do banco.",
+            "4. Use get_portability_analysis para simular economia com portabilidade.",
+            "5. Para dossiê completo com carta ao banco, use get_evidence_dossier.",
         ]
 
     lines += [

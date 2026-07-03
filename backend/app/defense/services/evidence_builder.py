@@ -171,6 +171,76 @@ class EvidenceBuilder:
         return 0, round(factor, 6)
 
 
+    def build_zip_package(
+        self,
+        user_id: str,
+        findings: list[DefenseFinding],
+        charge_date: date | None = None,
+        correction_index: CorrectionIndex = "IPCA",
+    ) -> bytes:
+        """
+        Gera pacote ZIP com todos os documentos do dossiê (carta, PROCON, JEC, índice).
+        Retorna bytes prontos para download.
+        """
+        import io
+        import zipfile
+
+        dossier = self.build_dossier(
+            user_id=user_id,
+            findings=findings,
+            charge_date=charge_date,
+            correction_index=correction_index,
+        )
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("00_LEIA_ME.txt", _INDEX_TEXT)
+            zf.writestr("01_carta_contestacao.txt", dossier.contestation_letter)
+            zf.writestr("02_relato_procon.txt", dossier.procon_narrative)
+            zf.writestr("03_peticao_jec.txt", dossier.jec_petition)
+            zf.writestr("04_resumo_achados.txt", _resumo_achados(dossier))
+
+        buf.seek(0)
+        return buf.read()
+
+
+_INDEX_TEXT = """DOSSIÊ NEXA AI — PACOTE DE EVIDÊNCIAS
+======================================
+AVISO LEGAL: Documentos gerados como modelo educacional.
+Preencha seus dados pessoais antes de protocolar.
+Recomenda-se revisão por advogado antes do JEC.
+
+Conteúdo:
+  01_carta_contestacao.txt — carta para SAC/Ouvidoria do banco
+  02_relato_procon.txt     — relato para PROCON ou Consumidor.gov.br
+  03_peticao_jec.txt       — modelo de petição para Juizado Especial Cível
+  04_resumo_achados.txt    — resumo dos indícios detectados
+
+Trilha de canais recomendada:
+  1. SAC (5 dias úteis)
+  2. Ouvidoria (10 dias úteis)
+  3. Consumidor.gov.br
+  4. BACEN (bcb.gov.br/meubc)
+  5. PROCON
+  6. JEC (sem advogado até R$ 28.200)
+"""
+
+
+def _resumo_achados(dossier) -> str:
+    lines = [
+        "RESUMO DOS ACHADOS",
+        f"Total de achados: {dossier.total_findings}",
+        f"Valor estimado contestável: R$ {dossier.total_disputed_amount:.2f}",
+        "",
+    ]
+    for f in dossier.findings:
+        lines.append(
+            f"[{f.detector} | {f.severity.upper()}] {f.bank_name}: {f.title} "
+            f"— R$ {f.amount_disputed:.2f}"
+        )
+    return "\n".join(lines)
+
+
 def _fetch_monthly_rates(series_id: int, start: date, end: date) -> list[float]:
     """Busca variações mensais do SGS BACEN para o período."""
     import httpx

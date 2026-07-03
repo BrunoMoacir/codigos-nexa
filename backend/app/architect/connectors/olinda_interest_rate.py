@@ -217,7 +217,7 @@ class OlindaInterestRateConnector(BaseConnector):
     def _fetch_raw(self, mes: str) -> list[dict]:
         url = (
             f"{_BASE}/TaxasJurosMensalPorMes"
-            f"?$filter=Mes eq '{mes}'"
+            f"?$filter=anoMes eq '{mes}'"
             f"&$format=json"
             f"&$top=5000"
         )

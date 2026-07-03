@@ -11,6 +11,7 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 
 from app.core.security import require_owner
 from app.defense.models import DefenseResponse, EvidenceDossier, CorrectionIndex
@@ -161,6 +162,59 @@ def get_evidence_dossier(
         user_id, len(all_findings), dossier.total_disputed_amount,
     )
     return dossier
+
+
+@router.get("/{user_id}/zip")
+def get_evidence_zip(
+    user_id: str = Depends(require_owner),
+    charge_date: Optional[date] = Query(
+        default=None,
+        description="Data da cobrança mais antiga (YYYY-MM-DD) para correção monetária.",
+    ),
+    correction_index: CorrectionIndex = Query(
+        default="IPCA",
+        description="Índice de correção: IPCA (padrão), SELIC ou INPC.",
+    ),
+) -> Response:
+    """
+    **Pacote ZIP de Evidências (D5)**
+
+    Baixa pacote ZIP com todos os documentos do dossiê:
+    - Carta de contestação ao banco
+    - Relato para PROCON / Consumidor.gov.br
+    - Modelo de petição JEC
+    - Resumo dos achados
+
+    ⚠️ Preencha seus dados pessoais antes de protocolar.
+    """
+    all_findings = []
+    for key in ("d1", "d2", "d3", "d4"):
+        try:
+            findings = _detectors[key].detect(user_id)
+            all_findings.extend(findings)
+        except Exception as exc:
+            logger.error("[defense/zip] detector=%s user=%s: %s", key, user_id, exc)
+
+    try:
+        zip_bytes = _builder.build_zip_package(
+            user_id=user_id,
+            findings=all_findings,
+            charge_date=charge_date,
+            correction_index=correction_index,
+        )
+    except Exception as exc:
+        logger.error("[defense/zip] build_zip_package user=%s: %s", user_id, exc)
+        raise HTTPException(status_code=500, detail="Erro ao gerar pacote ZIP.")
+
+    logger.info("[defense/zip] user=%s findings=%d", user_id, len(all_findings))
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="dossie_nexa_{user_id}.zip"'
+        },
+    )
 
 
 @router.get("/{user_id}/portability", response_model=DefenseResponse)

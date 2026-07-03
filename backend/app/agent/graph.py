@@ -23,6 +23,9 @@ Ferramentas disponíveis:
  17. detect_abusive_fees         → Venda casada e tarifas abusivas (D1)
  18. detect_wrongful_charges     → Cobranças indevidas e duplicatas (D2)
  19. detect_abusive_interest     → Juros acima da taxa BACEN (D3)
+ 20. get_defense_analysis        → Análise completa D1–D4: venda casada, cobranças, juros, tarifas
+ 21. get_evidence_dossier        → D5: dossiê com carta, PROCON e modelo JEC
+ 22. get_portability_analysis    → D6: portabilidade de crédito — economia e roteiro
 """
 import logging
 from langchain_core.messages import BaseMessage
@@ -50,6 +53,9 @@ from app.agent.tools.get_annual_wrapped import get_annual_wrapped
 from app.agent.tools.detect_abusive_fees import detect_abusive_fees
 from app.agent.tools.detect_wrongful_charges import detect_wrongful_charges
 from app.agent.tools.detect_abusive_interest import detect_abusive_interest
+from app.agent.tools.get_defense_analysis import get_defense_analysis
+from app.agent.tools.get_evidence_dossier import get_evidence_dossier
+from app.agent.tools.get_portability_analysis import get_portability_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -292,6 +298,37 @@ USE QUANDO o usuário perguntar sobre:
 - "Cheque especial com juros absurdos — o que faço?"
 - Qualquer dúvida sobre taxas de juros abusivas ou acima da taxa BACEN.
 
+### `get_defense_analysis(user_id, detectors="d1,d2,d3,d4")`
+USE QUANDO o usuário perguntar sobre:
+- "Tenho cobranças irregulares / indevidas na minha conta?"
+- "Quero ver tudo que pode estar errado no meu banco"
+- "Defesa do consumidor" / "Tenho direitos como cliente de banco?"
+- "Me cobram tarifa de extrato / saque que deveria ser grátis"
+- "Análise completa de irregularidades bancárias"
+- Qualquer pergunta abrangente sobre irregularidades ou direitos do consumidor bancário.
+- PREFIRA esta ferramenta quando o usuário quiser uma visão geral — ela executa D1+D2+D3+D4 de uma vez.
+
+### `get_evidence_dossier(user_id, charge_date="", correction_index="IPCA")`
+USE QUANDO o usuário perguntar sobre:
+- "Gera uma carta para o banco" / "Como faço uma reclamação formal?"
+- "Quero contestar por escrito as cobranças"
+- "Cria um dossiê das irregularidades"
+- "Quero protocolar no PROCON / Consumidor.gov.br"
+- "Gera modelo de petição para JEC / Juizado Especial"
+- "Quero os documentos para contestar o banco"
+- charge_date: extraia da mensagem se o usuário mencionar a data da cobrança (ex: "cobrança de março/2025" → "2025-03-01").
+- correction_index: IPCA (padrão), SELIC ou INPC — use SELIC se o usuário mencionar preferência.
+
+### `get_portability_analysis(user_id)`
+USE QUANDO o usuário perguntar sobre:
+- "Vale a pena portar meu crédito / empréstimo?"
+- "Minha taxa de empréstimo está cara?" / "Pago juros altos no financiamento"
+- "Posso mudar de banco e pagar menos?"
+- "Como faço portabilidade de crédito?"
+- "Quanto economizaria em outro banco?"
+- "Meu empréstimo consignado / pessoal / veículo está abusivo"
+- "É grátis pedir portabilidade?"
+
 ## REGRAS DE COMPORTAMENTO:
 1. **NUNCA peça informações que já estão na mensagem do usuário** — se o usuário disse "minha renda é R$ 8.500", use esse valor diretamente na tool. Se o usuário informou gasto mensal (ex: "gasto R$ 4.000/mês"), passe como `monthly_spend` em `get_card_optimization`.
 2. **SEMPRE chame a ferramenta** quando a pergunta se encaixar nos critérios acima — mesmo sem dados explícitos.
@@ -400,6 +437,9 @@ def build_financial_agent():
         detect_abusive_fees,
         detect_wrongful_charges,
         detect_abusive_interest,
+        get_defense_analysis,
+        get_evidence_dossier,
+        get_portability_analysis,
     ]
 
     # 2. LLM — Claude (preferencial) ou OpenAI (fallback)
