@@ -92,12 +92,15 @@ _FALLBACK_RATES = {
 
 
 def _classify(rate_user: float, rate_market: float) -> _RateThreshold | None:
-    """Retorna o threshold aplicável ou None se taxa <= média."""
+    """
+    Retorna o threshold aplicável ou None se taxa <= média.
+    Limites inclusivos (>=): 1,5x = medium, 3,0x = high conforme PDF V2 seção 9.
+    """
     if rate_market <= 0:
         return None
     multiple = rate_user / rate_market
     for t in _THRESHOLDS:
-        if multiple > t.multiple:
+        if multiple >= t.multiple:
             return t
     return None
 

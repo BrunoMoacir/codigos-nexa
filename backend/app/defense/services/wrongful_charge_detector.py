@@ -112,6 +112,15 @@ _ESSENTIAL_SERVICES = {
             r"\btar[\s_]consul", r"\bconsulta[\s_]saldo\b", r"\bsaldo[\s_]atm\b",
         ],
     },
+    # PIX recebimento PF — cobrança indevida para pessoa física
+    "pix_recebimento_pf": {
+        "name": "tarifa de recebimento Pix (pessoa física)",
+        "monthly_limit": None,  # PF não deve pagar para receber Pix em uso pessoal
+        "patterns": [
+            r"\btar[\s_]pix[\s_]rec", r"\bpix[\s_]recebimento\b",
+            r"\brecebimento[\s_]pix\b", r"\btar[\s_]rec[\s_]pix",
+        ],
+    },
 }
 
 

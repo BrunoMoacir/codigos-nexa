@@ -64,7 +64,9 @@ class IPCAConnector(BaseConnector):
         "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{series}"
         "/dados/ultimos/1?formato=json"
     )
-    _IPCA_SERIES = 433           # IPCA — variação acumulada 12 meses (%)
+    _IPCA_SERIES = 433           # IPCA — variação MENSAL (%, ex: 0.58 = 0.58% a.m.)
+    # NOTA (PDF V2 seção 4.1): série 433 retorna variação MENSAL, não acumulado 12 meses.
+    # Para acumular no período, usar evidence_builder._fetch_monthly_rates(433, start, end).
     _CACHE_TTL   = 6 * 3600     # 6 horas (divulgação mensal)
 
     def __init__(self, **kwargs):

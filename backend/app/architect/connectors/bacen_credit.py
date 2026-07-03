@@ -45,10 +45,15 @@ class BacenCreditConnector(BaseConnector):
         "/dados/ultimos/1?formato=json"
     )
 
-    _ROTATIVO_SERIES        = 20714   # crédito rotativo PF — taxa média (% a.m.)
-    _ROTATIVO_MAX_SERIES    = 20715   # crédito rotativo PF — taxa máxima (% a.m.)
-    _CHEQUE_ESPECIAL_SERIES = 20706   # cheque especial PF — taxa média (% a.m.)
-    _CONSIGNADO_SERIES      = 25433   # crédito consignado INSS — taxa média (% a.m.)
+    # ATENÇÃO (PDF V2 seção 4.1): unidades validadas em 01/05/2026:
+    #   20714 = 33,42 | 20706 = 55,00 | 25433 = 2,43
+    # Valores 33,42 e 55,00 estão altos para % a.m. — podem ser % a.a. ou CET anualizado.
+    # Até validação formal com documentação SGS, dividir por 100 e tratar como declarado.
+    # NUNCA usar 20714/20706 como % a.m. sem confirmar a unidade com o BACEN primeiro.
+    _ROTATIVO_SERIES        = 20714   # crédito rotativo PF — unidade a confirmar (BACEN)
+    _ROTATIVO_MAX_SERIES    = 20715   # crédito rotativo PF — taxa máxima
+    _CHEQUE_ESPECIAL_SERIES = 20706   # cheque especial PF — unidade a confirmar (BACEN)
+    _CONSIGNADO_SERIES      = 25433   # crédito consignado INSS — provavelmente % a.m.
 
     def __init__(self, **kwargs) -> None:
         kwargs.setdefault("cache_ttl_seconds", 21600)  # 6h — séries mudam mensalmente
