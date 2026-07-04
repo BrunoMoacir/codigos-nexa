@@ -53,6 +53,8 @@ _SEEN_TTL_DAYS: dict[str, int] = {
     "GOAL_PROGRESS":         30,
     "SAFE_TO_SPEND_LOW":     1,
     "LIFE_EVENT":            30,
+    "SAVINGS_BELOW_CDI":     30,  # OPP.4 — dado macro, um lembrete por mês basta
+    "IDLE_MONEY_DETECTED":   14,  # OPP — oportunidade persiste; não martelar diariamente
 }
 
 
@@ -100,6 +102,12 @@ def compute_fingerprint(user_id: str, n: Notification) -> str:
         parts = [t, str(today.isocalendar()[1])]   # semana ISO
     elif t == "LIFE_EVENT":
         parts = [t, m.get("event", ""), f"{today.year}-{today.month}"]
+    elif t == "SAVINGS_BELOW_CDI":
+        parts = [t, f"{today.year}-{today.month}"]
+    elif t == "IDLE_MONEY_DETECTED":
+        # bucket de R$500 — variação pequena do ocioso não é notificação nova
+        bucket = str(round(m.get("idle_amount", 0) / 500) * 500)
+        parts = [t, bucket, f"{today.year}-{today.month}"]
     else:
         parts = [t, n.message[:40]]
 

@@ -22,15 +22,16 @@ from datetime import date, timedelta
 
 from app.notifications.notifier import (
     FeeDeltaInput,
+    IdleMoneyInput,
     Notification,
     NotificationContext,
     ProactiveNotifier,
+    SavingsBelowCdiInput,
 )
 
 logger = logging.getLogger(__name__)
 
 _notifier = ProactiveNotifier()
-
 
 class NotificationEngine:
     """
@@ -53,10 +54,19 @@ class NotificationEngine:
         # Detecta tarifas aumentadas vs. mês anterior
         ctx.fee_deltas = self._detect_fee_deltas(user_id)
 
-        if not ctx.fee_deltas:
+        # OPP4-D — poupança abaixo do CDI (genérico) e dinheiro parado (Etapa 6)
+        ctx.savings_below_cdi = self._detect_savings_below_cdi()
+        ctx.idle_money = self._detect_idle_money(user_id)
+
+        if not ctx.fee_deltas and ctx.savings_below_cdi is None and ctx.idle_money is None:
             return []
 
         notifications = _notifier.generate(ctx)
+
+        # Dedup por estado (mesmo pipeline do router): sem isso o engine
+        # reentregaria o mesmo card a cada rodada de 6h — o TTL por tipo
+        # (state_store._SEEN_TTL_DAYS) vale também para o canal proativo.
+        notifications = self._filter_unseen(user_id, notifications)
 
         if notifications:
             self._deliver_all(user_id, notifications)
@@ -148,7 +158,107 @@ class NotificationEngine:
             logger.warning("[NotificationEngine] _detect_fee_deltas user=%s: %s", user_id, exc)
             return []
 
+    @staticmethod
+    def _detect_savings_below_cdi():
+        """OPP4-D — comparação genérica poupança vs. CDI. Retorna input só
+        quando severity >= MEDIUM (o gerador refiltra por segurança)."""
+        try:
+            from app.opportunities.services.savings_vs_cdi import get_savings_vs_cdi_service
+            result = get_savings_vs_cdi_service().analyze()
+        except Exception as exc:
+            logger.warning("[NotificationEngine] savings_vs_cdi: %s", exc)
+            return None
+
+        if result.status != "BELOW_CDI" or result.severity not in ("MEDIUM", "HIGH"):
+            return None
+
+        return SavingsBelowCdiInput(
+            savings_annual_pct=result.savings_annual_pct,
+            cdi_annual_pct=result.cdi_annual_pct,
+            amount_reference_brl=result.amount_reference_brl,
+            estimated_loss_annual_brl=result.estimated_loss_annual_brl,
+            severity=result.severity,
+            reason=result.reason,
+        )
+
+    @staticmethod
+    def _detect_idle_money(user_id: str):
+        """OPP Etapa 6 — dinheiro parado, apenas quando a detecção está
+        CONFIRMED pelo threshold OPP1-C.
+
+        Pré-filtro barato: consulta o snapshot mais recente (persistido pelo
+        opportunity_scan diário) e só roda a análise completa quando ele
+        indica saldo ocioso relevante — sem isso, cada rodada de 6h refaria
+        transações + profiler + ranking para todos os usuários."""
+        if not NotificationEngine._has_recent_idle_snapshot(user_id):
+            return None
+
+        try:
+            from app.opportunities.services.opportunity_engine import OpportunityEngine
+
+            result = OpportunityEngine().analyze(
+                user_id=user_id, holding_months=12, persist_snapshot=False
+            )
+        except Exception as exc:
+            logger.warning("[NotificationEngine] idle_money user=%s: %s", user_id, exc)
+            return None
+
+        if result.idle_detection_status != "CONFIRMED" or result.top_opportunity is None:
+            return None
+
+        top = result.top_opportunity
+        return IdleMoneyInput(
+            idle_amount=result.idle_amount,
+            monthly_loss=result.monthly_loss_in_checking,
+            top_opportunity=f"{top.bank_name} {top.product_type} {top.cdi_pct:.0f}% CDI",
+            top_gain_monthly_brl=top.monthly_gain_brl,
+        )
+
+    @staticmethod
+    def _has_recent_idle_snapshot(user_id: str, min_idle_brl: float = 500.0) -> bool:
+        """True quando o snapshot mais recente (últimos 2 dias) do usuário
+        registra saldo ocioso acima do threshold de confirmação OPP1-C.
+        Falha fechada (False): sem snapshot, não há como estar CONFIRMED."""
+        try:
+            from datetime import datetime, timedelta, timezone
+
+            from app.core.database import SessionLocal
+            from sqlalchemy import text
+
+            cutoff = datetime.now(timezone.utc) - timedelta(days=2)
+            with SessionLocal() as db:
+                row = db.execute(
+                    text(
+                        "SELECT idle_amount FROM opportunity_snapshots"
+                        " WHERE user_id = :uid AND captured_at >= :cutoff"
+                        " ORDER BY captured_at DESC LIMIT 1"
+                    ),
+                    {"uid": user_id, "cutoff": cutoff},
+                ).fetchone()
+            return bool(row and row[0] is not None and float(row[0]) >= min_idle_brl)
+        except Exception as exc:
+            logger.warning("[NotificationEngine] idle_snapshot user=%s: %s", user_id, exc)
+            return False
+
     # ── Entrega ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _filter_unseen(user_id: str, notifications: list[Notification]) -> list[Notification]:
+        """Remove notificações já entregues dentro do TTL por tipo e marca as
+        restantes como vistas. Falha aberta: se o state store estiver
+        indisponível, entrega tudo (comportamento anterior do engine)."""
+        if not notifications:
+            return notifications
+        try:
+            from app.notifications.state_store import NotificationStateStore
+
+            store = NotificationStateStore()
+            unseen = store.filter_unseen(user_id, notifications)
+            store.mark_shown(user_id, unseen)
+            return unseen
+        except Exception as exc:
+            logger.warning("[NotificationEngine] state_store indisponível: %s", exc)
+            return notifications
 
     @staticmethod
     def _deliver_all(user_id: str, notifications: list[Notification]) -> None:

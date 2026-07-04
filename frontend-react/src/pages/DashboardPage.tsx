@@ -12,6 +12,7 @@ import {
   YAxis,
 } from 'recharts';
 import { AppShell } from '../components/layout/AppShell';
+import { OpportunityRadarCard } from '../components/OpportunityRadarCard';
 import { nexaApi } from '../api/nexa';
 
 const cardStyle: React.CSSProperties = {
@@ -432,6 +433,10 @@ export const DashboardPage: React.FC = () => {
             Risco: {safeToSpend.risk_level || 'LOW'}
           </div>
         </div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <OpportunityRadarCard userId={userId} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 12 }}>

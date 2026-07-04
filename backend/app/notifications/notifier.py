@@ -66,6 +66,8 @@ NotificationType = Literal[
     "SAFE_TO_SPEND_LOW",
     "LIFE_EVENT",
     "TARIFA_AUMENTO_UNILATERAL",
+    "SAVINGS_BELOW_CDI",      # OPP.4 — poupança abaixo do CDI (Ticket OPP4-D)
+    "IDLE_MONEY_DETECTED",    # OPP — dinheiro parado confirmado (Etapa 6)
 ]
 
 # Thresholds para safe-to-spend baixo
@@ -214,6 +216,34 @@ class LifeEventInput:
 
 
 @dataclass
+class SavingsBelowCdiInput:
+    """OPP.4 (Ticket OPP4-D) — poupança rendendo abaixo do CDI.
+
+    Comparação genérica (valor de referência, nunca saldo presumido do
+    usuário) — vem de SavingsVsCdiService.analyze(). Só gerar card quando
+    severity >= MEDIUM (regra do plano OPP.4, seção 5.4)."""
+    savings_annual_pct: float
+    cdi_annual_pct: float
+    amount_reference_brl: float
+    estimated_loss_annual_brl: float
+    severity: str           # "LOW" | "MEDIUM" | "HIGH"
+    reason: str
+
+
+@dataclass
+class IdleMoneyInput:
+    """OPP (Etapa 6) — dinheiro parado confirmado + melhor oportunidade.
+
+    Vem do snapshot mais recente de opportunity_snapshots; só deve ser
+    preenchido quando a detecção está CONFIRMED (threshold OPP1-C) — carta
+    proativa não pode se basear em estimativa preliminar."""
+    idle_amount: float
+    monthly_loss: float
+    top_opportunity: str    # ex: "Nubank CDB 100% CDI"
+    top_gain_monthly_brl: float
+
+
+@dataclass
 class FeeDeltaInput:
     """Tarifa que aumentou vs. mês anterior (detectada em bank_fee_history)."""
     bank_name: str
@@ -264,6 +294,12 @@ class NotificationContext:
 
     # Tarifas que aumentaram vs. mês anterior (detectadas em bank_fee_history)
     fee_deltas: list[FeeDeltaInput] = field(default_factory=list)
+
+    # OPP.4 — poupança abaixo do CDI (comparação genérica, Ticket OPP4-D)
+    savings_below_cdi: Optional[SavingsBelowCdiInput] = None
+
+    # OPP — dinheiro parado confirmado (snapshot mais recente)
+    idle_money: Optional[IdleMoneyInput] = None
 
     # Dia do mês atual (para contexto em mensagens)
     current_day: int = 0
@@ -821,6 +857,78 @@ def generate_life_event_notifications(
     return notes
 
 
+def generate_savings_below_cdi_notification(
+    data: Optional[SavingsBelowCdiInput],
+) -> list[Notification]:
+    """
+    SAVINGS_BELOW_CDI — card educativo/oportunidade: poupança rende menos
+    que o CDI hoje (OPP.4, Ticket OPP4-D).
+
+    Só gera quando severity >= MEDIUM. O texto usa sempre o valor de
+    referência — nunca afirma quanto o usuário tem na poupança.
+    Prioridade INFO: é oportunidade, não incidente.
+    """
+    if data is None or data.severity not in ("MEDIUM", "HIGH"):
+        return []
+
+    return [Notification(
+        id=_new_id(),
+        type="SAVINGS_BELOW_CDI",
+        priority="INFO",
+        title="🐷 Poupança está rendendo abaixo do CDI",
+        message=(
+            f"Hoje a poupança rende {data.savings_annual_pct:.2f}% a.a. contra "
+            f"{data.cdi_annual_pct:.2f}% a.a. do CDI. {data.reason}"
+        ),
+        generated_at=_now(),
+        metadata={
+            "savings_annual_pct":        round(data.savings_annual_pct, 4),
+            "cdi_annual_pct":            round(data.cdi_annual_pct, 4),
+            "amount_reference_brl":      round(data.amount_reference_brl, 2),
+            "estimated_loss_annual_brl": round(data.estimated_loss_annual_brl, 2),
+            "severity":                  data.severity,
+        },
+        action_hint=(
+            "Se você tem dinheiro na poupança, veja no Radar de Oportunidades "
+            "alternativas com liquidez diária que rendem mais."
+        ),
+    )]
+
+
+def generate_idle_money_notification(
+    data: Optional[IdleMoneyInput],
+) -> list[Notification]:
+    """
+    IDLE_MONEY_DETECTED — dinheiro parado confirmado + melhor alternativa
+    (OPP, Etapa 6). O chamador é responsável por só preencher o input com
+    detecção CONFIRMED (threshold OPP1-C).
+    """
+    if data is None or data.idle_amount <= 0:
+        return []
+
+    annual_gain = data.top_gain_monthly_brl * 12
+    return [Notification(
+        id=_new_id(),
+        type="IDLE_MONEY_DETECTED",
+        priority="INFO",
+        title=f"💤 R$ {data.idle_amount:,.0f} parados na sua conta",
+        message=(
+            f"Você tem cerca de R$ {data.idle_amount:,.2f} parados, perdendo "
+            f"R$ {data.monthly_loss:,.2f}/mês. Melhor alternativa hoje: "
+            f"{data.top_opportunity} — renderia R$ {data.top_gain_monthly_brl:,.2f}/mês "
+            f"(R$ {annual_gain:,.2f}/ano)."
+        ),
+        generated_at=_now(),
+        metadata={
+            "idle_amount":          round(data.idle_amount, 2),
+            "monthly_loss":         round(data.monthly_loss, 2),
+            "top_opportunity":      data.top_opportunity,
+            "top_gain_monthly_brl": round(data.top_gain_monthly_brl, 2),
+        },
+        action_hint="Abra o Radar de Oportunidades para ver o passo a passo da troca.",
+    )]
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ORQUESTRADOR PRINCIPAL
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -903,6 +1011,12 @@ class ProactiveNotifier:
         # 11. Tarifas aumentadas unilateralmente (D4 — proativo via scheduler)
         notes.extend(generate_tarifa_aumento_notifications(ctx.fee_deltas))
 
+        # 12. OPP.4 — poupança abaixo do CDI (card genérico, OPP4-D)
+        notes.extend(generate_savings_below_cdi_notification(ctx.savings_below_cdi))
+
+        # 13. OPP — dinheiro parado confirmado (Etapa 6)
+        notes.extend(generate_idle_money_notification(ctx.idle_money))
+
         # Ordenar por prioridade
         notes.sort(key=lambda n: _PRIORITY_ORDER.get(n.priority, 3))
 
@@ -935,6 +1049,10 @@ __all__ = [
     "GoalProgressInput",
     "SafeToSpendInput",
     "LifeEventInput",
+    "SavingsBelowCdiInput",
+    "IdleMoneyInput",
+    "generate_savings_below_cdi_notification",
+    "generate_idle_money_notification",
     "generate_burn_rate_notifications",
     "generate_anomaly_notifications",
     "generate_subscription_increase_notifications",

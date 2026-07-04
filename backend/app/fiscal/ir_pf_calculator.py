@@ -32,7 +32,9 @@ _IR_BANDS: list[tuple[int, float]] = [
     (math.inf, 0.150),  # type: ignore[arg-type]
 ]
 
-InvestmentType = Literal["CDB", "LCI", "LCA", "CRI", "CRA", "DEBENTURE_INCENTIVADA", "POUPANCA"]
+InvestmentType = Literal[
+    "CDB", "LCI", "LCA", "CRI", "CRA", "DEBENTURE_INCENTIVADA", "POUPANCA", "TESOURO_SELIC"
+]
 
 _EXEMPT: frozenset[str] = frozenset({"LCI", "LCA", "CRI", "CRA", "DEBENTURE_INCENTIVADA", "POUPANCA"})
 
@@ -165,6 +167,65 @@ class IRPFCalculator:
             net_yield_brl=round(gross_yield, 2),
             net_annual_rate_pct=round(net_annual_rate, 4),
             is_exempt=True,
+        )
+
+    # ── Tesouro SELIC (IR regressivo + custódia B3) ──────────────────
+
+    def calc_ir_on_tesouro_selic(
+        self,
+        principal: float,
+        selic_annual: float,
+        holding_months: int,
+        custody_fee_annual: float = 0.0020,
+        custody_exempt_limit: float = 10_000.0,
+    ) -> IRResult:
+        """
+        Calcula rendimento líquido de Tesouro SELIC: IR regressivo (mesma
+        tabela do CDB) + taxa de custódia B3 (0,20% a.a.) sobre o valor que
+        exceder R$ 10.000 (isenção vigente para Tesouro Selic desde 2020).
+
+        A custódia incide sobre o estoque (principal + rendimento) excedente,
+        aproximada aqui sobre o valor médio do período — convenção
+        conservadora e suficiente para comparação de oportunidades.
+
+        Args:
+            principal:            Valor aplicado (R$).
+            selic_annual:         Taxa SELIC anual em decimal (ex: 0.15 = 15% a.a.).
+            holding_months:       Prazo de aplicação em meses.
+            custody_fee_annual:   Taxa de custódia B3 anual (decimal, padrão 0,20%).
+            custody_exempt_limit: Estoque isento de custódia (R$, padrão 10k).
+
+        Returns:
+            IRResult com investment_type="TESOURO_SELIC"; a custódia é
+            descontada do rendimento antes do cálculo da taxa líquida.
+        """
+        holding_days = holding_months * 30
+        ir_rate = self._ir_rate(holding_days)
+        years = holding_months / 12
+
+        period_rate = (1 + selic_annual) ** years - 1
+        gross_yield = principal * period_rate
+
+        # Custódia B3 sobre o estoque médio excedente ao limite isento
+        avg_position = principal + gross_yield / 2
+        custody_base = max(avg_position - custody_exempt_limit, 0.0)
+        custody_fee_brl = custody_base * custody_fee_annual * years
+
+        taxable_yield = max(gross_yield - custody_fee_brl, 0.0)
+        ir_brl = taxable_yield * ir_rate
+        net_yield = gross_yield - custody_fee_brl - ir_brl
+
+        net_period_rate = net_yield / principal
+        net_annual_rate = ((1 + net_period_rate) ** (12 / max(holding_months, 1)) - 1) * 100
+
+        return IRResult(
+            investment_type="TESOURO_SELIC",
+            gross_yield_brl=round(gross_yield, 2),
+            ir_rate=ir_rate,
+            ir_brl=round(ir_brl, 2),
+            net_yield_brl=round(net_yield, 2),
+            net_annual_rate_pct=round(net_annual_rate, 4),
+            is_exempt=False,
         )
 
     # ── Breakeven LCI ────────────────────────────────────────────────
