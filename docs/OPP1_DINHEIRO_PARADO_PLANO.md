@@ -269,12 +269,21 @@ silenciosamente do outro.
   API retornam o mesmo valor para o mesmo usuário no mesmo instante.
 - **Teste:** paridade — dado o mesmo `transactions_df` sintético, tool do chat e
   `IdleMoneyDetector` retornam o mesmo `idle_amount`.
+  ✅ **Feito** (`backend/tests/opportunities/test_chat_api_parity.py`): compara o valor embutido no
+  texto do chat com o retorno do `OpportunityEngine`, sem `_calc_idle_amount` duplicado. **Escopo
+  reconhecidamente parcial:** cobre paridade de valor chat↔engine, não faz chamada HTTP real ao
+  endpoint (`GET /opportunities/{user_id}`). Um teste de integração HTTP fica para quando OPP1-B/C
+  estabilizarem o contrato de resposta (seção 5.2) — testar contrato antes disso arriscaria quebrar
+  a cada campo novo (`gross_idle_amount`, `idle_detection_status`, etc.).
 - **Arquivos esperados:** `backend/app/agent/tools/get_opportunities.py`,
   `backend/app/opportunities/services/opportunity_engine.py`,
   `backend/tests/opportunities/test_chat_api_parity.py`.
 - **Esforço:** 1–2 dias.
 - **Por que primeiro:** sem isso, os Tickets OPP1-B e OPP1-C teriam que ser implementados (e mantidos) em
   dois lugares.
+- **Status:** ✅ concluído. A tool não tem mais `_calc_idle_amount`/`_get_cdi_monthly` próprios;
+  chama `OpportunityEngine().analyze(..., persist_snapshot=False)` (sem persistir snapshot a cada
+  pergunta do chat, diferente do GET da API e do job diário).
 
 ### Ticket OPP1-B — Proteção de reserva de emergência
 

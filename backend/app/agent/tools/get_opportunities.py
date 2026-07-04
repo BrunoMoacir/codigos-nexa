@@ -1,10 +1,21 @@
 # app/agent/tools/get_opportunities.py
+"""
+Tool do agente ReAct (chat) para o Radar de Oportunidades (OPP).
+
+Delega toda a lógica de dinheiro ocioso e ranking de produtos ao
+OpportunityEngine — o mesmo motor usado pelo endpoint REST
+(GET /api/v1/opportunities/{user_id}) e pelo job diário. Não duplica
+cálculo de idle_amount aqui (ver docs/OPP1_DINHEIRO_PARADO_PLANO.md,
+Ticket OPP1-A: antes desta mudança, esta tool tinha uma função
+_calc_idle_amount própria que podia divergir do IdleMoneyDetector).
+
+persist_snapshot=False: o chat é consultado sob demanda e não deve gerar
+um snapshot em opportunity_snapshots a cada pergunta — persistência fica
+a cargo do job diário e do GET explícito da API.
+"""
 import logging
-from datetime import date
 
 from langchain_core.tools import tool
-
-from app.core.db.queries import get_transactions_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -28,54 +39,47 @@ def get_opportunities(user_id: str) -> str:
     """
     logger.info("[Tool] get_opportunities | user=%s", user_id)
 
-    transactions_df = get_transactions_for_user(user_id)
+    from app.opportunities.services.opportunity_engine import OpportunityEngine
 
-    if transactions_df.is_empty():
-        return (
-            "Não encontrei histórico de transações para calcular dinheiro parado. "
-            "Conecte sua conta bancária via Open Finance para obter essa análise."
+    try:
+        result = OpportunityEngine().analyze(
+            user_id=user_id, holding_months=12, persist_snapshot=False
         )
-
-    # ── 1. Calcular saldo ocioso (income - expenses, média 3 meses) ──
-    idle_amount = _calc_idle_amount(transactions_df)
-
-    if idle_amount <= 0:
+    except Exception as exc:
+        logger.error("[Tool] get_opportunities | user=%s: %s", user_id, exc)
         return (
-            "Com base no seu histórico recente, seus gastos estão próximos ou acima da sua renda — "
-            "não há saldo ocioso identificado no momento. "
-            "Reduza gastos variáveis para criar margem de investimento."
+            "Não consegui calcular o radar de oportunidades agora. "
+            "Tente novamente em instantes."
         )
-
-    # ── 2. Buscar CDI atual via ANBIMA ───────────────────────────────
-    cdi_monthly = _get_cdi_monthly()
-
-    # ── 3. Calcular perda mensal e anual ────────────────────────────
-    monthly_loss = idle_amount * cdi_monthly
-    annual_loss = idle_amount * ((1 + cdi_monthly) ** 12 - 1)
-
-    # ── 4. Verificar snapshots de oportunidade no histórico ─────────
-    top_opportunity = _get_latest_snapshot(user_id)
 
     lines = [
         "=== RADAR DE OPORTUNIDADES ===",
         "",
-        f"💤 Dinheiro parado estimado: R$ {idle_amount:,.2f}",
-        f"📉 Perda mensal por não investir: R$ {monthly_loss:,.2f}",
-        f"📉 Perda anual estimada: R$ {annual_loss:,.2f}",
-        f"📊 CDI atual utilizado: {cdi_monthly * 100:.2f}% a.m.",
-        "",
-        "── Opções recomendadas ──",
-        f"• CDB 100% CDI: R$ {idle_amount * cdi_monthly:,.2f}/mês — tributado (IR regressivo 22,5%→15%)",
-        f"• LCI/LCA 90% CDI: R$ {idle_amount * cdi_monthly * 0.90:,.2f}/mês — ISENTO de IR",
-        f"  → Breakeven LCI: {(cdi_monthly * 0.775) * 100:.2f}% a.m. já supera CDB líquido após IR",
-        "",
-        "── Regra prática ──",
-        "Para reserva de emergência (até 6x gastos mensais): Tesouro Selic ou CDB com liquidez diária.",
-        "Para prazo > 2 anos: LCI/LCA ou CDB longo com alíquota de 15%.",
+        f"💤 Dinheiro parado estimado: R$ {result.idle_amount:,.2f}",
     ]
 
-    if top_opportunity:
-        lines += ["", f"📌 Última recomendação Nexa: {top_opportunity}"]
+    if result.idle_amount > 0:
+        lines += [
+            f"📉 Perda mensal por não investir: R$ {result.monthly_loss_in_checking:,.2f}",
+            f"📊 CDI atual utilizado: {result.cdi_annual_pct:.2f}% a.a.",
+        ]
+
+        top = result.top_opportunity
+        if top is not None:
+            ir_label = "ISENTO de IR" if top.is_exempt else f"IR {top.ir_rate * 100:.1f}%"
+            lines += [
+                "",
+                "── Melhor opção disponível ──",
+                f"• {top.bank_name} {top.product_type} {top.cdi_pct:.0f}% CDI "
+                f"({top.annual_rate_net_pct:.2f}% a.a. líquido) — {ir_label}",
+                f"  Rendimento estimado: R$ {top.monthly_gain_brl:,.2f}/mês",
+            ]
+
+    lines += ["", result.recommendation]
+
+    last_snapshot = _get_latest_snapshot(user_id)
+    if last_snapshot:
+        lines += ["", f"📌 Última recomendação salva: {last_snapshot}"]
 
     lines += [
         "",
@@ -86,46 +90,6 @@ def get_opportunities(user_id: str) -> str:
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
-
-def _calc_idle_amount(df) -> float:
-    """Estima dinheiro parado: média de renda menos média de despesas nos últimos 3 meses."""
-    try:
-        import polars as pl
-
-        date_col = "transaction_date" if "transaction_date" in df.columns else "date"
-        today = date.today()
-        cutoff = today.replace(day=1)
-        # 3 meses atrás
-        for _ in range(3):
-            cutoff = (cutoff.replace(day=1) - __import__("datetime").timedelta(days=1)).replace(day=1)
-
-        df_recent = df.filter(pl.col(date_col) >= cutoff)
-        if df_recent.is_empty():
-            df_recent = df
-
-        income = df_recent.filter(pl.col("amount") > 0)["amount"].sum()
-        expenses = df_recent.filter(pl.col("amount") < 0)["amount"].sum().abs() if \
-            df_recent.filter(pl.col("amount") < 0).height > 0 else 0.0
-
-        months = max(1, (today.year - cutoff.year) * 12 + today.month - cutoff.month)
-        avg_income = income / months
-        avg_expenses = expenses / months
-        return max(0.0, round(avg_income - avg_expenses, 2))
-    except Exception as exc:
-        logger.debug("[get_opportunities] _calc_idle_amount: %s", exc)
-        return 0.0
-
-
-def _get_cdi_monthly() -> float:
-    """Retorna CDI mensal via ANBIMA connector; fallback 0.83% a.m. (≈10% a.a.)."""
-    try:
-        from app.architect.connectors.anbima import AnbimaConnector
-        rates = AnbimaConnector().get_rates()
-        annual = rates.get("cdi_annual", 0.10)
-        return (1 + annual) ** (1 / 12) - 1
-    except Exception:
-        return 0.0083
-
 
 def _get_latest_snapshot(user_id: str) -> str | None:
     """Busca última recomendação de oportunidade em opportunity_snapshots."""
