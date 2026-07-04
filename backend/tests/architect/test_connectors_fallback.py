@@ -148,6 +148,110 @@ class TestBacenConnectorSecondary:
 
 
 # ─────────────────────────────────────────────────────────────────────
+# BacenConnector — TR (série 226), Ticket OPP4-A
+# ─────────────────────────────────────────────────────────────────────
+
+class TestBacenConnectorTR:
+    """
+    fetch_rates() busca SELIC (432) e TR (226) na mesma chamada — ver nota de
+    acoplamento no docstring do módulo bacen.py. get_tr_monthly() usa .get()
+    defensivo porque fetch_rates_secondary() (série 4390) só cobre SELIC.
+    """
+
+    def test_fetch_rates_retorna_selic_e_tr(self):
+        connector = _fresh_connector(BacenConnector)
+        with patch("httpx.Client") as mock_client_cls:
+            mock_client_cls.return_value.__enter__.return_value.get.side_effect = [
+                _mock_bcb_response("14.75"),
+                _mock_bcb_response("0.0000"),
+            ]
+            result = connector.fetch_rates()
+        assert result["selic_annual"] == pytest.approx(0.1475)
+        assert result["tr_monthly"] == pytest.approx(0.0)
+
+    def test_tr_positiva_convertida_para_decimal(self):
+        connector = _fresh_connector(BacenConnector)
+        with patch("httpx.Client") as mock_client_cls:
+            mock_client_cls.return_value.__enter__.return_value.get.side_effect = [
+                _mock_bcb_response("14.75"),
+                _mock_bcb_response("0.15"),   # 0,15% a.m.
+            ]
+            result = connector.fetch_rates()
+        assert result["tr_monthly"] == pytest.approx(0.0015)
+
+    def test_payload_tr_vazio_lanca_connector_error(self):
+        connector = _fresh_connector(BacenConnector)
+        tr_vazio = MagicMock()
+        tr_vazio.json.return_value = []
+        tr_vazio.raise_for_status = MagicMock()
+        with patch("httpx.Client") as mock_client_cls:
+            mock_client_cls.return_value.__enter__.return_value.get.side_effect = [
+                _mock_bcb_response("14.75"),
+                tr_vazio,
+            ]
+            with pytest.raises(ConnectorError):
+                connector.fetch_rates()
+
+    def test_payload_tr_malformado_lanca_connector_error(self):
+        connector = _fresh_connector(BacenConnector)
+        tr_malformado = MagicMock()
+        tr_malformado.json.return_value = [{"data": "01/05/2026"}]  # sem "valor"
+        tr_malformado.raise_for_status = MagicMock()
+        with patch("httpx.Client") as mock_client_cls:
+            mock_client_cls.return_value.__enter__.return_value.get.side_effect = [
+                _mock_bcb_response("14.75"),
+                tr_malformado,
+            ]
+            with pytest.raises(ConnectorError):
+                connector.fetch_rates()
+
+    def test_falha_na_tr_aciona_fallback_de_selic_tambem(self):
+        """Documenta o acoplamento aceito (ver docstring do módulo): falha na
+        série de TR também aciona o fallback de SELIC, mesmo que a SELIC em si
+        tivesse respondido com sucesso."""
+        connector = _fresh_connector(BacenConnector)
+        with (
+            patch("httpx.Client") as mock_client_cls,
+            patch.object(connector, "fetch_rates_secondary", return_value=None),
+        ):
+            mock_client_cls.return_value.__enter__.return_value.get.side_effect = [
+                _mock_bcb_response("14.75"),
+                httpx.ConnectError("TR fora"),
+            ]
+            result = connector.get_rates()
+        assert result["selic_annual"] == pytest.approx(0.1475)  # hardcoded, não os 14.75 buscados
+        assert result["tr_monthly"] == pytest.approx(0.0)
+
+    def test_get_tr_monthly_shorthand(self):
+        connector = _fresh_connector(BacenConnector)
+        with patch.object(
+            connector, "fetch_rates", return_value={"selic_annual": 0.15, "tr_monthly": 0.001}
+        ):
+            assert connector.get_tr_monthly() == pytest.approx(0.001)
+
+    def test_get_tr_monthly_usa_fallback_defensivo_quando_secundaria_nao_tem_tr(self):
+        """fetch_rates_secondary() (série 4390) só cobre SELIC — get_tr_monthly()
+        não pode lançar KeyError quando o resultado veio por esse caminho."""
+        connector = _fresh_connector(BacenConnector)
+        with (
+            patch.object(connector, "fetch_rates", side_effect=ConnectorError("BCB fora")),
+            patch.object(connector, "fetch_rates_secondary", return_value={"selic_annual": 0.1490}),
+        ):
+            tr = connector.get_tr_monthly()
+        assert tr == pytest.approx(BacenConnector._TR_FALLBACK_MONTHLY)
+
+    def test_get_selic_nao_quebra_com_a_mudanca(self):
+        connector = _fresh_connector(BacenConnector)
+        with patch("httpx.Client") as mock_client_cls:
+            mock_client_cls.return_value.__enter__.return_value.get.side_effect = [
+                _mock_bcb_response("14.75"),
+                _mock_bcb_response("0.0"),
+            ]
+            selic = connector.get_selic()
+        assert selic == pytest.approx(0.1475)
+
+
+# ─────────────────────────────────────────────────────────────────────
 # AnbimaConnector — fonte secundária: CDI derivado da SELIC
 # ─────────────────────────────────────────────────────────────────────
 

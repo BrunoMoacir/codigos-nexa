@@ -273,6 +273,34 @@ OPP.4 Opção A só deve ser marcada como concluída quando:
 **Arquivos esperados:** `backend/app/architect/connectors/bacen.py`,
 `backend/tests/architect/test_connectors_fallback.py` ou teste dedicado equivalente.
 
+**Status:** ✅ concluído.
+
+- `fetch_rates()` do `BacenConnector` agora busca SELIC (série 432) e TR (série 226) na mesma
+  chamada, mesmo padrão de múltiplas séries já usado em `BacenCreditConnector`. `get_tr_monthly()`
+  retorna decimal mensal via `.get()` defensivo (não indexação direta) porque
+  `fetch_rates_secondary()` — fonte alternativa de SELIC, série 4390 — não cobre TR; se o resultado
+  vier por esse caminho, cai em `_TR_FALLBACK_MONTHLY` (`0.0`) em vez de lançar `KeyError`.
+- **Decisão de arquitetura registrada (trade-off aceito, documentado no docstring do módulo):**
+  como `fetch_rates()` faz as duas buscas na mesma chamada, uma falha pontual só na série de TR
+  também aciona o fallback de SELIC — mesmo que a SELIC em si tivesse respondido com sucesso. Isso
+  é o mesmo comportamento que `BacenCreditConnector` já tem para suas 4 séries de crédito (todas
+  falham/sucedem juntas); não é uma regressão nova, é o padrão já aceito no repositório. Alternativa
+  considerada e descartada: um `TRConnector` separado (seguindo o padrão de uma classe por família de
+  taxa — `AnbimaConnector`, `IPCAConnector`) eliminaria esse acoplamento, mas o ticket pedia
+  explicitamente `BacenConnector().get_tr_monthly()` como critério de aceite.
+- **Risco verificado antes de codar:** `tests/architect/test_connectors_fallback.py` já tinha testes
+  que mockam `httpx.Client.get()` com listas `side_effect` de tamanho fixo para `BacenConnector`
+  (contam número exato de chamadas HTTP). Adicionar uma segunda chamada HTTP dentro de `fetch_rates()`
+  poderia ter quebrado esses testes por descompasso de contagem — verificado que não quebra porque,
+  no cenário testado (falha da SELIC primária), a exceção interrompe `fetch_rates()` antes de chegar
+  na busca de TR. Rodei a suíte completa (29 testes no arquivo, depois `tests/architect/` inteiro:
+  504 passando) para confirmar empiricamente, não só por inspeção.
+- **Testes:** 8 novos em `TestBacenConnectorTR` (`test_connectors_fallback.py`) — sucesso com SELIC+TR,
+  TR positiva convertida corretamente, payload vazio/malformado da série de TR lança
+  `ConnectorError`, falha na TR aciona fallback de SELIC também (documentando o trade-off acima),
+  `get_tr_monthly()` shorthand, fallback defensivo quando a fonte secundária não tem TR, e
+  confirmação de que `get_selic()` não quebrou.
+
 ### Ticket OPP4-B — Fórmula oficial da poupança
 
 - Criar função pura `calculate_savings_rate(selic_annual, tr_monthly)`.
