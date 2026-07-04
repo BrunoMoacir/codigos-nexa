@@ -364,9 +364,39 @@ silenciosamente do outro.
   (`docs/ROADMAP.md`, "Tempo até primeiro insight < 30s").
 - **Teste:** série temporal sintética de snapshots cobrindo os casos limite (exatamente 30 dias,
   29 dias, valor oscilando acima/abaixo de R$500).
+  ✅ **Feito** (`backend/tests/opportunities/test_opportunity_engine.py`, 13 testes): unidade direta
+  de `_evaluate_persistence` (NO_DATA/NO_IDLE_MONEY retornam sem consultar snapshots; cold start;
+  90% exato confirma; 89,9%/86,7% não confirma; R$500,00 exato conta como "acima") + integração via
+  `analyze()` confirmando que os 4 campos chegam em `OpportunitiesResponse` e que a recomendação
+  muda de texto conforme o status **+ 2 testes de integração real contra SQLite em memória**
+  (`TestFetchDailySnapshotValuesIntegracaoReal`) validando o SQL `SELECT DATE(captured_at) AS day,
+  MAX(idle_amount) ... GROUP BY` de fato — os testes de unidade acima mockam essa função e por si só
+  não provariam que a query roda contra um banco real; agrupamento por dia (2 snapshots no mesmo dia
+  → usa o máximo), corte de 30 dias e isolamento por `user_id` cobertos.
 - **Arquivos esperados:** `backend/app/opportunities/services/opportunity_engine.py`,
   `backend/app/jobs/opportunity_scan.py`, `backend/tests/opportunities/test_opportunity_engine.py`.
 - **Esforço:** 3–4 dias.
+- **Status:** ✅ concluído.
+  - `IdleDetectionStatus` (`NO_DATA`/`PRELIMINARY`/`CONFIRMED`/`NO_IDLE_MONEY`) e os 4 campos novos
+    (`is_confirmed_idle`, `days_tracked`, `idle_detection_status`, `idle_detection_reason`) em
+    `OpportunitiesResponse` — `models.py`.
+  - `OpportunityEngine._evaluate_persistence` + `_fetch_daily_snapshot_values` — agrupa
+    `opportunity_snapshots` por dia (`MAX(idle_amount)` por `DATE(captured_at)`, últimos 30 dias) e
+    aplica a regra de 90%. `NO_DATA`/`NO_IDLE_MONEY` retornam sem consultar o banco (curto-circuito
+    baseado no `IdleMoneyResult` já calculado).
+  - **Decisão de produto tomada:** conforme recomendado no plano, a recomendação continua visível
+    mesmo sem confirmação — só muda o texto (`_append_confidence_note` acrescenta "estimativa
+    preliminar... avalie antes de migrar" quando `PRELIMINARY`, satisfazendo a regra de liquidez da
+    seção 5.4). Não implementei supressão de resposta.
+  - `opportunity_scan.py`: nenhuma mudança de código — só documentado que o job diário já persiste
+    snapshot para todo usuário ativo (pré-requisito operacional do ticket já estava satisfeito).
+  - `get_opportunities.py` (chat): adicionado rótulo de status (`_STATUS_LABELS`) na primeira linha
+    da resposta — não é lógica nova, só apresentação do mesmo enum que a API expõe (seção 5.3 do
+    contrato). Fora do escopo estrito de "arquivos esperados" do ticket, mas necessário para a
+    Definition of Done (seção 5.6: "Feed/Notificações e Agente IA consumirem o mesmo contrato").
+  - **Não implementado (fora de escopo):** consumo pelo Feed/Notificações em si (ainda não existe
+    Feed no produto — ver `docs/OPP.md` §11.2) — os campos já estão prontos para quando esse canal
+    existir.
 
 ### Ticket OPP1-D — Testes e regressão (transversal)
 

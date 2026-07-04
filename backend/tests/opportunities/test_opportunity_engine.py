@@ -193,3 +193,77 @@ class TestAnalyzeIntegracao:
         result = OpportunityEngine().analyze(user_id=USER_ID, persist_snapshot=False)
 
         assert "estimativa preliminar" not in result.recommendation.lower()
+
+
+class TestFetchDailySnapshotValuesIntegracaoReal:
+    """
+    Os testes acima mockam _fetch_daily_snapshot_values e validam só a regra de
+    negócio (_evaluate_persistence). Esta classe roda o SQL real
+    (`SELECT DATE(captured_at) AS day, MAX(idle_amount) ... GROUP BY`) contra um
+    SQLite de verdade, para provar que a sintaxe funciona e não só o mock.
+
+    Datas naive (sem timezone) de propósito: a comparação `captured_at >= :cutoff`
+    depende de os dois lados serem formatados da mesma forma pelo driver sqlite3;
+    misturar naive/aware faria o cutoff ganhar um sufixo "+00:00" que as linhas
+    inseridas não têm, quebrando a comparação lexicográfica de string do SQLite
+    perto da borda da janela.
+    """
+
+    @pytest.fixture
+    def sqlite_session(self, monkeypatch):
+        from sqlalchemy import create_engine, text as sa_text
+        from sqlalchemy.orm import sessionmaker
+
+        engine = create_engine("sqlite:///:memory:")
+        with engine.begin() as conn:
+            conn.execute(
+                sa_text(
+                    "CREATE TABLE opportunity_snapshots ("
+                    " id TEXT, user_id TEXT, captured_at TIMESTAMP,"
+                    " idle_amount REAL, monthly_loss REAL,"
+                    " top_opportunity TEXT, top_gain_brl REAL, cdi_at_capture REAL)"
+                )
+            )
+        session_factory = sessionmaker(bind=engine)
+
+        import app.core.database as database_module
+        monkeypatch.setattr(database_module, "SessionLocal", session_factory)
+
+        return session_factory
+
+    @staticmethod
+    def _insert(session_factory, user_id: str, captured_at: datetime, idle_amount: float):
+        from sqlalchemy import text as sa_text
+
+        with session_factory() as db:
+            db.execute(
+                sa_text(
+                    "INSERT INTO opportunity_snapshots"
+                    " (id, user_id, captured_at, idle_amount)"
+                    " VALUES (:id, :uid, :ts, :idle)"
+                ),
+                {"id": "x", "uid": user_id, "ts": captured_at, "idle": idle_amount},
+            )
+            db.commit()
+
+    def test_agrupa_por_dia_e_usa_o_maximo(self, sqlite_session):
+        now = datetime.now()  # naive — ver docstring da classe
+
+        # dia -1: dois snapshots no mesmo dia (ex.: GET da API + job diário) → deve
+        # prevalecer o máximo (800), não o último inserido nem uma soma
+        self._insert(sqlite_session, USER_ID, now - timedelta(days=1, hours=2), 300.0)
+        self._insert(sqlite_session, USER_ID, now - timedelta(days=1, hours=1), 800.0)
+        # dia -2: um único snapshot
+        self._insert(sqlite_session, USER_ID, now - timedelta(days=2), 600.0)
+        # fora da janela de 30 dias — não deve entrar no resultado
+        self._insert(sqlite_session, USER_ID, now - timedelta(days=40), 999.0)
+        # outro usuário — não deve vazar para o resultado
+        self._insert(sqlite_session, "outro_usuario", now - timedelta(days=1), 111.0)
+
+        values = OpportunityEngine._fetch_daily_snapshot_values(USER_ID, now)
+
+        assert sorted(values) == [600.0, 800.0]
+
+    def test_usuario_sem_snapshots_retorna_lista_vazia(self, sqlite_session):
+        values = OpportunityEngine._fetch_daily_snapshot_values(USER_ID, datetime.now())
+        assert values == []
