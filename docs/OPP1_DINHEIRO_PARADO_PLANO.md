@@ -309,9 +309,39 @@ silenciosamente do outro.
   precisa entender por que o valor sugerido é menor do que ele "acha" que tem sobrando).
 - **Teste:** fixtures para os 4 níveis de `fss_level`, verificando que a reserva correta é
   subtraída e que `idle_amount_final` nunca fica negativo.
+  ✅ **Feito** (`backend/tests/opportunities/test_idle_money_detector.py`, 12 testes).
 - **Arquivos esperados:** `backend/app/opportunities/services/idle_money_detector.py`,
   `backend/app/opportunities/models.py`, `backend/tests/opportunities/test_idle_money_detector.py`.
 - **Esforço:** 3–5 dias (inclui integrar `ConsumptionProfiler` no fluxo do `OpportunityEngine`).
+- **Status:** ✅ concluído, com uma correção de design em relação ao texto acima (achada só na
+  implementação, não estava prevista no plano original nem em `OPP.md` §6.2):
+
+  **Correção — descompasso fluxo × estoque.** `idle_bruto` (`avg_income_3m − avg_expenses_3m`) é um
+  **fluxo mensal**; a reserva (6–9 × `avg_expenses_3m`) é um **estoque** (meses de gasto acumulado).
+  Subtrair um estoque de um fluxo praticamente sempre dá zero — ex.: renda R$10k, gasto R$8k
+  (poupança saudável de 20%), reserva = 6×8k = R$48.000 vs. sobra mensal de R$2.000: `idle_amount`
+  final seria R$0 para quase qualquer usuário real, mesmo financeiramente saudável. Isso teria
+  tornado o OPP1-B uma mudança que "funciona" mas produz uma feature morta (sempre R$0).
+
+  **Solução implementada** (decidida com o usuário antes de codar — ver conversa): `gross_idle_amount`
+  deixou de ser `avg_income_3m − avg_expenses_3m` e passou a ser um **proxy de saldo** — soma
+  cumulativa de todas as transações conhecidas do usuário, a mesma heurística que
+  `app/forecast/router.py::fetch_user_transactions` já usa (`current_balance = sum(transactions_df["amount"])`).
+  A reserva agora é subtraída de um estoque real (estimado), não de um fluxo. `avg_income_3m` e
+  `avg_expenses_3m` continuam existindo no resultado (contexto e cálculo da reserva), só
+  `gross_idle_amount`/`idle_amount` mudaram de definição.
+
+  Isso também aproxima a Opção A da fórmula literal do ROADMAP (`saldo − reserva`) mais do que o
+  plano original previa — continua sendo um proxy (não saldo real via Pluggy, seção 4), mas um proxy
+  de estoque, não mais de fluxo.
+
+  **Arquivos alterados:** `idle_money_detector.py` (fórmula + `_RESERVE_MONTHS_BY_FSS` +
+  `_calculate`), `opportunity_engine.py` (`_fetch_transactions`/`_build_user_profile` para reaproveitar
+  o mesmo `transactions_df` sem query adicional, `_append_reserve_note` na recomendação textual),
+  `models.py` (`OpportunitiesResponse` ganhou `gross_idle_amount`, `emergency_reserve`,
+  `reserve_months_applied`). `tests/opportunities/test_chat_api_parity.py` teve os valores da fixture
+  ajustados (renda/despesa maiores) para continuar exercitando o caminho de "melhor opção" mesmo após
+  a reserva.
 
 ### Ticket OPP1-C — Threshold de persistência (R$500 / 30 dias)
 
