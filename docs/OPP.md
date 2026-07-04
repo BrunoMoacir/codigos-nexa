@@ -39,12 +39,25 @@ O diferencial competitivo é a **neutralidade**: XP e BTG só mostram os produto
 ```
 backend/app/opportunities/
 ├── __init__.py
-├── models.py                          # OpportunityItem, OpportunitiesResponse, CompareRequest/Response
-├── router.py                          # GET /{user_id}, POST /compare
-└── services/
-    ├── idle_money_detector.py         # IdleMoneyDetector
-    ├── bank_comparator.py             # BankComparator
-    └── opportunity_engine.py          # OpportunityEngine (orquestrador)
+├── models.py                          # OpportunityItem, OpportunitiesResponse, Treasury/BankMatch/Scorecard/Catalog models
+├── router.py                          # GET /{user_id}, POST /compare, /savings-vs-cdi, /treasury-vs-cdb-vs-savings,
+│                                      # /products, /{user_id}/banks, /{user_id}/bank-match
+├── services/
+│   ├── idle_money_detector.py         # IdleMoneyDetector (com reserva de emergência)
+│   ├── bank_comparator.py             # BankComparator (Tesouro Selic, steps, reload de catálogo por mtime/TTL)
+│   ├── opportunity_engine.py          # OpportunityEngine (orquestrador)
+│   ├── savings_rate.py                # OPP.4 — fórmula oficial da poupança (SELIC + TR)
+│   ├── savings_vs_cdi.py              # OPP.4 — comparação genérica poupança vs. CDI
+│   ├── treasury_comparator.py         # OPP.3 — Tesouro SELIC vs. CDB vs. poupança
+│   ├── switch_steps.py                # OPP.5 — passos práticos de troca
+│   ├── bank_scorecard.py              # V2 — agregação por banco (§8.2)
+│   └── bank_match.py                  # Bank Match — melhor banco pelo perfil (rendimento+tarifas+cartões+fit)
+├── calculators/
+│   └── issuer_risk.py                 # tier de risco do emissor, bucket de liquidez
+├── connectors/
+│   └── open_finance_products.py       # OpenFinanceProductsConnector (Dados Abertos, fallback curado)
+└── data/
+    └── product_catalog.json           # cache normalizado gravado pelo job product_catalog_refresh (02h30)
 
 backend/data/
 └── bank_products.json                 # Catálogo estático curado — 12 bancos, 20 produtos
@@ -60,7 +73,7 @@ backend/app/viral/services/
 └── wrapped_generator.py               # Wrapped anual lê opportunity_snapshots
 ```
 
-Não existem hoje as pastas `connectors/`, `calculators/` nem `data/product_catalog.json` dentro de `app/opportunities/` — essa é a estrutura **alvo** descrita na seção 4, não a atual.
+As pastas `connectors/`, `calculators/` e `data/product_catalog.json` (antes só arquitetura alvo da seção 4) **existem e estão em uso** desde a branch `feat/opp-radar` (2026-07-04).
 
 ### 2.2 Fluxo de dados real
 
@@ -136,7 +149,7 @@ class IRPFCalculator:
 
 O OPP não chama o Pluggy diretamente: consome `app.core.db.queries.get_transactions_for_user`, que lê as transações já sincronizadas (via Pluggy) no DuckDB. Não há leitura de saldo diário nem da posição de investimentos do usuário — só o extrato de entradas/saídas dos últimos meses.
 
-### 3.3 Open Finance Brasil — Dados Abertos **[V2 — planejado, não implementado]**
+### 3.3 Open Finance Brasil — Dados Abertos **[V2 — IMPLEMENTADO 2026-07-04]** — `OpenFinanceProductsConnector` + job diário `product_catalog_refresh` (02h30); fallback = catálogo curado
 
 A API de **dados abertos** do Open Finance Brasil (não exige consentimento do usuário — são ofertas públicas das instituições) é o caminho natural para substituir o catálogo estático de 12 bancos por cobertura de mercado real.
 
@@ -147,7 +160,7 @@ A API de **dados abertos** do Open Finance Brasil (não exige consentimento do u
 
 Base: `https://openfinancebrasil.atlassian.net/wiki/spaces/OF/`. É oficial, gratuita, cobre praticamente todos os bancos participantes, e os dados são padronizados por regulação do BACEN — mas a estrutura é verbosa e exige ETL de normalização (competência já existente na F1, ainda não aplicada ao OPP).
 
-### 3.4 Tesouro Direto **[V2 — planejado, não implementado]**
+### 3.4 Tesouro Direto **[V2 — parcialmente implementado]** — Tesouro SELIC entra no ranking e no OPP.3 usando a SELIC meta do BACEN (aprox. da taxa do papel); conector de preços do Tesouro Transparente segue pendente
 
 Nenhum produto de Tesouro está no catálogo hoje. Caminhos avaliados para quando isso for construído, em ordem de robustez:
 
@@ -285,7 +298,7 @@ Isso conecta o OPP à inteligência comportamental que já existe no projeto, em
 
 ---
 
-## 7. Conector de Produtos **[V2 — planejado]**
+## 7. Conector de Produtos **[V2 — IMPLEMENTADO 2026-07-04]** (ver `connectors/open_finance_products.py`; o esqueleto abaixo era a proposta original)
 
 Seguindo o padrão real de `BaseConnector` (`app/architect/connectors/base.py`: `fetch_rates()`, `get_fallback_rates()`, cache/TTL herdados, `get_rates()` como entrypoint):
 
@@ -365,7 +378,7 @@ class BankComparator:
 
 Isso responde "qual o melhor produto?" — não responde "qual o melhor banco?" (ranking agregado por instituição não existe hoje).
 
-### 8.2 Scorecard por banco **[V2 — planejado]**
+### 8.2 Scorecard por banco **[V2 — IMPLEMENTADO 2026-07-04]** (`bank_scorecard.py` + `issuer_risk.py`; generalizado pelo Bank Match em `bank_match.py`, que soma tarifas, cartões e fit de perfil)
 
 Comparar produtos soltos responde "qual o melhor CDB?". Comparar **por banco** responde "de todos os bancos, qual paga mais pelo meu perfil?", "meu banco principal está entre os piores?", "vale abrir conta em outro banco só pela taxa?" — nenhuma corretora responde isso porque nenhuma tem visão neutra de todos os bancos ao mesmo tempo.
 
@@ -493,8 +506,11 @@ Uma versão anterior desta doc descrevia modelos `FixedIncomeProduct`, `ProductR
 |:---:|:---|:---:|:---|:---|
 | `GET` | `/api/v1/opportunities/{user_id}` | **[V1]** | `require_owner` | Radar completo: dinheiro parado + ranking. Query `holding_months` (1–360, padrão 12). Persiste snapshot. |
 | `POST` | `/api/v1/opportunities/compare` | **[V1]** | `get_current_user` | Simula valor/prazo específico, sem histórico do usuário. |
-| `GET` | `/api/v1/opportunities/{user_id}/banks` | **[V2]** | `require_owner` | Scorecard por banco (seção 8.2), banco atual do usuário destacado. |
-| `GET` | `/api/v1/opportunities/products` | **[V2]** | público/debug | Catálogo de produtos disponíveis, para transparência. |
+| `GET` | `/api/v1/opportunities/savings-vs-cdi` | **[V1]** | `get_current_user` | OPP.4 — poupança vs. CDI genérico (valor de referência). |
+| `GET` | `/api/v1/opportunities/treasury-vs-cdb-vs-savings` | **[V1]** | `get_current_user` | OPP.3 — Tesouro SELIC vs. melhor CDB vs. poupança, líquido. |
+| `GET` | `/api/v1/opportunities/{user_id}/banks` | **[V1]** | `require_owner` | Scorecard por banco (seção 8.2), banco atual do usuário destacado. |
+| `GET` | `/api/v1/opportunities/{user_id}/bank-match` | **[V1]** | `require_owner` | Bank Match — melhor banco pelo perfil (rendimento+tarifas+cartões+fit). |
+| `GET` | `/api/v1/opportunities/products` | **[V1]** | público | Catálogo de produtos com origem (curado/Open Finance), para transparência. |
 
 `/simulate` de uma versão anterior desta doc é, na prática, o `/compare` que já existe — não criar rota duplicada.
 
@@ -520,7 +536,7 @@ def get_opportunities(
 
 ### 11.2 O que não existe **[V2]**
 
-Não há card de "Feed de Oportunidades" no frontend. A recomendação só chega ao usuário via chat, ou fica silenciosamente salva em `opportunity_snapshots` (consumida depois pelo Wrapped anual). Construir o card do feed e unificar a lógica de ocioso entre chat e API são pré-requisitos antes de expor isso com mais destaque no produto.
+**[Atualizado 2026-07-04]** O card existe: `OpportunityRadarCard` no dashboard React, cards de feed `SAVINGS_BELOW_CDI` e `IDLE_MONEY_DETECTED` no pipeline de notificações (com relevância, fingerprint e TTL), e a lógica de ocioso está unificada no `OpportunityEngine` (chat, API e job usam o mesmo motor). Tools do agente: `get_opportunities`, `simulate_investment`, `get_best_bank`.
 
 ---
 
@@ -594,11 +610,11 @@ Testes de IR/equivalência (tabela regressiva, gross-up) já deveriam existir em
 
 **Gap 2 — Sem proteção de reserva de emergência (impacto: alto).** `idle_amount` não distingue reserva de "sobra". Ver seção 6.2 para o caminho de correção usando `ConsumptionProfiler` real.
 
-**Gap 3 — Catálogo estático e manual, cobertura limitada (impacto: médio).** 12 bancos, 20 produtos, atualizados por edição manual de JSON, sem CDB de bancões (Itaú/Bradesco/BB estão listados no exemplo de `issuer_risk.py` da seção 8.2 mas **não existem no catálogo real hoje**). Ver seção 3.3/Etapa 3.
+**Gap 3 — [FECHADO 2026-07-04]** Catálogo vivo via Open Finance com job diário e reload por mtime/TTL no BankComparator; o curado vira fallback. Texto original: catálogo estático e manual, cobertura limitada (impacto: médio). 12 bancos, 20 produtos, atualizados por edição manual de JSON, sem CDB de bancões (Itaú/Bradesco/BB estão listados no exemplo de `issuer_risk.py` da seção 8.2 mas **não existem no catálogo real hoje**). Ver seção 3.3/Etapa 3.
 
-**Gap 4 — Sem testes dedicados (impacto: médio).** Ver seção 13.
+**Gap 4 — [FECHADO]** `tests/opportunities/` existe (130+ testes). Texto original: sem testes dedicados (impacto: médio). Ver seção 13.
 
-**Gap 5 — Sem disclaimer regulatório (impacto: médio, jurídico).** Nem a resposta da API nem o texto do chat avisam explicitamente que a Nexa não presta consultoria de valores mobiliários regulada pela CVM. Avaliar antes da Etapa 6 (card no feed) — mais exposição do produto aumenta o risco de omissão.
+**Gap 5 — [PARCIALMENTE FECHADO]** `DISCLAIMER` presente em API, chat, feed e card; falta validação formal do texto com jurídico. Texto original: sem disclaimer regulatório (impacto: médio, jurídico). Nem a resposta da API nem o texto do chat avisam explicitamente que a Nexa não presta consultoria de valores mobiliários regulada pela CVM. Avaliar antes da Etapa 6 (card no feed) — mais exposição do produto aumenta o risco de omissão.
 
 **Decisão — Scheduler já resolvido, não é gap.** Uma versão anterior desta doc listava "scheduler para o ETL" como gap exigindo Celery+Redis novo. Isso já existe: `app/core/scheduler.py` (APScheduler) + `job_guard` (lock Redis com fallback em memória) já rodam `opportunity_scan` diariamente. Qualquer job novo (ex.: refresh do catálogo do Open Finance) reaproveita esse mesmo padrão.
 

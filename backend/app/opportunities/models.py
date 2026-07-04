@@ -202,6 +202,50 @@ class BankComparisonResponse(BaseModel):
     generated_at: datetime
 
 
+# ── Bank Match — melhor banco para o usuário (camada de inteligência) ─
+
+class BankMatchComponents(BaseModel):
+    """Notas 0–100 de cada pilar do match, antes da ponderação."""
+    yield_score: float          # rendimento líquido ajustado a risco (scorecard)
+    fees_score: float           # custo projetado de tarifas no banco
+    card_score: float           # força dos cartões do banco para o perfil de gasto
+    fit_score: float            # aderência ao perfil (risco, liquidez, FGC, amplitude)
+
+
+class BankMatchEntry(BaseModel):
+    bank_name: str
+    match_score: float                  # 0–100, ponderado pelo perfil do usuário
+    components: BankMatchComponents
+    reasons: list[str]                  # explicações humanas (transparência do score)
+    risk_tier: int
+    is_user_current_bank: bool
+    projected_annual_gain_brl: float    # melhor produto do banco p/ o valor simulado
+    projected_monthly_fee_brl: float    # tarifa média de mercado do banco
+    top_card_name: Optional[str] = None # melhor cartão do banco p/ o perfil (se houver)
+
+
+class BankMatchResponse(BaseModel):
+    """Resposta do GET /opportunities/{user_id}/bank-match.
+
+    Camada de inteligência acima do scorecard: em vez de responder só
+    "qual banco paga mais pelo investimento?", responde "qual é o melhor
+    banco PARA VOCÊ?", ponderando rendimento, tarifas, cartões e o perfil
+    financeiro (FSS, tipo de investidor) do usuário.
+    """
+    user_id: str
+    amount_simulated: float
+    holding_months: int
+    profile_used: dict                   # fss_level, investor_type, pesos aplicados
+    ranking: list[BankMatchEntry]        # ordenado por match_score desc
+    user_current_bank: Optional[str] = None
+    user_current_bank_rank: Optional[int] = None
+    best_bank: Optional[str] = None
+    switch_recommendation: str
+    disclaimer: str = ""
+    data_sources: list[str] = []
+    generated_at: datetime
+
+
 # ── V2 — Catálogo público (transparência) ─────────────────────────────
 
 class CatalogProduct(BaseModel):

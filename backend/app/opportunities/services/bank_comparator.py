@@ -46,8 +46,43 @@ class BankComparator:
         ranking = comparator.rank(amount=10_000, holding_months=12, cdi_annual=0.1465)
     """
 
+    # Revalidação do catálogo: além do mtime (detecta o arquivo novo gravado
+    # pelo job product_catalog_refresh sem reiniciar o processo), um TTL de
+    # segurança força re-stat/reload periódico mesmo se o mtime não mudar.
+    _CATALOG_TTL_SECONDS = 15 * 60
+
     def __init__(self) -> None:
-        self._catalog: list[dict] = self._load_catalog()
+        self._catalog: list[dict] = []
+        self._catalog_path: Path | None = None
+        self._catalog_mtime: float = 0.0
+        self._catalog_loaded_at: float = 0.0
+        self._refresh_catalog()
+
+    def _refresh_catalog(self) -> None:
+        """Recarrega o catálogo quando o arquivo em uso mudou (mtime), quando
+        o arquivo preferencial passou a existir/deixou de existir, ou quando o
+        TTL expirou. Instâncias singleton (router) passam a enxergar o catálogo
+        novo do job diário sem restart — correção do gap de invalidação."""
+        import time
+
+        now = time.monotonic()
+        if self._catalog and (now - self._catalog_loaded_at) < self._CATALOG_TTL_SECONDS:
+            return
+
+        path = next((p for p in (_LIVE_CATALOG_PATH, _CURATED_CATALOG_PATH) if p.exists()), None)
+        try:
+            mtime = path.stat().st_mtime if path else 0.0
+        except OSError:
+            mtime = 0.0
+
+        if self._catalog and path == self._catalog_path and mtime == self._catalog_mtime:
+            self._catalog_loaded_at = now  # nada mudou — só renova o TTL
+            return
+
+        self._catalog = self._load_catalog()
+        self._catalog_path = path
+        self._catalog_mtime = mtime
+        self._catalog_loaded_at = now
 
     def rank(
         self,
@@ -73,6 +108,7 @@ class BankComparator:
         """
         from app.fiscal.ir_pf_calculator import IRPFCalculator
 
+        self._refresh_catalog()
         ir_calc = IRPFCalculator()
         results: list[tuple[float, OpportunityItem]] = []
 

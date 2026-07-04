@@ -318,4 +318,11 @@ export const nexaApi = {
     });
     return data;
   },
+
+  getBankMatch: async (userId: string, amount = 0, holdingMonths = 12) => {
+    const { data } = await apiClient.get(`/opportunities/${userId}/bank-match`, {
+      params: { amount, holding_months: holdingMonths },
+    });
+    return data;
+  },
 };

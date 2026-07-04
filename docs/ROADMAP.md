@@ -114,6 +114,14 @@ SVR BACEN tem ~R$8,5 bilhões não reclamados no Brasil.
 diário de refresh (02h30), disclaimer regulatório em todas as respostas,
 cards de feed (SAVINGS_BELOW_CDI, IDLE_MONEY_DETECTED) e card no dashboard.
 
+**Bank Match (camada geral):** `GET /opportunities/{user_id}/bank-match` e tool
+`get_best_bank` — recomenda o melhor banco pelo perfil completo do usuário,
+ponderando rendimento líquido ajustado a risco, tarifas típicas (market_fees_db
+do F5), força dos cartões do emissor (catálogo do optimizer F2) e fit com o
+perfil (FSS, tipo de investidor), com pesos adaptativos e explicação por
+componente. Catálogo com reload automático (mtime/TTL) ao ser atualizado pelo
+job do Open Finance.
+
 **Bancos/produtos comparados na V1:** Nubank, Inter, C6, PicPay, BTG, XP, Itaú,
 Bradesco, Santander, BB, Caixa, Sicoob, Tesouro Direto.
 
