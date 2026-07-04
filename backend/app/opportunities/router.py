@@ -22,15 +22,49 @@ from app.opportunities.models import (
     OpportunitiesResponse,
     CompareRequest,
     CompareResponse,
+    SavingsVsCdiResult,
 )
 from app.opportunities.services.opportunity_engine import OpportunityEngine
 from app.opportunities.services.bank_comparator import BankComparator
+from app.opportunities.services.savings_vs_cdi import SavingsVsCdiService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/opportunities", tags=["Opportunities (OPP)"])
 
 _engine = OpportunityEngine()
 _comparator = BankComparator()
+_savings_vs_cdi = SavingsVsCdiService()
+
+
+@router.get("/savings-vs-cdi", response_model=SavingsVsCdiResult)
+def get_savings_vs_cdi(
+    amount_reference_brl: float = Query(
+        default=10_000.0,
+        gt=0,
+        description="Valor de referência (R$) para calcular a perda estimada. Não usa saldo real do usuário.",
+    ),
+    current_user: str = Depends(get_current_user),
+) -> SavingsVsCdiResult:
+    """
+    **OPP.4 (Ticket OPP4-C) — Poupança vs. CDI**
+
+    Comparação genérica, sem depender de saldo real do usuário (Opção A do
+    plano OPP.4 — `docs/OPP4_POUPANCA_CDI_PLANO.md`): calcula a taxa oficial
+    da poupança (SELIC + TR, `calculate_savings_rate`) e compara com o CDI
+    atual para um valor de referência.
+
+    **Importante:** esta rota é registrada ANTES de `/{user_id}` de propósito
+    — `savings-vs-cdi` não pode ser interpretado como um `user_id`.
+
+    - **status**: `BELOW_CDI` | `NEAR_CDI` | `NO_ADVANTAGE` | `DATA_UNAVAILABLE`
+    - **severity**: `LOW` | `MEDIUM` | `HIGH` — usado por Feed/Notificações para decidir
+      se vale gerar um card (ver seção 5.4/5.5 do plano).
+    """
+    try:
+        return _savings_vs_cdi.analyze(amount_reference_brl=amount_reference_brl)
+    except Exception as exc:
+        logger.error("[opportunities] savings_vs_cdi user=%s: %s", current_user, exc)
+        raise HTTPException(status_code=500, detail="Erro ao comparar poupança com CDI.")
 
 
 @router.get("/{user_id}", response_model=OpportunitiesResponse)

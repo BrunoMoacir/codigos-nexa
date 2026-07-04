@@ -358,6 +358,35 @@ classifica corretamente `BELOW_CDI`, `NEAR_CDI`, `NO_ADVANTAGE` e `DATA_UNAVAILA
 `backend/app/opportunities/models.py`, `backend/app/opportunities/router.py`,
 `backend/tests/opportunities/test_savings_vs_cdi.py`.
 
+**Status:** ✅ concluído.
+
+- `SavingsVsCdiService.analyze(amount_reference_brl=10_000.0)` em `savings_vs_cdi.py`, novo model
+  `SavingsVsCdiResult` em `models.py`, endpoint `GET /api/v1/opportunities/savings-vs-cdi` em
+  `router.py`.
+- **Decisão registrada (não deixada em aberto, como a nota da seção 5.1 pedia):**
+  `cdi_reference_annual_pct` = CDI bruto (igual a `cdi_annual_pct`) — poupança é isenta de IR, CDI/CDB
+  não; comparar bruto contra bruto é a leitura mais simples sem precisar simular alíquota de IR (que
+  dependeria de um prazo de permanência, fora do escopo de "comparação de hoje, sem contexto de
+  prazo"). Campo mantido separado do CDI bruto para permitir trocar a metodologia de referência (ex:
+  CDI líquido simulado) no futuro sem quebrar o contrato — documentado no docstring do model.
+- **Risco de roteamento verificado e coberto por teste:** `GET /savings-vs-cdi` foi registrado
+  **antes** de `GET /{user_id}` no router — se estivesse depois, `"savings-vs-cdi"` seria interpretado
+  como `user_id` pela rota dinâmica (FastAPI casa rotas na ordem de registro dentro do mesmo método
+  HTTP). Escrevi um teste de integração dedicado para isso (`TestRotaSavingsVsCdiNaoEhInterceptadaPorUserId`),
+  não só um teste de unidade do serviço.
+- **Cache efetivo, não só nominal:** `SavingsVsCdiService` cria `AnbimaConnector`/`BacenConnector`
+  uma vez no `__init__`, não a cada `analyze()` — porque o cache de `BaseConnector` é por instância;
+  recriar o conector a cada chamada anularia o TTL. Isso só funciona de fato porque o `router.py`
+  instancia `_savings_vs_cdi = SavingsVsCdiService()` uma única vez em nível de módulo (mesmo padrão
+  já usado para `_engine`/`_comparator`).
+- **Nota para o futuro (fora de escopo aqui):** `OpportunityEngine._get_cdi_annual()` recria um
+  `AnbimaConnector()` novo a cada chamada — o cache dessa conexão nunca é reaproveitado entre
+  requisições, mesmo com `_engine` sendo um singleton de módulo. Não é uma regressão introduzida por
+  este ticket (comportamento pré-existente), só registrando para quem for otimizar depois.
+- **Testes:** 11 em `test_savings_vs_cdi.py` — classificação dos 4 status (incluindo o caso
+  "incoerente" onde a poupança empata/supera o CDI), escala linear da perda com o valor de
+  referência, `DATA_UNAVAILABLE` quando a busca de taxas falha, e os 2 testes de roteamento acima.
+
 ### Ticket OPP4-D — Agente IA e feed/notificações
 
 - Agente: plugar a comparação no fluxo existente do Radar de Oportunidades ou em tool específica só

@@ -70,6 +70,34 @@ class SavingsRateResult(BaseModel):
     generated_at: datetime
 
 
+class SavingsVsCdiResult(BaseModel):
+    """Ticket OPP4-C — comparação genérica poupança vs. CDI.
+
+    Não depende de saldo real do usuário (Opção A do plano OPP.4) — a mesma
+    resposta vale para qualquer usuário num dado dia, calculada para um valor
+    de referência (`amount_reference_brl`, default 10_000).
+
+    `cdi_reference_annual_pct`: decisão registrada (não deixar em aberto) —
+    usa CDI BRUTO como referência, igual a `cdi_annual_pct`. Poupança é isenta
+    de IR e CDI/CDB não; comparar bruto contra bruto é a leitura mais simples
+    e defensável sem simular alíquota de IR (que dependeria de holding_months,
+    fora do escopo de uma comparação "hoje, sem contexto de prazo"). Campo
+    mantido separado de `cdi_annual_pct` para permitir trocar a metodologia de
+    referência (ex: CDI líquido simulado) no futuro sem quebrar o contrato.
+    """
+    amount_reference_brl: float
+    savings_annual_pct: float
+    cdi_annual_pct: float
+    cdi_reference_annual_pct: float
+    spread_pct_points: float
+    estimated_loss_monthly_brl: float
+    estimated_loss_annual_brl: float
+    status: Literal["BELOW_CDI", "NEAR_CDI", "NO_ADVANTAGE", "DATA_UNAVAILABLE"]
+    severity: Literal["LOW", "MEDIUM", "HIGH"]
+    reason: str
+    generated_at: datetime
+
+
 class CompareRequest(BaseModel):
     amount: float
     holding_months: int = 12
