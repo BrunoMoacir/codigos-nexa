@@ -316,6 +316,33 @@ anualizado por composição mensal; sem número fixo de poupança no caminho nov
 **Arquivos esperados:** `backend/app/opportunities/services/savings_rate.py`,
 `backend/tests/opportunities/test_savings_rate.py`.
 
+**Status:** ✅ concluído.
+
+- `calculate_savings_rate(selic_annual, tr_monthly, source="BACEN")` em
+  `app/opportunities/services/savings_rate.py`, função pura (sem I/O) retornando
+  `SavingsRateResult` (novo model em `app/opportunities/models.py`).
+- **Regra implementada:** SELIC > 8,5% a.a. → 0,5% a.m. + TR; SELIC ≤ 8,5% a.a. → 70% da SELIC
+  mensalizada por composição + TR (TR entra nos dois ramos). Anualização por composição mensal,
+  não multiplicação simples — testado explicitamente.
+- **Validação de fonte, honesta sobre o nível de confiança:** implementei a regra pela minha
+  compreensão best-effort da Lei 8.177/1991 (redação da Lei 12.703/2012). Não tenho como fazer uma
+  validação jurídica formal nesta sessão — documentei isso no docstring do módulo e no model
+  (`SavingsRateResult`) como uma pendência explícita de compliance antes de usar isso como
+  orientação financeira ativa (push/e-mail/recomendação forte), consistente com o risco já listado
+  na seção 7 do plano. Não tratar esta implementação como validação jurídica concluída.
+- **`tax_radar.py` corrigido:** `self._selic_rate_pct = 11.25` (hardcoded) virou fetch real via
+  `BacenConnector` no `__init__`; `poupanca_rate = 6.17` (hardcoded) virou chamada a
+  `calculate_savings_rate()`. O módulo continua órfão/não registrado em nenhum router (isso não
+  fazia parte deste ticket), mas não deixa mais hardcodes divergentes da nova fonte de verdade.
+  **Efeito colateral registrado:** `TaxRadarService.__init__` agora depende de rede (fetch ao
+  BACEN) — antes era 100% offline. Testado que o fallback do conector cobre indisponibilidade;
+  não adicionei injeção de dependência para os conectores por estar fora do pedido literal do
+  ticket, mas é um ponto a reconsiderar se `tax_radar.py` for reativado.
+- **Testes:** 10 em `test_savings_rate.py` (ramos alta/baixa, TR zero/positiva, fronteira exata de
+  8,5% incluída, anualização por composição vs. multiplicação simples, `source` repassado,
+  constantes da regra travadas) + os 4 testes existentes de `tax_radar.py` continuam passando sem
+  alteração (não travam em valor fixo de poupança, então sobrevivem à mudança para dado real).
+
 ### Ticket OPP4-C — Comparação genérica poupança vs. CDI
 
 - Criar `SavingsVsCdiService` ou equivalente.

@@ -53,6 +53,23 @@ class OpportunitiesResponse(BaseModel):
     idle_detection_reason: str = ""
 
 
+class SavingsRateResult(BaseModel):
+    """Ticket OPP4-B — resultado puro de calculate_savings_rate().
+
+    Regra oficial (Lei 8.177/1991, na redação dada pela Lei 12.703/2012 —
+    conhecida à época como MP 567/2012 antes da conversão): recomendado
+    confirmar com jurídico/compliance antes de expor como orientação
+    financeira ao usuário (ver docs/OPP4_POUPANCA_CDI_PLANO.md, seção 7).
+    """
+    selic_annual: float
+    tr_monthly: float
+    savings_monthly: float
+    savings_annual: float
+    rule_branch: Literal["SELIC_GT_8_5", "SELIC_LTE_8_5"]
+    source: Literal["BACEN", "FALLBACK"] = "BACEN"
+    generated_at: datetime
+
+
 class CompareRequest(BaseModel):
     amount: float
     holding_months: int = 12
