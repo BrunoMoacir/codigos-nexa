@@ -29,7 +29,10 @@ class OpportunityItem(BaseModel):
 
 class OpportunitiesResponse(BaseModel):
     user_id: str
-    idle_amount: float
+    idle_amount: float                # valor final, já líquido de reserva
+    gross_idle_amount: float = 0.0    # proxy de saldo, sem proteção de reserva
+    emergency_reserve: float = 0.0    # reserva protegida (nunca sugerida para investir)
+    reserve_months_applied: int = 0   # 0 quando não foi possível calcular o perfil do usuário
     avg_income_3m: float
     avg_expenses_3m: float
     monthly_loss_in_checking: float  # custo de deixar na conta corrente

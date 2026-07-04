@@ -24,13 +24,19 @@ USER_ID = "test_user_opp1a"
 
 
 def _synthetic_transactions() -> pl.DataFrame:
-    """~3 meses de renda e despesa com sobra mensal previsível (idle > 0)."""
+    """
+    ~3 meses de renda alta e despesa baixa. Desde o Ticket OPP1-B, idle_amount
+    é líquido de reserva de emergência (até 9 meses de despesa — ver
+    idle_money_detector.py); a folga aqui precisa ser grande o suficiente para
+    sobrar dinheiro ocioso mesmo depois da reserva, senão o teste de paridade
+    compararia 0.0 com 0.0 e não exercitaria o trecho de "melhor opção".
+    """
     today = date.today()
     rows = []
     for months_back in range(4):  # cobre a janela usada pelo detector (cutoff ~3 meses)
         base = today - timedelta(days=30 * months_back)
-        rows.append({"date": base, "amount": 6000.0})               # renda
-        rows.append({"date": base + timedelta(days=5), "amount": -3500.0})  # despesa
+        rows.append({"date": base, "amount": 20000.0})              # renda
+        rows.append({"date": base + timedelta(days=5), "amount": -1000.0})  # despesa
     return pl.DataFrame(rows)
 
 

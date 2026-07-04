@@ -43,8 +43,14 @@ class OpportunityEngine:
     ) -> OpportunitiesResponse:
         now = datetime.now(timezone.utc)
 
-        # 1. Dinheiro parado
-        idle = self._detector.detect(user_id)
+        # 1. Dinheiro parado — busca as transações uma única vez e reaproveita
+        #    o mesmo DataFrame para IdleMoneyDetector e ConsumptionProfiler
+        #    (Ticket OPP1-B: sem query adicional).
+        transactions_df = self._fetch_transactions(user_id)
+        user_profile = self._build_user_profile(transactions_df)
+        idle = self._detector.detect(
+            user_id, transactions_df=transactions_df, user_profile=user_profile
+        )
 
         # 2. CDI atual
         cdi_annual = self._get_cdi_annual()
@@ -82,9 +88,14 @@ class OpportunityEngine:
                 now=now,
             )
 
+        recommendation = self._append_reserve_note(recommendation, idle)
+
         return OpportunitiesResponse(
             user_id=user_id,
             idle_amount=idle.idle_amount,
+            gross_idle_amount=idle.gross_idle_amount,
+            emergency_reserve=idle.emergency_reserve,
+            reserve_months_applied=idle.reserve_months_applied,
             avg_income_3m=idle.avg_income_3m,
             avg_expenses_3m=idle.avg_expenses_3m,
             monthly_loss_in_checking=monthly_loss,
@@ -98,6 +109,30 @@ class OpportunityEngine:
     # ── helpers ──────────────────────────────────────────────────────
 
     @staticmethod
+    def _fetch_transactions(user_id: str):
+        try:
+            from app.core.db.queries import get_transactions_for_user
+            return get_transactions_for_user(user_id)
+        except Exception as exc:
+            logger.error("[OpportunityEngine] get_transactions user=%s: %s", user_id, exc)
+            import polars as pl
+            return pl.DataFrame()
+
+    @staticmethod
+    def _build_user_profile(transactions_df):
+        """Constrói o UserProfile (fss_level) para a reserva de emergência —
+        Ticket OPP1-B. Reaproveita o transactions_df já buscado; retorna None
+        quando não há dados ou o profiler falha (reserva não é aplicada nesse caso)."""
+        if transactions_df is None or transactions_df.is_empty():
+            return None
+        try:
+            from app.optimizer.profiler import ConsumptionProfiler
+            return ConsumptionProfiler().build(transactions_df)
+        except Exception as exc:
+            logger.debug("[OpportunityEngine] ConsumptionProfiler indisponível: %s", exc)
+            return None
+
+    @staticmethod
     def _get_cdi_annual() -> float:
         try:
             from app.architect.connectors.anbima import AnbimaConnector
@@ -105,6 +140,19 @@ class OpportunityEngine:
         except Exception as exc:
             logger.debug("[OpportunityEngine] CDI fallback: %s", exc)
             return _DEFAULT_CDI_ANNUAL
+
+    @staticmethod
+    def _append_reserve_note(recommendation: str, idle) -> str:
+        """Explica por que o valor sugerido é menor do que o usuário 'acha' que
+        tem sobrando, quando parte do saldo foi protegida como reserva."""
+        if idle.emergency_reserve <= 0:
+            return recommendation
+        return (
+            f"{recommendation} "
+            f"R$ {idle.emergency_reserve:,.2f} foram mantidos de fora como reserva "
+            f"de emergência (equivalente a {idle.reserve_months_applied} meses de "
+            "gastos) e não entram nessa recomendação."
+        )
 
     @staticmethod
     def _build_recommendation(
@@ -122,14 +170,14 @@ class OpportunityEngine:
 
         if idle_amount <= 0:
             return (
-                "Seus gastos estão próximos ou acima da renda nos últimos 3 meses — "
-                "não há saldo ocioso identificado. Reduza despesas variáveis para "
-                "criar margem de investimento."
+                "Não há saldo ocioso identificado além da sua reserva de segurança. "
+                "Reduza despesas variáveis ou aumente a renda para criar margem de "
+                "investimento."
             )
 
         if top is None:
             return (
-                f"Você tem aproximadamente R$ {idle_amount:,.2f} parado por mês, "
+                f"Você tem aproximadamente R$ {idle_amount:,.2f} parado na conta, "
                 f"perdendo R$ {monthly_loss:,.2f}/mês em rendimento. "
                 "Conecte mais dados para ver recomendações personalizadas."
             )
@@ -140,7 +188,7 @@ class OpportunityEngine:
         )
 
         return (
-            f"Você tem aproximadamente R$ {idle_amount:,.2f} parado por mês, "
+            f"Você tem aproximadamente R$ {idle_amount:,.2f} parado na conta, "
             f"perdendo R$ {monthly_loss:,.2f}/mês. "
             f"Melhor opção: {top.bank_name} {top.product_type} {top.cdi_pct:.0f}% CDI "
             f"({top.annual_rate_net_pct:.2f}% a.a. líquido), "
