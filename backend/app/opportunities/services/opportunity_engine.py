@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from app.opportunities.models import OpportunitiesResponse, OpportunityItem
@@ -18,6 +18,11 @@ from app.opportunities.services.bank_comparator import BankComparator
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CDI_ANNUAL = 0.1465   # fallback quando ANBIMA estiver indisponível
+
+# Ticket OPP1-C — threshold de persistência (docs/OPP1_DINHEIRO_PARADO_PLANO.md seção 5.2)
+_CONFIRM_THRESHOLD_BRL = 500.0
+_CONFIRM_WINDOW_DAYS = 30
+_CONFIRM_RATIO = 0.90
 
 
 class OpportunityEngine:
@@ -88,7 +93,15 @@ class OpportunityEngine:
                 now=now,
             )
 
+        # 6. Threshold de persistência (Ticket OPP1-C): o saldo ocioso ATUAL só
+        #    é considerado confirmado quando se manteve ≥ R$500 na maior parte
+        #    dos últimos 30 dias de opportunity_snapshots (já persistido acima).
+        persistence = self._evaluate_persistence(user_id, idle, now)
+
         recommendation = self._append_reserve_note(recommendation, idle)
+        recommendation = self._append_confidence_note(
+            recommendation, persistence["status"], persistence["reason"]
+        )
 
         return OpportunitiesResponse(
             user_id=user_id,
@@ -104,6 +117,10 @@ class OpportunityEngine:
             opportunities=ranked,
             recommendation=recommendation,
             generated_at=now,
+            is_confirmed_idle=persistence["is_confirmed_idle"],
+            days_tracked=persistence["days_tracked"],
+            idle_detection_status=persistence["status"],
+            idle_detection_reason=persistence["reason"],
         )
 
     # ── helpers ──────────────────────────────────────────────────────
@@ -140,6 +157,109 @@ class OpportunityEngine:
         except Exception as exc:
             logger.debug("[OpportunityEngine] CDI fallback: %s", exc)
             return _DEFAULT_CDI_ANNUAL
+
+    @staticmethod
+    def _evaluate_persistence(user_id: str, idle, now: datetime) -> dict:
+        """
+        Ticket OPP1-C: classifica a confiança da detecção de dinheiro ocioso.
+
+        NO_DATA         → sem histórico suficiente (idle.has_sufficient_data == False)
+        NO_IDLE_MONEY   → idle_amount atual já é zero (nada a confirmar)
+        CONFIRMED       → idle_amount ≥ R$500 em ≥ 90% dos últimos 30 dias de snapshots
+        PRELIMINARY     → tudo o mais (cold start < 30 dias, ou oscilação abaixo do threshold)
+        """
+        if not idle.has_sufficient_data:
+            return {
+                "status": "NO_DATA",
+                "reason": "Histórico de transações insuficiente (menos de 2 meses).",
+                "is_confirmed_idle": False,
+                "days_tracked": 0,
+            }
+
+        if idle.idle_amount <= 0:
+            return {
+                "status": "NO_IDLE_MONEY",
+                "reason": "Sem saldo ocioso identificado após proteger a reserva de emergência.",
+                "is_confirmed_idle": False,
+                "days_tracked": 0,
+            }
+
+        daily_values = OpportunityEngine._fetch_daily_snapshot_values(user_id, now)
+        days_tracked = len(daily_values)
+
+        if days_tracked == 0:
+            return {
+                "status": "PRELIMINARY",
+                "reason": "Primeira estimativa; ainda sem histórico de dias anteriores para confirmar.",
+                "is_confirmed_idle": False,
+                "days_tracked": 0,
+            }
+
+        days_above_threshold = sum(1 for v in daily_values if v >= _CONFIRM_THRESHOLD_BRL)
+        confirmed_ratio = days_above_threshold / days_tracked
+
+        if days_tracked >= _CONFIRM_WINDOW_DAYS and confirmed_ratio >= _CONFIRM_RATIO:
+            return {
+                "status": "CONFIRMED",
+                "reason": (
+                    f"Saldo ocioso de pelo menos R$ {_CONFIRM_THRESHOLD_BRL:,.2f} confirmado em "
+                    f"{days_above_threshold}/{days_tracked} dos últimos {days_tracked} dias."
+                ),
+                "is_confirmed_idle": True,
+                "days_tracked": days_tracked,
+            }
+
+        if days_tracked < _CONFIRM_WINDOW_DAYS:
+            reason = (
+                f"Histórico de {days_tracked} dia(s) — confirmação requer "
+                f"{_CONFIRM_WINDOW_DAYS} dias de acompanhamento."
+            )
+        else:
+            reason = (
+                f"Saldo ocioso ficou abaixo de R$ {_CONFIRM_THRESHOLD_BRL:,.2f} em parte dos "
+                f"últimos {days_tracked} dias — ainda não confirmado."
+            )
+
+        return {
+            "status": "PRELIMINARY",
+            "reason": reason,
+            "is_confirmed_idle": False,
+            "days_tracked": days_tracked,
+        }
+
+    @staticmethod
+    def _fetch_daily_snapshot_values(user_id: str, now: datetime) -> list[float]:
+        """Idle_amount representativo (máximo) por dia, últimos _CONFIRM_WINDOW_DAYS
+        dias, a partir de opportunity_snapshots. Falha silenciosamente → []
+        (tratado como PRELIMINARY/cold start pelo chamador)."""
+        try:
+            from app.core.database import SessionLocal
+            from sqlalchemy import text
+
+            cutoff = now - timedelta(days=_CONFIRM_WINDOW_DAYS)
+            with SessionLocal() as db:
+                rows = db.execute(
+                    text(
+                        "SELECT DATE(captured_at) AS day, MAX(idle_amount) AS idle_amount"
+                        " FROM opportunity_snapshots"
+                        " WHERE user_id = :uid AND captured_at >= :cutoff"
+                        " GROUP BY DATE(captured_at)"
+                    ),
+                    {"uid": user_id, "cutoff": cutoff},
+                ).fetchall()
+            return [float(r[1]) for r in rows if r[1] is not None]
+        except Exception as exc:
+            logger.warning("[OpportunityEngine] fetch_daily_snapshots user=%s: %s", user_id, exc)
+            return []
+
+    @staticmethod
+    def _append_confidence_note(recommendation: str, status: str, reason: str) -> str:
+        """Regra de liquidez (plano, seção 5.4): quando não CONFIRMED, o texto
+        deve preferir 'simular'/'avaliar' em vez de 'migrar agora'. NO_DATA e
+        NO_IDLE_MONEY já não sugerem migrar nada (ver _build_recommendation)."""
+        if status != "PRELIMINARY":
+            return recommendation
+        return f"{recommendation} Isso ainda é uma estimativa preliminar ({reason}) — avalie antes de migrar."
 
     @staticmethod
     def _append_reserve_note(recommendation: str, idle) -> str:

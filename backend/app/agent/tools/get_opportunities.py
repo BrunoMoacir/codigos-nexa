@@ -19,6 +19,15 @@ from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
 
+# Ticket OPP1-C — rótulo de confiança por idle_detection_status (mesmo enum do
+# OpportunitiesResponse; nenhuma lógica nova aqui, só apresentação).
+_STATUS_LABELS = {
+    "CONFIRMED": "✅ Confirmado (estável nos últimos 30 dias)",
+    "PRELIMINARY": "🔎 Estimativa preliminar — ainda não confirmada",
+    "NO_IDLE_MONEY": "✅ Nenhum saldo ocioso além da reserva de emergência",
+    "NO_DATA": "❓ Dados insuficientes para estimar",
+}
+
 
 @tool
 def get_opportunities(user_id: str) -> str:
@@ -52,10 +61,13 @@ def get_opportunities(user_id: str) -> str:
             "Tente novamente em instantes."
         )
 
+    status_label = _STATUS_LABELS.get(result.idle_detection_status, result.idle_detection_status)
+
     lines = [
         "=== RADAR DE OPORTUNIDADES ===",
         "",
         f"💤 Dinheiro parado estimado: R$ {result.idle_amount:,.2f}",
+        status_label,
     ]
 
     if result.idle_amount > 0:

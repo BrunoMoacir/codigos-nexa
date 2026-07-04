@@ -5,6 +5,13 @@ Para cada usuário ativo, executa OpportunityEngine.analyze() e persiste
 snapshot em opportunity_snapshots.
 
 Lido por: agent/tools/get_opportunities.py, agent/tools/get_annual_wrapped.py
+
+Pré-requisito operacional do Ticket OPP1-C (threshold R$500/30 dias,
+docs/OPP1_DINHEIRO_PARADO_PLANO.md): este job já persiste snapshot diário
+para todo usuário ativo (get_active_user_ids() = transações nos últimos 30
+dias — app/jobs/_base.py), com persist_snapshot=True. Sem isso, o histórico
+de 30 dias necessário para "confirmar" dinheiro ocioso nunca se acumularia.
+Nenhuma mudança de código foi necessária neste arquivo para o OPP1-C.
 """
 
 import logging

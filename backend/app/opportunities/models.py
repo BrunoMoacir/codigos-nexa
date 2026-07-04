@@ -5,8 +5,12 @@ app/opportunities/models.py — Schemas Pydantic para o Radar de Oportunidades (
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel
+
+# Ticket OPP1-C — status de confiança da detecção de dinheiro ocioso.
+# Ver docs/OPP1_DINHEIRO_PARADO_PLANO.md seção 5.2 para a tabela de uso por status.
+IdleDetectionStatus = Literal["NO_DATA", "PRELIMINARY", "CONFIRMED", "NO_IDLE_MONEY"]
 
 
 class OpportunityItem(BaseModel):
@@ -41,6 +45,12 @@ class OpportunitiesResponse(BaseModel):
     opportunities: list[OpportunityItem]
     recommendation: str
     generated_at: datetime
+
+    # Ticket OPP1-C — threshold de persistência (R$500 / 30 dias)
+    is_confirmed_idle: bool = False
+    days_tracked: int = 0
+    idle_detection_status: IdleDetectionStatus = "NO_DATA"
+    idle_detection_reason: str = ""
 
 
 class CompareRequest(BaseModel):
