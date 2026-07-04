@@ -66,6 +66,8 @@ NotificationType = Literal[
     "SAFE_TO_SPEND_LOW",
     "LIFE_EVENT",
     "TARIFA_AUMENTO_UNILATERAL",
+    "SAVINGS_BELOW_CDI",      # OPP.4 — poupança abaixo do CDI (Ticket OPP4-D)
+    "IDLE_MONEY_DETECTED",    # OPP — dinheiro parado confirmado (Etapa 6)
 ]
 
 # Thresholds para safe-to-spend baixo
