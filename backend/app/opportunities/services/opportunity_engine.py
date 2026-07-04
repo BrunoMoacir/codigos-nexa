@@ -65,11 +65,14 @@ class OpportunityEngine:
         monthly_loss = round(idle.idle_amount * ((1 + cdi_annual) ** (1 / 12) - 1), 2)
 
         # 4. Ranking de produtos (usa idle_amount para calcular ganho; mínimo R$ 1)
+        #    fss_level rebaixa produtos de baixa liquidez para perfis frágeis
+        #    (plano, seção 5.4) — ver BankComparator.rank().
         amount_for_rank = max(idle.idle_amount, 1.0)
         ranked = self._comparator.rank(
             amount=amount_for_rank,
             holding_months=holding_months,
             cdi_annual=cdi_annual,
+            fss_level=getattr(user_profile, "fss_level", None),
         )
 
         top = next((p for p in ranked if p.eligible), None)

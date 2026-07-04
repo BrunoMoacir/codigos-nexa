@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 
 _CATALOG_PATH = Path(__file__).resolve().parents[3] / "data" / "bank_products.json"
 
+# Ticket OPP1-B/seção 5.4 do plano (docs/OPP1_DINHEIRO_PARADO_PLANO.md): para
+# perfis financeiramente frágeis, produtos sem liquidez diária não devem
+# aparecer acima de produtos com liquidez diária, mesmo com taxa líquida maior.
+_FRAGILE_FSS_LEVELS = {"ALERTA", "CRITICO"}
+
 
 class BankComparator:
     """
@@ -37,12 +42,18 @@ class BankComparator:
         amount: float,
         holding_months: int,
         cdi_annual: float,   # decimal, ex: 0.1465 para 14.65%
+        fss_level: str | None = None,
     ) -> list[OpportunityItem]:
         """
         Retorna todos os produtos ranqueados por taxa líquida anual.
 
         Produtos com min_amount > amount são marcados como eligible=False
         mas ainda aparecem no resultado (informação útil para o usuário).
+
+        fss_level: quando "ALERTA" ou "CRITICO" (perfil financeiramente
+        frágil — ConsumptionProfiler), produtos sem liquidez diária são
+        rebaixados abaixo de produtos com liquidez diária, mesmo que
+        rendam mais líquido — ver plano OPP.1, seção 5.4.
         """
         from app.fiscal.ir_pf_calculator import IRPFCalculator
 
@@ -63,8 +74,17 @@ class BankComparator:
                 logger.debug("[BankComparator] produto %s/%s: %s",
                              product.get("bank_name"), product.get("product_type"), exc)
 
-        # Ordena por taxa líquida descrescente; eligible primeiro
-        results.sort(key=lambda t: (not t[1].eligible, -t[0]))
+        prioritize_daily_liquidity = fss_level in _FRAGILE_FSS_LEVELS
+
+        def _sort_key(entry: tuple[float, OpportunityItem]):
+            net_rate, item = entry
+            if prioritize_daily_liquidity:
+                return (not item.eligible, item.liquidity_days > 1, -net_rate)
+            return (not item.eligible, -net_rate)
+
+        # Ordena por taxa líquida descrescente; eligible primeiro (e, para
+        # perfis frágeis, liquidez diária primeiro dentro de cada grupo)
+        results.sort(key=_sort_key)
 
         return [
             OpportunityItem(**{**item.model_dump(), "rank": i + 1})

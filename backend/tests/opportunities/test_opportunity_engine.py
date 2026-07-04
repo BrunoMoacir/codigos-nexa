@@ -16,8 +16,10 @@ import polars as pl
 import pytest
 
 import app.core.db.queries as queries_module
+from app.opportunities.services.bank_comparator import BankComparator
 from app.opportunities.services.idle_money_detector import IdleMoneyResult
 from app.opportunities.services.opportunity_engine import OpportunityEngine
+from app.optimizer.profiler import UserProfile
 
 USER_ID = "test_user_opp1c"
 _NOW = datetime.now(timezone.utc)
@@ -193,6 +195,46 @@ class TestAnalyzeIntegracao:
         result = OpportunityEngine().analyze(user_id=USER_ID, persist_snapshot=False)
 
         assert "estimativa preliminar" not in result.recommendation.lower()
+
+
+class TestFssLevelPropagaParaORanking:
+    """Checklist final (seção 10 do plano): 'produtos de baixa liquidez não
+    são priorizados para reserva protegida' — confirma que analyze() repassa
+    o fss_level do UserProfile até BankComparator.rank(), não só que a regra
+    existe isoladamente em bank_comparator (ver test_bank_comparator.py)."""
+
+    @pytest.fixture(autouse=True)
+    def _patch_transactions_and_snapshot(self, monkeypatch):
+        today = date.today()
+        rows = [{"date": today, "amount": 100.0}]
+        df = pl.DataFrame(rows)
+        monkeypatch.setattr(queries_module, "get_transactions_for_user", lambda user_id: df)
+        monkeypatch.setattr(
+            OpportunityEngine, "_persist_snapshot", staticmethod(lambda *a, **k: None)
+        )
+        monkeypatch.setattr(
+            OpportunityEngine, "_fetch_daily_snapshot_values", staticmethod(lambda u, n: [])
+        )
+
+    def test_fss_level_do_profile_chega_ate_bank_comparator_rank(self, monkeypatch):
+        monkeypatch.setattr(
+            OpportunityEngine,
+            "_build_user_profile",
+            staticmethod(lambda df: UserProfile(fss_level="CRITICO")),
+        )
+
+        captured = {}
+        original_rank = BankComparator.rank
+
+        def _spy_rank(self, *args, **kwargs):
+            captured["fss_level"] = kwargs.get("fss_level")
+            return original_rank(self, *args, **kwargs)
+
+        monkeypatch.setattr(BankComparator, "rank", _spy_rank)
+
+        OpportunityEngine().analyze(user_id=USER_ID, persist_snapshot=False)
+
+        assert captured["fss_level"] == "CRITICO"
 
 
 class TestFetchDailySnapshotValuesIntegracaoReal:

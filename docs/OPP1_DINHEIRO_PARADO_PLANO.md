@@ -343,6 +343,11 @@ silenciosamente do outro.
   ajustados (renda/despesa maiores) para continuar exercitando o caminho de "melhor opção" mesmo após
   a reserva.
 
+  **Addendum (achado só ao revisar o checklist da seção 10, depois do OPP1-C):** a regra de liquidez
+  da seção 5.4 — não priorizar produtos sem liquidez diária para perfis `ALERTA`/`CRITICO` — fazia
+  parte do escopo de "proteção" deste ticket mas tinha ficado só no texto do plano, sem
+  implementação. Corrigido em `bank_comparator.py`/`opportunity_engine.py`; ver seção 10.
+
 ### Ticket OPP1-C — Threshold de persistência (R$500 / 30 dias)
 
 - Hoje nada verifica se o saldo ocioso é estável no tempo — cada chamada recalcula do zero sobre a
@@ -472,13 +477,25 @@ fallback para bancos sem saldo disponível.
 
 ## 10. Checklist final para revisão de PR
 
-- [ ] `git grep "_calc_idle_amount"` não encontra implementação ativa fora de testes ou histórico.
-- [ ] `IdleMoneyResult` diferencia valor bruto, reserva protegida e valor final.
-- [ ] `OpportunitiesResponse` inclui status de detecção e motivo legível.
-- [ ] Chat e endpoint usam o mesmo engine.
-- [ ] Feed/Notificações e Agente IA são os únicos canais de exposição planejados.
-- [ ] Usuário `CRITICO` ou `ALERTA` recebe proteção de 9 meses de gastos.
-- [ ] `CONFIRMED` exige janela de 30 dias e tolerância documentada.
-- [ ] Produtos de baixa liquidez não são priorizados para reserva protegida.
-- [ ] Testes cobrem DataFrame vazio, cold start, 4 FSS levels, 30 dias confirmados e oscilação abaixo do threshold.
-- [ ] Texto do produto usa "estimativa" enquanto não houver saldo real Pluggy.
+- [x] `git grep "_calc_idle_amount"` não encontra implementação ativa fora de testes ou histórico.
+- [x] `IdleMoneyResult` diferencia valor bruto, reserva protegida e valor final.
+- [x] `OpportunitiesResponse` inclui status de detecção e motivo legível.
+- [x] Chat e endpoint usam o mesmo engine.
+- [x] Feed/Notificações e Agente IA são os únicos canais de exposição planejados (Feed em si ainda
+      não existe no produto — nada foi criado fora do Agente IA, ver Ticket OPP1-UX).
+- [x] Usuário `CRITICO` ou `ALERTA` recebe proteção de 9 meses de gastos.
+- [x] `CONFIRMED` exige janela de 30 dias e tolerância documentada.
+- [x] Produtos de baixa liquidez não são priorizados para reserva protegida. **Achado ao revisar o
+      checklist após fechar OPP1-C: esta regra (seção 5.4) não tinha sido implementada em nenhum dos
+      três tickets** — corrigido em `bank_comparator.py` (`BankComparator.rank(..., fss_level=...)`,
+      constante `_FRAGILE_FSS_LEVELS = {"ALERTA", "CRITICO"}`) e propagado em `opportunity_engine.py`
+      (`fss_level=getattr(user_profile, "fss_level", None)`). Testes:
+      `tests/opportunities/test_bank_comparator.py` (9 testes, unidade) +
+      `TestFssLevelPropagaParaORanking` em `test_opportunity_engine.py` (integração, confirma que o
+      `fss_level` do `UserProfile` chega até `BankComparator.rank`).
+- [x] Testes cobrem DataFrame vazio, cold start, 4 FSS levels, 30 dias confirmados e oscilação abaixo do threshold.
+- [x] Texto do produto usa "estimativa" enquanto não houver saldo real Pluggy.
+
+**Checklist 100% fechado.** Opção A (OPP1-A/B/C/D) está completa. Falta apenas o Ticket OPP1-UX
+(Feed/Notificações) — bloqueado por não existir Feed no produto ainda — e a Opção B (saldo real via
+Pluggy, seção 7), que é iniciativa própria fora deste plano.
