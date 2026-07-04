@@ -86,22 +86,54 @@ def get_opportunities(user_id: str) -> str:
                 f"({top.annual_rate_net_pct:.2f}% a.a. líquido) — {ir_label}",
                 f"  Rendimento estimado: R$ {top.monthly_gain_brl:,.2f}/mês",
             ]
+            if top.steps:
+                lines += ["", "── Como fazer a troca (passo a passo) ──"]
+                lines += [f"{i}. {step}" for i, step in enumerate(top.steps, start=1)]
 
     lines += ["", result.recommendation]
+
+    savings_section = _build_savings_vs_cdi_section()
+    if savings_section:
+        lines += ["", *savings_section]
 
     last_snapshot = _get_latest_snapshot(user_id)
     if last_snapshot:
         lines += ["", f"📌 Última recomendação salva: {last_snapshot}"]
 
+    from app.opportunities.models import DISCLAIMER
     lines += [
         "",
-        "Fonte: CDI via ANBIMA/BCB SGS. Rentabilidades passadas não garantem futuras.",
+        "Fonte: CDI via ANBIMA/BCB SGS; SELIC e TR via BCB.",
+        DISCLAIMER,
     ]
 
     return "\n".join(lines)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
+
+def _build_savings_vs_cdi_section() -> list[str]:
+    """Ticket OPP4-D — anexa a comparação genérica poupança vs. CDI quando
+    a severidade justifica (>= MEDIUM). Mesmo contrato do endpoint
+    GET /opportunities/savings-vs-cdi; nenhum cálculo duplicado aqui.
+    Texto sempre com o valor de referência (R$10k) — nunca presume saldo
+    de poupança do usuário."""
+    try:
+        from app.opportunities.services.savings_vs_cdi import get_savings_vs_cdi_service
+        result = get_savings_vs_cdi_service().analyze()
+    except Exception as exc:
+        logger.debug("[Tool] savings_vs_cdi indisponível: %s", exc)
+        return []
+
+    if result.status != "BELOW_CDI" or result.severity == "LOW":
+        return []
+
+    return [
+        "── Poupança vs. CDI (referência) ──",
+        f"🐷 Poupança hoje: {result.savings_annual_pct:.2f}% a.a. | CDI: {result.cdi_annual_pct:.2f}% a.a.",
+        result.reason,
+    ]
+
 
 def _get_latest_snapshot(user_id: str) -> str | None:
     """Busca última recomendação de oportunidade em opportunity_snapshots."""

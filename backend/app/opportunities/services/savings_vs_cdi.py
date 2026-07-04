@@ -18,6 +18,19 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_AMOUNT_REFERENCE_BRL = 10_000.0
 
+# Singleton de módulo (Ticket OPP4-D): o cache do BaseConnector é por
+# instância — consumidores fora do router (tool do agente, engine de
+# notificações) devem usar este acessor em vez de instanciar o serviço,
+# senão o TTL de cache das taxas nunca é reaproveitado.
+_shared_service: "SavingsVsCdiService | None" = None
+
+
+def get_savings_vs_cdi_service() -> "SavingsVsCdiService":
+    global _shared_service
+    if _shared_service is None:
+        _shared_service = SavingsVsCdiService()
+    return _shared_service
+
 # Seção 5.5 do plano — thresholds de severidade/elegibilidade. Produto, não
 # lei: se mudarem, mudar só aqui (constantes testadas em test_savings_vs_cdi.py).
 _NEAR_CDI_THRESHOLD_ANNUAL_BRL = 30.0

@@ -5,6 +5,15 @@
 > **Vertical:** OPP (Radar de Oportunidades)
 > **Missão:** detectar dinheiro parado rendendo pouco e comparar instituições sem viés, recomendando a troca com o maior retorno líquido real após IR.
 > **Status:** ⚠️ **MVP já implementado e em produção** (`backend/app/opportunities/`) — não é módulo greenfield. Esta doc documenta o que existe (marcado **[V1 — implementado]**) e a arquitetura alvo que o expande (marcado **[V2 — planejado]**). Toda seção deixa explícito em qual dos dois estados está.
+>
+> **Atualização 2026-07-04 (branch feat/opp-radar):** as extensões V2 desta doc foram implementadas —
+> OPP.1 a OPP.5 completos. Entregues: `calc_ir_on_tesouro_selic` no `IRPFCalculator` (§5.2), Tesouro
+> Selic no ranking e `TreasuryComparatorService` (OPP.3), `steps` práticos por produto (OPP.5),
+> `disclaimer`/`data_sources` nas respostas (Gap 5), `issuer_risk.py` + `bank_scorecard.py` +
+> `GET /{user_id}/banks` (§8.2), `GET /products` (transparência), `OpenFinanceProductsConnector` +
+> job diário `product_catalog_refresh` 02h30 (§3.3/§7), cards de feed `SAVINGS_BELOW_CDI` e
+> `IDLE_MONEY_DETECTED` com dedup por TTL (§11.2/OPP4-D), tool `simulate_investment` no agente,
+> e card do Radar no dashboard React (Etapa 6). Ver `docs/ROADMAP.md` (seção OPP) para o resumo.
 > **Stack:** Python 3.12+, FastAPI, Pydantic v2, Polars, seguindo o padrão `BaseConnector` já existente na F3 (`app/architect/connectors/`).
 
 ---

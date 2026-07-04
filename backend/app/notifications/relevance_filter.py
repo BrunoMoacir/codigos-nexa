@@ -116,6 +116,17 @@ def _life_event_relevant(n: Notification, income: float) -> bool:
     return n.metadata.get("confidence", 0.0) >= 0.75
 
 
+def _savings_below_cdi_relevant(n: Notification, income: float) -> bool:
+    # O gerador já filtra por severity >= MEDIUM; aqui só barra perda irrisória
+    return n.metadata.get("estimated_loss_annual_brl", 0.0) >= 30.0
+
+
+def _idle_money_relevant(n: Notification, income: float) -> bool:
+    # Ganho mensal mínimo na troca: 0.2% da renda, entre R$5 e R$50
+    min_gain = _income_scaled(income, 0.002, 5.0, 50.0)
+    return n.metadata.get("top_gain_monthly_brl", 0.0) >= min_gain
+
+
 _TYPE_FILTERS: dict[str, Callable[[Notification, float], bool]] = {
     "BURN_RATE_HIGH":        _burn_rate_relevant,
     "ANOMALY_DETECTED":      _anomaly_relevant,
@@ -127,6 +138,8 @@ _TYPE_FILTERS: dict[str, Callable[[Notification, float], bool]] = {
     "GOAL_PROGRESS":         _goal_relevant,
     "SAFE_TO_SPEND_LOW":     _safe_to_spend_relevant,
     "LIFE_EVENT":            _life_event_relevant,
+    "SAVINGS_BELOW_CDI":     _savings_below_cdi_relevant,
+    "IDLE_MONEY_DETECTED":   _idle_money_relevant,
 }
 
 # ── Caps ──────────────────────────────────────────────────────────────────────

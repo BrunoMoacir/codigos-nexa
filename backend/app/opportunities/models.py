@@ -12,11 +12,29 @@ from pydantic import BaseModel
 # Ver docs/OPP1_DINHEIRO_PARADO_PLANO.md seção 5.2 para a tabela de uso por status.
 IdleDetectionStatus = Literal["NO_DATA", "PRELIMINARY", "CONFIRMED", "NO_IDLE_MONEY"]
 
+# Gap 5 (docs/OPP.md §14) — disclaimer regulatório obrigatório em toda
+# resposta que compara/recomenda produtos de investimento. Texto único para
+# API, chat e feed; revisar com jurídico antes de alterar.
+DISCLAIMER = (
+    "A Nexa não presta consultoria de valores mobiliários regulada pela CVM. "
+    "As comparações usam taxas públicas e regras fiscais vigentes; rentabilidades "
+    "passadas não garantem resultados futuros. A decisão de investir é sua — "
+    "avalie sua liquidez e seus objetivos antes de aplicar."
+)
+
+# Transparência de origem de dados (docs/OPP.md §9.2)
+DATA_SOURCES = [
+    "CDI: ANBIMA / BCB SGS",
+    "SELIC e TR: Banco Central do Brasil (SGS)",
+    "Catálogo de produtos: Open Finance Dados Abertos + curadoria Nexa",
+    "IR: tabela regressiva (Lei 8.981/1995, art. 65)",
+]
+
 
 class OpportunityItem(BaseModel):
     rank: int
     bank_name: str
-    product_type: str           # "CDB" | "LCI" | "LCA"
+    product_type: str           # "CDB" | "LCI" | "LCA" | "TESOURO_SELIC"
     rating: str                 # "AAA" | "AA" | "A"
     cdi_pct: float              # ex: 110.0 → 110% do CDI
     annual_rate_gross_pct: float
@@ -29,6 +47,10 @@ class OpportunityItem(BaseModel):
     monthly_gain_brl: float     # ganho mensal para o idle_amount do usuário
     annual_gain_brl: float
     eligible: bool              # False quando idle_amount < min_amount
+    # ── V2 (docs/OPP.md §9.1) ──
+    index: str = "CDI"          # "CDI" | "SELIC" — indexador do produto
+    fgc_covered: bool = True    # garantia FGC até R$250k (False para Tesouro: garantia soberana)
+    steps: list[str] = []       # OPP.5 — passos práticos para executar a troca
 
 
 class OpportunitiesResponse(BaseModel):
@@ -51,6 +73,10 @@ class OpportunitiesResponse(BaseModel):
     days_tracked: int = 0
     idle_detection_status: IdleDetectionStatus = "NO_DATA"
     idle_detection_reason: str = ""
+
+    # V2 (docs/OPP.md §9.2 / Gap 5) — disclaimer regulatório e transparência
+    disclaimer: str = ""
+    data_sources: list[str] = []
 
 
 class SavingsRateResult(BaseModel):
@@ -108,3 +134,93 @@ class CompareResponse(BaseModel):
     holding_months: int
     cdi_annual_pct: float
     opportunities: list[OpportunityItem]
+    disclaimer: str = ""
+
+
+# ── OPP.3 — Tesouro SELIC vs. CDB vs. Poupança ────────────────────────
+
+class TreasuryComparisonEntry(BaseModel):
+    """Uma das três pernas da comparação OPP.3, em rendimento líquido."""
+    label: str                       # "Tesouro SELIC" | "CDB {banco} {pct}% CDI" | "Poupança"
+    investment_type: str             # "TESOURO_SELIC" | "CDB" | "POUPANCA"
+    annual_rate_gross_pct: float
+    annual_rate_net_pct: float       # após IR e custos (custódia B3 no Tesouro)
+    net_yield_brl: float             # rendimento líquido no período (R$)
+    ir_rate: float
+    is_exempt: bool
+    fees_brl: float = 0.0            # custódia B3 (só Tesouro)
+    fgc_covered: bool
+    liquidity: str
+
+
+class TreasuryComparisonResponse(BaseModel):
+    """OPP.3 — comparação a três: Tesouro SELIC vs. melhor CDB vs. poupança.
+
+    Não depende de dados do usuário — é uma simulação para amount/prazo
+    informados, com taxas reais (SELIC/TR via BACEN, CDI via ANBIMA).
+    """
+    amount: float
+    holding_months: int
+    selic_annual_pct: float
+    cdi_annual_pct: float
+    savings_annual_pct: float
+    entries: list[TreasuryComparisonEntry]   # ordenadas por net_yield_brl desc
+    winner: str                              # label da melhor opção
+    winner_vs_savings_brl: float             # quanto a melhor opção rende a mais que a poupança
+    recommendation: str
+    disclaimer: str = ""
+    generated_at: datetime
+
+
+# ── V2 — Scorecard por banco (docs/OPP.md §8.2) ───────────────────────
+
+class BankScorecardEntry(BaseModel):
+    bank_name: str
+    best_product_type: str
+    best_cdi_pct: float
+    best_net_annual_rate_pct: float
+    best_net_return_brl: float
+    best_risk_adjusted_brl: float
+    risk_tier: int                  # 1=bancão, 2=digital consolidado, 3=médio/pequeno
+    product_count: int
+    fgc_covered: bool
+    is_user_current_bank: bool      # cruza com pluggy_items.connector_name
+
+
+class BankComparisonResponse(BaseModel):
+    user_id: str
+    amount: float
+    holding_months: int
+    cdi_annual_pct: float
+    scorecard: list[BankScorecardEntry]      # ranking por best_risk_adjusted_brl desc
+    best_by_liquidity: dict[str, str]        # bucket → bank_name
+    user_current_bank: Optional[str] = None
+    user_current_bank_rank: Optional[int] = None
+    switch_gain_brl: float = 0.0             # melhor banco − banco atual (R$/ano líquido)
+    open_account_suggestion: Optional[str] = None
+    disclaimer: str = ""
+    generated_at: datetime
+
+
+# ── V2 — Catálogo público (transparência) ─────────────────────────────
+
+class CatalogProduct(BaseModel):
+    """Produto do catálogo, no schema do bank_products.json + campos V2."""
+    bank_name: str
+    product_type: str
+    cdi_pct: float
+    min_amount: float
+    liquidity: str
+    liquidity_days: int
+    rating: str = "N/A"
+    index: str = "CDI"
+    is_tax_exempt: bool = False
+    fgc_covered: bool = True
+
+
+class ProductCatalogResponse(BaseModel):
+    updated_at: str
+    source: str                     # "curated" | "open_finance"
+    institution_count: int
+    product_count: int
+    products: list[CatalogProduct]

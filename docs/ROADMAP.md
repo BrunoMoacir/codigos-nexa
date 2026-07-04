@@ -102,11 +102,17 @@ SVR BACEN tem ~R$8,5 bilhões não reclamados no Brasil.
 
 | Sub-feature | Descrição | Status |
 |-------------|-----------|--------|
-| OPP.1 | Detecção de dinheiro parado em conta corrente | A desenvolver |
-| OPP.2 | Comparação de CDB/LCI/LCA por retorno líquido após IR | A desenvolver |
-| OPP.3 | Comparação Tesouro SELIC vs. CDB vs. poupança | A desenvolver |
-| OPP.4 | Identificação de poupança abaixo do CDI | A desenvolver |
-| OPP.5 | Recomendação de troca com passos práticos | A desenvolver |
+| OPP.1 | Detecção de dinheiro parado em conta corrente | ✅ Implementado (detector + reserva de emergência + threshold R$500/30d) |
+| OPP.2 | Comparação de CDB/LCI/LCA por retorno líquido após IR | ✅ Implementado (BankComparator + IRPFCalculator; catálogo curado + Open Finance) |
+| OPP.3 | Comparação Tesouro SELIC vs. CDB vs. poupança | ✅ Implementado (calc_ir_on_tesouro_selic + TreasuryComparatorService + tool simulate_investment) |
+| OPP.4 | Identificação de poupança abaixo do CDI | ✅ Implementado (savings_rate SELIC+TR, SavingsVsCdiService, card SAVINGS_BELOW_CDI) |
+| OPP.5 | Recomendação de troca com passos práticos | ✅ Implementado (steps por produto na API, chat e card do dashboard) |
+
+**Extensões V2 já entregues:** scorecard por banco com ajuste a risco
+(`GET /opportunities/{user_id}/banks`), catálogo público transparente
+(`GET /opportunities/products`), conector Open Finance Dados Abertos com job
+diário de refresh (02h30), disclaimer regulatório em todas as respostas,
+cards de feed (SAVINGS_BELOW_CDI, IDLE_MONEY_DETECTED) e card no dashboard.
 
 **Bancos/produtos comparados na V1:** Nubank, Inter, C6, PicPay, BTG, XP, Itaú,
 Bradesco, Santander, BB, Caixa, Sicoob, Tesouro Direto.

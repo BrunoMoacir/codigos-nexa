@@ -11,13 +11,40 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from app.opportunities.models import OpportunitiesResponse, OpportunityItem
+from app.opportunities.models import (
+    DATA_SOURCES,
+    DISCLAIMER,
+    OpportunitiesResponse,
+    OpportunityItem,
+)
 from app.opportunities.services.idle_money_detector import IdleMoneyDetector
 from app.opportunities.services.bank_comparator import BankComparator
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CDI_ANNUAL = 0.1465   # fallback quando ANBIMA estiver indisponível
+
+# Conectores em nível de módulo: o cache TTL do BaseConnector é por instância,
+# então recriá-los a cada análise anularia o cache (nota registrada no Ticket
+# OPP4-C). Lazy para não fazer I/O em import.
+_anbima_connector = None
+_bacen_connector = None
+
+
+def _get_anbima():
+    global _anbima_connector
+    if _anbima_connector is None:
+        from app.architect.connectors.anbima import AnbimaConnector
+        _anbima_connector = AnbimaConnector()
+    return _anbima_connector
+
+
+def _get_bacen():
+    global _bacen_connector
+    if _bacen_connector is None:
+        from app.architect.connectors.bacen import BacenConnector
+        _bacen_connector = BacenConnector()
+    return _bacen_connector
 
 # Ticket OPP1-C — threshold de persistência (docs/OPP1_DINHEIRO_PARADO_PLANO.md seção 5.2)
 _CONFIRM_THRESHOLD_BRL = 500.0
@@ -67,12 +94,14 @@ class OpportunityEngine:
         # 4. Ranking de produtos (usa idle_amount para calcular ganho; mínimo R$ 1)
         #    fss_level rebaixa produtos de baixa liquidez para perfis frágeis
         #    (plano, seção 5.4) — ver BankComparator.rank().
+        #    selic_annual inclui Tesouro SELIC no ranking (OPP.3).
         amount_for_rank = max(idle.idle_amount, 1.0)
         ranked = self._comparator.rank(
             amount=amount_for_rank,
             holding_months=holding_months,
             cdi_annual=cdi_annual,
             fss_level=getattr(user_profile, "fss_level", None),
+            selic_annual=self._get_selic_annual(),
         )
 
         top = next((p for p in ranked if p.eligible), None)
@@ -124,6 +153,8 @@ class OpportunityEngine:
             days_tracked=persistence["days_tracked"],
             idle_detection_status=persistence["status"],
             idle_detection_reason=persistence["reason"],
+            disclaimer=DISCLAIMER,
+            data_sources=DATA_SOURCES,
         )
 
     # ── helpers ──────────────────────────────────────────────────────
@@ -155,11 +186,20 @@ class OpportunityEngine:
     @staticmethod
     def _get_cdi_annual() -> float:
         try:
-            from app.architect.connectors.anbima import AnbimaConnector
-            return AnbimaConnector().get_cdi()
+            return _get_anbima().get_cdi()
         except Exception as exc:
             logger.debug("[OpportunityEngine] CDI fallback: %s", exc)
             return _DEFAULT_CDI_ANNUAL
+
+    @staticmethod
+    def _get_selic_annual() -> float | None:
+        """SELIC para o Tesouro no ranking (OPP.3). None quando indisponível —
+        o ranking segue sem o item de Tesouro, sem derrubar a análise."""
+        try:
+            return _get_bacen().get_selic()
+        except Exception as exc:
+            logger.debug("[OpportunityEngine] SELIC indisponível: %s", exc)
+            return None
 
     @staticmethod
     def _evaluate_persistence(user_id: str, idle, now: datetime) -> dict:

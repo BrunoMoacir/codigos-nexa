@@ -18,14 +18,15 @@ Ferramentas disponíveis:
  12. get_bank_cost_analysis      → Raio-X de custos e tarifas bancárias (F5)
  13. get_negotiation_script      → Detecta oportunidades e gera roteiro de negociação bancária (F13)
  14. get_opportunities           → Radar de dinheiro parado + comparação de investimentos (OPP)
- 15. get_forgotten_rights        → SVR BACEN, FGTS, PIS/PASEP, Restituição IR (T3)
- 16. get_annual_wrapped          → Resumo anual "Banco vs Você" (V2)
- 17. detect_abusive_fees         → Venda casada e tarifas abusivas (D1)
- 18. detect_wrongful_charges     → Cobranças indevidas e duplicatas (D2)
- 19. detect_abusive_interest     → Juros acima da taxa BACEN (D3)
- 20. get_defense_analysis        → Análise completa D1–D4: venda casada, cobranças, juros, tarifas
- 21. get_evidence_dossier        → D5: dossiê com carta, PROCON e modelo JEC
- 22. get_portability_analysis    → D6: portabilidade de crédito — economia e roteiro
+ 15. simulate_investment         → Tesouro SELIC vs. CDB vs. poupança para valor/prazo (OPP.3)
+ 16. get_forgotten_rights        → SVR BACEN, FGTS, PIS/PASEP, Restituição IR (T3)
+ 17. get_annual_wrapped          → Resumo anual "Banco vs Você" (V2)
+ 18. detect_abusive_fees         → Venda casada e tarifas abusivas (D1)
+ 19. detect_wrongful_charges     → Cobranças indevidas e duplicatas (D2)
+ 20. detect_abusive_interest     → Juros acima da taxa BACEN (D3)
+ 21. get_defense_analysis        → Análise completa D1–D4: venda casada, cobranças, juros, tarifas
+ 22. get_evidence_dossier        → D5: dossiê com carta, PROCON e modelo JEC
+ 23. get_portability_analysis    → D6: portabilidade de crédito — economia e roteiro
 """
 import logging
 from langchain_core.messages import BaseMessage
@@ -48,6 +49,7 @@ from app.agent.tools.get_bank_cost_analysis import get_bank_cost_analysis
 from app.agent.tools.get_negotiation_script import get_negotiation_script
 from app.agent.tools.get_expert_card_analysis import get_expert_card_analysis
 from app.agent.tools.get_opportunities import get_opportunities
+from app.agent.tools.simulate_investment import simulate_investment
 from app.agent.tools.get_forgotten_rights import get_forgotten_rights
 from app.agent.tools.get_annual_wrapped import get_annual_wrapped
 from app.agent.tools.detect_abusive_fees import detect_abusive_fees
@@ -257,6 +259,15 @@ USE QUANDO o usuário perguntar sobre:
 - "Meu dinheiro está rendendo?"
 - Radar de oportunidades de investimento, dinheiro ocioso.
 
+### `simulate_investment(amount, holding_months=12)`
+USE QUANDO o usuário pedir uma simulação com valor/prazo específicos:
+- "Se eu investir R$ 20.000 por 2 anos, o que rende mais?"
+- "Tesouro Selic, CDB ou poupança — qual vale mais a pena?"
+- "Quanto rende R$ 10 mil em 6 meses?"
+- Compara Tesouro SELIC (com custódia B3), melhor CDB de liquidez diária e
+  poupança oficial (SELIC + TR), tudo em rendimento líquido pós-IR.
+- Para detectar dinheiro parado do usuário, use get_opportunities.
+
 ### `get_forgotten_rights(user_id)`
 USE QUANDO o usuário perguntar sobre:
 - "Tenho dinheiro esquecido em algum banco?" / "SVR BACEN"
@@ -432,6 +443,7 @@ def build_financial_agent():
         get_negotiation_script,
         get_expert_card_analysis,
         get_opportunities,
+        simulate_investment,
         get_forgotten_rights,
         get_annual_wrapped,
         detect_abusive_fees,
