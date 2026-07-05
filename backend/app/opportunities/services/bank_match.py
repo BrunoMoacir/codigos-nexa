@@ -135,13 +135,19 @@ class BankMatchService:
         """OPP4-E — tarifa REAL que o usuário paga por banco (R$/mês), via
         BankFeeAnalyzer (F5) sobre o histórico de transações. Falha aberta →
         {} (só médias de mercado). Custo baixo: FeeDetector roda em memória
-        sobre o DataFrame já buscado pelo chamador."""
+        sobre o DataFrame já buscado pelo chamador.
+
+        Antes de detectar, enriquece o DataFrame com institution_id derivado
+        do metadado Pluggy persistido (account_balances: conta → banco) —
+        sem isso o FeeDetector cai em heurística por descrição, menos
+        confiável para atribuir a tarifa ao banco certo."""
         if transactions_df is None or getattr(transactions_df, "is_empty", lambda: True)():
             return {}
         try:
             from app.costs.bank_fee_analyzer import BankFeeAnalyzer
 
-            report = BankFeeAnalyzer().analyze(transactions_df, user_id)
+            enriched = BankMatchService._enrich_institution_id(user_id, transactions_df)
+            report = BankFeeAnalyzer().analyze(enriched, user_id)
             return {
                 b.bank_name: float(b.monthly_avg)
                 for b in report.by_bank
@@ -150,6 +156,54 @@ class BankMatchService:
         except Exception as exc:
             logger.warning("[BankMatch] fee_analyzer user=%s: %s", user_id, exc)
             return {}
+
+    @staticmethod
+    def _enrich_institution_id(user_id: str, transactions_df):
+        """Preenche institution_id via account_id → bank_name (account_balances)
+        → chave do INSTITUTION_ID_MAP do FeeDetector. Só preenche onde está
+        vazio/ausente — metadado existente nunca é sobrescrito. Falha aberta:
+        qualquer problema devolve o DataFrame original (heurística do F5)."""
+        try:
+            import polars as pl
+
+            from app.core.db.balances import get_account_bank_map
+            from app.costs.fee_detector import INSTITUTION_ID_MAP
+            from app.opportunities.services.bank_names import banks_match
+
+            if "account_id" not in transactions_df.columns:
+                return transactions_df
+            bank_by_account = get_account_bank_map(user_id)
+            if not bank_by_account:
+                return transactions_df
+
+            # bank_name legível → chave aceita pelo FeeDetector (ex: "nubank")
+            key_by_account: dict[str, str] = {}
+            for account_id, bank_name in bank_by_account.items():
+                for key, readable in INSTITUTION_ID_MAP.items():
+                    if banks_match(bank_name, readable):
+                        key_by_account[account_id] = key
+                        break
+
+            if not key_by_account:
+                return transactions_df
+
+            mapper = pl.col("account_id").cast(pl.Utf8).replace_strict(
+                key_by_account, default=""
+            )
+            if "institution_id" in transactions_df.columns:
+                filled = (
+                    pl.when(
+                        pl.col("institution_id").is_null()
+                        | (pl.col("institution_id").cast(pl.Utf8) == "")
+                    )
+                    .then(mapper)
+                    .otherwise(pl.col("institution_id"))
+                )
+                return transactions_df.with_columns(filled.alias("institution_id"))
+            return transactions_df.with_columns(mapper.alias("institution_id"))
+        except Exception as exc:
+            logger.debug("[BankMatch] enrich_institution_id user=%s: %s", user_id, exc)
+            return transactions_df
 
     @staticmethod
     def _project_fees(

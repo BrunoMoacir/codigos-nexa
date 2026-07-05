@@ -1,21 +1,28 @@
 """
 app/opportunities/services/idle_money_detector.py
 
-Calcula dinheiro parado: saldo estimado da conta, protegido por reserva de
-emergência quando um UserProfile é informado (Ticket OPP1-B — ver
-docs/OPP1_DINHEIRO_PARADO_PLANO.md).
+Calcula dinheiro parado, protegido por reserva de emergência quando um
+UserProfile é informado (Ticket OPP1-B — docs/OPP1_DINHEIRO_PARADO_PLANO.md).
+
+Fonte do saldo (Opção B do plano, entregue em 2026-07-05):
+  1. REAL_BALANCE   — saldo real de conta corrente (account_balances,
+                      persistido no sync do Pluggy; frescor de 7 dias).
+  2. CASHFLOW_PROXY — fallback: soma cumulativa das transações conhecidas
+                      (comportamento original), quando não há saldo fresco.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, timedelta
-from typing import Optional, TYPE_CHECKING
+from datetime import date, datetime, timedelta
+from typing import Literal, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     import polars as pl
     from app.optimizer.profiler import UserProfile
+
+IdleSource = Literal["REAL_BALANCE", "CASHFLOW_PROXY"]
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +46,10 @@ class IdleMoneyResult:
     # Valor final, já líquido de reserva — usado pelo ranking de produtos.
     idle_amount: float
 
-    # Proxy de saldo, sem proteção de reserva: soma cumulativa de todas as
-    # transações conhecidas do usuário (mesma heurística de
+    # Saldo bruto, sem proteção de reserva. Com idle_source=REAL_BALANCE é o
+    # saldo real de conta corrente (account_balances); com CASHFLOW_PROXY é a
+    # soma cumulativa das transações conhecidas (mesma heurística de
     # app/forecast/router.py::fetch_user_transactions — "current_balance").
-    # Não é saldo real de conta (ver plano, seção 2) — é a melhor aproximação
-    # disponível sem persistir saldo real via Pluggy (Opção B do plano).
     gross_idle_amount: float = 0.0
 
     # Reserva protegida que NÃO deve virar oportunidade de investimento.
@@ -54,6 +60,10 @@ class IdleMoneyResult:
     avg_expenses_3m: float = 0.0
     months_analyzed: int = 0
     has_sufficient_data: bool = False   # False quando < 2 meses de histórico
+
+    # Origem do saldo bruto (Opção B do plano OPP.1)
+    idle_source: IdleSource = "CASHFLOW_PROXY"
+    balance_captured_at: Optional[datetime] = None   # só com REAL_BALANCE
 
 
 class IdleMoneyDetector:
@@ -94,19 +104,46 @@ class IdleMoneyDetector:
         if transactions_df.is_empty():
             return self._empty_result()
 
-        return self._calculate(transactions_df, user_profile=user_profile)
+        real_balance = self._fetch_real_checking_balance(user_id)
+        return self._calculate(
+            transactions_df, user_profile=user_profile, real_balance=real_balance
+        )
 
-    def _calculate(self, df, user_profile: "UserProfile | None" = None) -> IdleMoneyResult:
+    @staticmethod
+    def _fetch_real_checking_balance(user_id: str):
+        """Saldo real de conta corrente (account_balances, frescor de 7 dias).
+        None → cai no proxy de fluxo de caixa. Falha aberta."""
+        try:
+            from app.core.db.balances import get_latest_balance
+            return get_latest_balance(user_id, "CHECKING")
+        except Exception as exc:
+            logger.debug("[IdleMoneyDetector] real_balance user=%s: %s", user_id, exc)
+            return None
+
+    def _calculate(
+        self,
+        df,
+        user_profile: "UserProfile | None" = None,
+        real_balance=None,
+    ) -> IdleMoneyResult:
         try:
             import polars as pl
 
             date_col = "transaction_date" if "transaction_date" in df.columns else "date"
             today = date.today()
 
-            # Proxy de saldo: soma cumulativa de TODAS as transações conhecidas
-            # (não só a janela de 3 meses abaixo) — ver docstring de IdleMoneyResult.
-            estimated_balance = float(df["amount"].sum()) if df.height > 0 else 0.0
-            gross_idle_amount = max(0.0, round(estimated_balance, 2))
+            # Saldo bruto: real quando persistido e fresco (Opção B do plano);
+            # senão, proxy = soma cumulativa de TODAS as transações conhecidas
+            # (não só a janela de 3 meses abaixo) — ver docstring do result.
+            if real_balance is not None and real_balance.balance is not None:
+                gross_idle_amount = max(0.0, round(float(real_balance.balance), 2))
+                idle_source: IdleSource = "REAL_BALANCE"
+                balance_captured_at = real_balance.captured_at
+            else:
+                estimated_balance = float(df["amount"].sum()) if df.height > 0 else 0.0
+                gross_idle_amount = max(0.0, round(estimated_balance, 2))
+                idle_source = "CASHFLOW_PROXY"
+                balance_captured_at = None
 
             # Janela: 3 meses completos anteriores ao mês atual — usada para
             # avg_income/avg_expenses (contexto) e para dimensionar a reserva.
@@ -146,6 +183,8 @@ class IdleMoneyDetector:
                 avg_expenses_3m=avg_expenses,
                 months_analyzed=months,
                 has_sufficient_data=months >= self._MIN_MONTHS,
+                idle_source=idle_source,
+                balance_captured_at=balance_captured_at,
             )
         except Exception as exc:
             logger.error("[IdleMoneyDetector] _calculate: %s", exc)

@@ -78,6 +78,12 @@ class OpportunitiesResponse(BaseModel):
     disclaimer: str = ""
     data_sources: list[str] = []
 
+    # Opção B do plano OPP.1 — origem do saldo bruto usado na detecção:
+    # "REAL_BALANCE" = saldo real de conta corrente (account_balances/Pluggy);
+    # "CASHFLOW_PROXY" = soma cumulativa de transações (aproximação).
+    idle_source: Literal["REAL_BALANCE", "CASHFLOW_PROXY"] = "CASHFLOW_PROXY"
+    balance_captured_at: Optional[datetime] = None
+
 
 class SavingsRateResult(BaseModel):
     """Ticket OPP4-B — resultado puro de calculate_savings_rate().

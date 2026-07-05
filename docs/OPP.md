@@ -262,7 +262,7 @@ class IdleMoneyDetector:
         ...
 ```
 
-Isso é **puramente fluxo de caixa** — não olha saldo diário em conta, não tem conceito de reserva de emergência e não distingue "dinheiro que sobrou este mês" de "reserva que o usuário está construindo de propósito". Não há hoje nenhuma trava que impeça o OPP de sugerir investir em produto de baixa liquidez um valor que na prática é reserva do usuário.
+**[Atualizado 2026-07-05]** A detecção deixou de ser puramente fluxo de caixa: quando existe saldo real de conta corrente fresco (≤ 7 dias, `account_balances` via sync Pluggy), ele é a fonte do `gross_idle_amount` (`idle_source="REAL_BALANCE"`); o proxy transacional (soma cumulativa) permanece como fallback (`"CASHFLOW_PROXY"`). A resposta expõe a origem (`idle_source`/`balance_captured_at`) e o texto/card declaram se o número vem de saldo real ou de estimativa. A reserva de emergência (6–9 meses por fss_level) já era subtraída desde o Ticket OPP1-B.
 
 ### 6.2 Extensão planejada — proteção de reserva **[V2]**
 

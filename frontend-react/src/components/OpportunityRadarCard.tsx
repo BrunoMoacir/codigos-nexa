@@ -98,6 +98,11 @@ export const OpportunityRadarCard: React.FC<{ userId: string }> = ({ userId }) =
           <div style={{ color: '#b91c1c', fontSize: 14, fontWeight: 600, marginTop: 4 }}>
             −{currency(annualLoss)}/ano deixando na conta corrente
           </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+            {opp.idle_source === 'REAL_BALANCE'
+              ? '🔗 Baseado no saldo real das suas contas conectadas'
+              : 'Estimado a partir do seu histórico de transações'}
+          </div>
 
           {top && (
             <div

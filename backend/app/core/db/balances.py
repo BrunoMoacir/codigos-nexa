@@ -181,10 +181,35 @@ def get_latest_balances_by_bank(
         return {}
 
 
+def get_account_bank_map(user_id: str) -> dict[str, str]:
+    """{account_id: bank_name} a partir dos snapshots do usuário — metadado
+    Pluggy persistido, usado para atribuir transações ao banco correto sem
+    depender de heurística de descrição. Sem staleness: o vínculo conta→banco
+    não muda com o tempo (o saldo sim, o banco não)."""
+    try:
+        from sqlalchemy import text
+
+        from app.core.database import SessionLocal
+
+        with SessionLocal() as db:
+            rows = db.execute(
+                text(
+                    "SELECT DISTINCT account_id, bank_name FROM account_balances"
+                    " WHERE user_id = :uid AND bank_name IS NOT NULL"
+                ),
+                {"uid": user_id},
+            ).fetchall()
+        return {str(r[0]): str(r[1]) for r in rows}
+    except Exception as exc:
+        logger.warning("[balances] account_bank_map user=%s: %s", user_id, exc)
+        return {}
+
+
 __all__ = [
     "BalanceSnapshot",
     "save_account_balances",
     "get_latest_balance",
     "get_latest_balances_by_bank",
+    "get_account_bank_map",
     "normalize_account_type",
 ]
