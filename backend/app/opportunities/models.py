@@ -123,6 +123,14 @@ class SavingsVsCdiResult(BaseModel):
     reason: str
     generated_at: datetime
 
+    # ── OPP4-E — personalização com saldo real de poupança (Pluggy) ──
+    # Quando is_personalized=True, amount_reference_brl É o saldo real do
+    # usuário (account_balances) e o texto pode afirmar "você tem R$ X".
+    # Quando False, é o valor de referência genérico (nunca afirmar saldo).
+    is_personalized: bool = False
+    savings_balance_brl: Optional[float] = None
+    balance_captured_at: Optional[datetime] = None
+
 
 class CompareRequest(BaseModel):
     amount: float

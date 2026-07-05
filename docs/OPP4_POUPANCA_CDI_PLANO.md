@@ -398,6 +398,27 @@ classifica corretamente `BELOW_CDI`, `NEAR_CDI`, `NO_ADVANTAGE` e `DATA_UNAVAILA
 **Critério de aceite:** agente e feed consomem o mesmo contrato do serviço; não há cálculo duplicado
 nem tela nova.
 
+**Status:** ✅ concluído (2026-07-04/05).
+
+- Agente: seção poupança vs. CDI dentro da tool `get_opportunities` (severity >= MEDIUM), sem tool nova.
+- Feed: card `SAVINGS_BELOW_CDI` com relevância, fingerprint mensal e TTL de 30 dias (dedup também no
+  engine proativo). Texto genérico usa R$10k de referência.
+
+### Ticket OPP4-E — Comparação personalizada com saldo real (entregue)
+
+- `account_balances` (migration `b8c4d2e6f7a1`) persiste o saldo por conta a cada sync de item
+  (`app/api/v1/routes/pluggy.py` → `app/core/db/balances.py`), com tipo normalizado
+  (CHECKING/SAVINGS/CREDIT/...). Mock do Pluggy agora inclui conta poupança (R$15k) para teste.
+- `SavingsVsCdiService.analyze_for_user(user_id)`: usa o saldo REAL de poupança (frescor de 7 dias,
+  somado entre contas); sem saldo → cai no genérico e nunca afirma saldo. Campos novos no result:
+  `is_personalized`, `savings_balance_brl`, `balance_captured_at`.
+- Superfícies: endpoint `GET /opportunities/savings-vs-cdi?personalized=true`, seção personalizada
+  no agente ("Sua poupança vs. CDI (saldo real)"), card personalizado no feed ("Sua poupança está
+  perdendo R$ X/ano").
+- Bônus da mesma iniciativa: pilar de tarifas do Bank Match usa a tarifa REAL detectada no extrato
+  (`BankFeeAnalyzer`) quando existe, com fallback na média de mercado; matching de nomes de banco
+  centralizado em `app/opportunities/services/bank_names.py`.
+
 **Arquivos esperados:** `backend/app/agent/tools/get_opportunities.py` ou nova tool justificada,
 `backend/app/notifications/`, testes de apresentação/paridade.
 

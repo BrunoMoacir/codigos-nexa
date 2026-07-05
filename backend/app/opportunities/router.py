@@ -53,7 +53,12 @@ def get_savings_vs_cdi(
     amount_reference_brl: float = Query(
         default=10_000.0,
         gt=0,
-        description="Valor de referência (R$) para calcular a perda estimada. Não usa saldo real do usuário.",
+        description="Valor de referência (R$) para calcular a perda estimada (modo genérico).",
+    ),
+    personalized: bool = Query(
+        default=False,
+        description="OPP4-E: quando true, usa o saldo REAL de poupança do usuário autenticado "
+        "(persistido no sync do Pluggy, frescor de 7 dias). Sem saldo, cai no modo genérico.",
     ),
     current_user: str = Depends(get_current_user),
 ) -> SavingsVsCdiResult:
@@ -73,6 +78,8 @@ def get_savings_vs_cdi(
       se vale gerar um card (ver seção 5.4/5.5 do plano).
     """
     try:
+        if personalized:
+            return _savings_vs_cdi.analyze_for_user(str(current_user))
         return _savings_vs_cdi.analyze(amount_reference_brl=amount_reference_brl)
     except Exception as exc:
         logger.error("[opportunities] savings_vs_cdi user=%s: %s", current_user, exc)
@@ -173,6 +180,7 @@ def get_bank_match(
             cdi_annual=OpportunityEngine._get_cdi_annual(),
             selic_annual=OpportunityEngine._get_selic_annual(),
             user_profile=user_profile,
+            transactions_df=transactions_df,
             disclaimer=DISCLAIMER,
         )
     except Exception as exc:

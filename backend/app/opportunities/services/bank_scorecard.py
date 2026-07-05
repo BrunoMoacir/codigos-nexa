@@ -154,25 +154,11 @@ class BankScorecardService:
     @staticmethod
     def _matches_user_bank(bank_name: str, user_banks: set[str]) -> bool:
         """Match tolerante: connector_name do Pluggy raramente é idêntico ao
-        bank_name do catálogo (ex: 'Nubank' vs 'Nu Pagamentos S.A.')."""
-        _STOPWORDS = {"banco", "s.a.", "sa", "s/a", "de", "do", "da", "brasil"}
+        bank_name do catálogo (ex: 'Nubank' vs 'Nu Pagamentos S.A.').
+        Regras centralizadas em bank_names.banks_match (fonte única)."""
+        from app.opportunities.services.bank_names import banks_match
 
-        def _tokens(name: str) -> list[str]:
-            return [t for t in name.lower().split() if t not in _STOPWORDS and len(t) >= 2]
-
-        bank_lower = bank_name.lower()
-        bank_tokens = _tokens(bank_name)
-        for connector in user_banks:
-            c = connector.lower()
-            if bank_lower in c or c in bank_lower:
-                return True
-            # tokens significativos com match exato ou por prefixo
-            # (ex: "nu" de "Nu Pagamentos" é prefixo de "nubank")
-            for ct in _tokens(connector):
-                for bt in bank_tokens:
-                    if ct == bt or bt.startswith(ct) or ct.startswith(bt):
-                        return True
-        return False
+        return any(banks_match(bank_name, connector) for connector in user_banks)
 
     @staticmethod
     def _get_user_banks(user_id: str) -> set[str]:

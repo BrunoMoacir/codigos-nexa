@@ -147,7 +147,7 @@ class IRPFCalculator:
 
 ### 3.2 Pluggy — dados do usuário **[V1 — já em uso, indireto]**
 
-O OPP não chama o Pluggy diretamente: consome `app.core.db.queries.get_transactions_for_user`, que lê as transações já sincronizadas (via Pluggy) no DuckDB. Não há leitura de saldo diário nem da posição de investimentos do usuário — só o extrato de entradas/saídas dos últimos meses.
+O OPP não chama o Pluggy diretamente: consome `app.core.db.queries.get_transactions_for_user`, que lê as transações já sincronizadas (via Pluggy) no DuckDB. **[Atualizado 2026-07-05]** O saldo real por conta agora É persistido: o sync de item (`app/api/v1/routes/pluggy.py`) grava snapshots em `account_balances` (`app/core/db/balances.py`, migration `b8c4d2e6f7a1`), com tipo de conta normalizado (CHECKING/SAVINGS/...). Isso alimenta a comparação de poupança PERSONALIZADA (`SavingsVsCdiService.analyze_for_user`, frescor de 7 dias) e o pilar de tarifas reais do Bank Match. A posição de investimentos (produtos aplicados) segue não lida.
 
 ### 3.3 Open Finance Brasil — Dados Abertos **[V2 — IMPLEMENTADO 2026-07-04]** — `OpenFinanceProductsConnector` + job diário `product_catalog_refresh` (02h30); fallback = catálogo curado
 

@@ -68,6 +68,7 @@ def get_best_bank(user_id: str, amount: float = 0.0) -> str:
             cdi_annual=OpportunityEngine._get_cdi_annual(),
             selic_annual=OpportunityEngine._get_selic_annual(),
             user_profile=user_profile,
+            transactions_df=transactions_df,
         )
     except Exception as exc:
         logger.error("[Tool] get_best_bank | user=%s: %s", user_id, exc)

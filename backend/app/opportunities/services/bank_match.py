@@ -71,6 +71,7 @@ class BankMatchService:
         cdi_annual: float,
         selic_annual: float | None = None,
         user_profile=None,
+        transactions_df=None,
         disclaimer: str = "",
     ) -> BankMatchResponse:
         scorecard = self._scorecard.build(
@@ -85,10 +86,13 @@ class BankMatchService:
         investor_type = getattr(user_profile, "investor_type", "NONE")
         weights = self._pick_weights(fss_level, investor_type)
 
-        fees_by_bank = self._project_fees(scorecard)
+        real_fees = self._detect_real_fees(user_id, transactions_df)
+        fees_by_bank, real_fee_banks = self._project_fees(scorecard, real_fees)
         cards_by_bank = self._score_cards(scorecard, user_profile)
 
-        entries = self._score_banks(scorecard, fees_by_bank, cards_by_bank, weights, fss_level)
+        entries = self._score_banks(
+            scorecard, fees_by_bank, cards_by_bank, weights, fss_level, real_fee_banks
+        )
         entries.sort(key=lambda e: -e.match_score)
 
         current = next((e for e in entries if e.is_user_current_bank), None)
@@ -127,22 +131,56 @@ class BankMatchService:
     # ── pilar 2: tarifas ─────────────────────────────────────────────
 
     @staticmethod
-    def _project_fees(scorecard: BankComparisonResponse) -> dict[str, float]:
-        """Custo mensal projetado por banco (R$). Reusa o MarketFeesDB do
-        módulo de custos (F5) — mesma base usada pelo raio-X de tarifas."""
+    def _detect_real_fees(user_id: str, transactions_df) -> dict[str, float]:
+        """OPP4-E — tarifa REAL que o usuário paga por banco (R$/mês), via
+        BankFeeAnalyzer (F5) sobre o histórico de transações. Falha aberta →
+        {} (só médias de mercado). Custo baixo: FeeDetector roda em memória
+        sobre o DataFrame já buscado pelo chamador."""
+        if transactions_df is None or getattr(transactions_df, "is_empty", lambda: True)():
+            return {}
+        try:
+            from app.costs.bank_fee_analyzer import BankFeeAnalyzer
+
+            report = BankFeeAnalyzer().analyze(transactions_df, user_id)
+            return {
+                b.bank_name: float(b.monthly_avg)
+                for b in report.by_bank
+                if b.bank_name and b.monthly_avg is not None
+            }
+        except Exception as exc:
+            logger.warning("[BankMatch] fee_analyzer user=%s: %s", user_id, exc)
+            return {}
+
+    @staticmethod
+    def _project_fees(
+        scorecard: BankComparisonResponse,
+        real_fees: dict[str, float] | None = None,
+    ) -> tuple[dict[str, float], set[str]]:
+        """Custo mensal por banco (R$): tarifa REAL detectada no extrato do
+        usuário quando existe (OPP4-E), média de mercado (MarketFeesDB do F5)
+        caso contrário. Retorna também o conjunto de bancos com dado real,
+        para o texto de transparência."""
+        from app.opportunities.services.bank_names import find_matching
+
         fees: dict[str, float] = {}
+        real_fee_banks: set[str] = set()
+        real_fees = real_fees or {}
         try:
             from app.costs.market_fees_db import MarketFeesDB
 
             db = MarketFeesDB()
             for entry in scorecard.scorecard:
-                if entry.bank_name == "Tesouro Direto":
+                matched = find_matching(entry.bank_name, real_fees)
+                if matched is not None:
+                    fees[entry.bank_name] = real_fees[matched]
+                    real_fee_banks.add(entry.bank_name)
+                elif entry.bank_name == "Tesouro Direto":
                     fees[entry.bank_name] = 0.0
                 else:
                     fees[entry.bank_name] = float(db.get_avg_for_bank(entry.bank_name))
         except Exception as exc:
             logger.warning("[BankMatch] market_fees_db indisponível: %s", exc)
-        return fees
+        return fees, real_fee_banks
 
     # ── pilar 3: cartões ─────────────────────────────────────────────
 
@@ -161,23 +199,13 @@ class BankMatchService:
             logger.warning("[BankMatch] card_loader indisponível: %s", exc)
             return {}
 
+        from app.opportunities.services.bank_names import banks_match
+
         cluster = getattr(user_profile, "lifestyle_cluster", "NAO_CLASSIFICADO")
-
-        # Palavras genéricas não identificam emissor ("bank" casaria Nubank
-        # com C6 Bank; "banco"/"investimentos" têm o mesmo problema).
-        _GENERIC = {"bank", "banco", "investimentos", "pactual", "direto", "s.a.", "sa"}
-
-        def _issuer_matches(issuer: str, bank_name: str) -> bool:
-            i, b = issuer.lower(), bank_name.lower()
-            if i == b or (len(i) > 3 and i in b) or (len(b) > 3 and b in i):
-                return True
-            b_tokens = {t for t in b.split() if len(t) > 1 and t not in _GENERIC}
-            i_tokens = {t for t in i.split() if len(t) > 1 and t not in _GENERIC}
-            return bool(b_tokens & i_tokens)
 
         result: dict[str, dict] = {}
         for entry in scorecard.scorecard:
-            bank_cards = [c for c in cards if _issuer_matches(getattr(c, "issuer", ""), entry.bank_name)]
+            bank_cards = [c for c in cards if banks_match(getattr(c, "issuer", ""), entry.bank_name)]
             if not bank_cards:
                 continue
             # heurística de força: sem anuidade > com anuidade; bônus se o
@@ -210,7 +238,9 @@ class BankMatchService:
         cards_by_bank: dict[str, dict],
         weights: dict[str, float],
         fss_level: str,
+        real_fee_banks: set[str] | None = None,
     ) -> list[BankMatchEntry]:
+        real_fee_banks = real_fee_banks or set()
         entries: list[BankMatchEntry] = []
         banks = scorecard.scorecard
         if not banks:
@@ -253,10 +283,16 @@ class BankMatchService:
                 f"({bank.best_product_type} {bank.best_cdi_pct:.0f}% CDI)"
             ]
             if fee is not None:
-                reasons.append(
-                    "Sem tarifa de manutenção típica" if fee == 0
-                    else f"Tarifa média de mercado: R$ {fee:,.2f}/mês"
-                )
+                if bank.bank_name in real_fee_banks:
+                    reasons.append(
+                        "Você não paga tarifa neste banco hoje" if fee == 0
+                        else f"Você paga R$ {fee:,.2f}/mês de tarifas neste banco hoje (detectado no seu extrato)"
+                    )
+                else:
+                    reasons.append(
+                        "Sem tarifa de manutenção típica" if fee == 0
+                        else f"Tarifa média de mercado: R$ {fee:,.2f}/mês"
+                    )
             if card_info:
                 reasons.append(f"Cartão forte para seu perfil: {card_info['top_card_name']}")
             reasons.extend(fit_reasons)

@@ -57,6 +57,42 @@ class SavingsVsCdiService:
         self._anbima = AnbimaConnector()
         self._bacen = BacenConnector()
 
+    def analyze_for_user(self, user_id: str) -> SavingsVsCdiResult:
+        """OPP4-E — comparação PERSONALIZADA com o saldo real de poupança do
+        usuário (account_balances, persistido no sync do Pluggy).
+
+        Sem saldo fresco (< 7 dias) ou saldo zero → cai no modo genérico
+        (analyze), que nunca afirma saldo do usuário. O texto personalizado
+        só afirma "você tem R$ X na poupança" quando o dado existe de fato —
+        regra do plano OPP.4 ("não inventar saldo")."""
+        try:
+            from app.core.db.balances import get_latest_balance
+            snapshot = get_latest_balance(user_id, "SAVINGS")
+        except Exception as exc:
+            logger.warning("[SavingsVsCdiService] balance user=%s: %s", user_id, exc)
+            snapshot = None
+
+        if snapshot is None or snapshot.balance <= 0:
+            return self.analyze()
+
+        result = self.analyze(amount_reference_brl=snapshot.balance)
+        if result.status == "DATA_UNAVAILABLE":
+            return result
+
+        personalized_reason = (
+            f"Você tem R$ {snapshot.balance:,.2f} na poupança"
+            + (f" ({snapshot.bank_name})" if snapshot.bank_name else "")
+            + f". Ao CDI de hoje, isso significa cerca de "
+            f"R$ {result.estimated_loss_annual_brl:,.2f}/ano rendendo a menos."
+        ) if result.status == "BELOW_CDI" else result.reason
+
+        return result.model_copy(update={
+            "is_personalized": True,
+            "savings_balance_brl": snapshot.balance,
+            "balance_captured_at": snapshot.captured_at,
+            "reason": personalized_reason,
+        })
+
     def analyze(
         self, amount_reference_brl: float = _DEFAULT_AMOUNT_REFERENCE_BRL
     ) -> SavingsVsCdiResult:

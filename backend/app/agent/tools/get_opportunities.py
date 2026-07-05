@@ -92,7 +92,7 @@ def get_opportunities(user_id: str) -> str:
 
     lines += ["", result.recommendation]
 
-    savings_section = _build_savings_vs_cdi_section()
+    savings_section = _build_savings_vs_cdi_section(user_id)
     if savings_section:
         lines += ["", *savings_section]
 
@@ -112,15 +112,15 @@ def get_opportunities(user_id: str) -> str:
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
-def _build_savings_vs_cdi_section() -> list[str]:
-    """Ticket OPP4-D — anexa a comparação genérica poupança vs. CDI quando
-    a severidade justifica (>= MEDIUM). Mesmo contrato do endpoint
-    GET /opportunities/savings-vs-cdi; nenhum cálculo duplicado aqui.
-    Texto sempre com o valor de referência (R$10k) — nunca presume saldo
-    de poupança do usuário."""
+def _build_savings_vs_cdi_section(user_id: str) -> list[str]:
+    """Tickets OPP4-D/E — anexa a comparação poupança vs. CDI quando a
+    severidade justifica (>= MEDIUM). Personalizada com o saldo REAL de
+    poupança do usuário quando existe (account_balances via sync Pluggy);
+    genérica com valor de referência caso contrário — nunca presume saldo.
+    Mesmo contrato do endpoint GET /opportunities/savings-vs-cdi."""
     try:
         from app.opportunities.services.savings_vs_cdi import get_savings_vs_cdi_service
-        result = get_savings_vs_cdi_service().analyze()
+        result = get_savings_vs_cdi_service().analyze_for_user(user_id)
     except Exception as exc:
         logger.debug("[Tool] savings_vs_cdi indisponível: %s", exc)
         return []
@@ -128,8 +128,13 @@ def _build_savings_vs_cdi_section() -> list[str]:
     if result.status != "BELOW_CDI" or result.severity == "LOW":
         return []
 
+    header = (
+        "── Sua poupança vs. CDI (saldo real) ──"
+        if result.is_personalized
+        else "── Poupança vs. CDI (referência) ──"
+    )
     return [
-        "── Poupança vs. CDI (referência) ──",
+        header,
         f"🐷 Poupança hoje: {result.savings_annual_pct:.2f}% a.a. | CDI: {result.cdi_annual_pct:.2f}% a.a.",
         result.reason,
     ]

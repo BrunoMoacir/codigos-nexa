@@ -236,7 +236,7 @@ def get_notifications(
         # serviço; nenhum cálculo duplicado — regra do plano OPP.4).
         try:
             from app.notifications.engine import NotificationEngine
-            ctx.savings_below_cdi = NotificationEngine._detect_savings_below_cdi()
+            ctx.savings_below_cdi = NotificationEngine._detect_savings_below_cdi(user_id)
             ctx.idle_money = NotificationEngine._detect_idle_money(user_id)
         except Exception as opp_exc:
             logger.debug("Detectores OPP indisponíveis: %s", opp_exc)
