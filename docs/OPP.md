@@ -147,7 +147,7 @@ class IRPFCalculator:
 
 ### 3.2 Pluggy — dados do usuário **[V1 — já em uso, indireto]**
 
-O OPP não chama o Pluggy diretamente: consome `app.core.db.queries.get_transactions_for_user`, que lê as transações já sincronizadas (via Pluggy) no DuckDB. Não há leitura de saldo diário nem da posição de investimentos do usuário — só o extrato de entradas/saídas dos últimos meses.
+O OPP não chama o Pluggy diretamente: consome `app.core.db.queries.get_transactions_for_user`, que lê as transações já sincronizadas (via Pluggy) no DuckDB. **[Atualizado 2026-07-05]** O saldo real por conta agora É persistido: o sync de item (`app/api/v1/routes/pluggy.py`) grava snapshots em `account_balances` (`app/core/db/balances.py`, migration `b8c4d2e6f7a1`), com tipo de conta normalizado (CHECKING/SAVINGS/...). Isso alimenta a comparação de poupança PERSONALIZADA (`SavingsVsCdiService.analyze_for_user`, frescor de 7 dias) e o pilar de tarifas reais do Bank Match. A posição de investimentos (produtos aplicados) segue não lida.
 
 ### 3.3 Open Finance Brasil — Dados Abertos **[V2 — IMPLEMENTADO 2026-07-04]** — `OpenFinanceProductsConnector` + job diário `product_catalog_refresh` (02h30); fallback = catálogo curado
 
@@ -262,7 +262,7 @@ class IdleMoneyDetector:
         ...
 ```
 
-Isso é **puramente fluxo de caixa** — não olha saldo diário em conta, não tem conceito de reserva de emergência e não distingue "dinheiro que sobrou este mês" de "reserva que o usuário está construindo de propósito". Não há hoje nenhuma trava que impeça o OPP de sugerir investir em produto de baixa liquidez um valor que na prática é reserva do usuário.
+**[Atualizado 2026-07-05]** A detecção deixou de ser puramente fluxo de caixa: quando existe saldo real de conta corrente fresco (≤ 7 dias, `account_balances` via sync Pluggy), ele é a fonte do `gross_idle_amount` (`idle_source="REAL_BALANCE"`); o proxy transacional (soma cumulativa) permanece como fallback (`"CASHFLOW_PROXY"`). A resposta expõe a origem (`idle_source`/`balance_captured_at`) e o texto/card declaram se o número vem de saldo real ou de estimativa. A reserva de emergência (6–9 meses por fss_level) já era subtraída desde o Ticket OPP1-B.
 
 ### 6.2 Extensão planejada — proteção de reserva **[V2]**
 

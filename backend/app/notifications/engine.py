@@ -54,8 +54,9 @@ class NotificationEngine:
         # Detecta tarifas aumentadas vs. mês anterior
         ctx.fee_deltas = self._detect_fee_deltas(user_id)
 
-        # OPP4-D — poupança abaixo do CDI (genérico) e dinheiro parado (Etapa 6)
-        ctx.savings_below_cdi = self._detect_savings_below_cdi()
+        # OPP4-D/E — poupança abaixo do CDI (personalizado quando há saldo
+        # real; genérico caso contrário) e dinheiro parado (Etapa 6)
+        ctx.savings_below_cdi = self._detect_savings_below_cdi(user_id)
         ctx.idle_money = self._detect_idle_money(user_id)
 
         if not ctx.fee_deltas and ctx.savings_below_cdi is None and ctx.idle_money is None:
@@ -159,12 +160,15 @@ class NotificationEngine:
             return []
 
     @staticmethod
-    def _detect_savings_below_cdi():
-        """OPP4-D — comparação genérica poupança vs. CDI. Retorna input só
-        quando severity >= MEDIUM (o gerador refiltra por segurança)."""
+    def _detect_savings_below_cdi(user_id: str | None = None):
+        """OPP4-D/E — poupança vs. CDI. Com user_id, tenta a comparação
+        personalizada (saldo real de poupança via account_balances); sem
+        saldo, cai no genérico. Retorna input só quando severity >= MEDIUM
+        (o gerador refiltra por segurança)."""
         try:
             from app.opportunities.services.savings_vs_cdi import get_savings_vs_cdi_service
-            result = get_savings_vs_cdi_service().analyze()
+            service = get_savings_vs_cdi_service()
+            result = service.analyze_for_user(user_id) if user_id else service.analyze()
         except Exception as exc:
             logger.warning("[NotificationEngine] savings_vs_cdi: %s", exc)
             return None
@@ -179,6 +183,8 @@ class NotificationEngine:
             estimated_loss_annual_brl=result.estimated_loss_annual_brl,
             severity=result.severity,
             reason=result.reason,
+            is_personalized=result.is_personalized,
+            savings_balance_brl=result.savings_balance_brl,
         )
 
     @staticmethod

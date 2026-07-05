@@ -78,6 +78,12 @@ class OpportunitiesResponse(BaseModel):
     disclaimer: str = ""
     data_sources: list[str] = []
 
+    # Opção B do plano OPP.1 — origem do saldo bruto usado na detecção:
+    # "REAL_BALANCE" = saldo real de conta corrente (account_balances/Pluggy);
+    # "CASHFLOW_PROXY" = soma cumulativa de transações (aproximação).
+    idle_source: Literal["REAL_BALANCE", "CASHFLOW_PROXY"] = "CASHFLOW_PROXY"
+    balance_captured_at: Optional[datetime] = None
+
 
 class SavingsRateResult(BaseModel):
     """Ticket OPP4-B — resultado puro de calculate_savings_rate().
@@ -122,6 +128,14 @@ class SavingsVsCdiResult(BaseModel):
     severity: Literal["LOW", "MEDIUM", "HIGH"]
     reason: str
     generated_at: datetime
+
+    # ── OPP4-E — personalização com saldo real de poupança (Pluggy) ──
+    # Quando is_personalized=True, amount_reference_brl É o saldo real do
+    # usuário (account_balances) e o texto pode afirmar "você tem R$ X".
+    # Quando False, é o valor de referência genérico (nunca afirmar saldo).
+    is_personalized: bool = False
+    savings_balance_brl: Optional[float] = None
+    balance_captured_at: Optional[datetime] = None
 
 
 class CompareRequest(BaseModel):

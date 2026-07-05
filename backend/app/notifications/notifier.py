@@ -217,17 +217,21 @@ class LifeEventInput:
 
 @dataclass
 class SavingsBelowCdiInput:
-    """OPP.4 (Ticket OPP4-D) — poupança rendendo abaixo do CDI.
+    """OPP.4 (Tickets OPP4-D/E) — poupança rendendo abaixo do CDI.
 
-    Comparação genérica (valor de referência, nunca saldo presumido do
-    usuário) — vem de SavingsVsCdiService.analyze(). Só gerar card quando
-    severity >= MEDIUM (regra do plano OPP.4, seção 5.4)."""
+    Vem de SavingsVsCdiService.analyze()/analyze_for_user(). Quando
+    is_personalized=True, amount_reference_brl é o saldo REAL de poupança
+    do usuário (account_balances) e o card pode afirmar "você tem R$ X";
+    quando False, é referência genérica (nunca presumir saldo). Só gerar
+    card quando severity >= MEDIUM (regra do plano OPP.4, seção 5.4)."""
     savings_annual_pct: float
     cdi_annual_pct: float
     amount_reference_brl: float
     estimated_loss_annual_brl: float
     severity: str           # "LOW" | "MEDIUM" | "HIGH"
     reason: str
+    is_personalized: bool = False
+    savings_balance_brl: Optional[float] = None
 
 
 @dataclass
@@ -871,11 +875,24 @@ def generate_savings_below_cdi_notification(
     if data is None or data.severity not in ("MEDIUM", "HIGH"):
         return []
 
+    if data.is_personalized and data.savings_balance_brl:
+        title = f"🐷 Sua poupança está perdendo R$ {data.estimated_loss_annual_brl:,.0f}/ano"
+        action_hint = (
+            "Veja no Radar de Oportunidades alternativas com liquidez diária "
+            "que rendem mais que a sua poupança."
+        )
+    else:
+        title = "🐷 Poupança está rendendo abaixo do CDI"
+        action_hint = (
+            "Se você tem dinheiro na poupança, veja no Radar de Oportunidades "
+            "alternativas com liquidez diária que rendem mais."
+        )
+
     return [Notification(
         id=_new_id(),
         type="SAVINGS_BELOW_CDI",
         priority="INFO",
-        title="🐷 Poupança está rendendo abaixo do CDI",
+        title=title,
         message=(
             f"Hoje a poupança rende {data.savings_annual_pct:.2f}% a.a. contra "
             f"{data.cdi_annual_pct:.2f}% a.a. do CDI. {data.reason}"
@@ -887,11 +904,9 @@ def generate_savings_below_cdi_notification(
             "amount_reference_brl":      round(data.amount_reference_brl, 2),
             "estimated_loss_annual_brl": round(data.estimated_loss_annual_brl, 2),
             "severity":                  data.severity,
+            "is_personalized":           data.is_personalized,
         },
-        action_hint=(
-            "Se você tem dinheiro na poupança, veja no Radar de Oportunidades "
-            "alternativas com liquidez diária que rendem mais."
-        ),
+        action_hint=action_hint,
     )]
 
 

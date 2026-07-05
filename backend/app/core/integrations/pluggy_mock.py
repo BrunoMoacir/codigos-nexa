@@ -35,10 +35,24 @@ class MockPluggyClient:
                 {
                     "id": "acc_001",
                     "name": "Conta Corrente Mock",
-                    "type": "CHECKING",
+                    "type": "BANK",
+                    "subtype": "CHECKING_ACCOUNT",
                     "balance": 5000.00,
-                    "currencyCode": "BRL"
-                }
+                    "currencyCode": "BRL",
+                    "connector": {"id": "201", "name": "Nubank"},
+                },
+                # Conta poupança — necessária para testar a personalização do
+                # OPP.4 (poupança vs. CDI com saldo real); antes o mock só
+                # cobria conta corrente (gap apontado no plano OPP.4, seção 2).
+                {
+                    "id": "acc_002",
+                    "name": "Poupança Mock",
+                    "type": "BANK",
+                    "subtype": "SAVINGS_ACCOUNT",
+                    "balance": 15000.00,
+                    "currencyCode": "BRL",
+                    "connector": {"id": "201", "name": "Nubank"},
+                },
             ]
         }
     

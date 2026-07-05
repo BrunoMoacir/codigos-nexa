@@ -131,6 +131,7 @@ class OpportunityEngine:
         persistence = self._evaluate_persistence(user_id, idle, now)
 
         recommendation = self._append_reserve_note(recommendation, idle)
+        recommendation = self._append_source_note(recommendation, idle)
         recommendation = self._append_confidence_note(
             recommendation, persistence["status"], persistence["reason"]
         )
@@ -155,6 +156,8 @@ class OpportunityEngine:
             idle_detection_reason=persistence["reason"],
             disclaimer=DISCLAIMER,
             data_sources=DATA_SOURCES,
+            idle_source=idle.idle_source,
+            balance_captured_at=idle.balance_captured_at,
         )
 
     # ── helpers ──────────────────────────────────────────────────────
@@ -303,6 +306,16 @@ class OpportunityEngine:
         if status != "PRELIMINARY":
             return recommendation
         return f"{recommendation} Isso ainda é uma estimativa preliminar ({reason}) — avalie antes de migrar."
+
+    @staticmethod
+    def _append_source_note(recommendation: str, idle) -> str:
+        """Transparência da origem do número (Opção B do plano OPP.1): saldo
+        real inspira mais confiança; proxy pede a ressalva de aproximação."""
+        if idle.idle_amount <= 0:
+            return recommendation
+        if idle.idle_source == "REAL_BALANCE":
+            return f"{recommendation} Valor baseado no saldo real das suas contas conectadas."
+        return f"{recommendation} Valor estimado a partir do seu histórico de transações."
 
     @staticmethod
     def _append_reserve_note(recommendation: str, idle) -> str:
