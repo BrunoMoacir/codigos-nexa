@@ -127,6 +127,28 @@ def _idle_money_relevant(n: Notification, income: float) -> bool:
     return n.metadata.get("top_gain_monthly_brl", 0.0) >= min_gain
 
 
+def _fiscal_season_relevant(n: Notification, income: float) -> bool:
+    # Prazo é prazo: obrigação legal é sempre relevante. Eventos de
+    # planejamento (restituição, 13º, FGTS) só dentro de 45 dias do deadline
+    # — o gerador já garante isso pela janela do calendário.
+    return n.metadata.get("days_until_deadline", 999) <= 45
+
+
+def _challenge_relevant(n: Notification, income: float) -> bool:
+    # Conclusão sempre vale card (é a recompensa); progresso exige ≥70%
+    # — o gerador já filtra, aqui é cinto e suspensório.
+    if n.type == "CHALLENGE_COMPLETED":
+        return True
+    return n.metadata.get("pct_progress", 0.0) >= 70.0
+
+
+def _purchase_followup_relevant(n: Notification, income: float) -> bool:
+    # Economia perdida mínima: 0.3% da renda, entre R$10 e R$80 — mesma
+    # família de escala do CARD_OPPORTUNITY (é o primo retroativo dele)
+    min_savings = _income_scaled(income, 0.003, 10.0, 80.0)
+    return n.metadata.get("potential_savings_brl", 0.0) >= min_savings
+
+
 _TYPE_FILTERS: dict[str, Callable[[Notification, float], bool]] = {
     "BURN_RATE_HIGH":        _burn_rate_relevant,
     "ANOMALY_DETECTED":      _anomaly_relevant,
@@ -140,6 +162,10 @@ _TYPE_FILTERS: dict[str, Callable[[Notification, float], bool]] = {
     "LIFE_EVENT":            _life_event_relevant,
     "SAVINGS_BELOW_CDI":     _savings_below_cdi_relevant,
     "IDLE_MONEY_DETECTED":   _idle_money_relevant,
+    "FISCAL_SEASON":         _fiscal_season_relevant,
+    "CHALLENGE_COMPLETED":   _challenge_relevant,
+    "CHALLENGE_PROGRESS":    _challenge_relevant,
+    "PURCHASE_FOLLOWUP":     _purchase_followup_relevant,
 }
 
 # ── Caps ──────────────────────────────────────────────────────────────────────
