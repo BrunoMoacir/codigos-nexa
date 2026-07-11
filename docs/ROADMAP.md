@@ -151,13 +151,13 @@ Bradesco, Santander, BB, Caixa, Sicoob, Tesouro Direto.
 
 | ID | Funcionalidade | Prioridade | Status |
 |----|----------------|------------|--------|
-| R1.a | F7 Modo Compra no momento da compra | — | Parcial — endpoint de análise implementado; experiência contextual/checkout ausente |
-| R1.b | MX.3 Notificações proativas | — | Parcial — regras e endpoint implementados; execução automática e entrega ausentes |
-| R1.c | Daily digest (email ou push) | Média | A desenvolver — requer scheduler |
-| R1.d | Widget safe-to-spend (homescreen mobile) | Baixa | Requer app mobile |
-| R2.a | OPP Radar de Produtos | — | A desenvolver (ver acima) |
-| R2.b | Health Score com badges e desafios mensais | Média | A desenvolver — MX.1 já existe |
-| R2.c | Sazonalidade fiscal (alertas IR, FGTS, 13º) | Média | A desenvolver |
+| R1.a | F7 Modo Compra no momento da compra | — | ✅ Implementado — `GET /purchase/checkout-context` (veredito compacto para o momento da compra), `GET /purchase/recent-review` + card PURCHASE_FOLLOWUP no feed (análise retroativa de compras grandes) e tool `review_recent_purchases` no chat |
+| R1.b | MX.3 Notificações proativas | — | ✅ Implementado — NotificationEngine roda a cada 6h via APScheduler e entrega por email/in_app (delivery_service), com dedup por TTL |
+| R1.c | Daily digest (email ou push) | Média | ✅ Implementado — job 07h00 com score, tarifas, oportunidades, prazos fiscais (R2.c) e desafios concluídos (R2.b); idempotente via daily_digest_log |
+| R1.d | Widget safe-to-spend (homescreen mobile) | Baixa | ✅ API pronta — `GET /safe-to-spend/{user_id}/widget` (payload ~200 bytes com status semafórico, cor e headline); render nativo aguarda app mobile/PWA |
+| R2.a | OPP Radar de Produtos | — | ✅ Implementado (ver seção OPP acima) |
+| R2.b | Health Score com badges e desafios mensais | Média | ✅ Implementado — ChallengeService (SEM_TARIFAS, REDUZIR_CATEGORIA, GUARDAR_VALOR, SUBIR_SCORE), badges PRIMEIRO_DESAFIO/DESAFIO_TRIPLO/DESAFIO_STREAK_3, `GET /health-score/challenges`, cards no feed e tool `get_monthly_challenges` |
+| R2.c | Sazonalidade fiscal (alertas IR, FGTS, 13º) | Média | ✅ Implementado — módulo `app/seasonality/` (IR, restituição, IPVA/IPTU, DAS/DASN-SIMEI, 13º, lucro FGTS) personalizado por perfil MEI/CLT, `GET /seasonality/{user_id}`, card FISCAL_SEASON no feed, tool `get_fiscal_calendar` e prazos urgentes no daily digest |
 | R3.a | Histórico financeiro acumulado | — | Implementado (DuckDB) |
 | R3.b | Metas financeiras com projeção | — | Implementado (MX.2) |
 | R3.c | Modo Família (multi-usuário compartilhado) | Baixa | Nova infra — 4+ sem |

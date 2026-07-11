@@ -7,7 +7,8 @@ delivery_service (email ou in_app conforme user_settings).
 Fluxo por usuário:
   1. Verificar user_settings.notification_frequency não é "off"
   2. Verificar daily_digest_log — pular se já enviado hoje (idempotência)
-  3. Coletar eventos digestíveis (score, tarifas, oportunidades, alertas)
+  3. Coletar eventos digestíveis (score, tarifas, oportunidades, prazos
+     fiscais R2.c, desafios concluídos R2.b, alertas)
   4. Pular se não há nenhum evento (sem transações novas)
   5. Formatar HTML do digest
   6. Entregar via delivery_service.deliver()
@@ -107,6 +108,8 @@ def _collect_events(user_id: str, today: date) -> DigestPayload:
     payload.events.extend(_collect_score_event(user_id))
     payload.events.extend(_collect_tarifa_events(user_id, today))
     payload.events.extend(_collect_negotiation_events(user_id, today))
+    payload.events.extend(_collect_fiscal_deadline_events(user_id))
+    payload.events.extend(_collect_challenge_events(user_id))
     payload.events.extend(_collect_alert_summary(user_id, today))
 
     return payload
@@ -215,6 +218,62 @@ def _collect_negotiation_events(user_id: str, today: date) -> list[DigestEvent]:
     return []
 
 
+def _collect_fiscal_deadline_events(user_id: str) -> list[DigestEvent]:
+    """
+    R2.c — obrigações fiscais com prazo em até 7 dias (máx. 2).
+    Reutiliza o SeasonalityService (mesma fonte do card FISCAL_SEASON).
+    """
+    try:
+        from app.seasonality.service import get_seasonality_service
+
+        response = get_seasonality_service().get_events(user_id)
+        urgent = [
+            e for e in response.events
+            if e.is_obligation and e.days_until_deadline <= 7
+        ]
+        return [
+            DigestEvent(
+                category="prazo",
+                title=f"{e.name} — faltam {e.days_until_deadline} dia(s)",
+                detail=e.action_hint,
+            )
+            for e in urgent[:2]
+        ]
+    except Exception as exc:
+        logger.debug("[daily_digest] _collect_fiscal_deadline_events user=%s: %s", user_id, exc)
+    return []
+
+
+def _collect_challenge_events(user_id: str) -> list[DigestEvent]:
+    """R2.b — desafios concluídos nas últimas 24h (lidos da tabela; o
+    fechamento/atualização é feito pelo health_score_snapshot às 04h)."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    try:
+        from app.core.database import SessionLocal
+        from sqlalchemy import text
+
+        with SessionLocal() as db:
+            rows = db.execute(
+                text(
+                    "SELECT title, month FROM user_challenges"
+                    " WHERE user_id = :uid AND status = 'COMPLETED'"
+                    " AND completed_at >= :cutoff"
+                ),
+                {"uid": user_id, "cutoff": cutoff},
+            ).fetchall()
+        return [
+            DigestEvent(
+                category="desafio",
+                title=f"Desafio concluído: {title}",
+                detail=f"Referente a {month}. Veja o badge e o próximo desafio no Health Score.",
+            )
+            for title, month in rows
+        ]
+    except Exception as exc:
+        logger.debug("[daily_digest] _collect_challenge_events user=%s: %s", user_id, exc)
+    return []
+
+
 def _collect_alert_summary(user_id: str, today: date) -> list[DigestEvent]:
     """Conta alertas entregues nas últimas 24h (via notification_delivery_log)."""
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
@@ -250,7 +309,10 @@ def _format_html(payload: DigestPayload) -> tuple[str, str]:
 
     rows_html = ""
     for ev in payload.events:
-        icon = {"score": "📊", "tarifa": "⚠️", "oportunidade": "💡", "alerta": "🔔"}.get(ev.category, "•")
+        icon = {
+            "score": "📊", "tarifa": "⚠️", "oportunidade": "💡",
+            "alerta": "🔔", "prazo": "📅", "desafio": "🏅",
+        }.get(ev.category, "•")
         rows_html += (
             f"<tr>"
             f"<td style='padding:8px;vertical-align:top'>{icon}</td>"

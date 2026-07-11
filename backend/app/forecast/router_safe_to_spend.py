@@ -16,7 +16,7 @@ Campos retornados:
 """
 
 import logging
-from datetime import date
+from datetime import date, datetime, timezone
 
 import polars as pl
 from fastapi import APIRouter, HTTPException, status, Depends
@@ -130,4 +130,78 @@ async def get_safe_to_spend(user_id: str = Depends(require_owner)) -> dict:
         "safe_to_spend_daily": round(monthly_budget_limit / 30, 2),
         "current_balance": round(sts.current_balance, 2),
         "risk_level": sts.risk_level,
+    }
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ENDPOINT — WIDGET (R1.d)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Status → cor do widget: verde/amarelo/vermelho (hex para render direto)
+_WIDGET_STATUS = {
+    "OK":      ("#22c55e", "Pode gastar com tranquilidade"),
+    "ATENCAO": ("#eab308", "Gaste com atenção"),
+    "CRITICO": ("#ef4444", "Segure os gastos"),
+}
+
+
+@router.get(
+    "/{user_id}/widget",
+    status_code=status.HTTP_200_OK,
+    summary="R1.d — Safe-to-Spend compacto para widget (homescreen/PWA)",
+    description=(
+        "Payload mínimo do safe-to-spend, desenhado para superfícies de "
+        "sistema: widget de homescreen, PWA, watch, extensão. Uma chamada, "
+        "~200 bytes, com valor diário, status semafórico, cor pronta e uma "
+        "frase de contexto. Reutiliza o cache de 15 min do endpoint completo."
+    ),
+)
+async def get_safe_to_spend_widget(user_id: str = Depends(require_owner)) -> dict:
+    """
+    **Exemplo de resposta:**
+    ```json
+    {
+      "daily": 86.50,
+      "remaining_month": 1730.00,
+      "pct_consumed": 42.3,
+      "status": "OK",
+      "color": "#22c55e",
+      "headline": "R$ 86/dia até o fim do mês",
+      "subline": "Pode gastar com tranquilidade",
+      "updated_at": "2026-07-11T14:02:11Z"
+    }
+    ```
+    """
+    logger.info("GET /safe-to-spend/%s/widget", user_id)
+
+    # Reusa o endpoint completo (e o cache Redis dele)
+    full = await get_safe_to_spend(user_id=user_id)
+
+    total = float(full.get("safe_to_spend_total", 0.0))
+    spent = float(full.get("spent_to_date", 0.0))
+    pct = float(full.get("pct_consumed", 0.0))
+    remaining = max(0.0, total - spent)
+
+    today = date.today()
+    import calendar as _cal
+    days_left = max(1, _cal.monthrange(today.year, today.month)[1] - today.day + 1)
+    daily = round(remaining / days_left, 2)
+
+    if pct >= 95 or daily <= 0:
+        status_key = "CRITICO"
+    elif pct >= 75 or full.get("risk_level") in ("HIGH", "CRITICAL"):
+        status_key = "ATENCAO"
+    else:
+        status_key = "OK"
+
+    color, subline = _WIDGET_STATUS[status_key]
+    return {
+        "daily": daily,
+        "remaining_month": round(remaining, 2),
+        "pct_consumed": pct,
+        "status": status_key,
+        "color": color,
+        "headline": f"R$ {daily:,.0f}/dia até o fim do mês",
+        "subline": subline,
+        "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
