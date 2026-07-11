@@ -241,6 +241,17 @@ def get_notifications(
         except Exception as opp_exc:
             logger.debug("Detectores OPP indisponíveis: %s", opp_exc)
 
+        # ── 10. R2.c/R2.b/R1.a — sazonalidade fiscal, desafios e follow-up
+        # de compras. Mesmos detectores do engine proativo: feed reativo e
+        # canal proativo mostram exatamente os mesmos cards.
+        try:
+            from app.notifications.engine import NotificationEngine
+            ctx.fiscal_events = NotificationEngine._detect_fiscal_events(user_id)
+            ctx.challenges = NotificationEngine._detect_challenges(user_id)
+            ctx.purchase_followups = NotificationEngine._detect_purchase_followups(user_id)
+        except Exception as ret_exc:
+            logger.debug("Detectores de retenção indisponíveis: %s", ret_exc)
+
     except Exception as exc:
         logger.warning("NexaRunner indisponível para /notifications/%s: %s", user_id, exc)
 

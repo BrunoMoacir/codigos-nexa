@@ -28,6 +28,9 @@ Ferramentas disponíveis:
  22. get_defense_analysis        → Análise completa D1–D4: venda casada, cobranças, juros, tarifas
  23. get_evidence_dossier        → D5: dossiê com carta, PROCON e modelo JEC
  24. get_portability_analysis    → D6: portabilidade de crédito — economia e roteiro
+ 25. get_fiscal_calendar         → R2.c: prazos fiscais sazonais (IR, DAS, 13º, IPVA/IPTU, FGTS)
+ 26. get_monthly_challenges      → R2.b: desafios mensais do Health Score + badges
+ 27. review_recent_purchases     → R1.a: revisão retroativa de compras grandes (F7)
 """
 import logging
 from langchain_core.messages import BaseMessage
@@ -60,6 +63,9 @@ from app.agent.tools.detect_abusive_interest import detect_abusive_interest
 from app.agent.tools.get_defense_analysis import get_defense_analysis
 from app.agent.tools.get_evidence_dossier import get_evidence_dossier
 from app.agent.tools.get_portability_analysis import get_portability_analysis
+from app.agent.tools.get_fiscal_calendar import get_fiscal_calendar
+from app.agent.tools.get_monthly_challenges import get_monthly_challenges
+from app.agent.tools.review_recent_purchases import review_recent_purchases
 
 logger = logging.getLogger(__name__)
 
@@ -351,6 +357,32 @@ USE QUANDO o usuário perguntar sobre:
 - "Meu empréstimo consignado / pessoal / veículo está abusivo"
 - "É grátis pedir portabilidade?"
 
+### `get_fiscal_calendar(user_id)`
+USE QUANDO o usuário perguntar sobre:
+- "Quando vence o IR / a declaração do imposto de renda?"
+- "Quando cai a restituição?" / "Quando vence o DAS do MEI?"
+- "Quando recebo o 13º? O que faço com ele?"
+- "Como me planejo para IPVA/IPTU?"
+- Qualquer pergunta sobre prazos fiscais, calendário de impostos ou
+  datas sazonais de dinheiro entrando/saindo.
+- Os eventos vêm personalizados: MEI só vê DAS/DASN se tiver sinal de PJ,
+  13º só aparece para quem tem salário recorrente detectado.
+
+### `get_monthly_challenges(user_id)`
+USE QUANDO o usuário perguntar sobre:
+- "Quais são meus desafios do mês?" / "Como está meu desafio?"
+- "Ganhei algum badge?" / "Como funciona a gamificação?"
+- "Me dá uma meta para este mês"
+- Qualquer pergunta sobre desafios, conquistas ou hábitos financeiros do app.
+
+### `review_recent_purchases(user_id)`
+USE QUANDO o usuário perguntar sobre:
+- "Paguei certo nas minhas últimas compras?"
+- "Perdi cashback pagando no PIX/débito?"
+- "Revise minhas compras recentes"
+- Qualquer pedido de revisão retroativa de compras já feitas.
+- Para analisar uma compra FUTURA, use get_purchase_recommendation.
+
 ## REGRAS DE COMPORTAMENTO:
 1. **NUNCA peça informações que já estão na mensagem do usuário** — se o usuário disse "minha renda é R$ 8.500", use esse valor diretamente na tool. Se o usuário informou gasto mensal (ex: "gasto R$ 4.000/mês"), passe como `monthly_spend` em `get_card_optimization`.
 2. **SEMPRE chame a ferramenta** quando a pergunta se encaixar nos critérios acima — mesmo sem dados explícitos.
@@ -464,6 +496,9 @@ def build_financial_agent():
         get_defense_analysis,
         get_evidence_dossier,
         get_portability_analysis,
+        get_fiscal_calendar,
+        get_monthly_challenges,
+        review_recent_purchases,
     ]
 
     # 2. LLM — Claude (preferencial) ou OpenAI (fallback)

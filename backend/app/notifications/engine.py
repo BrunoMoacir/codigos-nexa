@@ -21,11 +21,14 @@ import logging
 from datetime import date, timedelta
 
 from app.notifications.notifier import (
+    ChallengeInput,
     FeeDeltaInput,
+    FiscalSeasonInput,
     IdleMoneyInput,
     Notification,
     NotificationContext,
     ProactiveNotifier,
+    PurchaseFollowupInput,
     SavingsBelowCdiInput,
 )
 
@@ -59,7 +62,23 @@ class NotificationEngine:
         ctx.savings_below_cdi = self._detect_savings_below_cdi(user_id)
         ctx.idle_money = self._detect_idle_money(user_id)
 
-        if not ctx.fee_deltas and ctx.savings_below_cdi is None and ctx.idle_money is None:
+        # R2.c — eventos do calendário fiscal com janela ativa
+        ctx.fiscal_events = self._detect_fiscal_events(user_id)
+
+        # R2.b — desafios mensais concluídos ou perto de concluir
+        ctx.challenges = self._detect_challenges(user_id)
+
+        # R1.a — compras grandes recentes pagas de forma subótima
+        ctx.purchase_followups = self._detect_purchase_followups(user_id)
+
+        if (
+            not ctx.fee_deltas
+            and ctx.savings_below_cdi is None
+            and ctx.idle_money is None
+            and not ctx.fiscal_events
+            and not ctx.challenges
+            and not ctx.purchase_followups
+        ):
             return []
 
         notifications = _notifier.generate(ctx)
@@ -245,6 +264,58 @@ class NotificationEngine:
         except Exception as exc:
             logger.warning("[NotificationEngine] idle_snapshot user=%s: %s", user_id, exc)
             return False
+
+    @staticmethod
+    def _detect_fiscal_events(user_id: str) -> list[FiscalSeasonInput]:
+        """R2.c — eventos do calendário fiscal com janela ativa, já
+        personalizados (MEI/CLT/valores) pelo SeasonalityService."""
+        try:
+            from app.seasonality.service import get_seasonality_service
+
+            response = get_seasonality_service().get_events(user_id)
+        except Exception as exc:
+            logger.warning("[NotificationEngine] fiscal_events user=%s: %s", user_id, exc)
+            return []
+
+        return [
+            FiscalSeasonInput(
+                event_code=e.event_code,
+                name=e.name,
+                description=e.description,
+                action_hint=e.action_hint,
+                deadline=e.deadline.isoformat(),
+                days_until_deadline=e.days_until_deadline,
+                is_obligation=e.is_obligation,
+                estimated_amount_brl=e.estimated_amount_brl,
+                is_personalized=e.is_personalized,
+            )
+            for e in response.events
+        ]
+
+    @staticmethod
+    def _detect_challenges(user_id: str) -> list[ChallengeInput]:
+        """R2.b — desafios do mês corrente com progresso atualizado.
+        O ChallengeService devolve apenas o que merece card (COMPLETED
+        ou ACTIVE ≥70%); o gerador refiltra por segurança."""
+        try:
+            from app.health_score.challenge_service import get_challenge_service
+
+            return get_challenge_service().get_feed_inputs(user_id)
+        except Exception as exc:
+            logger.warning("[NotificationEngine] challenges user=%s: %s", user_id, exc)
+            return []
+
+    @staticmethod
+    def _detect_purchase_followups(user_id: str) -> list[PurchaseFollowupInput]:
+        """R1.a — compras grandes dos últimos 14 dias pagas de forma
+        subótima segundo o F7 (análise retroativa)."""
+        try:
+            from app.purchase.post_purchase import get_post_purchase_analyzer
+
+            return get_post_purchase_analyzer().detect(user_id)
+        except Exception as exc:
+            logger.warning("[NotificationEngine] purchase_followups user=%s: %s", user_id, exc)
+            return []
 
     # ── Entrega ───────────────────────────────────────────────────────
 

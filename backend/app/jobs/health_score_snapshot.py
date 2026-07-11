@@ -3,7 +3,9 @@ app/jobs/health_score_snapshot.py — Job diário 04h00 (MX.1)
 
 Recalcula e persiste o health score de cada usuário ativo em health_score_history.
 Garante que o histórico mensal existe mesmo sem o usuário abrir o app.
-Após o cálculo, avalia badges de gamificação via BadgeService.
+Após o cálculo, avalia badges de gamificação via BadgeService e sincroniza
+os desafios mensais (R2.b) via ChallengeService — geração no início do mês,
+progresso diário e fechamento do mês anterior.
 """
 
 import logging
@@ -64,7 +66,18 @@ async def run_health_score_snapshot() -> None:
 
                 history = get_health_score_history(db=db, user_id=user_id, months=6)
                 badge_service.evaluate_badges(user_id, current_score, history)
-                success_count += 1
+
+            # R2.b — desafios mensais: gera (mês novo), atualiza progresso e
+            # fecha o mês anterior. Fora do SessionLocal do snapshot — o
+            # service abre as próprias sessões e falha aberto.
+            try:
+                from app.health_score.challenge_service import get_challenge_service
+
+                get_challenge_service().sync(user_id)
+            except Exception as ch_exc:
+                logger.warning("[health_score_snapshot] challenges user=%s: %s", user_id, ch_exc)
+
+            success_count += 1
 
         except Exception as exc:
             logger.warning("[health_score_snapshot] user=%s erro: %s", user_id, exc)

@@ -81,6 +81,28 @@ class BadgesListResponse(BaseModel):
     total: int
 
 
+class ChallengeResponse(BaseModel):
+    id: str
+    challenge_type: str      # SEM_TARIFAS | REDUZIR_CATEGORIA | GUARDAR_VALOR | SUBIR_SCORE
+    month: str               # "YYYY-MM"
+    title: str
+    target_label: str
+    target_value: float
+    progress_value: float
+    pct_progress: float
+    status: str              # ACTIVE | COMPLETED | FAILED
+    metadata: dict = {}
+    completed_at: Optional[str] = None
+
+
+class ChallengesListResponse(BaseModel):
+    user_id: str
+    month: str
+    challenges: List[ChallengeResponse]
+    total: int
+    completed_total: int     # desafios COMPLETED em toda a história do usuário
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # HELPERS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -337,3 +359,58 @@ def get_badges_endpoint(
     except Exception as exc:
         logger.error("[health-score] get_badges user=%s: %s", user_id, exc)
         raise HTTPException(status_code=500, detail="Erro ao buscar badges.")
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ENDPOINT — DESAFIOS MENSAIS (R2.b)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@router.get(
+    "/challenges/{user_id}",
+    response_model=ChallengesListResponse,
+    summary="R2.b — Desafios mensais personalizados do Health Score",
+)
+def get_challenges_endpoint(
+    user_id: str = Depends(require_owner),
+    month: Optional[str] = Query(
+        default=None,
+        pattern=r"^\d{4}-\d{2}$",
+        description="Mês no formato YYYY-MM. Sem valor: mês corrente (gera/atualiza os desafios).",
+    ),
+) -> ChallengesListResponse:
+    """
+    Desafios mensais personalizados (R2.b).
+
+    Sem `month`: garante que o mês corrente tem desafios gerados a partir
+    dos dados reais do usuário, atualiza o progresso com as transações do
+    mês, fecha meses anteriores e premia badges — depois retorna o estado.
+
+    Com `month`: retorna o histórico persistido daquele mês, sem alterar nada.
+
+    Tipos: SEM_TARIFAS, REDUZIR_CATEGORIA, GUARDAR_VALOR, SUBIR_SCORE.
+    Badges: PRIMEIRO_DESAFIO, DESAFIO_TRIPLO, DESAFIO_STREAK_3.
+    """
+    try:
+        from datetime import date as _date
+        from app.health_score.challenge_service import get_challenge_service
+
+        service = get_challenge_service()
+        if month is None:
+            month = _date.today().strftime("%Y-%m")
+            challenges = service.sync(user_id)
+        else:
+            challenges = service.list_challenges(user_id, month)
+
+        completed_total = sum(service._completed_months(user_id).values())
+
+        return ChallengesListResponse(
+            user_id=user_id,
+            month=month,
+            challenges=[ChallengeResponse(**c.to_dict()) for c in challenges],
+            total=len(challenges),
+            completed_total=completed_total,
+        )
+
+    except Exception as exc:
+        logger.error("[health-score] get_challenges user=%s: %s", user_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro ao buscar desafios.")
