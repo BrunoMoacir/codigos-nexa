@@ -88,6 +88,9 @@ from app.tax.router import router as tax_router
 # Viral — Savings Card & Wrapped (V1/V2)
 from app.viral.router import router as viral_router
 
+# Seasonality — Sazonalidade Fiscal (R2.c)
+from app.seasonality.router import router as seasonality_router
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CRIAR ROUTER PRINCIPAL
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -174,3 +177,6 @@ router.include_router(tax_router)
 
 # Viral — Savings Card & Wrapped (V1/V2)
 router.include_router(viral_router)
+
+# Seasonality — Sazonalidade Fiscal (R2.c)
+router.include_router(seasonality_router)
