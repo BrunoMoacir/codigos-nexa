@@ -149,6 +149,50 @@ app.include_router(api_router, prefix="/api/v1")
 app.include_router(dashboard_router)
 
 
+# Caminhos da documentação interativa — o Swagger UI carrega JS/CSS do
+# jsdelivr, então recebem um CSP relaxado (o resto da API recebe o estrito)
+_DOCS_PATHS = ("/docs", "/redoc", "/openapi.json")
+
+_CSP_STRICT = "default-src 'none'; frame-ancestors 'none'"
+_CSP_DOCS = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "img-src 'self' data: https://fastapi.tiangolo.com; "
+    "frame-ancestors 'none'"
+)
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """
+    Security headers em toda resposta (auditoria 2026-07).
+
+    - HSTS apenas em produção (em dev não há TLS e o header envenenaria
+      o localhost do navegador por max-age).
+    - CSP estrito para a API (default-src 'none' — respostas JSON não
+      executam nada); relaxado só em /docs e /redoc (Swagger UI usa CDN).
+    """
+    response = await call_next(request)
+    headers = response.headers
+
+    headers.setdefault("X-Content-Type-Options", "nosniff")
+    headers.setdefault("X-Frame-Options", "DENY")
+    headers.setdefault("Referrer-Policy", "no-referrer")
+    headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+
+    is_docs = any(request.url.path.startswith(p) for p in _DOCS_PATHS)
+    headers.setdefault("Content-Security-Policy", _CSP_DOCS if is_docs else _CSP_STRICT)
+
+    if settings.APP_ENV == "production":
+        headers.setdefault(
+            "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
+        )
+
+    return response
+
+
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
     """

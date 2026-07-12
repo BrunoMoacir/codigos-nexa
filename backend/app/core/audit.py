@@ -27,6 +27,25 @@ def _fmt(**fields: Any) -> str:
     return f"AUDIT | {parts}"
 
 
+def mask_email(email: str) -> str:
+    """
+    Mascara PII antes de logar (LGPD): 'gabriel@nexa.com' → 'g*****l@nexa.com'.
+
+    Logs de auditoria são retidos por longos períodos e frequentemente
+    exportados para sinks externos — email em claro neles é dado pessoal
+    fora de controle. O mascarado continua útil para investigação
+    (domínio + iniciais) sem expor o titular.
+    """
+    if not email or "@" not in email:
+        return "***"
+    local, _, domain = email.partition("@")
+    if len(local) <= 2:
+        masked_local = local[0] + "*" if local else "*"
+    else:
+        masked_local = f"{local[0]}{'*' * (len(local) - 2)}{local[-1]}"
+    return f"{masked_local}@{domain}"
+
+
 # ── Eventos de autenticação ────────────────────────────────────────────────
 
 def log_login_success(user_id: str, ip: str, request_id: str | None = None) -> None:
@@ -42,7 +61,7 @@ def log_login_success(user_id: str, ip: str, request_id: str | None = None) -> N
 def log_login_failure(email: str, ip: str, reason: str, request_id: str | None = None) -> None:
     _audit.warning(_fmt(
         event="AUTH_LOGIN_FAILURE",
-        email=email,
+        email=mask_email(email),
         ip=ip,
         reason=reason,
         req=request_id,
@@ -54,8 +73,33 @@ def log_register(user_id: str, email: str, ip: str, request_id: str | None = Non
     _audit.info(_fmt(
         event="AUTH_REGISTER",
         user=user_id,
-        email=email,
+        email=mask_email(email),
         ip=ip,
+        req=request_id,
+        ts=_now(),
+    ))
+
+
+# ── Eventos LGPD (direitos do titular) ─────────────────────────────────────
+
+def log_privacy_export(user_id: str, ip: str, request_id: str | None = None) -> None:
+    _audit.info(_fmt(
+        event="PRIVACY_EXPORT",
+        user=user_id,
+        ip=ip,
+        req=request_id,
+        ts=_now(),
+    ))
+
+
+def log_privacy_deletion(
+    user_id: str, ip: str, tables_purged: int, request_id: str | None = None
+) -> None:
+    _audit.warning(_fmt(
+        event="PRIVACY_DELETION",
+        user=user_id,
+        ip=ip,
+        tables=tables_purged,
         req=request_id,
         ts=_now(),
     ))

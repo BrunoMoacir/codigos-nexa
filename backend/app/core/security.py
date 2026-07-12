@@ -16,7 +16,13 @@ from app.core.db.users import get_user_by_id
 # Configurações do JWT
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 horas — token comprometido expira em no máximo 1 dia
+# Access curto + refresh rotativo (auditoria 2026-07): para app financeiro,
+# access de 24h dava a um token vazado um dia inteiro de validade — e o
+# fail-open do blacklist (Redis fora) estendia isso. Agora um access
+# comprometido vale no máximo 30 min; a sessão longa vive no refresh token,
+# que é rotacionado (e o antigo revogado) a cada uso.
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+REFRESH_TOKEN_EXPIRE_DAYS = 14
 
 # Prefixo Redis para blacklist de tokens revogados
 _BLACKLIST_PREFIX = "nexa:blacklist:"
@@ -52,9 +58,55 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     to_encode.update({
         "exp": expire,
         "jti": str(uuid.uuid4()),  # ID único do token — usado para revogação
+        "type": "access",
     })
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+
+def create_refresh_token(user_id: str) -> str:
+    """
+    Emite um refresh token (type=refresh, validade REFRESH_TOKEN_EXPIRE_DAYS).
+
+    Refresh tokens NÃO são aceitos como credencial de API (get_current_user
+    os rejeita) — servem exclusivamente para POST /auth/refresh, que os
+    rotaciona: o token usado é revogado e um novo par é emitido.
+    """
+    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    payload = {
+        "sub": user_id,
+        "exp": expire,
+        "jti": str(uuid.uuid4()),
+        "type": "refresh",
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def decode_refresh_token(token: str) -> TokenData:
+    """
+    Valida um refresh token: assinatura, expiração, type=refresh e blacklist.
+
+    Raises:
+        HTTPException 401 para qualquer condição inválida.
+    """
+    invalid = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Refresh token inválido ou expirado",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise invalid
+
+    if payload.get("type") != "refresh" or not payload.get("sub"):
+        raise invalid
+
+    jti = payload.get("jti")
+    if jti and _is_token_revoked(jti):
+        raise invalid
+
+    return TokenData(user_id=payload["sub"], jti=jti, exp=payload.get("exp"))
 
 
 def revoke_token(jti: str, expires_in_seconds: int) -> None:
@@ -129,6 +181,10 @@ async def get_current_user(
         user_id: str = payload.get("sub")
         jti: Optional[str] = payload.get("jti")
         if user_id is None:
+            raise credentials_exception
+        # Refresh token não é credencial de API — só troca por access em
+        # /auth/refresh. (Tokens antigos sem claim 'type' seguem aceitos.)
+        if payload.get("type") == "refresh":
             raise credentials_exception
         token_data = TokenData(user_id=user_id, jti=jti)
     except JWTError:

@@ -33,11 +33,12 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.core.schemas.transaction import TransactionBatchResult
+from app.core.webhook_security import resolve_user_from_item, verify_webhook_token
 from app.forecast.etl import TransactionIngestor, TransactionClassifier
 from app.core.database import get_db
 from app.core.cache import cache_response, invalidate_user_cache
@@ -66,13 +67,29 @@ _CONNECTOR_MAP: dict[str, str] = {
 @router.post("/webhook", status_code=status.HTTP_200_OK)
 async def receive_transaction_webhook(
     payload: dict[str, Any],
-    user_id: str = Query("golden_user_777", description="ID mapeado do item_id (mock para o MVP)"),
+    request: Request,
+    user_id: str | None = Query(
+        default=None,
+        description=(
+            "APENAS desenvolvimento (APP_MODE=dev): override manual do dono "
+            "para testes locais. Em produção este parâmetro é IGNORADO — o "
+            "dono vem do mapeamento server-side item_id → pluggy_items."
+        ),
+    ),
     db: Session = Depends(get_db)
 ):
     """
     Recebe webhook de transações da Pluggy.
+
+    Segurança (auditoria 2026-07):
+      1. Segredo compartilhado obrigatório (X-Webhook-Token ou ?token=),
+         comparado em tempo constante; produção sem segredo → 503.
+      2. Identidade NUNCA vem do chamador: item_id do payload é resolvido
+         via pluggy_items. Item desconhecido → 404, nada é escrito.
     """
-    
+    # 0. AUTENTICAÇÃO DO WEBHOOK (fail-closed em produção)
+    verify_webhook_token(request)
+
     # 1. EXTRAIR CONTEXTO DO WEBHOOK
     try:
         connector_id = str(payload.get("connector", {}).get("id", "unknown"))
@@ -102,7 +119,27 @@ async def receive_transaction_webhook(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Payload inválido: faltam campos obrigatórios (connector, item, results)"
         )
-    
+
+    # 1.5. RESOLVER O DONO DOS DADOS — server-side, nunca do chamador
+    resolved_user = resolve_user_from_item(item_id)
+    if resolved_user is not None:
+        user_id = resolved_user
+    elif user_id and os.getenv("APP_MODE", "dev") != "prod":
+        # Override manual só existe em desenvolvimento (mocks locais)
+        logger.warning(
+            "[Webhook] item_id=%s sem mapeamento — usando user_id=%s do "
+            "query param (permitido APENAS em dev)", item_id, user_id,
+        )
+    else:
+        logger.warning(
+            "[Webhook] item_id=%s não mapeado em pluggy_items — descartando "
+            "payload (nada foi escrito)", item_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Item desconhecido: nenhum usuário conectou este item.",
+        )
+
     # 2. VALIDAR BATCH (Pydantic - tolerante a erros)
     try:
         batch_result = TransactionBatchResult.from_raw_batch(

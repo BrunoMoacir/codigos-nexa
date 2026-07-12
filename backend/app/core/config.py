@@ -110,6 +110,12 @@ class Settings(BaseSettings):
     # Tem precedência sobre SMTP quando definido.
     SENDGRID_API_KEY: str | None = None
 
+    # Segredo do webhook de transações (Pluggy → /transactions/webhook).
+    # Configure a URL do webhook no painel Pluggy com ?token=<este valor>
+    # ou envie o header X-Webhook-Token. Em produção, webhook SEM segredo
+    # configurado é recusado (fail-closed).
+    PLUGGY_WEBHOOK_SECRET: str = ""
+
     # Web Push (PWA — R1.d). Gerar par VAPID com:
     #   python3 -c "from py_vapid import Vapid; v=Vapid(); v.generate_keys(); \
     #               print(v.private_pem()); print(v.public_pem())"
