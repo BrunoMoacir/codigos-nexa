@@ -1,3 +1,15 @@
+# Segredos — NUNCA versionar (.env raiz esteve tracked com chave real
+# até a auditoria de 2026-07-12; após `git rm --cached .env` esta regra
+# impede reincidência). Os *.example ficam versionados como modelo.
+.env
+**/.env
+.env.local
+.env.*.local
+!.env.example
+!**/.env.example
+!.env.railway.example
+!frontend-react/.env.development
+
 # Python virtual environment
 venv/
 .venv/
