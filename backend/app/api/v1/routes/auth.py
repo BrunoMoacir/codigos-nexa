@@ -9,12 +9,14 @@ from app.core.security import (
     verify_password,
     get_password_hash,
     create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
     revoke_token,
     get_current_token_data,
     TokenData,
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
-from app.core.db.users import get_user_by_email, create_user
+from app.core.db.users import get_user_by_email, get_user_by_id, create_user
 from app.core.database import get_db
 from app.core import audit
 from sqlalchemy.orm import Session
@@ -36,6 +38,11 @@ class Token(BaseModel):
     token_type: str
     user_id: str
     full_name: str | None = None
+    refresh_token: str | None = None   # sessão longa vive aqui; access dura 30min
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
 
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
@@ -130,6 +137,50 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
         "token_type": "bearer",
         "user_id": user["user_id"],
         "full_name": user.get("full_name"),
+        "refresh_token": create_refresh_token(user["user_id"]),
+    }
+
+
+@router.post("/refresh", response_model=Token)
+@limiter.limit("20/minute")
+async def refresh_access_token(
+    request: Request,
+    body: RefreshRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Troca um refresh token válido por um novo par access + refresh.
+
+    Rotação: o refresh token usado é revogado (blacklist) no mesmo ato —
+    cada refresh vale exatamente um uso. Reuso de um token já rotacionado
+    retorna 401 (indício de vazamento; o portador legítimo refaz login).
+    """
+    token_data = decode_refresh_token(body.refresh_token)
+
+    user = get_user_by_id(db, token_data.user_id)
+    if user is None or not user.get("is_active", True):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuário inexistente ou inativo",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Rotação: revoga o refresh usado pelo tempo de vida restante dele
+    if token_data.jti and token_data.exp:
+        from datetime import datetime, timezone
+        remaining = max(0, token_data.exp - int(datetime.now(timezone.utc).timestamp()))
+        revoke_token(token_data.jti, remaining or 60)
+
+    access_token = create_access_token(
+        data={"sub": token_data.user_id},
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": token_data.user_id,
+        "full_name": user.get("full_name"),
+        "refresh_token": create_refresh_token(token_data.user_id),
     }
 
 
