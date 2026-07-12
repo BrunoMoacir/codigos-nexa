@@ -190,10 +190,16 @@ class TestRecentReviewEndpoint:
             best_method_label="Cartão Top à vista",
             potential_savings_brl=30.0,
         )
-        monkeypatch.setattr(
-            PostPurchaseAnalyzer, "detect", lambda self, uid, today=None: [followup]
-        )
+        captured = {}
+
+        def _fake_detect(self, uid, today=None, use_seen_marker=True):
+            captured["use_seen_marker"] = use_seen_marker
+            return [followup]
+
+        monkeypatch.setattr(PostPurchaseAnalyzer, "detect", _fake_detect)
         resp = _client(router).get(f"/purchase/recent-review/{_USER}")
+        # sob demanda: o endpoint deve ignorar o marcador do scheduler
+        assert captured["use_seen_marker"] is False
         assert resp.status_code == 200
         body = resp.json()
         assert body["total"] == 1

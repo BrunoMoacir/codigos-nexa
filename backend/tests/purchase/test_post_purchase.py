@@ -57,6 +57,14 @@ def _candidate(
     )
 
 
+@pytest.fixture(autouse=True)
+def _no_real_redis(monkeypatch):
+    """Isola o marcador 'já analisada' de um Redis local eventualmente vivo."""
+    import app.core.cache as cache_module
+
+    monkeypatch.setattr(cache_module, "get_redis", lambda: None)
+
+
 @pytest.fixture
 def analyzer(monkeypatch) -> PostPurchaseAnalyzer:
     import app.purchase.purchase_advisor as advisor_module
@@ -170,4 +178,94 @@ class TestDetect:
             PostPurchaseAnalyzer, "_fetch_candidates",
             lambda self, uid, today: [_candidate()],
         )
+        assert PostPurchaseAnalyzer().detect(_USER) == []
+
+
+# ── Marcador "já analisada" (custo em regime permanente) ────────────
+
+class _FakeRedis:
+    def __init__(self):
+        self.store: dict[str, str] = {}
+        self.ttls: dict[str, int] = {}
+
+    def exists(self, key):
+        return 1 if key in self.store else 0
+
+    def set(self, key, value, ex=None):
+        self.store[key] = value
+        if ex:
+            self.ttls[key] = ex
+
+
+class TestSeenMarker:
+    def test_segunda_rodada_nao_reanalisa(self, analyzer, monkeypatch):
+        calls: list[str] = []
+        original = PostPurchaseAnalyzer._analyze_candidate
+
+        def _spy(self, uid, cand):
+            calls.append(cand.transaction_id)
+            return original(self, uid, cand)
+
+        monkeypatch.setattr(PostPurchaseAnalyzer, "_analyze_candidate", _spy)
+        monkeypatch.setattr(
+            PostPurchaseAnalyzer, "_fetch_candidates",
+            lambda self, uid, today: [_candidate(tx_id="tx1")],
+        )
+
+        first = analyzer.detect(_USER)
+        second = analyzer.detect(_USER)
+
+        assert len(first) == 1
+        assert second == []          # marcador barrou a reanálise
+        assert calls == ["tx1"]      # advisor rodou UMA vez
+
+    def test_revisao_sob_demanda_ignora_marcador(self, analyzer, monkeypatch):
+        monkeypatch.setattr(
+            PostPurchaseAnalyzer, "_fetch_candidates",
+            lambda self, uid, today: [_candidate(tx_id="tx1")],
+        )
+        analyzer.detect(_USER)   # marca tx1
+        on_demand = analyzer.detect(_USER, use_seen_marker=False)
+        assert len(on_demand) == 1
+
+    def test_falha_de_analise_nao_marca(self, monkeypatch):
+        import app.purchase.purchase_advisor as advisor_module
+
+        class _FlakyAdvisor:
+            attempts = 0
+
+            def analyze(self, request):
+                _FlakyAdvisor.attempts += 1
+                if _FlakyAdvisor.attempts == 1:
+                    raise RuntimeError("indisponível na 1ª rodada")
+                return _FakeResult([
+                    _option(PaymentMethod.PIX_AVISTA, request.amount, "PIX à vista"),
+                    _option(PaymentMethod.CARTAO_AVISTA, request.amount - 30.0, "Cartão Top à vista"),
+                ])
+
+        monkeypatch.setattr(advisor_module, "PurchaseAdvisor", _FlakyAdvisor)
+        monkeypatch.setattr(
+            PostPurchaseAnalyzer, "_fetch_candidates",
+            lambda self, uid, today: [_candidate(tx_id="tx1")],
+        )
+        analyzer = PostPurchaseAnalyzer()
+
+        assert analyzer.detect(_USER) == []       # falhou, não marcou
+        assert len(analyzer.detect(_USER)) == 1   # retry na rodada seguinte
+
+    def test_usa_redis_quando_disponivel(self, analyzer, monkeypatch):
+        import app.core.cache as cache_module
+
+        fake = _FakeRedis()
+        monkeypatch.setattr(cache_module, "get_redis", lambda: fake)
+        monkeypatch.setattr(
+            PostPurchaseAnalyzer, "_fetch_candidates",
+            lambda self, uid, today: [_candidate(tx_id="tx9")],
+        )
+
+        analyzer.detect(_USER)
+        key = f"nexa:pp_seen:{_USER}:tx9"
+        assert fake.store.get(key) == "1"
+        assert fake.ttls[key] == 45 * 24 * 3600
+        # instância NOVA (outro worker) também respeita o marcador do Redis
         assert PostPurchaseAnalyzer().detect(_USER) == []
