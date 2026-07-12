@@ -16,8 +16,11 @@ Regras de honestidade:
   - Só gera follow-up quando a diferença de custo líquido é >= R$10 e o
     método inferido tem correspondência exata nas opções do F7.
 
-Performance: pré-filtro 100% SQL (uma query) e no máximo 3 candidatos
-passam pelo PurchaseAdvisor por rodada.
+Performance: pré-filtro 100% SQL (uma query), no máximo 3 candidatos
+passam pelo PurchaseAdvisor por rodada e cada transação é analisada UMA
+única vez na vida — o marcador `nexa:pp_seen:{user}:{tx}` (Redis, TTL 45d,
+fallback em memória) faz o custo em regime permanente cair para apenas
+transações novas, independente da frequência do scheduler.
 """
 
 from __future__ import annotations
@@ -42,13 +45,24 @@ _MAX_CANDIDATES = 3
 # Economia mínima para emitir follow-up
 _MIN_SAVINGS_BRL = 10.0
 
-# Descrições que NÃO são compra (transferências, faturas, obrigações)
+# Marcador "já analisada" — TTL maior que a janela de lookback garante que
+# uma transação nunca é reanalisada enquanto ainda é elegível
+_SEEN_KEY_PREFIX = "nexa:pp_seen:"
+_SEEN_TTL_SECONDS = 45 * 24 * 3600
+
+# Descrições que NÃO são compra (transferências, faturas, obrigações e
+# contas recorrentes sem escolha real de meio de pagamento). Ampliado após
+# calibração com corpora reais (scripts/calibrate_retention_heuristics.py):
+# plano de saúde, contas de consumo e mensalidades passavam como "compra".
 _NON_PURCHASE_PATTERNS = re.compile(
-    r"transf|ted\b|doc\b|pgto|pagamento\s+(de\s+)?fatura|fatura|aplicacao|"
+    r"transf|\bted\b|\bdoc\b|pgto|pagamento\s+(de\s+)?fatura|fatura|aplicacao|"
     r"aplicação|resgate|invest|emprestimo|empréstimo|financiamento|"
     r"consorcio|consórcio|salario|salário|folha|aluguel|condominio|"
-    r"condomínio|iptu|ipva|darf|das\b|inss|fgts|tarifa|anuidade|juros|"
-    r"iof|seguro|boleto\s+bancario",
+    r"condomínio|iptu|ipva|darf|\bdas\b|inss|fgts|tarifa|anuidade|juros|"
+    r"iof|seguro|boleto\s+bancario|"
+    r"plano\s+(de\s+)?sa[uú]de|unimed|hapvida|amil\b|"
+    r"conta\s+(de\s+)?(energia|luz|agua|água|internet|g[aá]s|telefone|celular)|"
+    r"energia\s+el[eé]trica|mensalidade",
     re.IGNORECASE,
 )
 
@@ -73,15 +87,41 @@ class _Candidate:
 class PostPurchaseAnalyzer:
     """Detecta compras grandes recentes pagas de forma subótima."""
 
-    def detect(self, user_id: str, today: date | None = None) -> list:
+    def __init__(self) -> None:
+        # Fallback do marcador "já analisada" quando Redis está fora —
+        # vale pela vida do processo, o que já elimina o retrabalho entre
+        # as rodadas de 6h do scheduler no mesmo worker
+        self._seen_local: set[str] = set()
+
+    def detect(
+        self,
+        user_id: str,
+        today: date | None = None,
+        use_seen_marker: bool = True,
+    ) -> list:
         """
         Retorna PurchaseFollowupInput para cada compra grande recente em
         que outro meio de pagamento teria custo líquido menor.
+
+        Com use_seen_marker=True (padrão — caminho do scheduler/feed),
+        cada transação passa pelo PurchaseAdvisor no máximo uma vez:
+        quem consumir o resultado primeiro (engine proativo ou feed
+        reativo) entrega o card; a persistência in_app do delivery
+        garante que o usuário o veja de todo jeito.
+
+        Com use_seen_marker=False (revisão sob demanda — endpoint
+        recent-review e tool do chat), sempre reanalisa: o usuário pediu
+        explicitamente e paga o custo de uma rodada.
         """
         from app.notifications.notifier import PurchaseFollowupInput
 
         today = today or date.today()
         candidates = self._fetch_candidates(user_id, today)
+        if use_seen_marker:
+            candidates = [
+                c for c in candidates
+                if not self._is_seen(user_id, c.transaction_id)
+            ]
         if not candidates:
             return []
 
@@ -90,14 +130,44 @@ class PostPurchaseAnalyzer:
             try:
                 followup = self._analyze_candidate(user_id, cand)
             except Exception as exc:
+                # análise falhou — NÃO marca como vista, tenta no próximo ciclo
                 logger.debug(
                     "[PostPurchase] candidato %s falhou: %s", cand.transaction_id, exc
                 )
                 continue
+            if use_seen_marker:
+                self._mark_seen(user_id, cand.transaction_id)
             if followup is not None:
                 followups.append(followup)
 
         return followups
+
+    # ── Marcador de transação já analisada ───────────────────────────
+
+    def _is_seen(self, user_id: str, tx_id: str) -> bool:
+        key = f"{_SEEN_KEY_PREFIX}{user_id}:{tx_id}"
+        try:
+            from app.core.cache import get_redis
+
+            redis = get_redis()
+            if redis is not None:
+                return bool(redis.exists(key))
+        except Exception:
+            pass
+        return key in self._seen_local
+
+    def _mark_seen(self, user_id: str, tx_id: str) -> None:
+        key = f"{_SEEN_KEY_PREFIX}{user_id}:{tx_id}"
+        try:
+            from app.core.cache import get_redis
+
+            redis = get_redis()
+            if redis is not None:
+                redis.set(key, "1", ex=_SEEN_TTL_SECONDS)
+                return
+        except Exception:
+            pass
+        self._seen_local.add(key)
 
     # ── Pré-filtro SQL ───────────────────────────────────────────────
 
