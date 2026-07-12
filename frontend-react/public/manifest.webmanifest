@@ -1,0 +1,33 @@
+{
+  "name": "Nexa — Inteligência Financeira",
+  "short_name": "Nexa",
+  "description": "O consultor financeiro que os bancos não querem que você tenha.",
+  "start_url": "/home",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Quanto posso gastar hoje?",
+      "short_name": "Safe-to-Spend",
+      "url": "/widget",
+      "description": "Widget compacto com sua margem segura do dia"
+    },
+    {
+      "name": "Feed de Oportunidades",
+      "short_name": "Feed",
+      "url": "/strategies"
+    }
+  ]
+}

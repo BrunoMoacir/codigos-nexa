@@ -9,6 +9,7 @@ import { ConnectionsPage } from './pages/ConnectionsPage';
 import { ChatPage } from './pages/ChatPage';
 import { GoalsPage } from './pages/GoalsPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { WidgetPage } from './pages/WidgetPage';
 
 // Configurar React Query
 const queryClient = new QueryClient({
@@ -73,6 +74,7 @@ function App() {
           <Route path="/connections" element={<AuthGuard><ConnectionsPage /></AuthGuard>} />
           <Route path="/chat" element={<AuthGuard><ChatPage /></AuthGuard>} />
           <Route path="/profile" element={<AuthGuard><ProfilePage /></AuthGuard>} />
+          <Route path="/widget" element={<AuthGuard><WidgetPage /></AuthGuard>} />
 
           {/* Redirecionamentos */}
           <Route path="/" element={<Navigate to="/home" replace />} />

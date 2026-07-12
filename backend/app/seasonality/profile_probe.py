@@ -11,12 +11,17 @@ NexaRunner) que respondem três perguntas:
 Todas as funções falham abertas (retornam o valor neutro) — a sazonalidade
 genérica continua funcionando sem nenhum dado do usuário.
 
-SQL portável Postgres/SQLite: usa LOWER(...) LIKE em vez de ILIKE.
+SQL portável Postgres/SQLite: usa LOWER(...) LIKE em vez de ILIKE. Para o
+DAS, o SQL faz só a pré-seleção barata e o regex com fronteira de palavra
+(MEI_REGEX) decide — LIKE '%das %' casava com "polegadas 2x", "lojas das
+americanas" etc. (falso positivo medido em corpus real pelo
+scripts/calibrate_retention_heuristics.py).
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -25,8 +30,32 @@ logger = logging.getLogger(__name__)
 # Nº mínimo de transações PJ nos últimos 90 dias para considerar perfil MEI/PJ
 _MIN_PJ_TXNS = 5
 
-# Padrões de descrição que identificam pagamento de DAS (guia do MEI)
-_DAS_PATTERNS = ("%das %", "%das-%", "%simples nacional%", "%pgmei%")
+# Pré-seleção SQL barata de candidatos a DAS (recall alto, precisão baixa)
+_DAS_SQL_PREFILTER = ("%das%", "%simei%", "%simples%", "%pgmei%")
+
+# Decisão final de DAS/MEI — fronteiras de palavra, calibrado contra os
+# corpora reais (duckdb 12k + transactions_clean do PG dev)
+MEI_REGEX = re.compile(
+    r"\bdas\b.*(simples|mei|nacional)"       # "das simples nacional", "das mei"
+    r"|(imposto|guia|pagamento|pgto)\s+das\b"  # "imposto das", "guia das"
+    r"|\bdas\s+\d{2}/\d{4}\b"                # "das 06/2026"
+    r"|\bpgmei\b|\bsimei\b|simples\s+nacional",
+    re.IGNORECASE,
+)
+
+# Padrões de salário — LIKEs aplicados no SQL (ver _detect_salary); a
+# calibração mostrou 317/323 créditos de salário capturados no corpus 12k
+_SALARY_LIKE_PATTERNS = (
+    "%salario%", "%salário%", "%folha%", "%provento%",
+    "%remunera%", "%pro labore%", "%pro-labore%",
+)
+
+# Espelho regex dos LIKEs acima — usado pelo script de calibração para
+# medir os mesmos padrões sobre qualquer corpus (manter em sincronia)
+SALARY_REGEX = re.compile(
+    r"salario|salário|folha|provento|remunera|pro.?labore",
+    re.IGNORECASE,
+)
 
 # Padrões de IPVA/IPTU
 _IPVA_IPTU_PATTERNS = ("%ipva%", "%iptu%", "%detran%")
@@ -71,20 +100,28 @@ def build_profile(user_id: str, today: date | None = None) -> SeasonalProfile:
 
 # ── Detectores ───────────────────────────────────────────────────────
 
+def _fetch_das_candidates(db, user_id: str) -> list[tuple]:
+    """Pré-seleção SQL barata + decisão final via MEI_REGEX (fronteira de
+    palavra). Retorna [(date, abs_amount, description)] ordenado desc."""
+    from sqlalchemy import text
+
+    rows = db.execute(
+        text(
+            "SELECT date, ABS(amount), description FROM transactions_clean"
+            " WHERE user_id = :uid AND amount < 0"
+            f" AND ({_like_clause('description', _DAS_SQL_PREFILTER)})"
+            " ORDER BY date DESC LIMIT 200"
+        ),
+        {"uid": user_id},
+    ).fetchall()
+    return [r for r in rows if MEI_REGEX.search(r[2] or "")]
+
+
 def _detect_mei(db, user_id: str, today: date) -> bool:
     """MEI/PJ = pagou DAS alguma vez OU tem volume PJ relevante em 90d."""
     from sqlalchemy import text
 
-    row = db.execute(
-        text(
-            "SELECT 1 FROM transactions_clean"
-            " WHERE user_id = :uid AND amount < 0"
-            f" AND ({_like_clause('description', _DAS_PATTERNS)})"
-            " LIMIT 1"
-        ),
-        {"uid": user_id},
-    ).fetchone()
-    if row:
+    if _fetch_das_candidates(db, user_id):
         return True
 
     cutoff = today - timedelta(days=90)
@@ -100,18 +137,10 @@ def _detect_mei(db, user_id: str, today: date) -> bool:
 
 
 def _last_das_amount(db, user_id: str) -> float | None:
-    from sqlalchemy import text
-
-    row = db.execute(
-        text(
-            "SELECT ABS(amount) FROM transactions_clean"
-            " WHERE user_id = :uid AND amount < 0"
-            f" AND ({_like_clause('description', _DAS_PATTERNS)})"
-            " ORDER BY date DESC LIMIT 1"
-        ),
-        {"uid": user_id},
-    ).fetchone()
-    return round(float(row[0]), 2) if row and row[0] is not None else None
+    candidates = _fetch_das_candidates(db, user_id)
+    if not candidates:
+        return None
+    return round(float(candidates[0][1]), 2)
 
 
 def _detect_salary(db, user_id: str, today: date) -> float | None:
@@ -128,9 +157,7 @@ def _detect_salary(db, user_id: str, today: date) -> float | None:
             "SELECT date, amount FROM transactions_clean"
             " WHERE user_id = :uid AND amount > 0 AND date >= :cutoff"
             " AND (is_recurring = :yes"
-            "      OR LOWER(COALESCE(description, '')) LIKE '%salario%'"
-            "      OR LOWER(COALESCE(description, '')) LIKE '%salário%'"
-            "      OR LOWER(COALESCE(description, '')) LIKE '%folha%'"
+            f"      OR {_like_clause('description', _SALARY_LIKE_PATTERNS)}"
             "      OR LOWER(COALESCE(category, '')) LIKE '%salario%'"
             "      OR LOWER(COALESCE(category, '')) LIKE '%salário%')"
         ),
@@ -193,4 +220,4 @@ def _like_clause(column: str, patterns: tuple[str, ...]) -> str:
     )
 
 
-__all__ = ["SeasonalProfile", "build_profile"]
+__all__ = ["MEI_REGEX", "SeasonalProfile", "build_profile"]
