@@ -142,9 +142,13 @@ class TestForecast:
             f"/api/v1/forecast/{user_id}",
             headers=headers
         )
-        # Pode falhar se LLM não está disponível, mas endpoint deve existir
-        assert resp.status_code in (200, 500, 503)
-        if resp.status_code == 200:
+        # 404 é o contrato para usuário recém-criado sem dados financeiros
+        # ("Conecte suas contas via Open Finance"); 200 quando há dados;
+        # 500/503 quando pipeline/LLM indisponível. 405/422 = rota quebrada.
+        assert resp.status_code in (200, 404, 500, 503)
+        if resp.status_code == 404:
+            assert "Conecte suas contas" in resp.json().get("detail", "")
+        elif resp.status_code == 200:
             print("✅ Forecast OK")
         else:
             print(f"⚠️ Forecast unavailable (expected if LLM not configured): {resp.status_code}")
