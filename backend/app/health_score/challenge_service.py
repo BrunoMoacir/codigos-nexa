@@ -151,7 +151,10 @@ class ChallengeService:
         recentemente (mês corrente ou fechados há ≤7 dias) e ACTIVE com
         progresso ≥70%. A deduplicação por TTL fica no state_store.
         """
-        from app.notifications.notifier import ChallengeInput
+        from app.notifications.notifier import (
+            _CHALLENGE_PROGRESS_MIN_PCT,
+            ChallengeInput,
+        )
 
         today = today or date.today()
         month = _month_key(today)
@@ -161,6 +164,8 @@ class ChallengeService:
         for ch in current:
             if ch.status not in ("COMPLETED", "ACTIVE"):
                 continue
+            if ch.status == "ACTIVE" and ch.pct_progress < _CHALLENGE_PROGRESS_MIN_PCT:
+                continue   # longe demais do fim para virar card de empurrão
             inputs.append(ChallengeInput(
                 challenge_id=ch.id,
                 challenge_type=ch.challenge_type,
