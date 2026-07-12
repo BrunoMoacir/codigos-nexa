@@ -395,10 +395,40 @@ _app.dependency_overrides[get_current_user] = lambda: "u1"
 _client = TestClient(_app)
 
 
-def test_api_missing_income_returns_422():
-    """monthly_income é obrigatório — sem ele deve retornar 422."""
+def _expenses_only_df():
+    """Transações sem nenhum crédito — renda inestimável pelo IncomeProfiler."""
+    import datetime
+    import polars as pl
+
+    today = datetime.date.today().isoformat()
+    return pl.DataFrame([
+        {"date": today, "amount": -1500.0, "category": "moradia", "description": "aluguel"},
+        {"date": today, "amount": -500.0, "category": "alimentacao", "description": "mercado"},
+    ])
+
+
+def _no_cache(monkeypatch):
+    """Desliga o cache Redis do endpoint para o mock ser sempre chamado."""
+    import app.core.cache as cache_module
+
+    monkeypatch.setattr(cache_module, "get_redis", lambda: None)
+
+
+def test_api_missing_income_returns_422(monkeypatch):
+    """Sem monthly_income E sem como estimar (só despesas) → 422.
+
+    Desde que o endpoint ganhou estimativa de renda via IncomeProfiler,
+    o 422 só acontece quando a estimativa também falha; usuário sem
+    transação nenhuma retorna 404 antes (ver test_api_no_data_returns_404).
+    """
+    _no_cache(monkeypatch)
+    monkeypatch.setattr(
+        "app.peers.router.get_transactions_for_user",
+        lambda user_id: _expenses_only_df(),
+    )
     resp = _client.get("/peers/compare/u1")
     assert resp.status_code == 422
+    assert "monthly_income" in resp.json()["detail"]
 
 
 def test_api_wrong_user_returns_403():
@@ -407,7 +437,13 @@ def test_api_wrong_user_returns_403():
     assert resp.status_code == 403
 
 
-def test_api_zero_income_returns_422():
+def test_api_zero_income_returns_422(monkeypatch):
+    """income=0 é inválido; sem crédito nas transações a estimativa falha → 422."""
+    _no_cache(monkeypatch)
+    monkeypatch.setattr(
+        "app.peers.router.get_transactions_for_user",
+        lambda user_id: _expenses_only_df(),
+    )
     resp = _client.get("/peers/compare/u1?monthly_income=0")
     assert resp.status_code == 422
 

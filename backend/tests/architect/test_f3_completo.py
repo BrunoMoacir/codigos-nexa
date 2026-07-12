@@ -123,10 +123,15 @@ def _base_request_dict() -> dict:
 
 
 def _stored_sim(sim_id: str = "sim-uuid-1234") -> dict:
-    """Simulação como o banco retorna (com request e response como dicts Python)."""
+    """Simulação como o banco retorna (com request e response como dicts Python).
+
+    user_id precisa bater com o override de get_current_user do fixture
+    (o endpoint de sensitivity ganhou verificação de dono → 403 se divergir).
+    """
     response_obj = _mock_response()
     return {
         "id": sim_id,
+        "user_id": "test_user",
         "created_at": "2026-02-22T12:00:00+00:00",
         "target_amount": 50_000.0,
         "asset_type": "VEICULO",

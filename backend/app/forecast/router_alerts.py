@@ -385,6 +385,11 @@ async def get_alerts(user_id: str = Depends(require_owner)) -> AlertsResponse:
             generated_at=datetime.now(timezone.utc)
         )
         
+    except HTTPException:
+        # 4xx/5xx intencionais (ex: 503 "Pluggy não configurada") devem
+        # chegar ao cliente com status e mensagem originais — o handler
+        # genérico abaixo os transformava em 500 opaco.
+        raise
     except Exception as e:
         logger.error("Erro ao gerar alertas: %s", e, exc_info=True)
         raise HTTPException(

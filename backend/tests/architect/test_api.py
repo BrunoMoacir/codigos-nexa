@@ -323,6 +323,9 @@ class TestListSimulationsEndpoint:
 # Payload completo retornado pelo get_simulation (inclui request/response JSON)
 _FULL_SIM = {
     **_SUMMARY,
+    # o endpoint verifica o dono (sim["user_id"] == current_user) → precisa
+    # bater com o override de get_current_user do fixture
+    "user_id":            TEST_USER_ID,
     "amortization_type":  "PRICE",
     "financing_months":   48,
     "down_payment":       10_000.0,
