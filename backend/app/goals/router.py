@@ -16,7 +16,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.orm import Session
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_owner
 from app.core.database import get_db
 from app.core.cache import invalidate_user_cache
 from app.core.db.queries import get_transactions_for_user
@@ -111,11 +111,11 @@ def create_goal(
 
 @router.get("/{user_id}")
 def list_goals_public(
-    user_id: str,
     status: str = Query(default="ACTIVE", description="Status: ACTIVE | COMPLETED | ABANDONED"),
     limit: int = Query(default=50, ge=1, le=200, description="Máximo de metas retornadas"),
     offset: int = Query(default=0, ge=0, description="Número de metas a pular (paginação)"),
     include_projections: bool = Query(default=True, description="Incluir projeções de conclusão por meta (false para respostas mais rápidas em listas grandes)"),
+    user_id: str = Depends(require_owner),   # IDOR fix (auditoria 2026-07): exige dono do token
     db: Session = Depends(get_db),
 ):
     """
@@ -161,12 +161,12 @@ def list_goals_public(
 
 @router.get("/{user_id}/simple")
 def list_goals_simple(
-    user_id: str,
+    user_id: str = Depends(require_owner),   # IDOR fix (auditoria 2026-07)
     db: Session = Depends(get_db),
 ):
     """
-    MX.2 — Lista metas do usuário diretamente do banco (sem autenticação).
-    Endpoint simplificado para testes e frontend.
+    MX.2 — Lista metas do usuário diretamente do banco.
+    Endpoint simplificado para o frontend (exige token do próprio titular).
     """
     from sqlalchemy import text
 

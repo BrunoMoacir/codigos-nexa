@@ -12,13 +12,13 @@ router = APIRouter(prefix="/subscriptions", tags=["Subscriptions (M1.5)"])
 
 @router.get("/{user_id}")
 def get_subscriptions(
-    user_id: str,
     months: int = Query(
         default=6,
         ge=2,
         le=24,
         description="Janela de histórico em meses para detectar recorrência (mín: 2, máx: 24)",
     ),
+    user_id: str = Depends(require_owner),   # IDOR fix (auditoria 2026-07)
 ):
     """
     M1.5 — Detecta assinaturas recorrentes e sinaliza as possivelmente esquecidas.
@@ -104,11 +104,11 @@ def get_subscriptions(
 
 @router.get("/{user_id}/simple")
 def get_subscriptions_simple(
-    user_id: str,
+    user_id: str = Depends(require_owner),   # IDOR fix (auditoria 2026-07)
 ):
     """
-    M1.5 — Lista assinaturas do usuário diretamente do banco (sem autenticação).
-    Endpoint simplificado para testes e frontend.
+    M1.5 — Lista assinaturas do usuário diretamente do banco.
+    Endpoint simplificado para o frontend (exige token do próprio titular).
     """
     from app.core.database import get_db
     from sqlalchemy import text

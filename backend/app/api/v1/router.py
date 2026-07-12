@@ -92,6 +92,9 @@ from app.viral.router import router as viral_router
 # Seasonality — Sazonalidade Fiscal (R2.c)
 from app.seasonality.router import router as seasonality_router
 
+# Privacy — Direitos do titular LGPD (export/eliminação)
+from app.privacy.router import router as privacy_router
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CRIAR ROUTER PRINCIPAL
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -182,3 +185,6 @@ router.include_router(viral_router)
 
 # Seasonality — Sazonalidade Fiscal (R2.c)
 router.include_router(seasonality_router)
+
+# Privacy — Direitos do titular LGPD
+router.include_router(privacy_router)

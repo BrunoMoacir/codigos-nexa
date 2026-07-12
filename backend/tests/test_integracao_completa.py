@@ -619,9 +619,10 @@ class TestMetas:
         resp = client.get(f"{BASE}/goals/{uid}/{fake_id}", headers=H)
         assert resp.status_code == 404
 
-    def test_listar_metas_simples(self, client, uid):
-        """GET /goals/{user_id}/simple — endpoint sem auth para testes."""
-        resp = client.get(f"{BASE}/goals/{uid}/simple")
+    def test_listar_metas_simples(self, client, uid, H):
+        """GET /goals/{user_id}/simple — exige token do próprio titular
+        (era 'sem auth'; IDOR corrigido na auditoria 2026-07)."""
+        resp = client.get(f"{BASE}/goals/{uid}/simple", headers=H)
         assert resp.status_code == 200
         data = resp.json()
         assert "goals" in data
@@ -1012,14 +1013,18 @@ class TestAssinaturas:
             assert "subscriptions" in data
             assert isinstance(data["subscriptions"], list)
 
-    def test_detectar_assinaturas_sem_dados(self, client, H):
-        """Usuário sem transações retorna 404."""
+    def test_detectar_assinaturas_sem_dados(self, client):
+        """Usuário sem transações retorna 404 — com o token do próprio
+        titular (o endpoint agora exige require_owner)."""
         fresh_email = f"sub_{uuid.uuid4().hex[:8]}@nexa.test"
-        r = client.post(f"{BASE}/auth/register", json={"email": fresh_email, "password": "Abc@12345"})
+        password = "Abc@12345"
+        r = client.post(f"{BASE}/auth/register", json={"email": fresh_email, "password": password})
         if r.status_code != 201:
             pytest.skip("Registro falhou")
         fresh_uid = r.json()["user_id"]
-        resp = client.get(f"{BASE}/subscriptions/{fresh_uid}")
+        login = client.post(f"{BASE}/auth/token", data={"username": fresh_email, "password": password})
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+        resp = client.get(f"{BASE}/subscriptions/{fresh_uid}", headers=headers)
         assert resp.status_code == 404
 
 
