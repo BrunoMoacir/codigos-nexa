@@ -218,7 +218,8 @@ async def get_recent_review(user_id: str = Depends(require_owner)) -> RecentRevi
     try:
         from app.purchase.post_purchase import _LOOKBACK_DAYS, get_post_purchase_analyzer
 
-        followups = get_post_purchase_analyzer().detect(user_id)
+        # sob demanda: ignora o marcador de "já analisada" do scheduler
+        followups = get_post_purchase_analyzer().detect(user_id, use_seen_marker=False)
     except Exception as exc:
         logger.error("[API] F7 recent-review erro: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno ao revisar compras recentes.")

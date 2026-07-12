@@ -30,7 +30,8 @@ def review_recent_purchases(user_id: str) -> str:
     try:
         from app.purchase.post_purchase import get_post_purchase_analyzer
 
-        followups = get_post_purchase_analyzer().detect(user_id)
+        # sob demanda: ignora o marcador de "já analisada" do scheduler
+        followups = get_post_purchase_analyzer().detect(user_id, use_seen_marker=False)
     except Exception as exc:
         logger.error("[Tool] review_recent_purchases erro: %s", exc)
         return f"Erro ao revisar compras recentes: {exc}"

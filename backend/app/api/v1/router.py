@@ -63,6 +63,7 @@ from app.goals.router import router as goals_router
 
 # MX.3 - Notifications (Notificações Proativas)
 from app.notifications.router import router as notifications_router
+from app.notifications.push_router import router as push_router
 
 # MX.4 - Peers (Comparação com Perfis Similares)
 from app.peers.router import router as peers_router
@@ -153,6 +154,7 @@ router.include_router(goals_router)
 
 # MX.3 - Notifications
 router.include_router(notifications_router)
+router.include_router(push_router)
 
 # MX.4 - Peers
 router.include_router(peers_router)
