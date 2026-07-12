@@ -355,6 +355,7 @@ class NotificationEngine:
                     html_body=html_body,
                     notification_type=notif.type,
                     notification_id=notif.id,
+                    priority=notif.priority,   # WARNING/CRITICAL sobem para push (PWA)
                 )
         except Exception as exc:
             logger.warning("[NotificationEngine] _deliver_all user=%s: %s", user_id, exc)

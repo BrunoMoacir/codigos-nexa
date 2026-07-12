@@ -110,6 +110,14 @@ class Settings(BaseSettings):
     # Tem precedência sobre SMTP quando definido.
     SENDGRID_API_KEY: str | None = None
 
+    # Web Push (PWA — R1.d). Gerar par VAPID com:
+    #   python3 -c "from py_vapid import Vapid; v=Vapid(); v.generate_keys(); \
+    #               print(v.private_pem()); print(v.public_pem())"
+    # ou `npx web-push generate-vapid-keys`. Vazio desativa o canal push.
+    VAPID_PUBLIC_KEY: str = ""
+    VAPID_PRIVATE_KEY: str = ""
+    VAPID_CLAIMS_EMAIL: str = "mailto:noreply@nexa.app"
+
     @model_validator(mode="after")
     def _validate_production_secrets(self) -> "Settings":
         if self.APP_ENV == "production":
