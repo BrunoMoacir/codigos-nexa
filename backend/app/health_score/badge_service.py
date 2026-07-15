@@ -37,6 +37,11 @@ class BadgeService:
       ECONOMIZOU_100     — potencial de economia acumulado >= R$ 100
       ECONOMIZOU_500     — potencial de economia acumulado >= R$ 500
       ECONOMIZOU_1000    — potencial de economia acumulado >= R$ 1.000
+      ECONOMIZOU_5000    — potencial de economia acumulado >= R$ 5.000
+      DEFENSOR           — ao menos 1 finding de defesa confirmado
+      PORTABILIDADE      — ao menos 1 caso de portabilidade submetido
+      VIRAL_SHARE        — ao menos 1 compartilhamento em viral_share_log
+      SCORE_RECORD       — health score atingiu 90 ou mais em qualquer momento
     """
 
     def evaluate_badges(
@@ -78,6 +83,7 @@ class BadgeService:
         # 4. Marcos de economia (soma de potential_gain)
         total_gain = self._total_potential_gain(user_id)
         for threshold, badge_type in [
+            (5000.0, "ECONOMIZOU_5000"),
             (1000.0, "ECONOMIZOU_1000"),
             (500.0, "ECONOMIZOU_500"),
             (100.0, "ECONOMIZOU_100"),
@@ -88,6 +94,26 @@ class BadgeService:
                     earned_at=now,
                     metadata={"total_gain_brl": round(total_gain, 2)},
                 ))
+
+        # 5. Score recorde >= 90
+        if "SCORE_RECORD" not in existing and current_score >= 90:
+            candidates.append(Badge(
+                badge_type="SCORE_RECORD",
+                earned_at=now,
+                metadata={"score": current_score},
+            ))
+
+        # 6. Defensor — ao menos 1 finding de defesa confirmado
+        if "DEFENSOR" not in existing and self._has_defense_finding(user_id):
+            candidates.append(Badge(badge_type="DEFENSOR", earned_at=now))
+
+        # 7. Portabilidade — caso submetido
+        if "PORTABILIDADE" not in existing and self._has_portability_case(user_id):
+            candidates.append(Badge(badge_type="PORTABILIDADE", earned_at=now))
+
+        # 8. Viral share — ao menos 1 compartilhamento registrado
+        if "VIRAL_SHARE" not in existing and self._has_viral_share(user_id):
+            candidates.append(Badge(badge_type="VIRAL_SHARE", earned_at=now))
 
         if candidates:
             self._persist_badges(user_id, candidates)
@@ -152,6 +178,63 @@ class BadgeService:
         except Exception as exc:
             logger.warning("[BadgeService] _total_potential_gain user=%s: %s", user_id, exc)
             return 0.0
+
+    @staticmethod
+    def _has_defense_finding(user_id: str) -> bool:
+        try:
+            from app.core.database import SessionLocal
+            from sqlalchemy import text
+
+            with SessionLocal() as db:
+                row = db.execute(
+                    text(
+                        "SELECT 1 FROM defense_findings "
+                        "WHERE user_id = :uid AND status = 'confirmed' LIMIT 1"
+                    ),
+                    {"uid": user_id},
+                ).fetchone()
+            return row is not None
+        except Exception as exc:
+            logger.warning("[BadgeService] _has_defense_finding user=%s: %s", user_id, exc)
+            return False
+
+    @staticmethod
+    def _has_portability_case(user_id: str) -> bool:
+        try:
+            from app.core.database import SessionLocal
+            from sqlalchemy import text
+
+            with SessionLocal() as db:
+                row = db.execute(
+                    text(
+                        "SELECT 1 FROM portability_cases "
+                        "WHERE user_id = :uid AND status = 'submitted' LIMIT 1"
+                    ),
+                    {"uid": user_id},
+                ).fetchone()
+            return row is not None
+        except Exception as exc:
+            logger.warning("[BadgeService] _has_portability_case user=%s: %s", user_id, exc)
+            return False
+
+    @staticmethod
+    def _has_viral_share(user_id: str) -> bool:
+        try:
+            from app.core.database import SessionLocal
+            from sqlalchemy import text
+
+            with SessionLocal() as db:
+                row = db.execute(
+                    text(
+                        "SELECT 1 FROM viral_share_log "
+                        "WHERE user_id = :uid AND revoked_at IS NULL LIMIT 1"
+                    ),
+                    {"uid": user_id},
+                ).fetchone()
+            return row is not None
+        except Exception as exc:
+            logger.warning("[BadgeService] _has_viral_share user=%s: %s", user_id, exc)
+            return False
 
     @staticmethod
     def _persist_badges(user_id: str, badges: list[Badge]) -> None:
