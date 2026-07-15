@@ -46,7 +46,8 @@ class CardRenderer:
   {rows}
 
   <text x="60" y="{_HEIGHT - 80}" font-family="Arial, sans-serif" font-size="22" fill="#6B72A8">{html.escape(card.tagline)}</text>
-  <text x="60" y="{_HEIGHT - 40}" font-family="Arial, sans-serif" font-size="18" fill="#4A4F80">nexa.app</text>
+  <text x="60" y="{_HEIGHT - 50}" font-family="Arial, sans-serif" font-size="18" fill="#4A4F80">nexa.app</text>
+  <text x="60" y="{_HEIGHT - 18}" font-family="Arial, sans-serif" font-size="14" fill="#555980" font-style="italic">Potencial estimado. Resultado depende de condições de mercado e ação do usuário.</text>
 </svg>"""
 
     def render_wrapped_card(self, report: WrappedReport) -> str:
@@ -72,7 +73,8 @@ class CardRenderer:
   {highlight_rows}
 
   <text x="60" y="{_HEIGHT - 100}" font-family="Arial, sans-serif" font-size="22" fill="#D9C2FF">{html.escape(_truncate(report.summary_tagline, 90))}</text>
-  <text x="60" y="{_HEIGHT - 40}" font-family="Arial, sans-serif" font-size="18" fill="#8A6FB0">nexa.app</text>
+  <text x="60" y="{_HEIGHT - 60}" font-family="Arial, sans-serif" font-size="18" fill="#8A6FB0">nexa.app</text>
+  <text x="60" y="{_HEIGHT - 30}" font-family="Arial, sans-serif" font-size="14" fill="#6B508A" font-style="italic">Tarifas: valores cobrados. Savings: estimativas — sujeitas a condições e ação do usuário.</text>
 </svg>"""
 
     @staticmethod
