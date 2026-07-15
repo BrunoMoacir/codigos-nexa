@@ -16,6 +16,8 @@ from __future__ import annotations
 import logging
 from datetime import date, timedelta
 
+from datetime import date
+
 from app.viral.models import SavingsSource
 
 logger = logging.getLogger(__name__)
@@ -53,13 +55,17 @@ class SavingsConsolidator:
             best = latest.get("best_card") or {}
             annual = float(best.get("net_gain_expected") or 0)
 
+            today = date.today()
             return SavingsSource(
                 name="Otimizador de Cartões",
                 module="optimizer",
                 annual_savings_brl=round(annual, 2),
+                amount_type="estimated_potential",
+                reference_period_start=date(today.year, 1, 1),
+                reference_period_end=date(today.year, 12, 31),
                 description=(
                     f"Cartão {best.get('card_name', 'recomendado')}: "
-                    f"ganho líquido esperado de R$ {annual:,.2f}/ano em pontos e cashback."
+                    f"ganho líquido potencial estimado de até R$ {annual:,.2f}/ano em pontos e cashback."
                 ) if annual > 0 else "Nenhum ganho identificado no último relatório.",
             )
         except Exception as exc:
@@ -80,13 +86,17 @@ class SavingsConsolidator:
             report = BankFeeAnalyzer().analyze(df, user_id)
             annual = round(report.savings_opportunity * 12, 2)
 
+            today = date.today()
             return SavingsSource(
                 name="Raio-X de Tarifas Bancárias",
                 module="costs",
                 annual_savings_brl=annual,
+                amount_type="actual_fee",
+                reference_period_start=date(today.year, today.month, 1),
+                reference_period_end=today,
                 description=(
-                    f"Tarifas desnecessárias identificadas: R$ {report.savings_opportunity:,.2f}/mês "
-                    f"(R$ {annual:,.2f}/ano de economia potencial)."
+                    f"Tarifas identificadas como evitáveis: R$ {report.savings_opportunity:,.2f}/mês "
+                    f"(projeção anual: R$ {annual:,.2f}). Valor mensal é real; projeção anual é estimada."
                 ) if annual > 0 else "Nenhuma tarifa excessiva detectada.",
             )
         except Exception as exc:
@@ -117,9 +127,10 @@ class SavingsConsolidator:
                 name="Negociador",
                 module="negotiator",
                 annual_savings_brl=round(total, 2),
+                amount_type="estimated_potential",
                 description=(
-                    f"Ganho potencial identificado em negociações com seus bancos: "
-                    f"R$ {total:,.2f} (anuidades, juros e tarifas)."
+                    f"Potencial de ganho identificado em negociações com seus bancos: "
+                    f"R$ {total:,.2f} (anuidades, juros e tarifas). Potencial estimado — sujeito a negociação."
                 ) if total > 0 else "Nenhuma negociação pendente.",
             )
         except Exception as exc:
@@ -155,10 +166,11 @@ class SavingsConsolidator:
                 name="Radar de Oportunidades",
                 module="opportunities",
                 annual_savings_brl=annual,
+                amount_type="estimated_potential",
                 description=(
-                    f"Dinheiro parado na conta corrente poderia render "
+                    f"Dinheiro parado na conta corrente poderia render até "
                     f"R$ {monthly_gain:,.2f}/mês aplicado em {bank} "
-                    f"(R$ {annual:,.2f}/ano)."
+                    f"(estimativa anual: R$ {annual:,.2f}). Sujeito a variação de CDI e IR."
                 ),
             )
         except Exception as exc:
