@@ -21,8 +21,17 @@ from app.viral.models import WrappedHighlight, WrappedReport
 logger = logging.getLogger(__name__)
 
 
+_MIN_MONTHS_FULL = 3
+
+
 class WrappedGenerator:
     def generate(self, user_id: str, year: int) -> WrappedReport:
+        months_active = self._months_active(user_id)
+        is_partial = months_active < _MIN_MONTHS_FULL
+
+        if is_partial:
+            return self._educational_report(user_id, year, months_active)
+
         highlights: list[WrappedHighlight] = []
         total_fees = 0.0
         total_savings = 0.0
@@ -53,7 +62,7 @@ class WrappedGenerator:
         badges = self._get_badges(user_id, year)
         score_delta = (score_end - score_start) if score_start and score_end else None
 
-        summary = self._build_tagline(user_id, total_fees, total_savings, score_delta, badges, year)
+        summary = self._build_tagline(total_fees, total_savings, score_delta, badges, year)
 
         return WrappedReport(
             user_id=user_id,
@@ -68,6 +77,48 @@ class WrappedGenerator:
             badges_earned=badges,
             summary_tagline=summary,
         )
+
+    def _educational_report(self, user_id: str, year: int, months: int) -> WrappedReport:
+        summary = (
+            f"Você está há {months} mês(es) na Nexa — continue usando para "
+            f"desbloquear seu Wrapped completo de {year} em breve."
+        )
+        return WrappedReport(
+            user_id=user_id,
+            year=year,
+            generated_at=_now_utc(),
+            highlights=[],
+            total_fees_paid_year=0.0,
+            total_savings_identified=0.0,
+            badges_earned=self._get_badges(user_id, year),
+            summary_tagline=summary,
+            is_partial_year=True,
+        )
+
+    @staticmethod
+    def _months_active(user_id: str) -> int:
+        try:
+            from datetime import datetime, timezone
+
+            from app.core.database import SessionLocal
+            from sqlalchemy import text
+
+            with SessionLocal() as db:
+                row = db.execute(
+                    text("SELECT created_at FROM users WHERE user_id = :uid"),
+                    {"uid": user_id},
+                ).fetchone()
+
+            if not row or not row[0]:
+                return 1
+
+            created_at = row[0]
+            today = datetime.now(timezone.utc)
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            return max(1, (today.year - created_at.year) * 12 + today.month - created_at.month)
+        except Exception:
+            return 1
 
     # ── biggest_waste ────────────────────────────────────────────────
 
@@ -298,7 +349,6 @@ class WrappedGenerator:
 
     @staticmethod
     def _build_tagline(
-        user_id: str,
         total_fees: float,
         total_savings: float,
         score_delta: Optional[int],
@@ -306,10 +356,15 @@ class WrappedGenerator:
         year: int,
     ) -> str:
         parts = []
-        if total_savings > 0:
-            parts.append(f"A Nexa identificou R$ {total_savings:,.2f} em oportunidades para você em {year}.")
         if total_fees > 0:
-            parts.append(f"Você pagou R$ {total_fees:,.2f} em tarifas bancárias — veja como reduzir.")
+            parts.append(
+                f"Você pagou R$ {total_fees:,.2f} em tarifas bancárias cobradas em {year}."
+            )
+        if total_savings > 0:
+            parts.append(
+                f"A Nexa identificou até R$ {total_savings:,.2f} em oportunidades potenciais — "
+                "valores estimados, sujeitos a condições de mercado."
+            )
         if score_delta is not None:
             verb = "cresceu" if score_delta >= 0 else "caiu"
             parts.append(f"Sua saúde financeira {verb} {abs(score_delta)} pontos.")
