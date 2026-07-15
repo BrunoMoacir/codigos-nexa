@@ -11,16 +11,16 @@
 #   pip install -r requirements.txt
 
 # ── Core ──────────────────────────────────────────────────────────────────────
-fastapi==0.128.0
+fastapi==0.139.0
 uvicorn[standard]==0.40.0
-python-multipart==0.0.20
-starlette==0.50.0
+python-multipart==0.0.31
+starlette==1.3.1
 
 # ── Validação e configuração ──────────────────────────────────────────────────
 pydantic==2.12.5
-pydantic-settings==2.12.0
+pydantic-settings==2.14.2
 pydantic-core==2.41.5
-python-dotenv==1.2.1
+python-dotenv==1.2.2
 
 # ── Banco de dados ────────────────────────────────────────────────────────────
 sqlalchemy[asyncio]==2.0.25
@@ -30,9 +30,9 @@ alembic==1.13.1
 
 # ── ETL e processamento de dados ──────────────────────────────────────────────
 polars==1.0.0
-duckdb==1.0.0
+duckdb==1.4.4
 numpy==1.26.4
-pyarrow==15.0.2
+pyarrow==23.0.1
 
 # ── AI / LLM ──────────────────────────────────────────────────────────────────
 langgraph==0.2.28
@@ -42,17 +42,17 @@ langchain-anthropic==0.1.23
 langchain-openai==0.1.25
 
 # ── Machine learning ──────────────────────────────────────────────────────────
-scikit-learn==1.3.2
+scikit-learn==1.8.0
 joblib==1.3.2
 
 # ── Autenticação ──────────────────────────────────────────────────────────────
-python-jose[cryptography]==3.3.0
+python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.1.2
 
 # ── HTTP / networking ─────────────────────────────────────────────────────────
 httpx==0.26.0
-requests==2.32.5
+requests==2.33.0
 
 # ── Cache e rate-limit ────────────────────────────────────────────────────────
 redis==5.0.1
@@ -60,6 +60,9 @@ slowapi==0.1.9
 
 # ── Scheduler ─────────────────────────────────────────────────────────────────
 apscheduler==3.10.4
+
+# ── Web Push (PWA — R1.d) ─────────────────────────────────────────────────────
+pywebpush==2.0.3
 
 # ── Utilitários ───────────────────────────────────────────────────────────────
 python-dateutil==2.9.0.post0

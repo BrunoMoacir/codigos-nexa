@@ -10,15 +10,14 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.128-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://postgresql.org)
-[![Tests](https://img.shields.io/badge/Tests-414%20passing-success?style=flat-square)](tests/)
-[![Coverage](https://img.shields.io/badge/Coverage-89%25-brightgreen?style=flat-square)](docs/PF_PJ_VALIDATION_REPORT.md)
+[![Tests](https://img.shields.io/badge/Tests-2.189%20coletados-success?style=flat-square)](backend/tests/)
 [![License](https://img.shields.io/badge/License-Proprietary-red?style=flat-square)](LICENSE)
 
-[Início Rápido](#-início-rápido) •
+[Como Construímos Valor](#-como-a-nexa-constrói-valor) •
 [Funcionalidades](#-funcionalidades) •
-[API](#-endpoints-da-api) •
-[Arquitetura](#-arquitetura-técnica) •
-[Documentação](#-documentação)
+[O Que Está Pronto vs O Que Falta](#-o-que-está-pronto-vs-o-que-falta) •
+[Planos](#-planos-e-monetização) •
+[Arquitetura](#-arquitetura-técnica)
 
 ---
 
@@ -31,60 +30,581 @@
 
 - [Visão Geral](#-visão-geral)
 - [O Problema](#-o-problema)
-- [A Solução](#-a-solução)
-- [Início Rápido](#-início-rápido)
+- [Como a Nexa Constrói Valor](#-como-a-nexa-constrói-valor)
+- [As Duas Superfícies do Produto](#-as-duas-superfícies-do-produto)
 - [Funcionalidades](#-funcionalidades)
-- [Diferencial Competitivo](#-diferencial-competitivo)
-- [Métricas Analisadas](#-métricas-analisadas)
-- [Arquitetura Técnica](#-arquitetura-técnica)
-- [Stack Tecnológica](#-stack-tecnológica)
-- [Estrutura do Projeto](#-estrutura-do-projeto)
-- [Endpoints da API](#-endpoints-da-api)
+  - [Motor Core de Análise](#motor-core-de-análise)
+  - [Radar de Oportunidades (OPP)](#radar-de-oportunidades-opp)
+  - [Defesa do Consumidor (D)](#defesa-do-consumidor-d)
+  - [Direitos Esquecidos e Impostos (T)](#direitos-esquecidos-e-impostos-t)
+  - [Engajamento e Retenção (MX/R)](#engajamento-e-retenção-mxr)
+  - [Viral (V)](#viral-v)
+  - [Inteligência Comportamental](#inteligência-comportamental)
 - [Agente de IA](#-agente-de-ia)
-- [Banco de Dados](#-banco-de-dados)
-- [Testes](#-testes)
-- [Exemplos de Uso](#-exemplos-de-uso)
-- [Modelo de Negócio](#-modelo-de-negócio)
+- [Sistema de Notificações](#-sistema-de-notificações-mx3)
+- [Jobs Automáticos](#-jobs-automáticos-scheduler)
+- [Segurança e LGPD](#-segurança-e-lgpd)
+- [Planos e Monetização](#-planos-e-monetização)
+- [O Que Está Pronto vs O Que Falta](#-o-que-está-pronto-vs-o-que-falta)
+- [Diferencial Competitivo](#-diferencial-competitivo)
 - [Estratégias de Crescimento](#-estratégias-de-crescimento)
-- [Roadmap](#-roadmap)
+- [Arquitetura Técnica](#-arquitetura-técnica)
+- [Endpoints da API](#-endpoints-da-api)
+- [Início Rápido](#-início-rápido)
+- [Testes](#-testes)
 - [Documentação](#-documentação)
-- [Status do Projeto](#-status-do-projeto)
 
 </details>
 
 ---
 
-## 🎯 Visao Geral
+## 🎯 Visão Geral
 
 A **Nexa AI** é uma plataforma de inteligência financeira pessoal que combina **Open Finance**, **Machine Learning** e **IA conversacional** para revelar quanto os bancos lucram com você — e transformar essa informação em ações concretas de economia, recuperação e otimização.
 
 > **Não somos outro banco. Somos o advogado contra todos os bancos.**
 
+A Nexa cobra do usuário, não do banco. Essa é a única estrutura de receita que garante neutralidade total: nenhuma recomendação é comissionada, nenhum produto é empurrado.
+
 ---
 
 ## 💸 O Problema
 
-O brasileiro médio:
+O brasileiro médio perde por ano, sem perceber:
 
 | Perda Anual | Causa |
 |:---:|:---|
 | **R$ 800** | Tarifas bancárias evitáveis |
-| **R$ 2.000** | Uso do cartão errado |
-| **R$ 3.500** | Lucro oculto do banco sobre o cliente |
+| **R$ 2.000** | Uso do cartão errado (cashback/pontos perdidos) |
+| **R$ 3.500** | Lucro oculto do banco (spread, juros, poupança rendendo abaixo do CDI) |
 
-**Total: R$ 6.300/ano perdidos sem perceber.**
+**Total: ~R$ 6.300/ano drenados silenciosamente.** Além disso, há ~R$ 8,5 bilhões esquecidos no SVR do BACEN, FGTS não sacado e restituições de IR não resgatadas.
 
 ---
 
-## ✅ A Solução
+## ✅ Como a Nexa Constrói Valor
+
+O produto opera um **loop de valor contínuo** em cinco etapas. Cada funcionalidade existe para alimentar uma delas:
 
 ```
-30 segundos  →  Conectamos todos os seus bancos via Open Finance
-60 segundos  →  Mostramos onde seu dinheiro está sendo drenado
-Instantes    →  O agente de IA negocia para você recuperar esse dinheiro
+1. CONECTAR   →  Open Finance (Pluggy): todos os bancos do usuário em 30 segundos
+2. REVELAR    →  ETL + 20 módulos analíticos mostram onde o dinheiro está vazando
+3. AGIR       →  Cartas de contestação, scripts de negociação, dossiês, passos práticos
+4. PROTEGER   →  Safe-to-spend, alertas proativos, calendário fiscal, metas
+5. RETER      →  Push, digest diário, desafios mensais, score gamificado, Wrapped
 ```
 
-Com **base legal**, **carta gerada automaticamente** e **probabilidade de sucesso calculada**.
+Cada etapa entrega valor mensurável em **R$/mês**:
+
+| Etapa | Mecanismo de valor | Exemplo concreto |
+|:---|:---|:---|
+| **Revelar** | Transparência que nenhum banco oferece | "O Bradesco lucrou R$ 3.200 com você em 2025" |
+| **Agir** | Recuperação com base legal (CDC, BACEN, STJ) | Carta de contestação de tarifa com correção monetária |
+| **Otimizar** | Decisão certa em cada transação | "Use o cartão X nessa compra: +R$ 34 de cashback" |
+| **Realocar** | Dinheiro parado vira rendimento | "R$ 5.000 ociosos → CDB 110% CDI = +R$ 480/ano líquidos" |
+| **Proteger** | Prevenção de derrapagem | "Sua margem segura hoje é R$ 87/dia" |
+
+---
+
+## 📱 As Duas Superfícies do Produto
+
+Todo módulo do backend entrega valor por **duas superfícies** — é o padrão arquitetural do produto:
+
+### 1. Feed de Oportunidades
+Lista priorizada de cards, ordenada por **impacto financeiro em R$/mês**. Cada card diz: o tipo de oportunidade, o valor em jogo, a urgência e — ao expandir — como foi calculado e os passos práticos para executar. São **17 tipos de card** (ver [Notificações](#-sistema-de-notificações-mx3)), gerados proativamente a cada 6 horas e filtrados por relevância conforme a renda do usuário.
+
+### 2. Chat com Consultor IA
+Agente LangGraph ReAct com **29 ferramentas** conectadas a todos os módulos do backend. O usuário pergunta em linguagem natural ("posso comprar um carro de R$ 60 mil?") e o agente consulta forecast, simulações e perfil comportamental antes de responder — com tom adaptado ao cluster do usuário. Histórico persistido por sessão (Redis).
+
+> Regra de ouro do produto: **feature nova só está completa quando aparece no feed E no chat.**
+
+---
+
+## ⚡ Funcionalidades
+
+### Motor Core de Análise
+
+| ID | Funcionalidade | Valor para o usuário | Status |
+|:---|:---|:---|:---:|
+| F1 | **ETL Pipeline + Cashflow** — 8 estágios, projeção 30 dias, safe-to-spend | Sabe exatamente quanto pode gastar hoje sem comprometer contas futuras | ✅ |
+| F2 | **Card Optimizer** — 2.000+ cartões, multi-card, custo de oportunidade | Recupera R$ 50–200/mês em cashback/pontos que estava deixando na mesa | ✅ |
+| F3 | **Nexa Architect** — financiamento vs consórcio vs investir, VPL + Monte Carlo | Decisões de dezenas de milhares de reais com intervalo de confiança de 95% | ✅ |
+| F4 | **PF/PJ Classifier** — Random Forest + regras, relatório fiscal MEI | MEI separa gastos pessoais e da empresa automaticamente; base do relatório DAS | ✅ |
+| F5 | **Raio-X de Custos** — tarifas detectadas, benchmark de 16 bancos | Vê cada tarifa cobrada e se está acima da média de mercado | ✅ |
+| F7 | **Modo Compra Inteligente** — Pix, débito, crédito ou parcelado? | Veredito instantâneo da melhor forma de pagamento para cada compra | ✅ |
+| F13 | **Negociador** — scripts personalizados gerados por IA | Roteiro pronto para ligar no banco e negociar anuidade, juros e tarifas | ✅ |
+| M4.1 | **Fiscal PJ** — relatório para MEI/PJ | Faturamento, DAS e alertas de limite MEI sem contador | ✅ |
+
+### Radar de Oportunidades (OPP)
+
+*Detecta dinheiro mal alocado e compara 13 bancos/produtos sem viés — ranking por retorno **líquido após IR**, não por taxa bruta.*
+
+| Sub-feature | Valor para o usuário | Status |
+|:---|:---|:---:|
+| OPP.1 | **Dinheiro parado** — saldo ocioso além da reserva de emergência (threshold R$ 500/30d) | Descobre que tem R$ X rendendo zero na conta corrente | ✅ |
+| OPP.2 | **Comparador CDB/LCI/LCA** — retorno líquido após IR, catálogo curado + Open Finance | Compara produtos de 13 instituições sem comissão embutida | ✅ |
+| OPP.3 | **Tesouro SELIC vs CDB vs poupança** — simulador com IR e taxas | Vê em R$ quanto cada opção rende de verdade no seu prazo | ✅ |
+| OPP.4 | **Poupança abaixo do CDI** — SELIC + TR vs CDI | Card mostra quanto está perdendo por manter poupança | ✅ |
+| OPP.5 | **Passos práticos de troca** — instruções por produto | Não só "invista melhor": diz exatamente onde clicar | ✅ |
+| Bank Match | **Melhor banco pelo perfil completo** — rendimento ajustado a risco + tarifas típicas + força dos cartões + fit comportamental | Resposta definitiva para "qual banco é melhor para mim?" | ✅ |
+
+Extras: scorecard por banco (`GET /opportunities/{user_id}/banks`), catálogo público transparente (`GET /opportunities/products`), refresh diário via Open Finance Dados Abertos, disclaimer regulatório em todas as respostas.
+
+### Defesa do Consumidor (D)
+
+*O diferencial que nenhum banco ou app comissionado pode copiar: ficar do lado do usuário contra o banco.*
+
+| ID | Funcionalidade | Valor para o usuário | Status |
+|:---|:---|:---|:---:|
+| D1 | **Detector de Venda Casada** (CDC art. 39) | Identifica seguros e pacotes embutidos ilegalmente e o valor a recuperar | ✅ código |
+| D2 | **Recuperador de Cobranças Indevidas** — baseline histórico + duplicidades | Detecta cobrança em dobro e tarifa nova não contratada | ✅ código |
+| D3 | **Detector de Juros Abusivos** — comparação com séries BACEN + jurisprudência STJ | Prova documentada de que os juros do rotativo/cheque especial estão acima do mercado | ✅ código |
+| D4 | **Alerta de Mudança Unilateral de Tarifa** — baseline por banco | Notificação quando o banco aumenta tarifa sem avisar | ✅ código |
+| D5 | **Central de Evidências** — dossiê consolidado + export ZIP para PROCON/JEC | Sai do app com o processo pronto para protocolar | ✅ código ⚠️ requer validação jurídica antes de lançar |
+| D6 | **Simulador de Portabilidade Total** — conta + cartão + crédito | Quanto economiza migrando tudo para outro banco | ✅ código |
+
+Endpoints: `GET /defense/{user_id}`, `/defense/{user_id}/dossier`, `/defense/{user_id}/zip`, `/defense/{user_id}/portability`.
+
+### Direitos Esquecidos e Impostos (T)
+
+| ID | Funcionalidade | Valor para o usuário | Status |
+|:---|:---|:---|:---:|
+| T1 | **Otimizador de IR** — tax loss harvesting, timing de resgate | Paga menos imposto legalmente sobre investimentos | ✅ |
+| T2 | **Modo Imposto Zero** — migração CDB→LCI/LCA com breakeven | Sabe exatamente quando um LCI isento ganha do CDB tributado | ✅ |
+| T3 | **Monitor de Direitos Esquecidos** — SVR BACEN, FGTS, PIS/PASEP, restituição IR | Encontra dinheiro esquecido em nome do usuário — o maior hook de conversão do produto | ✅ |
+| R2.c | **Sazonalidade Fiscal** — IR, DAS/DASN-SIMEI, IPVA/IPTU, 13º, lucro FGTS, personalizado por perfil MEI/CLT | Nunca mais multa por perder prazo fiscal | ✅ |
+
+### Engajamento e Retenção (MX/R)
+
+| ID | Funcionalidade | Valor para o usuário | Status |
+|:---|:---|:---|:---:|
+| MX.1 | **Health Score** — score 0–100 com tendência e histórico | Um número que resume a saúde financeira, com snapshot diário automático | ✅ |
+| MX.2 | **Metas Financeiras** — CRUD, projeção de prazo, progresso | "Nesse ritmo, sua reserva fica pronta em 7 meses" | ✅ |
+| MX.3 | **Notificações Proativas** — 17 tipos, filtro de relevância por renda | Só recebe alerta do que importa para o seu bolso (ver seção dedicada) | ✅ |
+| MX.4 | **Peer Comparison** — benchmarks IBGE/POF por faixa de renda | "Você gasta 40% mais em delivery que pares da sua renda" | ✅ |
+| MX.5 | **Budget Advisor** — plano 50/30/20 adaptado ao perfil comportamental | Orçamento realista, não genérico | ✅ |
+| MX.6 | **Shadow Invoices** — parcelas e assinaturas futuras | Vê o caixa já comprometido antes de assumir nova dívida | ✅ |
+| R1.a | **Compra no momento** — `GET /purchase/checkout-context` (veredito compacto) + revisão retroativa de compras grandes (card PURCHASE_FOLLOWUP + tool no chat) | Decisão certa na hora do checkout; aprende com compras passadas | ✅ |
+| R1.b | **Entrega proativa** — NotificationEngine a cada 6h com entrega email/in-app/push e dedup por TTL | O valor chega ao usuário sem ele abrir o app | ✅ |
+| R1.c | **Daily Digest** — email 07h00 com score, tarifas, oportunidades, prazos fiscais e desafios | Resumo diário idempotente; razão para voltar todo dia | ✅ |
+| R1.d | **Widget Safe-to-Spend (PWA)** — página `/widget` instalável + Web Push VAPID | Margem do dia na homescreen, payload de ~200 bytes | ✅ |
+| R2.b | **Desafios mensais e badges** — SEM_TARIFAS, REDUZIR_CATEGORIA, GUARDAR_VALOR, SUBIR_SCORE + badges de streak | Gamificação com impacto real no bolso | ✅ |
+| R3 | **Histórico acumulado** (DuckDB) + metas com projeção | Quanto mais tempo usa, mais insight — custo de troca cresce | ✅ |
+| R4.b | **PromotionTracker** — promoções de transferência de pontos | Bônus de 20%+ em milhas não passa despercebido | ⚠️ parcial |
+
+### Viral (V)
+
+| ID | Funcionalidade | Valor / mecânica | Status |
+|:---|:---|:---|:---:|
+| V1 | **Placar de Economia Compartilhável** — card SVG com o total economizado | "Economizei R$ 4.200 contra os bancos com a @NexaAI" → CAC zero | ✅ |
+| V2 | **Nexa Wrapped anual** — relatório "Seu Banco vs Você" com SVG compartilhável | Quanto cada banco lucrou com você no ano; viralização estilo Spotify Wrapped | ✅ |
+| V3 | **Ranking público de bancos abusivos** — relatório trimestral anonimizado | Autoridade de marca + imprensa | 📅 |
+
+Endpoints: `GET /viral/savings-card/{user_id}[/svg]`, `GET /viral/wrapped/{user_id}/{year}[/svg]`.
+
+### Inteligência Comportamental
+
+*A camada que personaliza tudo: mesmos dados, recomendações diferentes por pessoa.*
+
+| Módulo | O que faz | Onde atua |
+|:---|:---|:---|
+| **ConsumptionProfiler** | Classifica o usuário em 1 de 8 clusters de estilo de vida (90 dias de transações) | Agente, optimizer, budget, notificações — 6+ módulos |
+| **LifeEventsDetector** | Detecta bebê, mudança, casamento, faculdade, aumento/queda de renda via padrão de gastos | Cards LIFE_EVENT com ação sugerida |
+| **NotificationRelevanceFilter** | Elimina ruído com thresholds escalados por renda | Mesmo evento é ruído para quem ganha R$ 15k e crítico para quem ganha R$ 2k |
+| **IncomeProfiler** | Renda real após filtrar transferências e não-recorrentes | Base de todos os thresholds |
+
+Os 8 clusters: `EXPLORADOR_GLOBAL` (milhas/lounge), `URBANO_FOODIE` (cashback alimentação), `INVESTIDOR_CAUTELOSO` (precisão numérica), `FAMILIA_ESTRUTURADA` (segurança/educação), `DIGITAL_NATIVO` (PIX/fintechs), `ESTRESSE_FINANCEIRO` (empatia, cortes, zero sugestão de gasto), `MICROEMPREENDEDOR` (PF vs PJ, DAS), `NAO_CLASSIFICADO` (neutro).
+
+---
+
+## 🤖 Agente de IA
+
+Agente **ReAct (LangGraph)**: o LLM decide qual ferramenta chamar, observa o resultado e responde em linguagem natural. A primeira ferramenta de toda sessão é `get_user_profile_context`, que carrega o cluster comportamental e adapta o tom da conversa inteira. O `user_id` autenticado é injetado como contexto imutável — o agente ignora qualquer user_id vindo da mensagem (mitigação de prompt injection).
+
+### 29 Ferramentas Financeiras
+
+| Domínio | Ferramentas |
+|:---|:---|
+| **Perfil e saúde** | `get_user_profile_context` · `get_financial_forecast` · `get_spending_alerts` · `get_goals_summary` |
+| **Orçamento e pares** | `get_budget_advice` · `get_peer_comparison` |
+| **Cartões** | `get_card_optimization` · `get_expert_card_analysis` |
+| **Compras** | `get_purchase_recommendation` · `review_recent_purchases` |
+| **Simulações (F3)** | `get_financing_simulation` · `get_timing_scenarios` · `get_leverage_simulation` |
+| **Oportunidades (OPP)** | `get_opportunities` · `simulate_investment` · `get_best_bank` |
+| **Defesa (D)** | `detect_abusive_fees` · `detect_wrongful_charges` · `detect_abusive_interest` · `get_defense_analysis` · `get_evidence_dossier` · `get_portability_analysis` |
+| **Custos e negociação** | `get_bank_cost_analysis` · `get_negotiation_script` |
+| **Fiscal e direitos** | `get_fiscal_report` · `get_fiscal_calendar` · `get_forgotten_rights` |
+| **Engajamento** | `get_monthly_challenges` · `get_annual_wrapped` |
+
+LLM: Claude (preferencial, via `langchain-anthropic`) com fallback OpenAI. Memória de sessão via checkpointer Redis.
+
+---
+
+## 🔔 Sistema de Notificações (MX.3)
+
+O `ProactiveNotifier` gera cards de **17 tipos**, combinando burn rate, anomalias, score, metas, assinaturas, eventos de vida, oportunidades, calendário fiscal e desafios. O `NotificationRelevanceFilter` aplica um pipeline de 3 etapas para eliminar ruído.
+
+| Tipo | Gatilho | Prioridade |
+|:---|:---|:---:|
+| `BURN_RATE_HIGH` | Categoria consumiu >70% do orçamento | WARNING / CRITICAL |
+| `ANOMALY_DETECTED` | Gasto ≥2.5× acima do padrão histórico | WARNING / CRITICAL |
+| `SUBSCRIPTION_INCREASE` | Assinatura ficou ≥15% mais cara | WARNING |
+| `CARD_OPPORTUNITY` | Cashback perdido por usar cartão errado | INFO |
+| `WAIVER_ALERT` | Faltam R$ X para isentar anuidade | INFO |
+| `TRANSFER_PROMO` | Transferência de pontos com bônus ≥20% | INFO |
+| `SCORE_IMPROVED` | Health Score variou ≥5 pontos | INFO / WARNING |
+| `GOAL_PROGRESS` | Meta atingiu 50%, 75% ou 100% | INFO |
+| `SAFE_TO_SPEND_LOW` | Margem diária abaixo de R$ 100/dia | WARNING / CRITICAL |
+| `LIFE_EVENT` | Evento de vida detectado via gastos | INFO → CRITICAL |
+| `TARIFA_AUMENTO_UNILATERAL` | Banco subiu tarifa sem contrapartida (D4) | WARNING |
+| `SAVINGS_BELOW_CDI` | Poupança rendendo abaixo do CDI (OPP.4) | INFO |
+| `IDLE_MONEY_DETECTED` | Dinheiro parado confirmado (OPP.1) | INFO |
+| `FISCAL_SEASON` | Janela fiscal ativa: IR, DAS, 13º… (R2.c) | INFO / WARNING |
+| `CHALLENGE_COMPLETED` | Desafio mensal concluído (R2.b) | INFO |
+| `CHALLENGE_PROGRESS` | Desafio ≥70% concluído (R2.b) | INFO |
+| `PURCHASE_FOLLOWUP` | Compra grande paga de forma subótima (R1.a) | INFO |
+
+### Filtro de Relevância (3 etapas)
+
+```
+Bruto → [1: Threshold por tipo] → [2: Cap ≤2/tipo] → [3: Cap global ≤4 não-críticos]
+                     ↑
+        Thresholds escalam com a renda mensal do usuário
+        CRITICAL nunca é descartado em nenhuma etapa
+```
+
+Cards WARNING/CRITICAL sobem automaticamente para **Web Push** quando o usuário tem inscrição PWA ativa. Dedup por TTL específico por tipo (ex.: SAVINGS_BELOW_CDI no máximo 1×/mês).
+
+### Life Events
+
+| Evento | Sinal | Ação sugerida |
+|:---|:---|:---|
+| `new_baby` | Fraldas, maternidade, enxoval | Revisar metas, reserva e seguro de vida |
+| `home_change` | Mudança, reforma, móveis | Revisar custos fixos e seguro residencial |
+| `wedding` | Buffet, cerimonial | Planejar finanças a dois |
+| `new_education` | Mensalidades de ensino | Meta para cobrir 12 meses |
+| `income_increase` | Renda >20% acima do histórico | Investir o incremento antes de virar gasto fixo |
+| `income_drop` | Renda >20% abaixo do histórico | Cortar gastos, garantir reserva |
+
+---
+
+## ⏰ Jobs Automáticos (Scheduler)
+
+APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instância. Ativado por `SCHEDULER_ENABLED=true`.
+
+| Horário | Job | O que entrega |
+|:---:|:---|:---|
+| 02h00 | `fee_snapshot` | Histórico de tarifas por usuário + baseline de mercado (alimenta D2/D4) |
+| 02h30 | `product_catalog_refresh` | Atualiza catálogo de produtos via Open Finance Dados Abertos (OPP) |
+| 03h00 | `opportunity_scan` | Varredura de dinheiro parado e poupança sub-CDI por usuário |
+| 04h00 | `health_score_snapshot` | Série temporal do score (tendência 30/90 dias) |
+| a cada 6h | `notification_scheduler` | Gera e entrega notificações proativas (email/in-app/push) |
+| 07h00 | `daily_digest` | Email diário com score, tarifas, oportunidades, prazos fiscais e desafios |
+
+---
+
+## 🔐 Segurança e LGPD
+
+*Confiança é o produto: quem entrega extrato bancário completo precisa de mais que promessa.* Hardening auditado em 2026-07 — detalhes em [docs/SEGURANCA.md](docs/SEGURANCA.md).
+
+| Camada | Implementação |
+|:---|:---|
+| **Autenticação** | JWT HS256 30 min + refresh token de 14 dias com **rotação de uso único** (reuso → 401); blacklist Redis por `jti`; anti-enumeração no login |
+| **Autorização** | `require_owner` em todos os endpoints de dados (IDOR bloqueado); recursos aninhados verificam dono do objeto |
+| **Webhook Pluggy** | Segredo compartilhado comparado em tempo constante; produção sem segredo → 503 fail-closed; identidade resolvida server-side, nunca do payload |
+| **Headers** | CSP estrito, HSTS (produção), X-Frame-Options DENY, COOP, Permissions-Policy; CORS `*` proibido em produção (validador recusa boot) |
+| **Rate limiting** | 60/min global por IP (Redis), login 10/min, registro 5/min, refresh 20/min |
+| **LGPD** | `GET /privacy/export/{user_id}` (portabilidade, art. 18 V) e `DELETE /privacy/erase/{user_id}` (eliminação irreversível, art. 18 VI, exige frase de confirmação); auditoria com email mascarado |
+| **Supply chain** | `pip-audit` no CI — qualquer CVE novo quebra o build |
+| **Prompt injection** | `user_id` imutável injetado pelo sistema; agente instruído a ignorar user_id na mensagem |
+
+---
+
+## 💼 Planos e Monetização
+
+> **A Nexa cobra do usuário, não do banco.** Isso garante neutralidade total — e é o que justifica pagar: um consultor comissionado nunca mandaria você sair do banco que o comissiona.
+
+| Plano | Preço | O que entrega | Valor que justifica o preço |
+|:---|:---:|:---|:---|
+| **Free** | R$ 0/mês | 1 banco conectado, dashboard básico, safe-to-spend, 3 consultas Compra Inteligente/mês, 5 msgs de IA/dia | Porta de entrada: o usuário **vê** quanto está perdendo (indignação → conversão). T3 (direitos esquecidos) no Free acha dinheiro na hora |
+| **Pro** | R$ 19,90/mês | Bancos ilimitados, Raio-X completo, Radar de Oportunidades, chat ilimitado, Negociador (1/mês), digest diário, desafios e badges | Se o usuário recupera **R$ 50+/mês** (média esperada: tarifas + cashback + dinheiro parado), o plano se paga 2,5× |
+| **Total** | R$ 39,90/mês | Tudo do Pro + Defesa do Consumidor completa (dossiê PROCON/JEC), portabilidade simulada, otimizador de IR, Wrapped trimestral, Modo Família (futuro) | Uma única contestação de tarifa recuperada (R$ 200–800) paga o ano inteiro |
+
+**⚠️ Status de implementação:** os planos estão definidos como modelo de negócio, mas **billing e gating por plano ainda não existem no código** — hoje todos os endpoints são liberados para qualquer usuário autenticado. É um dos itens pendentes (ver seção seguinte).
+
+### Unit Economics Target
+
+| Métrica | Target |
+|:---|:---:|
+| ARPU | R$ 25/mês |
+| CAC | R$ 40–80 |
+| LTV (12 meses) | R$ 300 |
+| LTV:CAC | > 4:1 |
+| Margem bruta | 75%+ |
+| Payback | < 3 meses |
+
+---
+
+## 📊 O Que Está Pronto vs O Que Falta
+
+### ✅ Pronto (implementado e testado no backend)
+
+| Área | Entregas |
+|:---|:---|
+| **Motor core** | F1 ETL + cashflow, F2 optimizer (2.000+ cartões), F3 Architect (Monte Carlo), F4 PF/PJ, F5 custos, F7 compra inteligente, F13 negociador, fiscal MEI/PJ |
+| **Oportunidades** | OPP.1–OPP.5 completos + Bank Match + catálogo público + refresh diário |
+| **Defesa** | D1–D6 codificados: venda casada, cobranças indevidas, juros abusivos, mudança unilateral, dossiê + ZIP, portabilidade |
+| **Direitos e impostos** | T1 otimizador IR, T2 imposto zero, T3 direitos esquecidos (SVR/FGTS/PIS/IR), calendário fiscal sazonal |
+| **Engajamento** | Health score + desafios + badges, metas, 17 tipos de notificação com filtro de relevância, peer comparison, budget 50/30/20, shadow invoices |
+| **Retenção** | Scheduler com 6 jobs, daily digest, entrega email/in-app/push, PWA com widget instalável e Web Push VAPID, checkout-context, revisão de compras |
+| **Viral** | Placar de economia (SVG) e Wrapped anual (SVG) |
+| **IA** | Agente ReAct com 29 ferramentas, memória Redis, perfil comportamental (8 clusters), life events |
+| **Plataforma** | Auth JWT + refresh rotativo, IDOR hardening, LGPD export/erase, rate limiting, audit log, pip-audit no CI, 2.189 testes coletados |
+
+### 🚧 Falta (em ordem de prioridade de negócio)
+
+| Item | O que é | Por que importa | Dependência |
+|:---|:---|:---|:---|
+| **Billing + gating de planos** | Cobrança (Stripe/Pagar.me) e enforcement Free/Pro/Total nos endpoints | Sem isso não há receita — o modelo de negócio existe só no papel | Decisão de gateway |
+| **Frontend oficial** | O `frontend-react/` atual é protótipo de validação (descartável); app oficial será construído do zero | Toda a inteligência do backend precisa de uma casa definitiva | Design system |
+| **Validação jurídica (D5)** | Revisão por advogado dos templates de petição JEC e cartas | Código pronto; lançar sem revisão gera risco de responsabilidade por orientação incorreta | Advogado parceiro |
+| **App mobile nativo** | Widget de homescreen nativo, push FCM | PWA cobre o essencial, mas retenção diária de massa exige mobile nativo | Time mobile |
+| **R4.a Relatório trimestral** | Consolidado automático por email | Reforço de valor percebido a cada 3 meses | Scheduler (pronto) — só falta o job |
+| **R5 Anti-churn** | Tela de cancelamento com impacto calculado, modo pausa, win-back | Reduz churn no momento crítico | Billing primeiro |
+| **V3 Ranking de bancos abusivos** | Relatório trimestral público anonimizado | Autoridade de marca + imprensa | Massa de dados D1–D3 |
+| **F6 Sweep automático** | Mover sobra para investimento automaticamente | "Piloto automático" — valor passivo | Open Finance fase 4 (iniciação de pagamento) |
+| **F8 Radar 200+ instituições** | Ampliar catálogo OPP (hoje: 13 bancos/produtos) | Cobertura de cauda longa | Conectores adicionais |
+| **F9/F10** | Portabilidade de crédito assistida (execução), pagamento otimizado | D6 simula; falta executar | Validação jurídica + APIs |
+| **F12 Modo Família** | Até 4 membros | Aumenta ARPU e lock-in | Modelo multi-usuário |
+| **Nexa Score exportável** | Score como bureau de crédito alternativo | Vetor de escala fase 3 | Massa crítica de usuários |
+| **B2B2C** | Venda como benefício corporativo | CAC próximo de zero em escala | Produto estável + billing |
+| **Expansão México** | Adaptar ETL e conectores (Ley Fintech) | Valuation "LatAm" 2–3× | Modelo provado no Brasil |
+
+---
+
+## 🏆 Diferencial Competitivo
+
+| Dimensão | Nexa | Bancos | Apps de Controle | Comparadores |
+|:---|:---:|:---:|:---:|:---:|
+| **Modelo de receita** | Assinatura do usuário | Tarifas + spread | Freemium / comissão | Comissão de banco |
+| **Neutralidade** | ✅ Total | ❌ Conflito | ⚠️ Parcial | ❌ Conflito |
+| **Ação automática** | ✅ Contesta, negocia, gera dossiê | ❌ | ❌ Só visualiza | ❌ Só compara |
+| **Open Finance nativo** | ✅ Multi-banco | ⚠️ Só o próprio | ⚠️ Manual | ⚠️ Parcial |
+| **Base legal integrada** | ✅ CDC, BACEN, STJ | ❌ | ❌ | ❌ |
+| **IA conversacional** | ✅ 29 ferramentas | ❌ | ❌ | ❌ |
+| **Defesa do consumidor** | ✅ D1–D6 | ❌ | ❌ | ❌ |
+| **Perfil comportamental** | ✅ 8 clusters adaptativos | ❌ | ❌ | ❌ |
+
+### Por que não é copiável
+
+> **1. Neutralidade estrutural** — Bancos nunca vão recomendar o concorrente. Apps que ganham comissão não podem ser neutros. A Nexa cobra do usuário — a única estrutura que garante trabalhar exclusivamente para quem paga.
+
+> **2. Flywheel de dados** — Cada novo usuário melhora o benchmark de tarifas (`bank_fee_trends`) e os detectores de abuso. Meses de dados históricos que nenhum concorrente replica retroativamente.
+
+> **3. Complexidade técnica** — 20+ módulos de análise, ETL de 8 estágios, 2.000+ cartões, Monte Carlo, agente ReAct com 29 ferramentas, 8 clusters comportamentais, 6 detectores de defesa do consumidor e scheduler de inteligência proativa. Não é um wrapper de API.
+
+> **4. Confiança do usuário** — Uma vez que o usuário confia na Nexa como seu advogado, o custo de troca é altíssimo.
+
+> **5. Nexa Score como bureau alternativo** — Com massa crítica, o score baseado em fluxo de caixa real vira selo de qualidade que força bancos a baixarem juros.
+
+---
+
+## 🚀 Estratégias de Crescimento
+
+### 1. B2B2C — Bem-Estar Financeiro Corporativo
+
+O CAC no B2C financeiro é R$ 80–150/usuário. O canal B2B2C muda a economia do negócio: vender a Nexa como benefício corporativo (estilo Gympass para finanças). O RH distribui o app — uma venda = 10.000–50.000 usuários com CAC ~zero.
+
+| Aspecto | Detalhe |
+|:---|:---|
+| **Proposta para o RH** | Estresse financeiro custa ~R$ 15.000/ano por funcionário em produtividade (PwC) |
+| **Pricing** | R$ 5–15/funcionário/mês → empresa de 10.000 = R$ 100k–150k MRR por contrato |
+| **Efeito colateral** | Funcionário conecta contas pessoais; ao sair da empresa, migra para plano individual |
+
+### 2. Nexa Score — Bureau de Crédito Alternativo
+
+O Serasa olha o passado (inadimplência); a Nexa olha o presente (fluxo de caixa real). Fase 1: gamificação interna (✅ base pronta — health score + badges). Fase 2: score exportável que o usuário mostra ao pedir crédito. Fase 3: instituições consultam mediante pagamento — receita sem quebrar neutralidade (o usuário decide compartilhar).
+
+### 3. Nexa Wrapped — Viralização Orgânica
+
+✅ **Gerador já implementado** (`/viral/wrapped/{user_id}/{year}/svg`). Todo dezembro (e trimestralmente para Pro/Total): quanto cada banco ganhou com você, top tarifas evitáveis, total economizado pela Nexa, evolução do score. Benchmark Spotify: ~20% de share rate; conversão esperada de 3–5% dos alcançados.
+
+### 4. Expansão LatAm — Playbook Mexicano
+
+México: Open Banking regulado (Ley Fintech 2018), 60M sub-bancarizados, concentração bancária similar (7 bancos = 80%), tarifa média ~MXN 3.000/ano. Provar no Brasil (2026–2027) → adaptar conectores (2028) → tese "LatAm" com multiplicador de valuation 2–3×.
+
+---
+
+## 🏗️ Arquitetura Técnica
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│           FRONTEND (protótipo React 19) + PWA Widget/Push         │
+└────────────────────────────┬──────────────────────────────────────┘
+                             │ HTTPS / JWT (+ refresh rotativo)
+┌────────────────────────────▼──────────────────────────────────────┐
+│                   FastAPI — app/main.py                           │
+│   Rate Limiting (Redis) · CORS estrito · Security Headers · CSP   │
+│        Audit Log · Correlation IDs · Health/Readiness             │
+└──────┬──────────┬──────────┬───────────┬──────────────────────────┘
+       │          │          │           │
+┌──────▼───┐ ┌───▼──────┐ ┌─▼─────────┐ ┌▼──────────────────────┐
+│   ETL    │ │ Cashflow │ │ Architect │ │  Agent (LangGraph)    │
+│ Pipeline │ │  Engine  │ │ MonteCarlo│ │  ReAct + Claude       │
+│ 8 stages │ │Safe2Spend│ │  VPL/TIR  │ │  29 Financial Tools   │
+└──────┬───┘ └───┬──────┘ └───────────┘ └───────────────────────┘
+       │         │
+┌──────▼─────────▼───────────────────────────────────────────────┐
+│                     MÓDULOS ANALÍTICOS                          │
+│ F2 Optimizer · F5 Costs · F7 Purchase · F13 Negotiator · Fiscal │
+│ OPP Radar · D1–D6 Defense · T1–T3 Tax/Rights · Seasonality      │
+│ MX.1–6 · Goals · Budget · Peers · Viral (Wrapped/Placar)        │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────┐
+│                INTELIGÊNCIA COMPORTAMENTAL                       │
+│  ConsumptionProfiler (8 clusters) · LifeEventsDetector           │
+│  NotificationRelevanceFilter · IncomeProfiler                    │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────┐
+│              SCHEDULER (APScheduler + lock Redis)                │
+│  02h fees · 02h30 catálogo · 03h opps · 04h score · 6/6h notifs  │
+│  07h daily digest → email (SendGrid/SMTP) / in-app / Web Push    │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────┐
+│                        DATA LAYER                                │
+│     PostgreSQL 16 + SQLAlchemy 2.0 + Alembic · Polars · DuckDB   │
+│                    Redis (cache/locks/sessões)                   │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────┐
+│                    INTEGRAÇÕES EXTERNAS                          │
+│  Pluggy (Open Finance) · BACEN SGS/SVR · Open Finance Dados      │
+│  Abertos · Claude (IA) · OpenAI (fallback) · SendGrid/SMTP       │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Padrões Arquiteturais
+
+| Padrão | Aplicação |
+|:---|:---|
+| **Feature-driven** | Cada funcionalidade em `/app/{feature}/` isolado com router próprio |
+| **Feed + Chat** | Toda feature entrega por card no feed E tool no agente |
+| **Pipeline Pattern** | ETL 8 estágios: Ingest → Classify → Detect → Validate → Persist |
+| **Strategy Pattern** | Parsing por banco: Nubank, Itaú, Inter, default |
+| **ReAct Agent** | LangGraph: pensa → chama ferramenta → observa → repete |
+| **Multi-layer Fallback** | ML → Regras → Defaults em classificadores; SELIC dinâmica → fallback fixo |
+| **Job Guard** | Lock distribuído Redis (`SET NX EX`) com fallback em memória |
+| **Behavioral Clustering** | 8 clusters adaptam todas as recomendações |
+
+### Stack
+
+| Camada | Backend | | Camada | Frontend/DevOps |
+|:---|:---|---|:---|:---|
+| API | FastAPI + Uvicorn | | Framework | React 19 + TypeScript 5 (protótipo) |
+| Database | PostgreSQL 16 + SQLAlchemy 2.0 + Alembic | | Build | Vite |
+| Cache/Locks | Redis + SlowAPI | | Styling | TailwindCSS 4 |
+| DataFrames | Polars · DuckDB | | State | Zustand + React Query |
+| ML | Scikit-learn | | PWA | Manifest + Service Worker + VAPID |
+| Open Finance | Pluggy + Dados Abertos | | Container | Docker |
+| Taxas | BACEN SGS + ANBIMA | | CI/CD | GitHub Actions (+ pip-audit) |
+| IA | LangGraph + Claude (fallback OpenAI) | | Deploy | Railway |
+| Scheduler | APScheduler | | Tests | pytest · Vitest · Playwright |
+
+---
+
+## 🔌 Endpoints da API
+
+### Sistema e Autenticação
+
+| Método | Rota | Descrição |
+|:---:|:---|:---|
+| `GET` | `/health` · `/readiness` · `/version` | Saúde e versão |
+| `POST` | `/api/v1/auth/register` · `/auth/token` · `/auth/refresh` · `/auth/logout` | Cadastro, login JWT, refresh rotativo, logout |
+
+<details>
+<summary><strong>Ver todos os endpoints por domínio</strong></summary>
+
+### Open Finance
+
+| Método | Rota | Descrição |
+|:---:|:---|:---|
+| `GET` | `/api/v1/pluggy/institutions` | Lista instituições |
+| `POST` | `/api/v1/pluggy/connect` | Conecta conta bancária |
+| `GET` | `/api/v1/pluggy/accounts/{user_id}` · `/transactions/{user_id}` | Contas e transações |
+| `POST` | `/api/v1/transactions/webhook` | Webhook Pluggy (assinado) |
+
+### Saúde Financeira (F1)
+
+| Método | Rota | Descrição |
+|:---:|:---|:---|
+| `GET` | `/api/v1/forecast/{user_id}` | Cashflow + safe-to-spend + perfil |
+| `GET` | `/api/v1/safe_to_spend/{user_id}` | Margem segura do dia |
+| `GET` | `/api/v1/safe-to-spend/{user_id}/widget` | Payload compacto p/ widget PWA (~200 bytes) |
+| `GET` | `/api/v1/shadow_invoice/{user_id}` · `/alerts/{user_id}` | Obrigações futuras, alertas |
+| `GET` | `/api/v1/dashboard/summary` · `/dashboard/safe-to-spend` | Dashboard consolidado |
+
+### Otimização (F2, F3, F7)
+
+| Método | Rota | Descrição |
+|:---:|:---|:---|
+| `POST` | `/api/v1/optimizer/recommend` · `/simulate` · `/multi_card` · `/opportunity_cost` | Cartões |
+| `POST` | `/api/v1/architect/simulate` | VPL + Monte Carlo |
+| `GET` | `/api/v1/architect/simulations[/{id}/sensitivity]` | Histórico e sensibilidade |
+| `POST` | `/api/v1/purchase/recommend` | Melhor forma de pagamento |
+| `GET` | `/api/v1/purchase/checkout-context` · `/purchase/recent-review` | Veredito no checkout, revisão retroativa |
+
+### Oportunidades (OPP)
+
+| Método | Rota | Descrição |
+|:---:|:---|:---|
+| `GET` | `/api/v1/opportunities/{user_id}` | Dinheiro parado + recomendações |
+| `GET` | `/api/v1/opportunities/{user_id}/banks` | Scorecard por banco (ajuste a risco) |
+| `GET` | `/api/v1/opportunities/{user_id}/bank-match` | Melhor banco pelo perfil completo |
+| `GET` | `/api/v1/opportunities/products` | Catálogo público transparente |
+| `GET` | `/api/v1/opportunities/savings-vs-cdi` · `/treasury-vs-cdb-vs-savings` | Comparadores |
+| `POST` | `/api/v1/opportunities/compare` | Simulação de investimento |
+
+### Defesa, Direitos e Impostos (D, T)
+
+| Método | Rota | Descrição |
+|:---:|:---|:---|
+| `GET` | `/api/v1/defense/{user_id}` | Venda casada + cobranças indevidas + juros abusivos |
+| `GET` | `/api/v1/defense/{user_id}/dossier` · `/zip` | Dossiê de evidências (PROCON/JEC) + export |
+| `GET` | `/api/v1/defense/{user_id}/portability` | Simulador de portabilidade total |
+| `GET` | `/api/v1/rights/{user_id}` | SVR BACEN, FGTS, PIS/PASEP, restituição IR |
+| `GET` | `/api/v1/tax/optimize/{user_id}` | Otimizador de IR + tax loss harvesting |
+| `POST` | `/api/v1/tax/breakeven` | Breakeven CDB vs LCI/LCA |
+| `GET` | `/api/v1/seasonality/{user_id}` | Calendário fiscal personalizado |
+| `GET` | `/api/v1/costs/{user_id}` | Raio-X de tarifas vs benchmark |
+
+### Engajamento (MX, R, V)
+
+| Método | Rota | Descrição |
+|:---:|:---|:---|
+| `GET` | `/api/v1/health-score/history/{user_id}` · `/health-score/challenges` | Score, desafios e badges |
+| `POST/GET` | `/api/v1/goals/{user_id}` | Metas com projeção |
+| `GET` | `/api/v1/notifications/{user_id}` | Feed de cards filtrados por relevância |
+| `POST` | `/api/v1/push/*` | Inscrição Web Push (VAPID) |
+| `GET` | `/api/v1/peers/compare/{user_id}` · `/budget/{user_id}` | Benchmark e orçamento 50/30/20 |
+| `GET` | `/api/v1/viral/savings-card/{user_id}[/svg]` | Placar de economia compartilhável |
+| `GET` | `/api/v1/viral/wrapped/{user_id}/{year}[/svg]` | Nexa Wrapped anual |
+
+### IA, Privacidade e Fiscal
+
+| Método | Rota | Descrição |
+|:---:|:---|:---|
+| `POST` | `/api/v1/chat/` | Chat com agente (29 ferramentas) |
+| `GET` | `/api/v1/privacy/export/{user_id}` | Export LGPD (portabilidade) |
+| `DELETE` | `/api/v1/privacy/erase/{user_id}` | Eliminação irreversível (LGPD) |
+| `GET` | `/api/v1/fiscal/*` | Relatório fiscal MEI/PJ |
+| `GET` | `/api/v1/negotiator/*` | Scripts de negociação |
+
+</details>
+
+> 📄 Referência completa em [docs/ENDPOINTS_SUMMARY.md](docs/ENDPOINTS_SUMMARY.md)
 
 ---
 
@@ -96,21 +616,14 @@ Com **base legal**, **carta gerada automaticamente** e **probabilidade de sucess
 |:---|:---|
 | Python | 3.12+ |
 | PostgreSQL | 16 |
-| Redis | 5.0+ (opcional) |
+| Redis | 5.0+ (opcional em dev) |
 | Node.js | 20+ (frontend) |
 
-### Instalação com Docker Compose
+### Docker Compose
 
 ```bash
-# Clone o repositório
-git clone https://github.com/nexa-ai/nexa.git
-cd nexa
-
-# Configure as variáveis de ambiente
-cp backend/.env.example backend/.env
-# Edite backend/.env com suas credenciais
-
-# Inicie os serviços
+git clone https://github.com/nexa-ai/nexa.git && cd nexa
+cp backend/.env.example backend/.env   # edite com suas credenciais
 docker-compose up --build
 ```
 
@@ -127,8 +640,7 @@ docker-compose up --build
 
 ```bash
 cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 alembic upgrade head
 uvicorn app.main:app --port 8000 --reload
@@ -137,633 +649,64 @@ uvicorn app.main:app --port 8000 --reload
 </details>
 
 <details>
-<summary><strong>Frontend</strong></summary>
+<summary><strong>Frontend (protótipo)</strong></summary>
 
 ```bash
 cd frontend-react
-npm install
-npm run dev
+npm install && npm run dev
 ```
 
 </details>
 
-### Variáveis de Ambiente
+### Variáveis de Ambiente Principais
 
 ```env
 # Obrigatórios
 DATABASE_URL=postgresql+psycopg2://user:pass@localhost:5432/nexa
 SECRET_KEY=sua-chave-secreta-forte-aqui
 
-# LLM (escolha um)
+# LLM
 LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
 
 # Open Finance
-PLUGGY_CLIENT_ID=seu_client_id
-PLUGGY_CLIENT_SECRET=seu_client_secret
+PLUGGY_CLIENT_ID=...
+PLUGGY_CLIENT_SECRET=...
+PLUGGY_WEBHOOK_SECRET=...        # produção: obrigatório (fail-closed)
 
-# Opcionais
+# Proatividade (opcional)
+SCHEDULER_ENABLED=true
 REDIS_URL=redis://localhost:6379/0
-FRONTEND_BASE_URL=http://localhost:3000
+SENDGRID_API_KEY=...             # ou SMTP_HOST/SMTP_USER/SMTP_PASSWORD
+
+# Produção
+ALLOWED_ORIGINS=https://app.nexa.com.br   # '*' recusado em produção
 ```
 
-> 📄 Veja [docs/SETUP_LOCAL.md](docs/SETUP_LOCAL.md) para configuração completa.
-
----
-
-## ⚡ Funcionalidades
-
-### Verticais de Valor
-
-A Nexa opera em **quatro dimensões**, cada uma atacando um ponto onde o sistema financeiro extrai valor do usuário:
-
-<table>
-<tr>
-<td width="50%">
-
-#### 🔍 Revelar o que está oculto
-
-- **Raio-X de Custos** — Detecta tarifas invisíveis, serviços não contratados e cobranças em duplicidade
-- **Transparência Radical** — Exibe quanto cada banco lucrou com o usuário no último ano
-- **Detector de Venda Casada** — Identifica seguros e pacotes embutidos ilegalmente (art. 39 CDC)
-
-</td>
-<td width="50%">
-
-#### 💰 Recuperar o que foi perdido
-
-- **Recuperador de Cobranças** — Gera carta de contestação com base legal e correção monetária
-- **Monitor de Direitos** — Consulta SVR, FGTS, PIS/PASEP automaticamente
-- **Detector de Juros Abusivos** — Compara taxas com médias BACEN + jurisprudência STJ
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-#### 📈 Otimizar cada real
-
-- **Modo Compra Inteligente** — Qual cartão usar, parcelar ou não, Pix ou crédito
-- **Card Optimizer** — Ranqueia 2.000+ cartões pelo perfil real de gastos
-- **Nexa Architect** — Simula financiamento vs consórcio vs investimento com Monte Carlo
-
-</td>
-<td width="50%">
-
-#### 🛡️ Proteger no longo prazo
-
-- **Safe-to-Spend** — Margem diária de gastos em tempo real
-- **Shadow Invoice Detector** — Parcelas e assinaturas que comprometem o caixa futuro
-- **Score Nexa** — Score financeiro com tendência 30/90 dias
-
-</td>
-</tr>
-</table>
-
-### Catálogo de Funcionalidades
-
-#### Motor Core
-
-| ID | Funcionalidade | Status |
-|:---|:---|:---:|
-| F1 | ETL Pipeline 8 estágios + Cashflow 30 dias + Safe-to-Spend | ✅ |
-| F2 | Card Optimizer — 2.000+ cartões, multi-card, custo de oportunidade | ✅ |
-| F3 | Nexa Architect — Financiamento vs Consórcio vs Investimento, Monte Carlo | ✅ |
-| F4 | PF/PJ Classifier — Random Forest + regras, relatório fiscal MEI | ✅ |
-| F5 | Raio-X de Custos — Análise de tarifas, benchmark 16 bancos | ✅ |
-| F7 | Modo Compra Inteligente — qual cartão usar, parcelar ou não | ✅ |
-
-#### Experiência e Engajamento
-
-| ID | Funcionalidade | Status |
-|:---|:---|:---:|
-| MX.1 | Health Score com tendência e histórico temporal | ✅ |
-| MX.2 | Metas Financeiras — CRUD, projeção de prazo, progresso | ✅ |
-| MX.3 | Notificações Proativas — 10 tipos, filtro de relevância por renda, Life Events | ✅ |
-| MX.4 | Peer Comparison — benchmarks IBGE/POF por faixa de renda | ✅ |
-| MX.5 | Budget Advisor — plano 50/30/20 personalizado por perfil comportamental | ✅ |
-| MX.6 | Shadow Invoices — parcelas e assinaturas futuras comprometendo o caixa | ✅ |
-| F11 | Agente Conversacional — ReAct com 14 ferramentas financeiras | ✅ |
-| F13 | Negociador — scripts gerados por Claude para negociar com banco | ✅ |
-
-#### Inteligência Comportamental
-
-| Módulo | Funcionalidade | Status |
-|:---|:---|:---:|
-| ConsumptionProfiler | 8 clusters de estilo de vida integrados em 6+ módulos | ✅ |
-| LifeEventsDetector | Detecção de eventos de vida via padrão de gastos | ✅ |
-| NotificationRelevanceFilter | Filtro de qualidade com thresholds escalados por renda | ✅ |
-
-<details>
-<summary><strong>📅 Roadmap: Funcionalidades Futuras</strong></summary>
-
-#### Piloto Automático (Fase 2)
-
-| ID | Funcionalidade |
-|:---|:---|
-| F6 | Sweep automático — move sobra para investimento |
-| F8 | Radar de Produtos — monitora 200+ instituições |
-| F9 | Portabilidade de Crédito Assistida |
-| F10 | Pagamento Otimizado |
-| F12 | Modo Família — até 4 membros |
-
-#### Transparência e Defesa (Fase 3)
-
-| ID | Funcionalidade |
-|:---|:---|
-| D1 | Detector de Venda Casada (art. 39 CDC) |
-| D2 | Recuperador de Cobranças Indevidas |
-| D3 | Detector de Juros Abusivos |
-| D5 | Central de Evidências (PROCON/juizado) |
-
-#### Inteligência Fiscal (Fase 3)
-
-| ID | Funcionalidade |
-|:---|:---|
-| T1 | Otimizador de IR em Tempo Real |
-| T2 | Modo Imposto Zero — LCI/LCA, debêntures |
-| T3 | Monitor de Direitos Esquecidos |
-
-</details>
-
----
-
-## 🏆 Diferencial Competitivo
-
-### Matriz Competitiva
-
-| Dimensão | Nexa | Bancos | Apps de Controle | Comparadores |
-|:---|:---:|:---:|:---:|:---:|
-| **Modelo de receita** | Assinatura do usuário | Tarifas + spread | Freemium / comissão | Comissão de banco |
-| **Neutralidade** | ✅ Total | ❌ Conflito | ⚠️ Parcial | ❌ Conflito |
-| **Ação automática** | ✅ Contesta, negocia | ❌ | ❌ Só visualiza | ❌ Só compara |
-| **Open Finance nativo** | ✅ Multi-banco | ⚠️ Só o próprio | ⚠️ Manual | ⚠️ Parcial |
-| **Base legal integrada** | ✅ CDC, BACEN, STJ | ❌ | ❌ | ❌ |
-| **IA conversacional** | ✅ 14 ferramentas | ❌ | ❌ | ❌ |
-| **Score alternativo** | ✅ Fluxo de caixa real | ⚠️ Score próprio | ❌ | ❌ |
-| **Perfil comportamental** | ✅ 8 clusters adaptativos | ❌ | ❌ | ❌ |
-
-### Por que não é copiável
-
-> **1. Neutralidade estrutural** — Bancos nunca vão recomendar o concorrente. Apps que ganham comissão não podem ser neutros. A Nexa cobra do usuário — a única estrutura que garante trabalhar exclusivamente para quem paga.
-
-> **2. Flywheel de dados** — Cada novo usuário melhora o benchmark de tarifas e o detector de venda casada. Meses de dados históricos que nenhum concorrente pode replicar retroativamente.
-
-> **3. Complexidade técnica** — 16 módulos de análise, ETL de 8 estágios, 2.000+ cartões, simulador Monte Carlo, agente ReAct com 14 ferramentas, 8 clusters comportamentais e detecção de eventos de vida. Não é um wrapper de API.
-
-> **4. Confiança do usuário** — Uma vez que o usuário confia na Nexa como seu advogado, o custo de troca é altíssimo.
-
-> **5. Nexa Score como bureau alternativo** — Com massa crítica, o Score Nexa baseado em fluxo de caixa real vira um selo de qualidade que força bancos a baixarem juros. Nenhum concorrente tem os dados de Open Finance para replicar isso.
-
----
-
-## 📊 Métricas Analisadas
-
-A Nexa calcula e monitora **40+ indicadores financeiros** individuais.
-
-<details>
-<summary><strong>Saúde Financeira</strong></summary>
-
-| Métrica | Descrição |
-|:---|:---|
-| Safe-to-Spend diário | Margem segura de gastos considerando obrigações futuras |
-| Burn Rate | Taxa de consumo de renda mensal por categoria |
-| Score Nexa | Score financeiro composto (0-100) com tendência 30/90 dias |
-| Shadow Invoices | Valor total de compromissos futuros não vencidos |
-| Runway financeiro | Meses de sobrevivência com reservas atuais |
-| Savings Rate | Percentual real da renda sendo poupado |
-| Liquidity Ratio | Ativos líquidos sobre compromissos de curto prazo |
-
-</details>
-
-<details>
-<summary><strong>Fluxo de Caixa e Previsão</strong></summary>
-
-| Métrica | Descrição |
-|:---|:---|
-| Cashflow projetado (30 dias) | Projeção diária com bandas de confiança |
-| Receita estimada real | Renda após filtrar transferências e rendimentos não recorrentes |
-| Despesas recorrentes | Valor e frequência de cada recorrência identificada |
-| Anomalia de gasto | Desvio estatístico vs histórico pessoal |
-| Percentual comprometido | Fração da renda alocada em compromissos fixos |
-
-</details>
-
-<details>
-<summary><strong>Custo Bancário e Tarifas</strong></summary>
-
-| Métrica | Descrição |
-|:---|:---|
-| Total de tarifas pagas | Soma de todas as cobranças classificadas como tarifa |
-| Custo de oportunidade | Quanto renderia se investido |
-| Spread bancário estimado | Diferença entre taxa captada e cobrada |
-| Total que o banco lucrou | Tarifa + spread + câmbio no período |
-| Tarifas acima da média | Comparativo com benchmark dos 16 principais bancos |
-
-</details>
-
-<details>
-<summary><strong>Cartões e Recompensas</strong></summary>
-
-| Métrica | Descrição |
-|:---|:---|
-| Cashback gerado vs potencial | Quanto ganhou vs quanto ganharia com o cartão ideal |
-| Custo de oportunidade | Valor perdido por não usar o cartão mais adequado |
-| ROI por cartão | Retorno efetivo considerando anuidade e benefícios |
-| Estratégia multi-cartão | Carteira ótima de N cartões para o perfil |
-
-</details>
-
-<details>
-<summary><strong>Simulações e Decisões</strong></summary>
-
-| Métrica | Descrição |
-|:---|:---|
-| VPL das estratégias | Valor Presente Líquido comparativo |
-| TIR do financiamento | Taxa Interna de Retorno efetiva |
-| CET real | Custo Efetivo Total incluindo IOF e seguros |
-| Intervalo Monte Carlo (95%) | Faixa de resultado com 95% de confiança |
-| Sensibilidade a juros | Variação do VPL para cada +1% na taxa |
-
-</details>
-
----
-
-## 🏗️ Arquitetura Técnica
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                     USUÁRIO / FRONTEND (React 19)                │
-│            TailwindCSS · React Query · Framer Motion             │
-└────────────────────────────┬─────────────────────────────────────┘
-                             │ HTTPS / JWT
-┌────────────────────────────▼─────────────────────────────────────┐
-│                  FastAPI 0.128 — app/main.py                     │
-│         Rate Limiting (SlowAPI) · CORS · Correlation IDs         │
-│              JWT Auth · Audit Log · Health/Readiness             │
-└──────┬──────────┬──────────┬──────────┬──────────────────────────┘
-       │          │          │          │
-┌──────▼───┐ ┌───▼──────┐ ┌─▼────────┐ ┌▼──────────────────────┐
-│   ETL    │ │ Cashflow │ │Architect │ │  Agent (LangGraph)    │
-│ Pipeline │ │  Engine  │ │   F3     │ │  ReAct + Claude 4.6   │
-│ 8 stages │ │Safe2Spend│ │MonteCarlo│ │  14 Financial Tools   │
-└──────┬───┘ └───┬──────┘ └──────────┘ └───────────────────────┘
-       │         │
-┌──────▼─────────▼──────────────────────────────────────────────┐
-│                    MÓDULOS ANALÍTICOS                          │
-│  F2 Card Optimizer  ·  F5 Cost Analysis  ·  F7 Smart Purchase │
-│  F13 Negotiator  ·  MX.1-6  ·  Budget  ·  Goals  ·  Fiscal    │
-└──────────────────────────┬────────────────────────────────────┘
-                           │
-┌──────────────────────────▼────────────────────────────────────┐
-│               INTELIGÊNCIA COMPORTAMENTAL                      │
-│  ConsumptionProfiler (8 clusters) · LifeEventsDetector         │
-│  NotificationRelevanceFilter · IncomeProfiler                  │
-└──────────────────────────┬────────────────────────────────────┘
-                           │
-┌──────────────────────────▼────────────────────────────────────┐
-│                      DATA LAYER                                │
-│          PostgreSQL 16 + SQLAlchemy 2.0 + Alembic              │
-│     Polars 1.0 DataFrames  ·  DuckDB  ·  Redis (cache)         │
-└──────────────────────────┬────────────────────────────────────┘
-                           │
-┌──────────────────────────▼────────────────────────────────────┐
-│                  INTEGRAÇÕES EXTERNAS                          │
-│   Pluggy (Open Finance)  ·  BACEN/ANBIMA (taxas de mercado)   │
-│   Claude Sonnet 4.6 (IA)  ·  GPT-4o-mini (fallback)           │
-└───────────────────────────────────────────────────────────────┘
-```
-
-### Padrões Arquiteturais
-
-| Padrão | Aplicação |
-|:---|:---|
-| **Feature-driven** | Cada funcionalidade em `/app/{feature}/` isolado |
-| **Pipeline Pattern** | ETL 8 estágios: Ingest → Classify → Detect → Validate → Persist |
-| **Strategy Pattern** | Parsing por banco: Nubank, Itaú, Inter, default |
-| **ReAct Agent** | LangGraph: pensa → chama ferramenta → observa → repete |
-| **Multi-layer Fallback** | ML → Regras → Defaults em classificadores |
-| **Repository Pattern** | Abstração de dados via SQLAlchemy + DI |
-| **Behavioral Clustering** | 8 clusters adaptativos personalizam todas as recomendações |
-
----
-
-## 🛠️ Stack Tecnológica
-
-<table>
-<tr>
-<td width="50%">
-
-### Backend
-
-| Camada | Tecnologia |
-|:---|:---|
-| API | FastAPI 0.128 + Uvicorn |
-| Database | PostgreSQL 16 + SQLAlchemy 2.0 |
-| Cache | Redis 5.0 + SlowAPI |
-| DataFrames | Polars 1.0+ |
-| Analytics | DuckDB 1.0+ |
-| ML | Scikit-learn 1.3+ |
-| Open Finance | Pluggy API |
-| Taxas | BACEN API + ANBIMA |
-| IA | LangGraph + Claude Sonnet 4.6 |
-| Auth | JWT + bcrypt + Redis |
-| Logging | structlog 24.1 |
-
-</td>
-<td width="50%">
-
-### Frontend
-
-| Camada | Tecnologia |
-|:---|:---|
-| Framework | React 19 + TypeScript 5 |
-| Build | Vite 8 |
-| Styling | TailwindCSS 4 |
-| State | Zustand 5 + React Query 5 |
-| Charts | Recharts 3 |
-| Animation | Framer Motion 12 |
-| HTTP | Axios 1.13 |
-| Testing | Vitest + Playwright |
-
-### DevOps
-
-| Camada | Tecnologia |
-|:---|:---|
-| Container | Docker |
-| CI/CD | GitHub Actions |
-| Deploy | Railway |
-| Tests | pytest 7.4+ |
-
-</td>
-</tr>
-</table>
-
----
-
-## 📁 Estrutura do Projeto
-
-```
-nexa/
-├── backend/
-│   ├── app/
-│   │   ├── main.py                    # FastAPI app, lifespan, middleware
-│   │   ├── core/
-│   │   │   ├── config.py              # Pydantic Settings
-│   │   │   ├── security.py            # JWT, bcrypt
-│   │   │   ├── database.py            # SQLAlchemy engine
-│   │   │   └── integrations/
-│   │   │       └── pluggy.py          # Cliente Open Finance
-│   │   ├── api/v1/routes/             # 20+ routers
-│   │   ├── forecast/                  # F1: ETL + Cashflow
-│   │   │   ├── etl/
-│   │   │   │   ├── ingestor.py
-│   │   │   │   ├── classifier.py
-│   │   │   │   ├── recurring_detector.py
-│   │   │   │   ├── profiles.py        # Income profiling
-│   │   │   │   └── bank_strategy/
-│   │   │   └── cashflow/
-│   │   │       ├── engine.py
-│   │   │       └── safe_to_spend.py
-│   │   ├── optimizer/                 # F2: Card Optimizer
-│   │   │   ├── profiler.py            # ConsumptionProfiler (8 clusters)
-│   │   │   └── detectors/
-│   │   │       └── life_events_detector.py
-│   │   ├── architect/                 # F3: Monte Carlo + VPL
-│   │   ├── divider/                   # F4: PF/PJ Classifier
-│   │   ├── costs/                     # F5: Raio-X de Tarifas
-│   │   ├── purchase/                  # F7: Compra Inteligente
-│   │   ├── negotiator/                # F13: Scripts Claude
-│   │   ├── goals/                     # MX.2: Metas
-│   │   ├── health_score/              # MX.1: Score
-│   │   ├── notifications/             # MX.3: Alertas Proativos
-│   │   │   ├── notifier.py            # 10 tipos de notificação
-│   │   │   ├── relevance_filter.py    # Filtro de qualidade por renda
-│   │   │   └── state_store.py
-│   │   ├── peers/                     # MX.4: Benchmark IBGE/POF
-│   │   ├── budget/                    # MX.5: Budget Advisor 50/30/20
-│   │   ├── subscriptions/             # MX.6: Shadow Invoices
-│   │   └── agent/                     # LangGraph ReAct
-│   │       ├── graph.py
-│   │       └── tools/                 # 14 ferramentas
-│   ├── alembic/versions/              # Migrations
-│   ├── models/                        # Modelos ML (.pkl)
-│   └── tests/                         # 414 testes
-├── frontend-react/
-│   └── src/
-│       ├── components/
-│       ├── pages/
-│       ├── api/
-│       ├── store/                     # Zustand (authStore, uiStore)
-│       └── hooks/
-├── docs/                              # 13 arquivos de documentação
-├── data/
-│   └── cards/knowledge_cards.json     # 2.000+ cartões
-├── docker-compose.yml
-└── .github/workflows/ci.yml
-```
-
----
-
-## 🔌 Endpoints da API
-
-### Sistema
-
-| Método | Rota | Descrição |
-|:---:|:---|:---|
-| `GET` | `/health` | Health check |
-| `GET` | `/readiness` | Readiness check (DB + Redis) |
-| `GET` | `/version` | Versão da API |
-| `GET` | `/docs` | Swagger UI |
-
-### Autenticação
-
-| Método | Rota | Descrição |
-|:---:|:---|:---|
-| `POST` | `/api/v1/auth/register` | Cadastro de usuário |
-| `POST` | `/api/v1/auth/token` | Login → JWT |
-| `POST` | `/api/v1/auth/logout` | Logout (revoga token) |
-
-### Open Finance
-
-| Método | Rota | Descrição |
-|:---:|:---|:---|
-| `GET` | `/api/v1/pluggy/institutions` | Lista instituições |
-| `POST` | `/api/v1/pluggy/connect` | Conecta conta bancária |
-| `GET` | `/api/v1/pluggy/accounts/{user_id}` | Contas conectadas |
-| `GET` | `/api/v1/pluggy/transactions/{user_id}` | Transações |
-
-<details>
-<summary><strong>Ver todos os endpoints</strong></summary>
-
-### F1 — Saúde Financeira
-
-| Método | Rota | Descrição |
-|:---:|:---|:---|
-| `GET` | `/api/v1/forecast/{user_id}` | Cashflow + safe-to-spend + perfil |
-| `GET` | `/api/v1/safe_to_spend/{user_id}` | Margem segura do dia |
-| `GET` | `/api/v1/shadow_invoice/{user_id}` | Obrigações futuras |
-| `GET` | `/api/v1/alerts/{user_id}` | Alertas ativos |
-
-### F2 — Card Optimizer
-
-| Método | Rota | Descrição |
-|:---:|:---|:---|
-| `POST` | `/api/v1/optimizer/recommend` | Ranqueia cartões |
-| `POST` | `/api/v1/optimizer/simulate` | ROI de cartão específico |
-| `POST` | `/api/v1/optimizer/multi_card` | Carteira ótima |
-| `POST` | `/api/v1/optimizer/opportunity_cost` | Custo de oportunidade |
-
-### F3 — Nexa Architect
-
-| Método | Rota | Descrição |
-|:---:|:---|:---|
-| `POST` | `/api/v1/architect/simulate` | Compara estratégias (VPL + Monte Carlo) |
-| `GET` | `/api/v1/architect/simulations` | Histórico |
-| `GET` | `/api/v1/architect/simulations/{id}/sensitivity` | Análise de sensibilidade |
-
-### F5 — Raio-X de Custos
-
-| Método | Rota | Descrição |
-|:---:|:---|:---|
-| `GET` | `/api/v1/costs/{user_id}` | Tarifas vs benchmark |
-
-### F7 — Compra Inteligente
-
-| Método | Rota | Descrição |
-|:---:|:---|:---|
-| `POST` | `/api/v1/purchase/recommend` | Melhor forma de pagamento |
-
-### MX — Engajamento
-
-| Método | Rota | Descrição |
-|:---:|:---|:---|
-| `GET` | `/api/v1/health-score/history/{user_id}` | Score com tendência |
-| `POST` | `/api/v1/goals/{user_id}` | Criar meta |
-| `GET` | `/api/v1/goals/{user_id}` | Listar metas |
-| `GET` | `/api/v1/notifications/{user_id}` | Notificações filtradas por relevância |
-| `GET` | `/api/v1/peers/compare/{user_id}` | Benchmark IBGE/POF |
-| `GET` | `/api/v1/budget/{user_id}` | Plano 50/30/20 |
-
-### Agente
-
-| Método | Rota | Descrição |
-|:---:|:---|:---|
-| `POST` | `/api/v1/chat/` | Chat com agente (14 ferramentas) |
-
-</details>
-
-> 📄 Referência completa em [docs/ENDPOINTS_SUMMARY.md](docs/ENDPOINTS_SUMMARY.md)
-
----
-
-## 🤖 Agente de IA
-
-O agente usa o padrão **ReAct**: o LLM decide qual ferramenta chamar, observa o resultado e responde em linguagem natural. A primeira ferramenta chamada em cada sessão é sempre `get_user_profile_context`, que carrega o cluster comportamental do usuário e adapta o tom de toda a conversa.
-
-### 14 Ferramentas Financeiras
-
-| Ferramenta | Quando é acionada |
-|:---|:---|
-| `get_user_profile_context` | **Primeira chamada de toda sessão** — carrega cluster, FSS e eventos de vida |
-| `get_financial_forecast` | Saúde financeira, safe-to-spend, projeção de caixa |
-| `get_budget_advice` | Orçamento, regra 50/30/20, revisão de gastos |
-| `get_card_optimization` | Qual cartão usar, pontos, cashback |
-| `get_spending_alerts` | Alertas ativos, gastos anômalos |
-| `get_goals_summary` | Metas, reserva de emergência, progresso |
-| `get_financing_simulation` | Financiamento vs consórcio vs investimento |
-| `get_timing_scenarios` | "E se eu esperar X meses para comprar?" |
-| `get_leverage_simulation` | Aluguel + aplicação vs comprar financiado |
-| `get_fiscal_report` | Impostos MEI/PJ, DAS, faturamento |
-| `get_peer_comparison` | Gasto vs pares da mesma faixa de renda |
-| `get_purchase_recommendation` | Melhor forma de pagamento |
-| `get_bank_cost_analysis` | Tarifas, benchmark de bancos |
-| `get_negotiation_script` | Script para negociar com o banco |
-
-### Perfil Comportamental — 8 Clusters
-
-O `ConsumptionProfiler` classifica o usuário em um dos 8 clusters a partir dos últimos 90 dias de transações. Cada cluster adapta o tom, as prioridades e os produtos recomendados pelo agente e por todos os módulos analíticos.
-
-| Cluster | Perfil | Adaptação |
-|:---|:---|:---|
-| `EXPLORADOR_GLOBAL` | Viajante frequente | Prioriza milhas, lounge e benefícios internacionais |
-| `URBANO_FOODIE` | Apreciador gastronômico | Destaque cashback em alimentação e restaurantes |
-| `INVESTIDOR_CAUTELOSO` | Orientado a retorno | Precisão em números, custo de oportunidade, anuidade |
-| `FAMILIA_ESTRUTURADA` | Perfil família | Segurança, educação e saúde financeira |
-| `DIGITAL_NATIVO` | Usuário digital | PIX, cashback, fintechs — linguagem direta |
-| `ESTRESSE_FINANCEIRO` | Em pressão financeira | Empatia, cortes urgentes, sem sugestões de gasto |
-| `MICROEMPREENDEDOR` | MEI / autônomo | Fluxo PJ vs PF, DAS, separação de contas |
-| `NAO_CLASSIFICADO` | Perfil neutro | Linguagem equilibrada com contexto antes de recomendar |
-
----
-
-## 🔔 Sistema de Notificações (MX.3)
-
-O `ProactiveNotifier` gera alertas em 10 tipos diferentes, combinando dados de burn rate, anomalias, saúde do score, metas, assinaturas e **eventos de vida**. O `NotificationRelevanceFilter` aplica um pipeline de 3 etapas para eliminar ruído antes de entregar ao usuário.
-
-### 10 Tipos de Notificação
-
-| Tipo | Gatilho | Prioridade |
-|:---|:---|:---:|
-| `BURN_RATE_HIGH` | Categoria consumiu >70% do orçamento | WARNING / CRITICAL |
-| `ANOMALY_DETECTED` | Gasto ≥2.5× acima do padrão histórico | WARNING / CRITICAL |
-| `SUBSCRIPTION_INCREASE` | Assinatura ficou mais cara (≥15%) | WARNING |
-| `CARD_OPPORTUNITY` | Cashback perdido por usar cartão errado | INFO |
-| `WAIVER_ALERT` | Faltam R$ X para isentar anuidade | INFO |
-| `TRANSFER_PROMO` | Transferência de pontos com bônus ≥20% | INFO |
-| `SCORE_IMPROVED` | Health Score variou ≥5 pontos | INFO / WARNING |
-| `GOAL_PROGRESS` | Meta atingiu marco de 50%, 75% ou 100% | INFO |
-| `SAFE_TO_SPEND_LOW` | Margem diária caiu abaixo de R$100/dia | WARNING / CRITICAL |
-| `LIFE_EVENT` | Evento de vida detectado via padrão de gastos | INFO / WARNING / CRITICAL |
-
-### Life Events Detection
-
-O `LifeEventsDetector` analisa transações dos últimos 60 dias e compara com o histórico de 6–18 meses para identificar eventos de alta relevância financeira:
-
-| Evento | Sinal detectado | Ação sugerida |
-|:---|:---|:---|
-| `new_baby` | Gastos com fraldas, maternidade, enxoval | Revisar metas, reservas e seguro de vida |
-| `home_change` | Gastos com mudança, reforma ou moveleiros | Revisar custos fixos e seguro residencial |
-| `wedding` | Gastos com buffet, cerimonial, noivas | Planejar finanças a dois, metas conjuntas |
-| `new_education` | Mensalidades de faculdade ou EAD | Meta para cobrir próximos 12 meses |
-| `income_increase` | Renda recente >20% acima do histórico | Investir o incremento antes de virar gasto fixo |
-| `income_drop` | Renda recente >20% abaixo do histórico | Cortar gastos, garantir reserva de emergência |
-
-### Filtro de Relevância (3 etapas)
-
-```
-Bruto → [Etapa 1: Threshold por tipo] → [Etapa 2: Cap ≤2/tipo] → [Etapa 3: Cap global ≤4 não-críticos]
-                                                   ↑
-                    Thresholds escalam com renda mensal do usuário
-                    (mesmo evento é ruído p/ R$15k e relevante p/ R$2k)
-                    CRITICAL nunca é descartado em nenhuma etapa
-```
+> 📄 Setup completo em [docs/SETUP_LOCAL.md](docs/SETUP_LOCAL.md)
 
 ---
 
 ## 🗄️ Banco de Dados
 
-PostgreSQL 16 com 3 migrations Alembic.
+PostgreSQL 16 com migrations Alembic. Principais tabelas:
 
 ```sql
--- Principais tabelas
 users                    -- Usuários
 transactions_clean       -- Transações processadas (índice: user_id, date)
 financial_goals          -- Metas financeiras
 architect_simulations    -- Histórico de simulações F3
 chat_messages            -- Histórico do agente
 pluggy_items             -- Contas Open Finance
-health_score_history     -- Série temporal do Score
+health_score_history     -- Série temporal do score
+bank_fee_history         -- Histórico de tarifas por usuário (D2/D4)
+bank_fee_trends          -- Baseline de mercado anonimizado por banco
+opportunity_snapshots    -- Varreduras diárias do Radar OPP
+user_badges              -- Badges de desafios (R2.b)
+daily_digest_log         -- Idempotência do digest diário
+push_subscriptions       -- Inscrições Web Push (PWA)
+negotiation_history      -- Histórico do negociador
 context_overrides        -- Correções manuais PF/PJ
-```
-
-### Migrations
-
-```bash
-cd backend
-alembic upgrade head                              # Aplicar todas
-alembic revision --autogenerate -m "descricao"    # Nova migration
-alembic downgrade -1                              # Reverter última
 ```
 
 ---
@@ -772,33 +715,14 @@ alembic downgrade -1                              # Reverter última
 
 ```bash
 cd backend
-
-# Rodar todos os testes
-pytest tests/ -v
-
-# Com coverage
-pytest tests/ --cov=app --cov-report=html
-
-# Feature específica
-pytest tests/test_architect/ -v
-pytest tests/test_optimizer/ -v
+pytest tests/ -v                          # suíte completa
+pytest tests/ --cov=app --cov-report=html # com coverage
+pytest tests/opportunities/ -v            # por feature
 ```
 
-### Cobertura
+**2.189 testes coletados** — suíte mantida 100% verde como política do projeto. Cobertura por área: optimizer, architect, cashflow/ETL, opportunities, notifications (filtro + life events), seasonality, purchase, health_score, peers, fiscal, agent, e2e (seeded e fresh) e **31 testes dedicados de segurança** (`test_security_hardening.py`).
 
-| Módulo | Arquivos de Teste |
-|:---|:---:|
-| F2 — Card Optimizer | 12 |
-| F3 — Architect | 18 |
-| F1 — Cashflow / ETL | 6 |
-| MX.1–MX.4 | 4 |
-| Notificações (filtro + life events) | 3 |
-| Agente / Tools | 1 |
-| E2E | 2 |
-
-> ✅ **414 testes — 0 falhando**
-
-CI/CD via GitHub Actions em push para `main`/`develop` e PRs.
+CI via GitHub Actions: testes + `pip-audit` (CVE novo quebra o build).
 
 ---
 
@@ -808,209 +732,82 @@ CI/CD via GitHub Actions em push para `main`/`develop` e PRs.
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/chat/ \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <token>" \
-  -d '{
-    "message": "Como estão minhas finanças? Posso comprar um carro de R$ 60.000?"
-  }'
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"message": "Como estão minhas finanças? Posso comprar um carro de R$ 60.000?"}'
 ```
 
-O agente chama automaticamente `get_user_profile_context` + `get_financial_forecast` + `get_financing_simulation` e responde com análise completa adaptada ao perfil comportamental do usuário.
+O agente encadeia `get_user_profile_context` → `get_financial_forecast` → `get_financing_simulation` e responde com análise adaptada ao cluster comportamental.
+
+### Radar de Oportunidades
+
+```bash
+curl http://localhost:8000/api/v1/opportunities/<user_id> \
+  -H "Authorization: Bearer <token>"
+```
+
+**Retorna:** dinheiro parado detectado, valor além da reserva de emergência, ranking de produtos por retorno líquido pós-IR e passos práticos de realocação.
+
+### Dossiê de Defesa
+
+```bash
+curl http://localhost:8000/api/v1/defense/<user_id>/zip \
+  -H "Authorization: Bearer <token>" -o dossie.zip
+```
+
+**Retorna:** ZIP com evidências de venda casada, cobranças indevidas e juros abusivos, pronto para PROCON/JEC.
 
 ### Simulação de Compra (F3)
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/architect/simulate \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "asset_type": "vehicle",
-    "target_value": 60000,
-    "down_payment": 12000,
-    "months": 48,
-    "monthly_income": 8000,
-    "current_savings": 15000
-  }'
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"asset_type": "vehicle", "target_value": 60000, "down_payment": 12000,
+       "months": 48, "monthly_income": 8000, "current_savings": 15000}'
 ```
 
-**Retorna:** 3 estratégias ranqueadas por VPL com análise de sensibilidade e intervalo Monte Carlo (95%).
-
-### Recomendação de Cartão (F2)
-
-```bash
-curl -X POST http://localhost:8000/api/v1/optimizer/recommend \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "monthly_income": 8000,
-    "spending_profile": {
-      "alimentacao": 1200,
-      "viagens": 800,
-      "combustivel": 400
-    }
-  }'
-```
-
-### Notificações Filtradas (MX.3)
-
-```bash
-curl -X GET http://localhost:8000/api/v1/notifications/{user_id} \
-  -H "Authorization: Bearer <token>"
-```
-
-**Retorna:** Lista de notificações priorizadas (CRITICAL → WARNING → INFO), já filtradas por relevância, deduplicadas e com cap por tipo — incluindo alertas de Life Events quando detectados.
-
----
-
-## 💼 Modelo de Negócio
-
-> **A Nexa cobra do usuário, não do banco.** Isso garante neutralidade total.
-
-| Plano | Preço | Capacidades |
-|:---|:---:|:---|
-| **Free** | R$ 0/mês | 1 banco, dashboard básico, 3 consultas Compra Inteligente, 5 msgs IA/dia |
-| **Pro** | R$ 19,90/mês | Bancos ilimitados, Raio-X, Radar, Negociador (1/mês), chat ilimitado |
-| **Total** | R$ 39,90/mês | Tudo do Pro + Transparência Radical, Piloto Automático, Modo Família |
-
-### Unit Economics Target
-
-| Métrica | Target |
-|:---|:---:|
-| ARPU | R$ 25/mês |
-| CAC | R$ 40–80 |
-| LTV (12 meses) | R$ 300 |
-| LTV:CAC | > 4:1 |
-| Margem bruta | 75%+ |
-| Payback | < 3 meses |
-
----
-
-## 🚀 Estratégias de Crescimento
-
-### 1. B2B2C — Bem-Estar Financeiro Corporativo
-
-O CAC no B2C financeiro é R$80-150/usuário. O canal B2B2C muda a economia do negócio.
-
-> **O modelo:** vender a Nexa como benefício corporativo (estilo Gympass, mas para finanças). O RH distribui o app internamente — em uma única venda, a Nexa ganha 10.000-50.000 usuários com CAC próximo de zero.
-
-| Aspecto | Detalhe |
-|:---|:---|
-| **Proposta para o RH** | Funcionários endividados faltam mais e produzem menos. Estresse financeiro custa ~R$15.000/ano por funcionário em perda de produtividade (PwC). A Nexa resolve isso. |
-| **Pricing B2B2C** | R$ 5–15 por funcionário/mês. Empresa de 10.000 funcionários = R$100k–150k MRR em um contrato. |
-| **Efeito colateral** | O funcionário conecta contas pessoais. Quando sai da empresa, já está viciado e migra para plano individual. |
-| **Escala** | 10 contratos corporativos = 50.000–100.000 usuários com CAC zero. Equivale a R$5–10M de investimento em marketing B2C. |
-
-### 2. Nexa Score — Bureau de Crédito Alternativo
-
-O Serasa olha para o passado (inadimplência). A Nexa olha para o presente (fluxo de caixa real em tempo real).
-
-> **O conceito:** criar um Score de Crédito Alternativo baseado nos 40+ indicadores da Nexa. Quando o usuário pedir empréstimo, compartilha o Nexa Score — que prova via Open Finance que ele é bom pagador — e força o banco a oferecer taxa menor.
-
-| Fase | O que acontece |
-|:---|:---|
-| **Fase 1 (interna)** | Score Nexa é gamificação — o usuário sobe de nível melhorando hábitos financeiros. Gera engajamento. |
-| **Fase 2 (compartilhável)** | Com 500k+ usuários, o Score vira exportável. O usuário mostra ao banco ao pedir crédito. |
-| **Fase 3 (bureau)** | Instituições financeiras consultam o Score Nexa como alternativa ao Serasa. A Nexa cobra por verificação. Receita sem comprometer neutralidade (o usuário decide compartilhar). |
-
-**Por que funciona:** uma pessoa que poupa 15% da renda e tem burn rate saudável é objetivamente menos arriscada do que alguém com Serasa 800 mas no limite do cheque especial. O Score Nexa captura isso — o Serasa não.
-
-### 3. Nexa Wrapped — Viralização Orgânica
-
-O brasileiro ama comparar e compartilhar. O Spotify Wrapped provou que dados pessoais em formato visual são o mecanismo viral mais poderoso que existe.
-
-> **O modelo:** todo dezembro (e trimestralmente para Pro/Total), gerar um dashboard visual personalizado com os dados financeiros do usuário.
-
-**Conteúdo do Wrapped:**
-
-```
-📊 Quanto cada banco ganhou com você este ano
-💸 Top 5 tarifas que você pagou e poderia evitar
-🏆 Total que a Nexa te economizou
-📈 Sua evolução no Score Nexa
-👥 Como você se compara com outros usuários Nexa
-```
-
-**Card compartilhável:**
-
-```
-"Eu economizei R$ 4.200 contra os bancos este ano com a @NexaAI.
- Veja quanto VOCÊ está perdendo."
- [Botão: Descubra grátis]
-```
-
-| Métrica | Impacto esperado |
-|:---|:---|
-| **Custo de produção** | Zero (dados já existem, template é estático) |
-| **Share rate** | 15-25% dos usuários ativos compartilham (benchmark Spotify: 20%) |
-| **Viralidade** | Cada share atinge ~300 pessoas (média de alcance Instagram/WhatsApp) |
-| **Conversão** | 3-5% dos que veem fazem download (indignação com o próprio banco) |
-
-### 4. Expansão LatAm — O Playbook Mexicano
-
-O México tem sistema bancário tão concentrado e custoso quanto o Brasil, mas com digitalização mais atrasada — janela de oportunidade.
-
-> **Por que México:** Open Banking regulado (Ley Fintech 2018), 60M de adultos sub-bancarizados, CONDUSEF (dados públicos de reclamações), e os mesmos problemas de tarifas abusivas.
-
-| Dimensão | Brasil | México |
-|:---|:---|:---|
-| **População bancarizada** | 180M | 90M |
-| **Concentração bancária** | 5 bancos = 80% | 7 bancos = 80% |
-| **Open Finance** | Fase 4 (avançado) | Fase 2 (em andamento) |
-| **Tarifa média anual** | R$ 800 | ~MXN 3.000 (~R$ 900) |
-| **Regulador** | BACEN | CNBV + CONDUSEF |
-
-**Timing:** provar o modelo no Brasil (2026-2027), adaptar ETL + conectores para o mercado mexicano (2028), escalar com a infraestrutura já validada.
-
-**Impacto no valuation:** VCs globais (Ribbit Capital, a16z, SoftBank) investem em teses "LatAm", não "Brasil". Provar que o modelo replica no México transforma a Nexa de "fintech brasileira" em "plataforma LatAm" — multiplicador de valuation de 2-3x.
+**Retorna:** 3 estratégias ranqueadas por VPL com sensibilidade a juros e intervalo Monte Carlo (95%).
 
 ---
 
 ## 🗺️ Roadmap
 
-### Fase 1 — Fundação ✅
+### Fase 1 — Fundação ✅ (concluída)
 
-- [x] ETL Pipeline 8 estágios
-- [x] Card Optimizer (2.000+ cartões)
-- [x] Nexa Architect (Monte Carlo + VPL)
-- [x] Classificador PF/PJ (89% acurácia)
-- [x] Raio-X de Custos
-- [x] Modo Compra Inteligente
-- [x] Score Nexa, Metas, Notificações (10 tipos)
-- [x] Budget Advisor 50/30/20 (MX.5)
-- [x] Shadow Invoices (MX.6)
-- [x] Agente conversacional (14 ferramentas)
-- [x] ConsumptionProfiler — 8 clusters comportamentais
-- [x] LifeEventsDetector — 6 eventos de vida
-- [x] NotificationRelevanceFilter — filtro de qualidade por renda
+- [x] ETL 8 estágios, Card Optimizer, Architect, PF/PJ, Raio-X, Compra Inteligente
+- [x] Score, Metas, Notificações (17 tipos), Budget, Shadow Invoices, Peers
+- [x] Agente conversacional + perfil comportamental + life events
 - [x] Auth JWT, rate limiting, audit log
-- [x] 414 testes passando
 
-### Fase 2 — Piloto Automático (Q2–Q3 2026)
+### Fase 1.5 — Conversão, Defesa e Retenção ✅ (concluída)
 
-- [ ] Sweep automático (Open Finance Fase 4)
-- [ ] Radar de Produtos — 200+ instituições
-- [ ] Portabilidade de crédito assistida
-- [ ] Modo Família (até 4 membros)
-- [ ] Widget de safe-to-spend
-- [ ] Nexa Score exportável (bureau alternativo)
-- [ ] Nexa Wrapped trimestral (Pro/Total)
+- [x] OPP Radar de Oportunidades completo (OPP.1–5 + Bank Match)
+- [x] D1–D6 Defesa do Consumidor (código; D5 aguarda validação jurídica)
+- [x] T1–T3 Impostos e Direitos Esquecidos
+- [x] Scheduler + daily digest + entrega email/in-app/push
+- [x] PWA: widget instalável + Web Push VAPID
+- [x] Desafios mensais + badges, calendário fiscal sazonal
+- [x] V1 Placar + V2 Wrapped (geradores SVG)
+- [x] Hardening de segurança + LGPD (export/erase)
 
-### Fase 3 — Defesa e Viralização (Q3–Q4 2026)
+### Fase 2 — Monetização e Casa Própria (próxima)
 
-- [ ] Detector de Venda Casada
-- [ ] Recuperador de Cobranças
-- [ ] Detector de Juros Abusivos
-- [ ] Central de Evidências
-- [ ] Wrapped Financeiro Anual (viralização massiva)
+- [ ] **Billing + gating Free/Pro/Total** (pré-requisito de receita)
+- [ ] **Frontend oficial** (substituir protótipo)
+- [ ] Validação jurídica e lançamento do D5
+- [ ] R4.a relatório trimestral · R5 anti-churn
+- [ ] Lançamento público do Wrapped (dezembro)
+
+### Fase 3 — Escala (2027)
+
+- [ ] App mobile nativo (widget homescreen, FCM)
+- [ ] F6 sweep automático · F8 radar 200+ instituições · F12 modo família
+- [ ] Nexa Score exportável → bureau alternativo
 - [ ] B2B2C — primeiros contratos corporativos
+- [ ] V3 ranking público de bancos
 
-### Fase 4 — Escala (2027)
+### Fase 4 — LatAm (2028)
 
-- [ ] Otimizador de IR em tempo real
-- [ ] Monitor de Direitos Esquecidos
-- [ ] B2B2C — escala nacional (50+ empresas)
-- [ ] Nexa Score aceito por instituições financeiras
-- [ ] Expansão LatAm (México)
+- [ ] Expansão México (Ley Fintech)
 - [ ] API de inteligência financeira para terceiros
 
 ---
@@ -1019,43 +816,14 @@ O México tem sistema bancário tão concentrado e custoso quanto o Brasil, mas 
 
 | Arquivo | Conteúdo |
 |:---|:---|
+| [ROADMAP.md](docs/ROADMAP.md) | Roadmap de produto auditado contra o código |
+| [MUDANÇAS.md](docs/MUDANÇAS.md) | Mapa técnico de cada mudança por camada |
+| [SEGURANCA.md](docs/SEGURANCA.md) | Modelo de segurança completo |
 | [SETUP_LOCAL.md](docs/SETUP_LOCAL.md) | Setup local detalhado |
 | [ENDPOINTS_SUMMARY.md](docs/ENDPOINTS_SUMMARY.md) | Referência completa de endpoints |
 | [QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md) | Cheatsheet do dev |
-| [ARCHITECT_F3.md](docs/ARCHITECT_F3.md) | Documentação do módulo Architect |
-| [NEXA_ARCHITECT_V2_SPEC.md](docs/NEXA_ARCHITECT_V2_SPEC.md) | Spec v2.0: modelos estocásticos |
-| [NEXA_ESTRATEGIA_TECNICA.md](docs/NEXA_ESTRATEGIA_TECNICA.md) | Estratégia técnica do produto |
 | [BACKEND_REFERENCE.md](docs/BACKEND_REFERENCE.md) | Referência de arquivos do backend |
-| [PF_PJ_VALIDATION_REPORT.md](docs/PF_PJ_VALIDATION_REPORT.md) | Validação do classificador (89%) |
-| [FRONTEND_GRAFICOS.md](docs/FRONTEND_GRAFICOS.md) | Spec dos componentes visuais |
-
----
-
-## 📈 Status do Projeto
-
-| Componente | Status |
-|:---|:---:|
-| Backend API (FastAPI) | ✅ Produção |
-| Banco PostgreSQL + Migrations | ✅ Produção |
-| Autenticação JWT | ✅ Produção |
-| Rate Limiting + Audit | ✅ Produção |
-| ETL Pipeline | ✅ Produção |
-| Card Optimizer | ✅ Produção |
-| Nexa Architect (F3) | ✅ Produção |
-| PF/PJ Classifier | ✅ Produção |
-| Agente IA (Claude Sonnet 4.6) | ✅ Produção |
-| Memória do Agente (Redis + LangGraph) | ✅ Produção |
-| ConsumptionProfiler (8 clusters) | ✅ Produção |
-| LifeEventsDetector | ✅ Produção |
-| Notificações + Filtro de Relevância | ✅ Produção |
-| Budget Advisor (MX.5) | ✅ Produção |
-| Shadow Invoices (MX.6) | ✅ Produção |
-| Frontend React | ✅ Produção |
-| CI/CD GitHub Actions | ✅ Ativo |
-| Deploy Railway | ✅ Configurado |
-| B2B2C corporativo | 📅 Fase 3 |
-| Nexa Score (bureau) | 📅 Fase 2–3 |
-| Expansão México | 📅 Fase 4 |
+| [OPP.md](docs/OPP.md) | Spec do Radar de Oportunidades |
 
 ---
 
@@ -1063,12 +831,12 @@ O México tem sistema bancário tão concentrado e custoso quanto o Brasil, mas 
 
 ### Nexa AI
 
-**16 módulos implementados. 30 no roadmap. 4 vetores de escala. 1 missão.**
+**20+ módulos implementados · 29 ferramentas de IA · 17 tipos de alerta proativo · 2.189 testes**
 
 *Trabalhar para você, não para o banco.*
 
 ---
 
-**Abril 2026 · Confidencial**
+**Julho 2026 · Confidencial**
 
 </div>

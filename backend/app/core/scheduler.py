@@ -2,8 +2,9 @@
 app/core/scheduler.py — Scheduler de jobs periódicos (APScheduler)
 
 Jobs registrados:
-  02h00  fee_snapshot          D2/D4 — snapshot de tarifas bancárias por usuário
-  03h00  opportunity_scan      OPP   — detecta dinheiro parado para todos os usuários
+  02h00  fee_snapshot            D2/D4  — snapshot de tarifas bancárias por usuário
+  02h30  product_catalog_refresh OPP V2 — catálogo vivo via Open Finance Dados Abertos
+  03h00  opportunity_scan        OPP    — detecta dinheiro parado para todos os usuários
   04h00  health_score_snapshot MX.1  — persiste score diário para histórico
   */6h   notification_scheduler MX.3 — gera notificações proativas sem o usuário abrir o app
   07h00  daily_digest          R1.c  — compila eventos do dia e envia por email
@@ -30,6 +31,7 @@ def register_jobs() -> None:
     """
     from app.jobs.fee_snapshot import run_fee_snapshot
     from app.jobs.opportunity_scan import run_opportunity_scan
+    from app.jobs.product_catalog_refresh import run_product_catalog_refresh
     from app.jobs.health_score_snapshot import run_health_score_snapshot
     from app.jobs.notification_scheduler import run_notification_scheduler
     from app.jobs.daily_digest import run_daily_digest
@@ -39,6 +41,14 @@ def register_jobs() -> None:
         CronTrigger(hour=2, minute=0),
         id="fee_snapshot",
         name="Fee Snapshot Diário (D2/D4)",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    scheduler.add_job(
+        run_product_catalog_refresh,
+        CronTrigger(hour=2, minute=30),
+        id="product_catalog_refresh",
+        name="Refresh do Catálogo Open Finance (OPP V2)",
         replace_existing=True,
         misfire_grace_time=3600,
     )

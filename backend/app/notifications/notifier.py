@@ -66,6 +66,12 @@ NotificationType = Literal[
     "SAFE_TO_SPEND_LOW",
     "LIFE_EVENT",
     "TARIFA_AUMENTO_UNILATERAL",
+    "SAVINGS_BELOW_CDI",      # OPP.4 — poupança abaixo do CDI (Ticket OPP4-D)
+    "IDLE_MONEY_DETECTED",    # OPP — dinheiro parado confirmado (Etapa 6)
+    "FISCAL_SEASON",          # R2.c — evento do calendário fiscal (IR, DAS, 13º...)
+    "CHALLENGE_COMPLETED",    # R2.b — desafio mensal concluído
+    "CHALLENGE_PROGRESS",     # R2.b — desafio mensal perto de concluir (≥70%)
+    "PURCHASE_FOLLOWUP",      # R1.a — compra grande recente paga de forma subótima
 ]
 
 # Thresholds para safe-to-spend baixo
@@ -214,6 +220,89 @@ class LifeEventInput:
 
 
 @dataclass
+class SavingsBelowCdiInput:
+    """OPP.4 (Tickets OPP4-D/E) — poupança rendendo abaixo do CDI.
+
+    Vem de SavingsVsCdiService.analyze()/analyze_for_user(). Quando
+    is_personalized=True, amount_reference_brl é o saldo REAL de poupança
+    do usuário (account_balances) e o card pode afirmar "você tem R$ X";
+    quando False, é referência genérica (nunca presumir saldo). Só gerar
+    card quando severity >= MEDIUM (regra do plano OPP.4, seção 5.4)."""
+    savings_annual_pct: float
+    cdi_annual_pct: float
+    amount_reference_brl: float
+    estimated_loss_annual_brl: float
+    severity: str           # "LOW" | "MEDIUM" | "HIGH"
+    reason: str
+    is_personalized: bool = False
+    savings_balance_brl: Optional[float] = None
+
+
+@dataclass
+class IdleMoneyInput:
+    """OPP (Etapa 6) — dinheiro parado confirmado + melhor oportunidade.
+
+    Vem do snapshot mais recente de opportunity_snapshots; só deve ser
+    preenchido quando a detecção está CONFIRMED (threshold OPP1-C) — carta
+    proativa não pode se basear em estimativa preliminar."""
+    idle_amount: float
+    monthly_loss: float
+    top_opportunity: str    # ex: "Nubank CDB 100% CDI"
+    top_gain_monthly_brl: float
+
+
+@dataclass
+class FiscalSeasonInput:
+    """R2.c — evento do calendário fiscal com janela de alerta ativa.
+
+    Vem de SeasonalityService.get_events(); eventos de MEI/CLT já chegam
+    filtrados pela audiência. estimated_amount_brl só é preenchido quando
+    calculado de dados reais do usuário (nunca inventado)."""
+    event_code: str          # IR_DECLARACAO | DAS_MEI | DECIMO_PRIMEIRA | ...
+    name: str
+    description: str
+    action_hint: str
+    deadline: str            # "YYYY-MM-DD"
+    days_until_deadline: int
+    is_obligation: bool = False
+    estimated_amount_brl: Optional[float] = None
+    is_personalized: bool = False
+
+
+@dataclass
+class ChallengeInput:
+    """R2.b — estado de um desafio mensal do Health Score.
+
+    Vem do ChallengeService; o gerador emite CHALLENGE_COMPLETED para
+    status COMPLETED e CHALLENGE_PROGRESS para ACTIVE com progresso ≥70%."""
+    challenge_id: str
+    challenge_type: str      # SEM_TARIFAS | REDUZIR_CATEGORIA | GUARDAR_VALOR | SUBIR_SCORE
+    title: str
+    month: str               # "YYYY-MM"
+    status: str              # "ACTIVE" | "COMPLETED"
+    pct_progress: float      # 0–100
+    target_label: str        # ex: "R$ 500 guardados" / "0 tarifas no mês"
+    detail: str = ""
+
+
+@dataclass
+class PurchaseFollowupInput:
+    """R1.a — compra grande recente que teria saído mais barata em outro
+    meio de pagamento (análise retroativa do F7).
+
+    Vem do PostPurchaseAnalyzer; potential_savings_brl é a diferença de
+    custo líquido entre como o usuário pagou e a melhor opção do F7."""
+    transaction_id: str
+    merchant: str
+    amount: float
+    category: str
+    purchase_date: str       # "YYYY-MM-DD"
+    paid_method_label: str   # ex: "PIX à vista"
+    best_method_label: str   # ex: "Cartão Nubank à vista (1,2% cashback)"
+    potential_savings_brl: float
+
+
+@dataclass
 class FeeDeltaInput:
     """Tarifa que aumentou vs. mês anterior (detectada em bank_fee_history)."""
     bank_name: str
@@ -264,6 +353,21 @@ class NotificationContext:
 
     # Tarifas que aumentaram vs. mês anterior (detectadas em bank_fee_history)
     fee_deltas: list[FeeDeltaInput] = field(default_factory=list)
+
+    # OPP.4 — poupança abaixo do CDI (comparação genérica, Ticket OPP4-D)
+    savings_below_cdi: Optional[SavingsBelowCdiInput] = None
+
+    # OPP — dinheiro parado confirmado (snapshot mais recente)
+    idle_money: Optional[IdleMoneyInput] = None
+
+    # R2.c — eventos do calendário fiscal com janela ativa
+    fiscal_events: list[FiscalSeasonInput] = field(default_factory=list)
+
+    # R2.b — desafios mensais (concluídos ou perto de concluir)
+    challenges: list[ChallengeInput] = field(default_factory=list)
+
+    # R1.a — compras grandes recentes pagas de forma subótima
+    purchase_followups: list[PurchaseFollowupInput] = field(default_factory=list)
 
     # Dia do mês atual (para contexto em mensagens)
     current_day: int = 0
@@ -821,6 +925,261 @@ def generate_life_event_notifications(
     return notes
 
 
+def generate_savings_below_cdi_notification(
+    data: Optional[SavingsBelowCdiInput],
+) -> list[Notification]:
+    """
+    SAVINGS_BELOW_CDI — card educativo/oportunidade: poupança rende menos
+    que o CDI hoje (OPP.4, Ticket OPP4-D).
+
+    Só gera quando severity >= MEDIUM. O texto usa sempre o valor de
+    referência — nunca afirma quanto o usuário tem na poupança.
+    Prioridade INFO: é oportunidade, não incidente.
+    """
+    if data is None or data.severity not in ("MEDIUM", "HIGH"):
+        return []
+
+    if data.is_personalized and data.savings_balance_brl:
+        title = f"🐷 Sua poupança está perdendo R$ {data.estimated_loss_annual_brl:,.0f}/ano"
+        action_hint = (
+            "Veja no Radar de Oportunidades alternativas com liquidez diária "
+            "que rendem mais que a sua poupança."
+        )
+    else:
+        title = "🐷 Poupança está rendendo abaixo do CDI"
+        action_hint = (
+            "Se você tem dinheiro na poupança, veja no Radar de Oportunidades "
+            "alternativas com liquidez diária que rendem mais."
+        )
+
+    return [Notification(
+        id=_new_id(),
+        type="SAVINGS_BELOW_CDI",
+        priority="INFO",
+        title=title,
+        message=(
+            f"Hoje a poupança rende {data.savings_annual_pct:.2f}% a.a. contra "
+            f"{data.cdi_annual_pct:.2f}% a.a. do CDI. {data.reason}"
+        ),
+        generated_at=_now(),
+        metadata={
+            "savings_annual_pct":        round(data.savings_annual_pct, 4),
+            "cdi_annual_pct":            round(data.cdi_annual_pct, 4),
+            "amount_reference_brl":      round(data.amount_reference_brl, 2),
+            "estimated_loss_annual_brl": round(data.estimated_loss_annual_brl, 2),
+            "severity":                  data.severity,
+            "is_personalized":           data.is_personalized,
+        },
+        action_hint=action_hint,
+    )]
+
+
+def generate_idle_money_notification(
+    data: Optional[IdleMoneyInput],
+) -> list[Notification]:
+    """
+    IDLE_MONEY_DETECTED — dinheiro parado confirmado + melhor alternativa
+    (OPP, Etapa 6). O chamador é responsável por só preencher o input com
+    detecção CONFIRMED (threshold OPP1-C).
+    """
+    if data is None or data.idle_amount <= 0:
+        return []
+
+    annual_gain = data.top_gain_monthly_brl * 12
+    return [Notification(
+        id=_new_id(),
+        type="IDLE_MONEY_DETECTED",
+        priority="INFO",
+        title=f"💤 R$ {data.idle_amount:,.0f} parados na sua conta",
+        message=(
+            f"Você tem cerca de R$ {data.idle_amount:,.2f} parados, perdendo "
+            f"R$ {data.monthly_loss:,.2f}/mês. Melhor alternativa hoje: "
+            f"{data.top_opportunity} — renderia R$ {data.top_gain_monthly_brl:,.2f}/mês "
+            f"(R$ {annual_gain:,.2f}/ano)."
+        ),
+        generated_at=_now(),
+        metadata={
+            "idle_amount":          round(data.idle_amount, 2),
+            "monthly_loss":         round(data.monthly_loss, 2),
+            "top_opportunity":      data.top_opportunity,
+            "top_gain_monthly_brl": round(data.top_gain_monthly_brl, 2),
+        },
+        action_hint="Abra o Radar de Oportunidades para ver o passo a passo da troca.",
+    )]
+
+
+# Prazo em dias a partir do qual obrigação fiscal vira WARNING
+_FISCAL_WARNING_DAYS = 7
+
+# Máximo de eventos fiscais por rodada — deadline mais próximo primeiro
+_FISCAL_MAX_EVENTS = 3
+
+
+def generate_fiscal_season_notifications(
+    events: list[FiscalSeasonInput],
+) -> list[Notification]:
+    """
+    FISCAL_SEASON — evento do calendário fiscal com janela ativa (R2.c).
+
+    Prioridade: WARNING quando é obrigação legal com prazo ≤ 7 dias
+    (multa real se perder); INFO nos demais casos. Nunca CRITICAL —
+    CRITICAL fura a deduplicação por estado e martelaria o usuário a
+    cada rodada do engine.
+    """
+    notes: list[Notification] = []
+    ordered = sorted(events, key=lambda e: e.days_until_deadline)
+
+    for evt in ordered[:_FISCAL_MAX_EVENTS]:
+        is_urgent = evt.is_obligation and evt.days_until_deadline <= _FISCAL_WARNING_DAYS
+        priority: NotificationPriority = "WARNING" if is_urgent else "INFO"
+        emoji = "⏰" if is_urgent else "📅"
+
+        if evt.days_until_deadline <= 0:
+            deadline_label = "vence hoje"
+        elif evt.days_until_deadline == 1:
+            deadline_label = "vence amanhã"
+        else:
+            deadline_label = f"faltam {evt.days_until_deadline} dias"
+
+        notes.append(Notification(
+            id=_new_id(),
+            type="FISCAL_SEASON",
+            priority=priority,
+            title=f"{emoji} {evt.name} — {deadline_label}",
+            message=evt.description,
+            generated_at=_now(),
+            metadata={
+                "event_code":           evt.event_code,
+                "deadline":             evt.deadline,
+                "days_until_deadline":  evt.days_until_deadline,
+                "is_obligation":        evt.is_obligation,
+                "estimated_amount_brl": (
+                    round(evt.estimated_amount_brl, 2)
+                    if evt.estimated_amount_brl is not None else None
+                ),
+                "is_personalized":      evt.is_personalized,
+            },
+            action_hint=evt.action_hint,
+        ))
+
+    return notes
+
+
+# Progresso mínimo para o card de "quase lá" de um desafio ativo
+_CHALLENGE_PROGRESS_MIN_PCT = 70.0
+
+
+def generate_challenge_notifications(
+    challenges: list[ChallengeInput],
+) -> list[Notification]:
+    """
+    CHALLENGE_COMPLETED / CHALLENGE_PROGRESS — desafios mensais (R2.b).
+
+    COMPLETED sempre gera card (é a recompensa do jogo); ACTIVE só gera
+    quando o progresso passou de 70% — perto o bastante para o empurrão
+    final ter efeito.
+    """
+    notes: list[Notification] = []
+    for ch in challenges:
+        if ch.status == "COMPLETED":
+            notes.append(Notification(
+                id=_new_id(),
+                type="CHALLENGE_COMPLETED",
+                priority="INFO",
+                title=f"🏅 Desafio concluído: {ch.title}",
+                message=(
+                    f"Você completou o desafio '{ch.title}' de "
+                    f"{ch.month}! {ch.detail}".strip()
+                ),
+                generated_at=_now(),
+                metadata={
+                    "challenge_id":   ch.challenge_id,
+                    "challenge_type": ch.challenge_type,
+                    "month":          ch.month,
+                    "pct_progress":   round(ch.pct_progress, 1),
+                    "target_label":   ch.target_label,
+                },
+                action_hint="Veja seus badges e o próximo desafio no Health Score.",
+            ))
+        elif ch.status == "ACTIVE" and ch.pct_progress >= _CHALLENGE_PROGRESS_MIN_PCT:
+            notes.append(Notification(
+                id=_new_id(),
+                type="CHALLENGE_PROGRESS",
+                priority="INFO",
+                title=f"🔥 {ch.pct_progress:.0f}% do desafio: {ch.title}",
+                message=(
+                    f"Você está a {100 - ch.pct_progress:.0f} p.p. de completar "
+                    f"o desafio '{ch.title}' ({ch.target_label}). {ch.detail}".strip()
+                ),
+                generated_at=_now(),
+                metadata={
+                    "challenge_id":   ch.challenge_id,
+                    "challenge_type": ch.challenge_type,
+                    "month":          ch.month,
+                    "pct_progress":   round(ch.pct_progress, 1),
+                    "target_label":   ch.target_label,
+                },
+                action_hint="Mantenha o ritmo até o fim do mês para ganhar o badge.",
+            ))
+
+    return notes
+
+
+# Economia mínima absoluta para o followup valer um card (refinada por
+# renda no relevance_filter)
+_PURCHASE_FOLLOWUP_MIN_SAVINGS = 10.0
+
+
+def generate_purchase_followup_notifications(
+    followups: list[PurchaseFollowupInput],
+    max_alerts: int = 2,
+) -> list[Notification]:
+    """
+    PURCHASE_FOLLOWUP — compra grande recente paga de forma subótima (R1.a).
+
+    O tom é de aprendizado para a próxima compra, não de bronca: a compra
+    já aconteceu; o valor está em mostrar o custo invisível e criar o
+    hábito de consultar o Modo Compra antes de compras grandes.
+    """
+    notes: list[Notification] = []
+    ordered = sorted(followups, key=lambda f: f.potential_savings_brl, reverse=True)
+
+    for fu in ordered[:max_alerts]:
+        if fu.potential_savings_brl < _PURCHASE_FOLLOWUP_MIN_SAVINGS:
+            continue
+        annual_habit = fu.potential_savings_brl * 12
+        notes.append(Notification(
+            id=_new_id(),
+            type="PURCHASE_FOLLOWUP",
+            priority="INFO",
+            title=f"💡 R$ {fu.potential_savings_brl:,.0f} a menos na compra em {fu.merchant.title()}",
+            message=(
+                f"Na sua compra de R$ {fu.amount:,.0f} em {fu.merchant.title()} "
+                f"({fu.purchase_date}), pagar com {fu.best_method_label} teria "
+                f"custado R$ {fu.potential_savings_brl:,.2f} a menos que "
+                f"{fu.paid_method_label}. Em compras assim todo mês, são "
+                f"R$ {annual_habit:,.0f}/ano."
+            ),
+            generated_at=_now(),
+            metadata={
+                "transaction_id":        fu.transaction_id,
+                "merchant":              fu.merchant,
+                "amount":                round(fu.amount, 2),
+                "category":              fu.category,
+                "purchase_date":         fu.purchase_date,
+                "paid_method_label":     fu.paid_method_label,
+                "best_method_label":     fu.best_method_label,
+                "potential_savings_brl": round(fu.potential_savings_brl, 2),
+            },
+            action_hint=(
+                "Antes da próxima compra grande, consulte o Modo Compra: "
+                "ele compara PIX, cartão e parcelado pelo custo líquido real."
+            ),
+        ))
+
+    return notes
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ORQUESTRADOR PRINCIPAL
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -903,6 +1262,21 @@ class ProactiveNotifier:
         # 11. Tarifas aumentadas unilateralmente (D4 — proativo via scheduler)
         notes.extend(generate_tarifa_aumento_notifications(ctx.fee_deltas))
 
+        # 12. OPP.4 — poupança abaixo do CDI (card genérico, OPP4-D)
+        notes.extend(generate_savings_below_cdi_notification(ctx.savings_below_cdi))
+
+        # 13. OPP — dinheiro parado confirmado (Etapa 6)
+        notes.extend(generate_idle_money_notification(ctx.idle_money))
+
+        # 14. R2.c — calendário fiscal (IR, DAS, 13º, IPVA/IPTU, FGTS)
+        notes.extend(generate_fiscal_season_notifications(ctx.fiscal_events))
+
+        # 15. R2.b — desafios mensais (concluídos / quase lá)
+        notes.extend(generate_challenge_notifications(ctx.challenges))
+
+        # 16. R1.a — follow-up de compras grandes pagas de forma subótima
+        notes.extend(generate_purchase_followup_notifications(ctx.purchase_followups))
+
         # Ordenar por prioridade
         notes.sort(key=lambda n: _PRIORITY_ORDER.get(n.priority, 3))
 
@@ -935,6 +1309,10 @@ __all__ = [
     "GoalProgressInput",
     "SafeToSpendInput",
     "LifeEventInput",
+    "SavingsBelowCdiInput",
+    "IdleMoneyInput",
+    "generate_savings_below_cdi_notification",
+    "generate_idle_money_notification",
     "generate_burn_rate_notifications",
     "generate_anomaly_notifications",
     "generate_subscription_increase_notifications",
@@ -947,4 +1325,10 @@ __all__ = [
     "generate_life_event_notifications",
     "FeeDeltaInput",
     "generate_tarifa_aumento_notifications",
+    "FiscalSeasonInput",
+    "ChallengeInput",
+    "PurchaseFollowupInput",
+    "generate_fiscal_season_notifications",
+    "generate_challenge_notifications",
+    "generate_purchase_followup_notifications",
 ]

@@ -63,6 +63,7 @@ from app.goals.router import router as goals_router
 
 # MX.3 - Notifications (Notificações Proativas)
 from app.notifications.router import router as notifications_router
+from app.notifications.push_router import router as push_router
 
 # MX.4 - Peers (Comparação com Perfis Similares)
 from app.peers.router import router as peers_router
@@ -87,6 +88,12 @@ from app.tax.router import router as tax_router
 
 # Viral — Savings Card & Wrapped (V1/V2)
 from app.viral.router import router as viral_router
+
+# Seasonality — Sazonalidade Fiscal (R2.c)
+from app.seasonality.router import router as seasonality_router
+
+# Privacy — Direitos do titular LGPD (export/eliminação)
+from app.privacy.router import router as privacy_router
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CRIAR ROUTER PRINCIPAL
@@ -150,6 +157,7 @@ router.include_router(goals_router)
 
 # MX.3 - Notifications
 router.include_router(notifications_router)
+router.include_router(push_router)
 
 # MX.4 - Peers
 router.include_router(peers_router)
@@ -174,3 +182,9 @@ router.include_router(tax_router)
 
 # Viral — Savings Card & Wrapped (V1/V2)
 router.include_router(viral_router)
+
+# Seasonality — Sazonalidade Fiscal (R2.c)
+router.include_router(seasonality_router)
+
+# Privacy — Direitos do titular LGPD
+router.include_router(privacy_router)

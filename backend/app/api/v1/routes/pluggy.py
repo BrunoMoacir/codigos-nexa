@@ -34,6 +34,11 @@ def _sync_item_transactions(
     accounts_resp = pluggy.get_accounts(item_id)
     accounts = accounts_resp.get("results", []) if isinstance(accounts_resp, dict) else []
 
+    # Snapshot de saldo real por conta (poupança, corrente, ...) — base da
+    # personalização do OPP. Falha silenciosamente; nunca derruba o sync.
+    from app.core.db.balances import save_account_balances
+    balances_saved = save_account_balances(str(current_user_str), item_id, accounts)
+
     total_accounts = 0
     total_received = 0
     total_valid = 0
@@ -111,6 +116,7 @@ def _sync_item_transactions(
         "received": total_received,
         "valid": total_valid,
         "saved": total_saved,
+        "balances_saved": balances_saved,
         "errors": errors,
     }
 

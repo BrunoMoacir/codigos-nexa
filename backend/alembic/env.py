@@ -17,7 +17,9 @@ if config.config_file_name is not None:
 from app.core.config import settings
 from app.models.base import Base
 
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# configparser interpola '%' — escapar evita crash com URLs que contêm
+# caracteres percent-encoded (senhas especiais, ?options=-csearch_path%3D...)
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL.replace("%", "%%"))
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

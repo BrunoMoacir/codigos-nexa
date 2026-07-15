@@ -281,4 +281,48 @@ export const nexaApi = {
     const { data } = await apiClient.post('/negotiator/generate-script', payload);
     return data;
   },
+
+  // OPP — Radar de Oportunidades
+  getOpportunities: async (userId: string, holdingMonths = 12) => {
+    const { data } = await apiClient.get(`/opportunities/${userId}`, {
+      params: { holding_months: holdingMonths },
+    });
+    return data;
+  },
+
+  compareOpportunities: async (amount: number, holdingMonths = 12) => {
+    const { data } = await apiClient.post('/opportunities/compare', {
+      amount,
+      holding_months: holdingMonths,
+    });
+    return data;
+  },
+
+  getSavingsVsCdi: async (amountReference = 10000) => {
+    const { data } = await apiClient.get('/opportunities/savings-vs-cdi', {
+      params: { amount_reference_brl: amountReference },
+    });
+    return data;
+  },
+
+  getTreasuryVsCdbVsSavings: async (amount = 10000, holdingMonths = 12) => {
+    const { data } = await apiClient.get('/opportunities/treasury-vs-cdb-vs-savings', {
+      params: { amount, holding_months: holdingMonths },
+    });
+    return data;
+  },
+
+  getBankScorecard: async (userId: string, amount = 0, holdingMonths = 12) => {
+    const { data } = await apiClient.get(`/opportunities/${userId}/banks`, {
+      params: { amount, holding_months: holdingMonths },
+    });
+    return data;
+  },
+
+  getBankMatch: async (userId: string, amount = 0, holdingMonths = 12) => {
+    const { data } = await apiClient.get(`/opportunities/${userId}/bank-match`, {
+      params: { amount, holding_months: holdingMonths },
+    });
+    return data;
+  },
 };

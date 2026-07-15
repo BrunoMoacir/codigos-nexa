@@ -78,6 +78,19 @@ def _mock_script(opp: NegotiationOpportunity) -> NegotiationScript:
 
 # ── Testes: NegotiationOpportunityDetector ────────────────────────────────────
 
+def _patch_bacen_rates():
+    """O detector busca as taxas via BacenCreditConnector.get_rates() (uma
+    chamada por detect()) — o antigo _fetch_market_rate_monthly não existe
+    mais desde o refactor que centralizou as taxas no conector BACEN."""
+    from app.architect.connectors.bacen_credit import BacenCreditConnector
+
+    return patch.object(
+        BacenCreditConnector,
+        "get_rates",
+        return_value={"rotativo_monthly": 0.035, "cheque_especial_monthly": 0.075},
+    )
+
+
 def test_detector_empty_df_returns_empty_list():
     """DataFrame vazio → nenhuma oportunidade."""
     detector = NegotiationOpportunityDetector()
@@ -90,7 +103,7 @@ def test_detector_low_health_score_no_generic_trigger():
     detector = NegotiationOpportunityDetector()
     df = _transactions_df()
     with patch.object(detector._fee_detector, "detect", return_value=[]):
-        with patch.object(detector, "_fetch_market_rate_monthly", return_value=0.035):
+        with _patch_bacen_rates():
             result = detector.detect(df, health_score=40)
     assert result == []
 
@@ -100,7 +113,7 @@ def test_detector_high_health_score_generates_generic_opportunity():
     detector = NegotiationOpportunityDetector()
     df = _transactions_df()
     with patch.object(detector._fee_detector, "detect", return_value=[]):
-        with patch.object(detector, "_fetch_market_rate_monthly", return_value=0.035):
+        with _patch_bacen_rates():
             result = detector.detect(df, health_score=75)
     if result:
         assert any(o.trigger == NegotiationTrigger.HEALTH_SCORE_ALTO for o in result)
@@ -110,7 +123,7 @@ def test_detector_returns_list_of_opportunities():
     """detect() sempre retorna lista (pode ser vazia)."""
     detector = NegotiationOpportunityDetector()
     with patch.object(detector._fee_detector, "detect", return_value=[]):
-        with patch.object(detector, "_fetch_market_rate_monthly", return_value=0.035):
+        with _patch_bacen_rates():
             result = detector.detect(_transactions_df(), health_score=50)
     assert isinstance(result, list)
 

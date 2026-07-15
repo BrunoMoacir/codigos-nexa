@@ -18,14 +18,19 @@ Ferramentas disponíveis:
  12. get_bank_cost_analysis      → Raio-X de custos e tarifas bancárias (F5)
  13. get_negotiation_script      → Detecta oportunidades e gera roteiro de negociação bancária (F13)
  14. get_opportunities           → Radar de dinheiro parado + comparação de investimentos (OPP)
- 15. get_forgotten_rights        → SVR BACEN, FGTS, PIS/PASEP, Restituição IR (T3)
- 16. get_annual_wrapped          → Resumo anual "Banco vs Você" (V2)
- 17. detect_abusive_fees         → Venda casada e tarifas abusivas (D1)
- 18. detect_wrongful_charges     → Cobranças indevidas e duplicatas (D2)
- 19. detect_abusive_interest     → Juros acima da taxa BACEN (D3)
- 20. get_defense_analysis        → Análise completa D1–D4: venda casada, cobranças, juros, tarifas
- 21. get_evidence_dossier        → D5: dossiê com carta, PROCON e modelo JEC
- 22. get_portability_analysis    → D6: portabilidade de crédito — economia e roteiro
+ 15. simulate_investment         → Tesouro SELIC vs. CDB vs. poupança para valor/prazo (OPP.3)
+ 16. get_best_bank               → Bank Match: melhor banco pelo perfil (rendimento+tarifas+cartões)
+ 17. get_forgotten_rights        → SVR BACEN, FGTS, PIS/PASEP, Restituição IR (T3)
+ 18. get_annual_wrapped          → Resumo anual "Banco vs Você" (V2)
+ 19. detect_abusive_fees         → Venda casada e tarifas abusivas (D1)
+ 20. detect_wrongful_charges     → Cobranças indevidas e duplicatas (D2)
+ 21. detect_abusive_interest     → Juros acima da taxa BACEN (D3)
+ 22. get_defense_analysis        → Análise completa D1–D4: venda casada, cobranças, juros, tarifas
+ 23. get_evidence_dossier        → D5: dossiê com carta, PROCON e modelo JEC
+ 24. get_portability_analysis    → D6: portabilidade de crédito — economia e roteiro
+ 25. get_fiscal_calendar         → R2.c: prazos fiscais sazonais (IR, DAS, 13º, IPVA/IPTU, FGTS)
+ 26. get_monthly_challenges      → R2.b: desafios mensais do Health Score + badges
+ 27. review_recent_purchases     → R1.a: revisão retroativa de compras grandes (F7)
 """
 import logging
 from langchain_core.messages import BaseMessage
@@ -48,6 +53,8 @@ from app.agent.tools.get_bank_cost_analysis import get_bank_cost_analysis
 from app.agent.tools.get_negotiation_script import get_negotiation_script
 from app.agent.tools.get_expert_card_analysis import get_expert_card_analysis
 from app.agent.tools.get_opportunities import get_opportunities
+from app.agent.tools.simulate_investment import simulate_investment
+from app.agent.tools.get_best_bank import get_best_bank
 from app.agent.tools.get_forgotten_rights import get_forgotten_rights
 from app.agent.tools.get_annual_wrapped import get_annual_wrapped
 from app.agent.tools.detect_abusive_fees import detect_abusive_fees
@@ -56,6 +63,9 @@ from app.agent.tools.detect_abusive_interest import detect_abusive_interest
 from app.agent.tools.get_defense_analysis import get_defense_analysis
 from app.agent.tools.get_evidence_dossier import get_evidence_dossier
 from app.agent.tools.get_portability_analysis import get_portability_analysis
+from app.agent.tools.get_fiscal_calendar import get_fiscal_calendar
+from app.agent.tools.get_monthly_challenges import get_monthly_challenges
+from app.agent.tools.review_recent_purchases import review_recent_purchases
 
 logger = logging.getLogger(__name__)
 
@@ -257,6 +267,24 @@ USE QUANDO o usuário perguntar sobre:
 - "Meu dinheiro está rendendo?"
 - Radar de oportunidades de investimento, dinheiro ocioso.
 
+### `simulate_investment(amount, holding_months=12)`
+USE QUANDO o usuário pedir uma simulação com valor/prazo específicos:
+- "Se eu investir R$ 20.000 por 2 anos, o que rende mais?"
+- "Tesouro Selic, CDB ou poupança — qual vale mais a pena?"
+- "Quanto rende R$ 10 mil em 6 meses?"
+- Compara Tesouro SELIC (com custódia B3), melhor CDB de liquidez diária e
+  poupança oficial (SELIC + TR), tudo em rendimento líquido pós-IR.
+- Para detectar dinheiro parado do usuário, use get_opportunities.
+
+### `get_best_bank(user_id, amount=0)`
+USE QUANDO o usuário perguntar sobre escolha ou troca de banco em geral:
+- "Qual o melhor banco para mim?" / "Vale a pena trocar de banco?"
+- "Meu banco é bom?" / "Onde devo abrir conta?"
+- Ranking composto: rendimento líquido ajustado a risco + tarifas típicas +
+  cartões do emissor + fit com o perfil (FSS, tipo de investidor).
+- Para comparar só produtos de investimento, use get_opportunities;
+  para simular valor/prazo, use simulate_investment.
+
 ### `get_forgotten_rights(user_id)`
 USE QUANDO o usuário perguntar sobre:
 - "Tenho dinheiro esquecido em algum banco?" / "SVR BACEN"
@@ -328,6 +356,32 @@ USE QUANDO o usuário perguntar sobre:
 - "Quanto economizaria em outro banco?"
 - "Meu empréstimo consignado / pessoal / veículo está abusivo"
 - "É grátis pedir portabilidade?"
+
+### `get_fiscal_calendar(user_id)`
+USE QUANDO o usuário perguntar sobre:
+- "Quando vence o IR / a declaração do imposto de renda?"
+- "Quando cai a restituição?" / "Quando vence o DAS do MEI?"
+- "Quando recebo o 13º? O que faço com ele?"
+- "Como me planejo para IPVA/IPTU?"
+- Qualquer pergunta sobre prazos fiscais, calendário de impostos ou
+  datas sazonais de dinheiro entrando/saindo.
+- Os eventos vêm personalizados: MEI só vê DAS/DASN se tiver sinal de PJ,
+  13º só aparece para quem tem salário recorrente detectado.
+
+### `get_monthly_challenges(user_id)`
+USE QUANDO o usuário perguntar sobre:
+- "Quais são meus desafios do mês?" / "Como está meu desafio?"
+- "Ganhei algum badge?" / "Como funciona a gamificação?"
+- "Me dá uma meta para este mês"
+- Qualquer pergunta sobre desafios, conquistas ou hábitos financeiros do app.
+
+### `review_recent_purchases(user_id)`
+USE QUANDO o usuário perguntar sobre:
+- "Paguei certo nas minhas últimas compras?"
+- "Perdi cashback pagando no PIX/débito?"
+- "Revise minhas compras recentes"
+- Qualquer pedido de revisão retroativa de compras já feitas.
+- Para analisar uma compra FUTURA, use get_purchase_recommendation.
 
 ## REGRAS DE COMPORTAMENTO:
 1. **NUNCA peça informações que já estão na mensagem do usuário** — se o usuário disse "minha renda é R$ 8.500", use esse valor diretamente na tool. Se o usuário informou gasto mensal (ex: "gasto R$ 4.000/mês"), passe como `monthly_spend` em `get_card_optimization`.
@@ -432,6 +486,8 @@ def build_financial_agent():
         get_negotiation_script,
         get_expert_card_analysis,
         get_opportunities,
+        simulate_investment,
+        get_best_bank,
         get_forgotten_rights,
         get_annual_wrapped,
         detect_abusive_fees,
@@ -440,6 +496,9 @@ def build_financial_agent():
         get_defense_analysis,
         get_evidence_dossier,
         get_portability_analysis,
+        get_fiscal_calendar,
+        get_monthly_challenges,
+        review_recent_purchases,
     ]
 
     # 2. LLM — Claude (preferencial) ou OpenAI (fallback)

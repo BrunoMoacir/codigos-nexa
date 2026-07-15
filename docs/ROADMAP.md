@@ -102,11 +102,25 @@ SVR BACEN tem ~R$8,5 bilhões não reclamados no Brasil.
 
 | Sub-feature | Descrição | Status |
 |-------------|-----------|--------|
-| OPP.1 | Detecção de dinheiro parado em conta corrente | A desenvolver |
-| OPP.2 | Comparação de CDB/LCI/LCA por retorno líquido após IR | A desenvolver |
-| OPP.3 | Comparação Tesouro SELIC vs. CDB vs. poupança | A desenvolver |
-| OPP.4 | Identificação de poupança abaixo do CDI | A desenvolver |
-| OPP.5 | Recomendação de troca com passos práticos | A desenvolver |
+| OPP.1 | Detecção de dinheiro parado em conta corrente | ✅ Implementado (detector + reserva de emergência + threshold R$500/30d) |
+| OPP.2 | Comparação de CDB/LCI/LCA por retorno líquido após IR | ✅ Implementado (BankComparator + IRPFCalculator; catálogo curado + Open Finance) |
+| OPP.3 | Comparação Tesouro SELIC vs. CDB vs. poupança | ✅ Implementado (calc_ir_on_tesouro_selic + TreasuryComparatorService + tool simulate_investment) |
+| OPP.4 | Identificação de poupança abaixo do CDI | ✅ Implementado (savings_rate SELIC+TR, SavingsVsCdiService, card SAVINGS_BELOW_CDI) |
+| OPP.5 | Recomendação de troca com passos práticos | ✅ Implementado (steps por produto na API, chat e card do dashboard) |
+
+**Extensões V2 já entregues:** scorecard por banco com ajuste a risco
+(`GET /opportunities/{user_id}/banks`), catálogo público transparente
+(`GET /opportunities/products`), conector Open Finance Dados Abertos com job
+diário de refresh (02h30), disclaimer regulatório em todas as respostas,
+cards de feed (SAVINGS_BELOW_CDI, IDLE_MONEY_DETECTED) e card no dashboard.
+
+**Bank Match (camada geral):** `GET /opportunities/{user_id}/bank-match` e tool
+`get_best_bank` — recomenda o melhor banco pelo perfil completo do usuário,
+ponderando rendimento líquido ajustado a risco, tarifas típicas (market_fees_db
+do F5), força dos cartões do emissor (catálogo do optimizer F2) e fit com o
+perfil (FSS, tipo de investidor), com pesos adaptativos e explicação por
+componente. Catálogo com reload automático (mtime/TTL) ao ser atualizado pelo
+job do Open Finance.
 
 **Bancos/produtos comparados na V1:** Nubank, Inter, C6, PicPay, BTG, XP, Itaú,
 Bradesco, Santander, BB, Caixa, Sicoob, Tesouro Direto.
@@ -137,16 +151,15 @@ Bradesco, Santander, BB, Caixa, Sicoob, Tesouro Direto.
 
 | ID | Funcionalidade | Prioridade | Status |
 |----|----------------|------------|--------|
-| R1.a | F7 Modo Compra no momento da compra | — | Parcial — endpoint de análise implementado; experiência contextual/checkout ausente |
-| R1.b | MX.3 Notificações proativas | — | Parcial — regras e endpoint implementados; execução automática e entrega ausentes |
-| R1.c | Daily digest (email ou push) | Média | A desenvolver — requer scheduler |
-| R1.d | Widget safe-to-spend (homescreen mobile) | Baixa | Requer app mobile |
-| R2.a | OPP Radar de Produtos | — | A desenvolver (ver acima) |
-| R2.b | Health Score com badges e desafios mensais | Média | A desenvolver — MX.1 já existe |
-| R2.c | Sazonalidade fiscal (alertas IR, FGTS, 13º) | Média | A desenvolver |
+| R1.a | F7 Modo Compra no momento da compra | — | ✅ Implementado — `GET /purchase/checkout-context` (veredito compacto para o momento da compra), `GET /purchase/recent-review` + card PURCHASE_FOLLOWUP no feed (análise retroativa de compras grandes) e tool `review_recent_purchases` no chat |
+| R1.b | MX.3 Notificações proativas | — | ✅ Implementado — NotificationEngine roda a cada 6h via APScheduler e entrega por email/in_app/push (delivery_service), com dedup por TTL; cards WARNING/CRITICAL sobem automaticamente para Web Push quando o usuário tem inscrição PWA ativa |
+| R1.c | Daily digest (email ou push) | Média | ✅ Implementado — job 07h00 com score, tarifas, oportunidades, prazos fiscais (R2.c) e desafios concluídos (R2.b); idempotente via daily_digest_log |
+| R1.d | Widget safe-to-spend (homescreen mobile) | Baixa | ✅ Implementado via PWA — `GET /safe-to-spend/{user_id}/widget` (payload ~200 bytes) + página `/widget` instalável (manifest + service worker + atalho de homescreen) e Web Push com VAPID (`/push/*`, tabela push_subscriptions). Widget nativo de homescreen segue dependendo de app mobile (Gap 1) |
+| R2.a | OPP Radar de Produtos | — | ✅ Implementado (ver seção OPP acima) |
+| R2.b | Health Score com badges e desafios mensais | Média | ✅ Implementado — ChallengeService (SEM_TARIFAS, REDUZIR_CATEGORIA, GUARDAR_VALOR, SUBIR_SCORE), badges PRIMEIRO_DESAFIO/DESAFIO_TRIPLO/DESAFIO_STREAK_3, `GET /health-score/challenges`, cards no feed e tool `get_monthly_challenges` |
+| R2.c | Sazonalidade fiscal (alertas IR, FGTS, 13º) | Média | ✅ Implementado — módulo `app/seasonality/` (IR, restituição, IPVA/IPTU, DAS/DASN-SIMEI, 13º, lucro FGTS) personalizado por perfil MEI/CLT, `GET /seasonality/{user_id}`, card FISCAL_SEASON no feed, tool `get_fiscal_calendar` e prazos urgentes no daily digest |
 | R3.a | Histórico financeiro acumulado | — | Implementado (DuckDB) |
 | R3.b | Metas financeiras com projeção | — | Implementado (MX.2) |
-| R3.c | Modo Família (multi-usuário compartilhado) | Baixa | Nova infra — 4+ sem |
 | R4.a | Relatório trimestral automático | Média | A desenvolver — requer scheduler |
 | R4.b | Alerta de promoções de milhas/pontos | Parcial | PromotionTracker existe |
 | R5.a | Tela de cancelamento com impacto calculado | Média | 1 sem (frontend) |

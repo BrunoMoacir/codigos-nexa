@@ -119,12 +119,22 @@ def _log_delivery(
         logger.debug("[DeliveryService] _log_delivery falhou: %s", exc)
 
 
+def _html_to_text(html: str, limit: int = 180) -> str:
+    """Corpo de push é texto curto — remove tags e trunca."""
+    import re
+
+    text = re.sub(r"<[^>]+>", " ", html)
+    text = " ".join(text.split())
+    return text[:limit]
+
+
 def deliver(
     user_id: str,
     subject: str,
     html_body: str,
     notification_type: str = "generic",
     notification_id: str = "",
+    priority: str | None = None,
 ) -> list[DeliveryResult]:
     """
     Entrega uma notificação ao usuário pelos canais configurados e
@@ -143,6 +153,20 @@ def deliver(
     """
     nid = notification_id or str(uuid.uuid4())
     channels = _get_user_channels(user_id)
+
+    # Cards urgentes (WARNING/CRITICAL) sobem para push automaticamente
+    # quando o usuário tem inscrição PWA ativa — mesmo que "push" não
+    # esteja nas preferências explícitas (o alerta perde valor se só for
+    # visto na próxima abertura do app).
+    if priority in ("WARNING", "CRITICAL") and "push" not in channels:
+        try:
+            from app.core.notifications import push_sender
+
+            if push_sender.is_configured() and push_sender.has_active_subscription(user_id):
+                channels = [*channels, "push"]
+        except Exception as exc:
+            logger.debug("[DeliveryService] push elegibilidade: %s", exc)
+
     results: list[DeliveryResult] = []
 
     for channel in channels:
@@ -165,8 +189,27 @@ def deliver(
             _log_delivery(user_id, nid, "in_app", r)
 
         elif channel == "push":
-            logger.info("[DeliveryService] push ainda não implementado | user=%s", user_id)
-            r = DeliveryResult(channel="push", success=False, error="não implementado")
+            try:
+                from app.core.notifications import push_sender
+
+                sent, failed = push_sender.send_to_user(
+                    user_id=user_id,
+                    title=subject,
+                    body=_html_to_text(html_body),
+                    url="/strategies",     # feed de oportunidades no frontend
+                    tag=notification_type,
+                )
+                if sent > 0:
+                    r = DeliveryResult(channel="push", success=True)
+                elif failed > 0:
+                    r = DeliveryResult(channel="push", success=False, error=f"{failed} falha(s)")
+                else:
+                    r = DeliveryResult(
+                        channel="push", success=False,
+                        error="sem inscrição ativa ou VAPID não configurado",
+                    )
+            except Exception as exc:
+                r = DeliveryResult(channel="push", success=False, error=str(exc))
             results.append(r)
             _log_delivery(user_id, nid, "push", r)
 

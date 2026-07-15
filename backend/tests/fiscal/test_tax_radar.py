@@ -89,3 +89,57 @@ def test_tax_radar_efficient_portfolio():
     
     assert len(report.alerts) == 0
     assert report.total_estimated_savings_brl == 0.0
+
+def test_tax_radar_empty_portfolio():
+    radar = TaxRadarService()
+    report = radar.scan_portfolio(user_id="user_test", portfolio=[])
+    assert len(report.alerts) == 0
+
+def test_tax_radar_below_thresholds():
+    radar = TaxRadarService()
+    
+    portfolio = [
+        # Poupança menor que R$ 1000
+        MockAsset(
+            asset_name="Poupança Baixa",
+            asset_type="POUPANCA",
+            amount=500.0,
+            gross_rate_pct=6.17,
+            holding_months=12
+        ),
+        # CDB ineficiente, mas impacto menor que R$ 50 (R$ 1000 aplicado)
+        MockAsset(
+            asset_name="CDB Baixo Impacto",
+            asset_type="CDB",
+            amount=1000.0,
+            gross_rate_pct=11.0,
+            holding_months=6
+        ),
+        # Fundo com come cotas menor que R$ 100 (R$ 5000 aplicado, 10% aa -> 500 yield -> 75 come cotas)
+        MockAsset(
+            asset_name="Fundo Baixo Impacto",
+            asset_type="FUND",
+            amount=5000.0,
+            gross_rate_pct=10.0,
+            holding_months=12
+        )
+    ]
+    
+    report = radar.scan_portfolio(user_id="user_test", portfolio=portfolio)
+    assert len(report.alerts) == 0
+
+def test_tax_radar_unknown_asset_type():
+    radar = TaxRadarService()
+    portfolio = [
+        MockAsset(
+            asset_name="Ação XPTO",
+            asset_type="STOCK",
+            amount=10000.0,
+            gross_rate_pct=0.0,
+            holding_months=12
+        )
+    ]
+    
+    # Nao deve quebrar, apenas ignorar para esse serviço
+    report = radar.scan_portfolio(user_id="user_test", portfolio=portfolio)
+    assert len(report.alerts) == 0

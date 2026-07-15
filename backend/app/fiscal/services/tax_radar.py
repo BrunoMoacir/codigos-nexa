@@ -40,10 +40,20 @@ class TaxRadarService:
 
     def __init__(self):
         self._ir_calc = IRPFCalculator()
-        
-        # Simulação de taxa Selic e LCI de mercado base
+
+        # Simulação de LCI de mercado — fora do escopo do OPP4-B, não vem de conector.
         self._market_lci_rate_pct = 10.5
-        self._selic_rate_pct = 11.25
+
+        # SELIC/TR reais via BACEN (Ticket OPP4-B) — antes eram hardcoded
+        # (11.25 aqui, 6.17 em _check_poupanca_inefficiency). Não reintroduzir
+        # número fixo: calculate_savings_rate() é a única fonte de verdade
+        # para a taxa da poupança no repositório.
+        from app.architect.connectors.bacen import BacenConnector
+
+        bacen = BacenConnector()
+        self._selic_annual = bacen.get_selic()
+        self._tr_monthly = bacen.get_tr_monthly()
+        self._selic_rate_pct = round(self._selic_annual * 100, 4)
 
     def scan_portfolio(self, user_id: str, portfolio: List[MockAsset]) -> TaxRadarReport:
         logger.info(f"TaxRadarService: Escaneando portfolio para user {user_id}")
@@ -110,9 +120,13 @@ class TaxRadarService:
             ))
 
     def _check_poupanca_inefficiency(self, asset: MockAsset, alerts: List[TaxRadarAlert]):
-        # Poupança hoje rende ~6.17% ao ano se Selic > 8.5%
-        poupanca_rate = 6.17
-        
+        # Taxa oficial da poupança via SELIC + TR reais (Ticket OPP4-B) —
+        # antes era um número fixo (6.17). Ver savings_rate.py para a regra.
+        from app.opportunities.services.savings_rate import calculate_savings_rate
+
+        savings = calculate_savings_rate(self._selic_annual, self._tr_monthly)
+        poupanca_rate = round(savings.savings_annual * 100, 4)
+
         if asset.amount >= 1000.0:
             # Tesouro Selic liquido ~ (Selic - IR) -> (11.25 - 20%) ~ 9.0%
             tesouro_net_rate = self._selic_rate_pct * 0.80

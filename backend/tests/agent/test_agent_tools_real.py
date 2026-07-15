@@ -13,14 +13,34 @@ from app.agent.tools.get_purchase_recommendation import get_purchase_recommendat
 from app.agent.tools.get_spending_alerts import get_spending_alerts
 from app.agent.tools.get_timing_scenarios import get_timing_scenarios
 import json
-
 import os
-os.environ["APP_MODE"] = "prod"
-os.environ["PLUGGY_CLIENT_ID"] = "dummy"
-os.environ["PLUGGY_CLIENT_SECRET"] = "dummy"
-# Just to be safe from Settings() validation errors
+
+import pytest
 
 USER_ID = "golden_user_777"
+
+
+@pytest.fixture(autouse=True)
+def _prod_mode_env():
+    """
+    As tools deste arquivo exercitam o caminho "prod" (Pluggy real).
+
+    IMPORTANTE: isso era feito com os.environ no nível do módulo, o que
+    envenenava a SESSÃO inteira do pytest (a coleta importa todos os
+    módulos antes de rodar qualquer teste) — o endpoint de alerts passava
+    a responder 503/500 para testes de outros arquivos. Fixture com
+    save/restore limita o efeito a estes testes.
+    """
+    saved = {k: os.environ.get(k) for k in ("APP_MODE", "PLUGGY_CLIENT_ID", "PLUGGY_CLIENT_SECRET")}
+    os.environ["APP_MODE"] = "prod"
+    os.environ["PLUGGY_CLIENT_ID"] = "dummy"
+    os.environ["PLUGGY_CLIENT_SECRET"] = "dummy"
+    yield
+    for key, value in saved.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
 
 def test_get_budget_advice_real():
     result = get_budget_advice.invoke({"user_id": USER_ID, "monthly_income": 10000.0})
