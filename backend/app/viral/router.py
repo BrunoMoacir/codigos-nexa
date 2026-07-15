@@ -1,23 +1,27 @@
 """
 app/viral/router.py — V1/V2: Viral & Wrapped
 
-GET /api/v1/viral/savings-card/{user_id}      — JSON com economia consolidada
-GET /api/v1/viral/savings-card/{user_id}/svg  — cartão SVG compartilhável
-GET /api/v1/viral/wrapped/{user_id}/{year}    — JSON do wrapped anual
-GET /api/v1/viral/wrapped/{user_id}/{year}/svg — cartão SVG do wrapped
+GET  /api/v1/viral/savings-card/{user_id}         — JSON com economia consolidada
+GET  /api/v1/viral/savings-card/{user_id}/svg     — cartão SVG privado
+GET  /api/v1/viral/savings-card/{user_id}/png     — exportação PNG (stub)
+GET  /api/v1/viral/wrapped/{user_id}/{year}       — JSON do wrapped anual
+GET  /api/v1/viral/wrapped/{user_id}/{year}/svg   — cartão SVG do wrapped
+POST /api/v1/viral/shares                         — registra evento de compartilhamento
+DELETE /api/v1/viral/shares/{share_id}            — revoga compartilhamento
 """
 
 import logging
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.responses import Response
 
 from app.core.security import require_owner
-from app.viral.models import SavingsCard, WrappedReport
+from app.viral.models import SavingsCard, ShareEvent, ShareResponse, WrappedReport
+from app.viral.services.card_renderer import CardRenderer
 from app.viral.services.savings_consolidator import SavingsConsolidator
 from app.viral.services.wrapped_generator import WrappedGenerator
-from app.viral.services.card_renderer import CardRenderer
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/viral", tags=["Viral (V1/V2 — Savings Card & Wrapped)"])
@@ -34,7 +38,8 @@ def get_savings_card(
     """
     **Cartão de Economia Consolidada (V1)**
 
-    Soma a economia identificada por 4 módulos Nexa:
+    Consolida potencial de economia de 4 módulos Nexa. Todos os valores são
+    estimativas (potencial_estimado) salvo indicação de `amount_type=actual_fee`.
 
     | Módulo | Fonte |
     |--------|-------|
@@ -46,15 +51,15 @@ def get_savings_card(
     sources, total = _consolidator.consolidate(user_id)
     months_active = _get_months_active(user_id)
 
-    tagline = (
-        f"A Nexa te ajudou a guardar R$ {total:,.2f} em {months_active} mês(es)."
-        if total > 0
-        else "Continue usando a Nexa para identificar oportunidades de economia."
-    )
+    if total > 0:
+        tagline = (
+            f"A Nexa identificou até R$ {total:,.2f} em oportunidades anuais "
+            f"em {months_active} mês(es) de uso. Potencial estimado."
+        )
+    else:
+        tagline = "Continue usando a Nexa — identificaremos suas oportunidades de economia em breve."
 
-    logger.info(
-        "[viral] savings-card user=%s sources=%d total=%.2f", user_id, len(sources), total
-    )
+    logger.info("[viral] savings-card user=%s sources=%d total=%.2f", user_id, len(sources), total)
 
     return SavingsCard(
         user_id=user_id,
@@ -70,10 +75,35 @@ def get_savings_card(
 def get_savings_card_svg(
     user_id: str = Depends(require_owner),
 ) -> Response:
-    """Retorna o cartão de economia (V1) como imagem SVG compartilhável."""
+    """Retorna o cartão de economia (V1) como SVG privado (sem cache público)."""
     card = get_savings_card(user_id=user_id)
     svg = _renderer.render_savings_card(card)
-    return Response(content=svg, media_type="image/svg+xml")
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "no-store, private"},
+    )
+
+
+@router.get("/savings-card/{user_id}/png")
+def get_savings_card_png(
+    user_id: str = Depends(require_owner),
+) -> Response:
+    """
+    Exportação PNG do cartão V1.
+    A conversão SVG→PNG é feita no frontend (canvas API).
+    Este endpoint retorna o SVG com Content-Type adequado para download.
+    """
+    card = get_savings_card(user_id=user_id)
+    svg = _renderer.render_savings_card(card)
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers={
+            "Content-Disposition": f'attachment; filename="nexa-savings-{card.user_id[:8]}.svg"',
+            "Cache-Control": "no-store, private",
+        },
+    )
 
 
 @router.get("/wrapped/{user_id}/{year}", response_model=WrappedReport)
@@ -111,10 +141,98 @@ def get_wrapped_svg(
     user_id: str = Depends(require_owner),
     year: int = Path(..., ge=2020, le=2100),
 ) -> Response:
-    """Retorna o wrapped anual (V2) como imagem SVG compartilhável."""
+    """Retorna o wrapped anual (V2) como SVG privado."""
     report = get_wrapped(user_id=user_id, year=year)
     svg = _renderer.render_wrapped_card(report)
-    return Response(content=svg, media_type="image/svg+xml")
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "no-store, private"},
+    )
+
+
+@router.post("/shares", response_model=ShareResponse, status_code=201)
+def register_share(
+    event: ShareEvent,
+    user_id: str = Depends(require_owner),
+) -> ShareResponse:
+    """
+    Registra um evento de compartilhamento voluntário do cartão V1 ou V2.
+    Salvo em viral_share_log para analytics de CAC viral e badge VIRAL_SHARE.
+    """
+    if event.user_id != user_id:
+        raise HTTPException(status_code=403, detail="user_id não corresponde ao token.")
+
+    share_id = str(uuid.uuid4())
+    utm_link: str | None = None
+
+    if event.utm_campaign:
+        utm_link = (
+            f"https://nexa.app/?utm_source=viral"
+            f"&utm_medium={event.utm_medium or 'share'}"
+            f"&utm_campaign={event.utm_campaign}"
+            f"&ref={share_id[:8]}"
+        )
+
+    _log_share(user_id=user_id, share_id=share_id, event=event)
+    logger.info("[viral] share registered user=%s id=%s channel=%s", user_id, share_id, event.channel)
+
+    return ShareResponse(share_id=share_id, utm_link=utm_link)
+
+
+@router.delete("/shares/{share_id}", status_code=204)
+def revoke_share(
+    share_id: str,
+    user_id: str = Depends(require_owner),
+) -> None:
+    """Revoga um compartilhamento (marca como revoked no log)."""
+    _revoke_share_log(user_id=user_id, share_id=share_id)
+    logger.info("[viral] share revoked user=%s id=%s", user_id, share_id)
+
+
+def _log_share(user_id: str, share_id: str, event: ShareEvent) -> None:
+    try:
+        from app.core.database import SessionLocal
+        from sqlalchemy import text
+
+        with SessionLocal() as db:
+            db.execute(
+                text(
+                    "INSERT INTO viral_share_log "
+                    "(id, user_id, card_type, channel, card_version, utm_campaign, utm_medium, shared_at) "
+                    "VALUES (:id, :uid, :ct, :ch, :cv, :uc, :um, NOW())"
+                ),
+                {
+                    "id": share_id,
+                    "uid": user_id,
+                    "ct": event.card_type,
+                    "ch": event.channel,
+                    "cv": event.card_version,
+                    "uc": event.utm_campaign,
+                    "um": event.utm_medium,
+                },
+            )
+            db.commit()
+    except Exception as exc:
+        logger.warning("[viral] _log_share user=%s: %s", user_id, exc)
+
+
+def _revoke_share_log(user_id: str, share_id: str) -> None:
+    try:
+        from app.core.database import SessionLocal
+        from sqlalchemy import text
+
+        with SessionLocal() as db:
+            db.execute(
+                text(
+                    "UPDATE viral_share_log SET revoked_at = NOW() "
+                    "WHERE id = :sid AND user_id = :uid"
+                ),
+                {"sid": share_id, "uid": user_id},
+            )
+            db.commit()
+    except Exception as exc:
+        logger.warning("[viral] _revoke_share user=%s id=%s: %s", user_id, share_id, exc)
 
 
 def _get_months_active(user_id: str) -> int:
