@@ -121,7 +121,15 @@ GOV.BR do usuário).
 ---
 
 ### OPP — Radar de Oportunidades
-*Funcionalidade nova: detecta dinheiro parado e compara 12+ bancos sem viés*
+*Detecta dinheiro parado e compara o mercado sem viés*
+
+↳ **atualizado 2026-07-18 (F8):** o conector do catálogo vivo foi reescrito para o spec real do
+opendata-investments v1 (a versão anterior normalizava 0 produtos do payload real e caía sempre no
+fallback curado de 13 bancos). Agora varre **todos** os participantes do diretório Open Finance em
+paralelo (45 endpoints hoje), com paginação, filtro pessoa física, canonicalização de marca
+(5 grafias de "Itaú" viram uma), dedup por (banco, tipo, liquidez) e flag `promotional` para
+taxas-teaser >130% CDI — que o BankComparator rebaixa no ranking. Validado ao vivo: 78 produtos de
+23 instituições em ~13s; o job diário 02h30 persiste em `product_catalog.json`.
 
 | Sub-feature | Descrição | Status |
 |-------------|-----------|--------|

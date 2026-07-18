@@ -144,11 +144,13 @@ class BankComparator:
         def _sort_key(entry: tuple[float, OpportunityItem]):
             net_rate, item = entry
             if prioritize_daily_liquidity:
-                return (not item.eligible, item.liquidity_days > 1, -net_rate)
-            return (not item.eligible, -net_rate)
+                return (not item.eligible, item.liquidity_days > 1, item.promotional, -net_rate)
+            return (not item.eligible, item.promotional, -net_rate)
 
         # Ordena por taxa líquida descrescente; eligible primeiro (e, para
-        # perfis frágeis, liquidez diária primeiro dentro de cada grupo)
+        # perfis frágeis, liquidez diária primeiro dentro de cada grupo).
+        # Teasers promocionais (>130% CDI) vêm depois das taxas permanentes:
+        # taxa de vitrine não pode ser a recomendação nº 1.
         results.sort(key=_sort_key)
 
         return [
@@ -211,6 +213,8 @@ class BankComparator:
             eligible=eligible,
             index=product.get("index", "CDI"),
             fgc_covered=fgc_covered,
+            promotional=bool(product.get("promotional", False)),
+            cdi_pct_max=product.get("cdi_pct_max"),
             steps=build_switch_steps(
                 bank_name=product["bank_name"],
                 product_type=ptype,

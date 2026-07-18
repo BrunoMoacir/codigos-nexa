@@ -137,12 +137,12 @@ Agente LangGraph ReAct com **29 ferramentas** conectadas a todos os módulos do 
 
 ### Radar de Oportunidades (OPP)
 
-*Detecta dinheiro mal alocado e compara 13 bancos/produtos sem viés — ranking por retorno **líquido após IR**, não por taxa bruta.*
+*Detecta dinheiro mal alocado e compara o mercado sem viés — **varredura diária de todos os participantes do Open Finance Dados Abertos** (~23 instituições com renda fixa CDI publicada em 2026-07, cresce conforme adesão) com fallback curado. Ranking por retorno **líquido após IR**, não por taxa bruta; taxas-teaser (>130% CDI) são marcadas como promocionais e rebaixadas no ranking.*
 
 | Sub-feature | Valor para o usuário | Status |
 |:---|:---|:---:|
 | OPP.1 | **Dinheiro parado** — saldo ocioso além da reserva de emergência (threshold R$ 500/30d) | Descobre que tem R$ X rendendo zero na conta corrente | ✅ |
-| OPP.2 | **Comparador CDB/LCI/LCA** — retorno líquido após IR, catálogo curado + Open Finance | Compara produtos de 13 instituições sem comissão embutida | ✅ |
+| OPP.2 | **Comparador CDB/LCI/LCA** — retorno líquido após IR, catálogo vivo via Open Finance (varredura completa do diretório + paginação + dedup) com fallback curado | Compara as ofertas publicadas por todos os participantes do Open Finance sem comissão embutida | ✅ |
 | OPP.3 | **Tesouro SELIC vs CDB vs poupança** — simulador com IR e taxas | Vê em R$ quanto cada opção rende de verdade no seu prazo | ✅ |
 | OPP.4 | **Poupança abaixo do CDI** — SELIC + TR vs CDI | Card mostra quanto está perdendo por manter poupança | ✅ |
 | OPP.5 | **Passos práticos de troca** — instruções por produto | Não só "invista melhor": diz exatamente onde clicar | ✅ |
@@ -382,7 +382,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 | **R5 Anti-churn** | Tela de cancelamento com impacto calculado, modo pausa, win-back | Reduz churn no momento crítico | Billing primeiro |
 | **V3 Ranking de bancos abusivos** | Relatório trimestral público anonimizado | Autoridade de marca + imprensa | Massa de dados D1–D3 |
 | **F6 Sweep automático** | Mover sobra para investimento automaticamente | "Piloto automático" — valor passivo | Open Finance fase 4 (iniciação de pagamento) |
-| **F8 Radar 200+ instituições** | Ampliar catálogo OPP (hoje: 13 bancos/produtos) | Cobertura de cauda longa | Conectores adicionais |
+| **F8 Radar — cauda longa** | ✅ varredura completa do diretório Open Finance implementada (2026-07): todos os participantes com renda fixa publicada entram no catálogo diário. Restante: fontes fora do Open Finance (corretoras não participantes, catálogo ANBIMA) | Cobertura além dos participantes do Open Finance | Fontes adicionais |
 | **F9/F10** | Portabilidade de crédito assistida (execução), pagamento otimizado | D6 simula; falta executar | Validação jurídica + APIs |
 | **F12 Modo Família** | Até 4 membros | Aumenta ARPU e lock-in | Modelo multi-usuário |
 | **Nexa Score exportável** | Score como bureau de crédito alternativo | Vetor de escala fase 3 | Massa crítica de usuários |
