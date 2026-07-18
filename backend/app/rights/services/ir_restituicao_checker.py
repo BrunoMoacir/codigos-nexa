@@ -72,7 +72,9 @@ class IrRestituicaoChecker:
             official_channel="App Meu Imposto de Renda (Receita Federal) · e-CAC",
             official_url="https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda",
             action_steps=[
-                "Baixe o app 'Meu Imposto de Renda' (iOS/Android) ou acesse o e-CAC.",
+                "Consulte em tempo real pela Nexa: gere uma Autorização de Compartilhamento "
+                "no e-CAC (Compartilha Receita Federal) e cole o token no app.",
+                "Alternativa: baixe o app 'Meu Imposto de Renda' (iOS/Android) ou acesse o e-CAC.",
                 "Consulte o extrato da declaração para ver se há restituição pendente.",
                 "Se constar 'em análise' há mais de 60 dias, acesse 'Consultar Impugnação/Autuação'.",
                 "Verifique deduções esquecidas: " + " · ".join(_COMMON_DEDUCTIONS[:3]) + ".",

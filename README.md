@@ -171,10 +171,14 @@ Endpoints: `GET /defense/{user_id}`, `/defense/{user_id}/dossier`, `/defense/{us
 |:---|:---|:---|:---:|
 | T1 | **Otimizador de IR** — tax loss harvesting, timing de resgate | Paga menos imposto legalmente sobre investimentos | ✅ |
 | T2 | **Modo Imposto Zero** — migração CDB→LCI/LCA com breakeven | Sabe exatamente quando um LCI isento ganha do CDB tributado | ✅ |
-| T3 | **Monitor de Direitos Esquecidos** — SVR BACEN, FGTS, PIS/PASEP, restituição IR | Guia orientativo personalizado: mostra onde e como verificar dinheiro esquecido nos canais oficiais (a consulta automática exige login GOV.BR e **não está implementada** — ver nota ↓) | ⚠️ orientativo |
+| T3 | **Monitor de Direitos Esquecidos** — SVR BACEN, FGTS, PIS/PASEP, restituição IR | **Consulta REAL do SVR dentro do app** (API pública oficial do BACEN, usuário responde o captcha oficial) + **restituição IRPF em tempo real** (API SERPRO, autorizada pelo usuário no e-CAC); FGTS/PIS seguem orientativos (sem API para terceiros) — ver nota ↓ | ✅ |
 | R2.c | **Sazonalidade Fiscal** — IR, DAS/DASN-SIMEI, IPVA/IPTU, 13º, lucro FGTS, personalizado por perfil MEI/CLT | Nunca mais multa por perder prazo fiscal | ✅ |
 
-> **⚠️ Nota T3 (auditoria 2026-07-18):** o SVR/BACEN exige autenticação GOV.BR e não expõe API para terceiros; FGTS, PIS/PASEP e restituição de IR idem. A implementação real em produção é o guia orientativo (`GET /rights/{user_id}` + tool `get_forgotten_rights`), que direciona o usuário aos canais oficiais. **Atenção:** existe um segundo caminho, `GET /fiscal/forgotten-rights` (`app/fiscal/rights_monitor/`), cujo conector SVR é **mock que fabrica valores por hash do CPF** — não pode ir ao ar; remover ou desabilitar antes do lançamento.
+> **Nota T3 (atualizada 2026-07-18):** consultas reais implementadas em dois níveis, ambas exclusivamente por canais oficiais e validadas ao vivo:
+> - **SVR (consulta assistida):** `GET /rights/{user_id}/svr/captcha` + `POST /rights/{user_id}/svr/check` usam a consulta pública oficial do BACEN (a mesma do site) — o usuário responde o desafio de segurança oficial no app e a Nexa informa na hora se existe valor em seu nome. O montante e o resgate seguem no portal com login GOV.BR. CPF/data de nascimento não são persistidos; logs só registram CPF mascarado.
+> - **Restituição IRPF (consulta autorizada):** `POST /rights/{user_id}/ir/check` consulta a API oficial Consulta Restituição do SERPRO com o token de Autorização de Compartilhamento que o próprio usuário gera no e-CAC (LGPD art. 7º/11º), decriptando valor, situação e banco (RSA PKCS#1). Requer contrato SERPRO em produção (`SERPRO_CONSUMER_KEY/SECRET`); sem credenciais, o endpoint degrada para o passo a passo de habilitação.
+> - **FGTS e PIS/PASEP:** sem API pública para terceiros — permanecem orientativos.
+> - O antigo mock de `app/fiscal/rights_monitor/` (valores fabricados por hash do CPF) **foi removido**; a visão fiscal agora aponta para os fluxos reais acima, sem inventar valores.
 
 ### Engajamento e Retenção (MX/R)
 
@@ -356,7 +360,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 | **Motor core** | F1 ETL + cashflow, F2 optimizer (25 cartões curados), F3 Architect (Monte Carlo), F4 PF/PJ, F5 custos, F7 compra inteligente, F13 negociador, fiscal MEI/PJ |
 | **Oportunidades** | OPP.1–OPP.5 completos + Bank Match + catálogo público + refresh diário |
 | **Defesa** | D1–D6 codificados: venda casada, cobranças indevidas, juros abusivos, mudança unilateral, dossiê + ZIP, portabilidade |
-| **Direitos e impostos** | T1 otimizador IR, T2 imposto zero, T3 direitos esquecidos (guia orientativo SVR/FGTS/PIS/IR), calendário fiscal sazonal |
+| **Direitos e impostos** | T1 otimizador IR, T2 imposto zero, T3 direitos esquecidos (consulta REAL do SVR assistida + restituição IRPF via SERPRO autorizada; FGTS/PIS orientativos), calendário fiscal sazonal |
 | **Engajamento** | Health score + desafios + badges, metas, 17 tipos de notificação com filtro de relevância, peer comparison, budget 50/30/20, shadow invoices |
 | **Retenção** | Scheduler com 6 jobs, daily digest, entrega email/in-app/push, PWA com widget instalável e Web Push VAPID, checkout-context, revisão de compras |
 | **Viral** | Placar de economia (SVG) e Wrapped anual (SVG) |
@@ -370,8 +374,8 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 | **Billing + gating de planos** | Cobrança (Stripe/Pagar.me) e enforcement Free/Pro/Total nos endpoints | Sem isso não há receita — o modelo de negócio existe só no papel | Decisão de gateway |
 | **Frontend oficial** | O `frontend-react/` atual é protótipo de validação (descartável); app oficial será construído do zero | Toda a inteligência do backend precisa de uma casa definitiva | Design system |
 | **Validação jurídica (D5)** | Revisão por advogado dos templates de petição JEC e cartas | Código pronto; lançar sem revisão gera risco de responsabilidade por orientação incorreta | Advogado parceiro |
-| **Remover mock do `/fiscal/forgotten-rights`** | O conector SVR de `app/fiscal/rights_monitor/` fabrica valores por hash do CPF | Endpoint exposto que retorna dinheiro inexistente destrói confiança se chegar a produção | — (só remover/desabilitar) |
-| **T3 consulta real** | Integração autenticada com SVR/FGTS/IR (hoje o T3 é guia orientativo) | O "acha dinheiro na hora" só existe com consulta real; exige GOV.BR/parceria | Regulatório/parceria gov.br |
+| **Contrato SERPRO (produção)** | A consulta real de restituição IRPF funciona em trial; produção exige contratar a API Consulta Restituição na Loja SERPRO (consumer key/secret + chave do e-CNPJ) | Sem o contrato, o `POST /rights/{user_id}/ir/check` degrada para o passo a passo de habilitação | Contratação SERPRO (custo por consulta) |
+| **UI da consulta SVR assistida** | Tela no app exibindo o captcha oficial do BACEN (endpoints prontos no backend) | O "existe dinheiro em seu nome?" em tempo real é o maior hook de conversão do produto | Frontend oficial |
 | **Conta de usuário completa** | Reset de senha e verificação de e-mail | Não existem no código; suporte e abuso no dia 1 sem isso | — |
 | **App mobile nativo** | Widget de homescreen nativo, push FCM | PWA cobre o essencial, mas retenção diária de massa exige mobile nativo | Time mobile |
 | **R4.a Relatório trimestral** | Consolidado automático por email | Reforço de valor percebido a cada 3 meses | Scheduler (pronto) — só falta o job |
@@ -579,7 +583,10 @@ México: Open Banking regulado (Ley Fintech 2018), 60M sub-bancarizados, concent
 | `GET` | `/api/v1/defense/{user_id}` | Venda casada + cobranças indevidas + juros abusivos |
 | `GET` | `/api/v1/defense/{user_id}/dossier` · `/zip` | Dossiê de evidências (PROCON/JEC) + export |
 | `GET` | `/api/v1/defense/{user_id}/portability` | Simulador de portabilidade total |
-| `GET` | `/api/v1/rights/{user_id}` | SVR BACEN, FGTS, PIS/PASEP, restituição IR |
+| `GET` | `/api/v1/rights/{user_id}` | Visão geral: 4 fontes + capacidade de consulta de cada uma |
+| `GET` | `/api/v1/rights/{user_id}/svr/captcha` | Desafio oficial do BACEN (consulta assistida SVR) |
+| `POST` | `/api/v1/rights/{user_id}/svr/check` | Consulta REAL na consulta pública do SVR/BACEN |
+| `POST` | `/api/v1/rights/{user_id}/ir/check` | Consulta REAL da restituição IRPF (e-CAC + SERPRO) |
 | `GET` | `/api/v1/tax/optimize/{user_id}` | Otimizador de IR + tax loss harvesting |
 | `POST` | `/api/v1/tax/breakeven` | Breakeven CDB vs LCI/LCA |
 | `GET` | `/api/v1/seasonality/{user_id}` | Calendário fiscal personalizado |

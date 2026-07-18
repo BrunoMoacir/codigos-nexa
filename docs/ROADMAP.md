@@ -107,15 +107,16 @@ rotativo PF / 20706 cheque especial) e é usado pelo detector D3
 | T2 | Modo Imposto Zero (CDB→LCI/LCA, poupança→Tesouro SELIC, come-cotas) | Média | 2–3 sem | OPP (Radar) |
 | T3 | Monitor de Direitos Esquecidos (SVR BACEN, FGTS, PIS/PASEP, restituição IR, dividendos B3) | Alta | 2–3 sem | APIs públicas BCB/Caixa |
 
-↳ **verificado 2026-07-18:** T1 e T2 implementados (`app/tax/`). T3 implementado como **guia
-orientativo** (`app/rights/` + tool `get_forgotten_rights`): personaliza o roteiro de verificação e
-direciona aos canais oficiais, mas **não consulta SVR/FGTS/IR automaticamente** — não há API pública
-para terceiros (ver Gap 4). O hook "encontra R$ esquecido na hora" da linha abaixo **ainda não é
-verdade** e não deve ser usado em material de marketing.
+↳ **atualizado 2026-07-18:** T1 e T2 implementados (`app/tax/`). T3 agora tem **consulta real**
+nas duas fontes que importam: SVR via consulta assistida (API pública oficial do BACEN, captcha
+respondido pelo usuário no app) e restituição IRPF via API SERPRO com autorização do titular no
+e-CAC — ambas validadas ao vivo (ver Gap 4). FGTS/PIS seguem orientativos. O hook "existe dinheiro
+em seu nome? — resposta na hora" é agora **verdadeiro para o SVR**; para marketing, a formulação
+correta é "verificamos na hora se há valores em seu nome no BACEN" (o montante aparece no portal
+GOV.BR do usuário).
 
-**T3 — maior ROI de conversão (aspiracional):** encontra R$ esquecido → converte usuário na hora.
-SVR BACEN tem ~R$ 6,2 bilhões não reclamados no Brasil (BACEN, mai/2026; era ~R$ 8,5 bi antes da
-transferência de R$ 5,7 bi ao FGO pela Lei 14.973/2024).
+**T3 — maior ROI de conversão:** SVR BACEN tem ~R$ 6,2 bilhões não reclamados no Brasil
+(BACEN, mai/2026; era ~R$ 8,5 bi antes da transferência de R$ 5,7 bi ao FGO pela Lei 14.973/2024).
 
 ---
 
@@ -236,14 +237,21 @@ representatividade com massa de usuários.
 - O que ainda falta: crawler/coleta das tabelas públicas de tarifas dos bancos para dar baseline
   desde o dia 1 (BACEN publica consulta de tarifas)
 
-### Gap 4 — APIs de Direitos Públicos (impacto: Alto para T3) — ❌ sem solução técnica direta
-↳ **verificado 2026-07-18:** nenhuma das fontes expõe API pública para terceiros — SVR exige login
-GOV.BR (OAuth), FGTS/PIS/restituição idem. Por isso o T3 em produção é **orientativo**
-(`app/rights/`): roteiro personalizado apontando aos canais oficiais.
-- ⚠️ **Alerta:** `GET /fiscal/forgotten-rights` (`app/fiscal/rights_monitor/`) usa conector SVR
-  **mock que fabrica valores por hash do CPF** — remover/desabilitar antes de qualquer lançamento.
-- Caminhos possíveis para consulta real: parceria/procuração via gov.br Conecta, ou o usuário
-  autenticando na própria sessão (avaliar viabilidade regulatória antes de prometer no marketing).
+### Gap 4 — APIs de Direitos Públicos (impacto: Alto para T3) — ✅ resolvido para SVR e IRPF
+↳ **atualizado 2026-07-18 (validado ao vivo):** duas consultas REAIS implementadas em
+`app/rights/connectors/`, ambas por canais oficiais:
+- **SVR — consulta assistida** (`svr_public.py`): usa a consulta pública oficial do BACEN
+  (`/publico/rest/captcha` + `/publico/rest/valoresAReceber/...`), com o usuário respondendo o
+  captcha oficial no app (humano no loop; sem contorno). Responde na hora se existe valor a
+  receber; montante/resgate seguem no portal com GOV.BR. CPF nunca é persistido.
+- **Restituição IRPF — consulta autorizada** (`serpro_restituicao.py`): API oficial Consulta
+  Restituição do SERPRO (`gateway.apiserpro.serpro.gov.br/consulta-restituicao/v1`), mediante
+  token de Autorização de Compartilhamento gerado pelo titular no e-CAC; decriptação
+  RSA PKCS#1 dos campos (valor, situação, banco). Trial validado ponta a ponta; produção
+  requer contratação na Loja SERPRO.
+- **FGTS / PIS-PASEP:** seguem sem API para terceiros → orientativos.
+- O mock que fabricava valores por hash do CPF em `app/fiscal/rights_monitor/` **foi removido**;
+  a visão fiscal agora aponta para os fluxos reais, sem inventar valores.
 
 ### Gap 5 — Validação Jurídica (impacto: Alto para D5/D6)
 Templates de petição para JEC e cartas de portabilidade precisam de revisão por advogado.

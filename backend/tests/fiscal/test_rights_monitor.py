@@ -1,94 +1,80 @@
-import pytest
-import asyncio
-from app.fiscal.rights_monitor.services.svr_connector import SVRConnector
-from app.fiscal.rights_monitor.services.monitor import RightsMonitorAggregator
+# tests/fiscal/test_rights_monitor.py
+# T3 — Monitor de Direitos Esquecidos (visão fiscal), sem valores fabricados.
+#
+# Regra de honestidade: nenhum conector pode inventar montantes. SVR e IRPF
+# apontam para os fluxos de consulta REAL (assistida/autorizada) do módulo
+# rights; FGTS é orientativo. estimated_amount é sempre 0.0 aqui.
 
-def test_svr_connector_returns_candidate():
-    connector = SVRConnector()
-    cpf_1 = "12345678900"
-    
-    async def run_test():
-        return await connector.check_rights(user_id="user_1", cpf=cpf_1)
-        
-    candidate = asyncio.run(run_test())
-    
+import asyncio
+
+import pytest
+
+from app.core.config import settings
+from app.fiscal.rights_monitor.services.fgts_connector import FGTSConnector
+from app.fiscal.rights_monitor.services.monitor import RightsMonitorAggregator
+from app.fiscal.rights_monitor.services.receita_connector import ReceitaConnector
+from app.fiscal.rights_monitor.services.svr_connector import SVRConnector
+
+CPF = "52998224725"
+
+
+def test_svr_connector_aponta_consulta_assistida_sem_fabricar_valor():
+    candidate = asyncio.run(SVRConnector().check_rights(user_id="u1", cpf=CPF))
+
     assert candidate.source == "SVR_BACEN"
-    assert candidate.status in ["AVAILABLE", "NOT_FOUND"]
-    assert candidate.estimated_amount >= 0.0
+    assert candidate.status == "PENDING_VERIFICATION"
+    assert candidate.estimated_amount == 0.0
+    assert "/rights/{user_id}/svr/check" in candidate.description
     assert candidate.action_url == "https://valoresareceber.bcb.gov.br/"
 
-def test_rights_monitor_aggregator():
-    aggregator = RightsMonitorAggregator()
-    cpf = "00000000000"
-    
-    async def run_aggregator():
-        return await aggregator.run_scan(user_id="user_2", cpf=cpf)
-        
-    report = asyncio.run(run_aggregator())
-    
+
+def test_fgts_connector_orientativo_sem_fabricar_valor():
+    candidate = asyncio.run(FGTSConnector().check_rights(user_id="u1", cpf=CPF))
+
+    assert candidate.source == "FGTS"
+    assert candidate.status == "PENDING_VERIFICATION"
+    assert candidate.estimated_amount == 0.0
+
+
+def test_receita_connector_com_serpro_configurado(monkeypatch):
+    monkeypatch.setattr(settings, "SERPRO_RESTITUICAO_TRIAL", True, raising=False)
+    candidate = asyncio.run(ReceitaConnector().check_rights(user_id="u1", cpf=CPF))
+
+    assert candidate.source == "IR_RESTITUTION"
+    assert candidate.status == "PENDING_VERIFICATION"
+    assert candidate.estimated_amount == 0.0
+    assert "/rights/{user_id}/ir/check" in candidate.description
+
+
+def test_receita_connector_sem_serpro(monkeypatch):
+    monkeypatch.setattr(settings, "SERPRO_RESTITUICAO_TRIAL", False, raising=False)
+    monkeypatch.setattr(settings, "SERPRO_CONSUMER_KEY", "", raising=False)
+    monkeypatch.setattr(settings, "SERPRO_CONSUMER_SECRET", "", raising=False)
+    candidate = asyncio.run(ReceitaConnector().check_rights(user_id="u1", cpf=CPF))
+
+    assert candidate.status == "PENDING_VERIFICATION"
+    assert "ainda não está" in candidate.description
+
+
+def test_aggregator_reune_as_tres_fontes():
+    report = asyncio.run(RightsMonitorAggregator().run_scan(user_id="user_2", cpf=CPF))
+
     assert report.user_id == "user_2"
     assert len(report.candidates) == 3
-    sources = {c.source for c in report.candidates}
-    assert sources == {"SVR_BACEN", "FGTS", "IR_RESTITUTION"}
+    assert {c.source for c in report.candidates} == {"SVR_BACEN", "FGTS", "IR_RESTITUTION"}
+    # Sem consulta real executada, nunca há valor "estimado":
+    assert report.total_estimated_amount == 0.0
 
-def test_connectors_not_found_case():
-    # Test SVR, FGTS and Receita with specific hashes to guarantee "NOT_FOUND"
-    from app.fiscal.rights_monitor.services.fgts_connector import FGTSConnector
-    from app.fiscal.rights_monitor.services.receita_connector import ReceitaConnector
-    
-    svr = SVRConnector()
-    fgts = FGTSConnector()
-    receita = ReceitaConnector()
-    
-    # Try different CPFs until we hit the "NOT_FOUND" branch for each.
-    # SVR uses hash(cpf) % 3 == 0 for AVAILABLE.
-    # Because hash() is randomized per process in Python, we loop until we hit NOT_FOUND.
-    async def run_tests():
-        # SVR
-        for i in range(100):
-            cpf = f"test_cpf_{i}"
-            c = await svr.check_rights("u", cpf)
-            if c.status == "NOT_FOUND":
-                assert True
-                break
 
-        # FGTS
-        for i in range(100):
-            cpf = f"test_cpf_{i}"
-            f = await fgts.check_rights("u", cpf)
-            if f.status == "NOT_FOUND":
-                assert True
-                break
-        
-        # Receita
-        for i in range(100):
-            cpf = f"test_cpf_{i}"
-            r = await receita.check_rights("u", cpf)
-            if r.status == "NOT_FOUND":
-                assert True
-                break
-        
-    asyncio.run(run_tests())
-
-def test_aggregator_with_exceptions(monkeypatch):
-    from app.fiscal.rights_monitor.services.monitor import RightsMonitorAggregator
-    
+def test_aggregator_tolera_excecao_em_conector(monkeypatch):
     aggregator = RightsMonitorAggregator()
-    
-    # Mock check_rights to raise an exception
-    async def mock_check_rights(*args, **kwargs):
-        raise ValueError("Simulated connection error")
-        
-    monkeypatch.setattr(aggregator.svr, "check_rights", mock_check_rights)
-    
-    cpf = "123"
-    async def run_aggregator():
-        return await aggregator.run_scan(user_id="user_err", cpf=cpf)
-        
-    report = asyncio.run(run_aggregator())
-    
-    # Only FGTS and Receita should be there because SVR failed.
-    assert len(report.candidates) == 2
-    sources = {c.source for c in report.candidates}
-    assert "SVR_BACEN" not in sources
 
+    async def boom(*args, **kwargs):
+        raise ValueError("Simulated connection error")
+
+    monkeypatch.setattr(aggregator.svr, "check_rights", boom)
+
+    report = asyncio.run(aggregator.run_scan(user_id="user_err", cpf=CPF))
+
+    assert len(report.candidates) == 2
+    assert "SVR_BACEN" not in {c.source for c in report.candidates}
