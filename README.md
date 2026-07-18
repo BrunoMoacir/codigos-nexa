@@ -127,7 +127,7 @@ Agente LangGraph ReAct com **29 ferramentas** conectadas a todos os módulos do 
 | ID | Funcionalidade | Valor para o usuário | Status |
 |:---|:---|:---|:---:|
 | F1 | **ETL Pipeline + Cashflow** — 8 estágios, projeção 30 dias, safe-to-spend | Sabe exatamente quanto pode gastar hoje sem comprometer contas futuras | ✅ |
-| F2 | **Card Optimizer** — catálogo curado de 25 cartões (expansão para 100+ no roadmap), multi-card, custo de oportunidade | Recupera R$ 50–200/mês em cashback/pontos que estava deixando na mesa | ✅ |
+| F2 | **Card Optimizer** — catálogo curado de 81 cartões (37 emissores, 11 programas de fidelidade valorados), multi-card, custo de oportunidade | Recupera R$ 50–200/mês em cashback/pontos que estava deixando na mesa | ✅ |
 | F3 | **Nexa Architect** — financiamento vs consórcio vs investir, VPL + Monte Carlo | Decisões de dezenas de milhares de reais com intervalo de confiança de 95% | ✅ |
 | F4 | **PF/PJ Classifier** — Random Forest + regras, relatório fiscal MEI | MEI separa gastos pessoais e da empresa automaticamente; base do relatório DAS | ✅ |
 | F5 | **Raio-X de Custos** — tarifas detectadas, benchmark de 16 bancos | Vê cada tarifa cobrada e se está acima da média de mercado | ✅ |
@@ -357,7 +357,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 
 | Área | Entregas |
 |:---|:---|
-| **Motor core** | F1 ETL + cashflow, F2 optimizer (25 cartões curados), F3 Architect (Monte Carlo), F4 PF/PJ, F5 custos, F7 compra inteligente, F13 negociador, fiscal MEI/PJ |
+| **Motor core** | F1 ETL + cashflow, F2 optimizer (81 cartões curados de 37 emissores), F3 Architect (Monte Carlo), F4 PF/PJ, F5 custos, F7 compra inteligente, F13 negociador, fiscal MEI/PJ |
 | **Oportunidades** | OPP.1–OPP.5 completos + Bank Match + catálogo público + refresh diário |
 | **Defesa** | D1–D6 codificados: venda casada, cobranças indevidas, juros abusivos, mudança unilateral, dossiê + ZIP, portabilidade |
 | **Direitos e impostos** | T1 otimizador IR, T2 imposto zero, T3 direitos esquecidos (consulta REAL do SVR assistida + restituição IRPF via SERPRO autorizada; FGTS/PIS orientativos), calendário fiscal sazonal |
@@ -410,7 +410,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 
 > **2. Flywheel de dados** — Cada novo usuário melhora o benchmark de tarifas (`bank_fee_trends`) e os detectores de abuso. Meses de dados históricos que nenhum concorrente replica retroativamente.
 
-> **3. Complexidade técnica** — 20+ módulos de análise, ETL de 8 estágios, catálogo curado de cartões, Monte Carlo, agente ReAct com 29 ferramentas, 8 clusters comportamentais, 6 detectores de defesa do consumidor e scheduler de inteligência proativa. Não é um wrapper de API.
+> **3. Complexidade técnica** — 20+ módulos de análise, ETL de 8 estágios, catálogo curado de 81 cartões com 11 programas de fidelidade valorados, Monte Carlo, agente ReAct com 29 ferramentas, 8 clusters comportamentais, 6 detectores de defesa do consumidor e scheduler de inteligência proativa. Não é um wrapper de API.
 
 > **4. Confiança do usuário** — Uma vez que o usuário confia na Nexa como seu advogado, o custo de troca é altíssimo.
 
