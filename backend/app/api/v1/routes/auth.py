@@ -21,8 +21,11 @@ from app.core.database import get_db
 from app.core import audit
 from sqlalchemy.orm import Session
 
+import logging
+
 router = APIRouter(prefix="/auth", tags=["Auth"])
 limiter = Limiter(key_func=get_remote_address)
+logger_auth = logging.getLogger(__name__)
 
 # Hash fictício usado para equalizar o tempo de resposta quando o usuário
 # não é encontrado — evita timing attack / enumeração de contas.
@@ -43,6 +46,65 @@ class Token(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str
+
+
+_MIN_PASSWORD_LEN = 8
+
+
+def _frontend_url(path: str) -> str:
+    from app.core.config import settings
+
+    base = (getattr(settings, "FRONTEND_BASE_URL", "") or "http://localhost:8501").rstrip("/")
+    return f"{base}{path}"
+
+
+def _send_reset_email(email: str, token: str) -> None:
+    from app.core.notifications.email_sender import send_email
+
+    link = _frontend_url(f"/reset-password?token={token}")
+    send_email(
+        to=email,
+        subject="Nexa — redefinição de senha",
+        html_body=(
+            "<p>Recebemos um pedido para redefinir a senha da sua conta Nexa.</p>"
+            f'<p><a href="{link}">Clique aqui para criar uma nova senha</a> '
+            "(o link vale por 60 minutos e só pode ser usado uma vez).</p>"
+            "<p>Se você não pediu a redefinição, ignore este e-mail — sua senha "
+            "continua a mesma. A Nexa nunca pede sua senha por e-mail.</p>"
+        ),
+    )
+
+
+def _send_verification_email(email: str, token: str) -> None:
+    from app.core.notifications.email_sender import send_email
+
+    link = _frontend_url(f"/verify-email?token={token}")
+    send_email(
+        to=email,
+        subject="Nexa — confirme seu e-mail",
+        html_body=(
+            "<p>Bem-vindo(a) à Nexa! Confirme seu e-mail para proteger sua conta:</p>"
+            f'<p><a href="{link}">Confirmar meu e-mail</a> (o link vale por 48 horas).</p>'
+            "<p>Se você não criou uma conta na Nexa, ignore este e-mail.</p>"
+        ),
+    )
 
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
@@ -84,6 +146,13 @@ async def register(request: Request, user: UserCreate, db: Session = Depends(get
         create_default_settings(user_id=new_user["user_id"], db=db)
     except Exception:
         pass  # nunca bloqueia o cadastro
+
+    # Dispara verificação de e-mail (best-effort — nunca bloqueia o cadastro)
+    try:
+        from app.core.account_tokens import PURPOSE_EMAIL_VERIFY, issue_token
+        _send_verification_email(user.email, issue_token(new_user["user_id"], PURPOSE_EMAIL_VERIFY))
+    except Exception:
+        pass
 
     return {"message": "Usuário criado com sucesso", "user_id": new_user["user_id"]}
 
@@ -182,6 +251,128 @@ async def refresh_access_token(
         "full_name": user.get("full_name"),
         "refresh_token": create_refresh_token(token_data.user_id),
     }
+
+
+@router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("5/minute")
+async def forgot_password(
+    request: Request,
+    body: ForgotPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Inicia o fluxo "esqueci minha senha".
+
+    Anti-enumeração: a resposta é SEMPRE 202 com a mesma mensagem, exista ou
+    não a conta — quem pergunta não descobre quais e-mails estão cadastrados.
+    O e-mail com o link (token de uso único, 60min) só é enviado se a conta
+    existir.
+    """
+    ip = request.client.host if request.client else "unknown"
+    req_id = getattr(request.state, "request_id", None)
+
+    user = get_user_by_email(db, body.email)
+    if user:
+        try:
+            from app.core.account_tokens import PURPOSE_PASSWORD_RESET, issue_token
+
+            _send_reset_email(body.email, issue_token(user["user_id"], PURPOSE_PASSWORD_RESET))
+            audit.log_password_reset_requested(
+                user_id=user["user_id"], ip=ip, request_id=req_id
+            )
+        except Exception:
+            logger_auth.exception("forgot-password: envio falhou (resposta segue 202)")
+
+    return {"message": "Se o e-mail estiver cadastrado, enviamos as instruções de redefinição."}
+
+
+@router.post("/reset-password", status_code=status.HTTP_200_OK)
+@limiter.limit("5/minute")
+async def reset_password(
+    request: Request,
+    body: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Conclui o reset: valida o token (uso único, 60min) e troca a senha.
+    Token inválido/expirado/reusado → 400 genérico (sem oráculo de estado).
+    """
+    if len(body.new_password) < _MIN_PASSWORD_LEN:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"A nova senha precisa de pelo menos {_MIN_PASSWORD_LEN} caracteres.",
+        )
+
+    from app.core.account_tokens import PURPOSE_PASSWORD_RESET, consume_token
+
+    user_id = consume_token(body.token, PURPOSE_PASSWORD_RESET)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Link inválido ou expirado. Solicite uma nova redefinição.",
+        )
+
+    from app.core.db.users import update_user_password
+
+    if not update_user_password(db, user_id, get_password_hash(body.new_password)):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao atualizar a senha. Tente novamente.",
+        )
+
+    ip = request.client.host if request.client else "unknown"
+    req_id = getattr(request.state, "request_id", None)
+    audit.log_password_reset_completed(user_id=user_id, ip=ip, request_id=req_id)
+
+    return {"message": "Senha redefinida com sucesso. Faça login com a nova senha."}
+
+
+@router.post("/verify-email", status_code=status.HTTP_200_OK)
+@limiter.limit("10/minute")
+async def verify_email(
+    request: Request,
+    body: VerifyEmailRequest,
+    db: Session = Depends(get_db),
+):
+    """Confirma o e-mail do usuário via token de uso único (48h)."""
+    from app.core.account_tokens import PURPOSE_EMAIL_VERIFY, consume_token
+
+    user_id = consume_token(body.token, PURPOSE_EMAIL_VERIFY)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Link inválido ou expirado. Peça um novo e-mail de confirmação.",
+        )
+
+    from app.core.db.users import mark_email_verified
+
+    mark_email_verified(db, user_id)
+
+    ip = request.client.host if request.client else "unknown"
+    req_id = getattr(request.state, "request_id", None)
+    audit.log_email_verified(user_id=user_id, ip=ip, request_id=req_id)
+
+    return {"message": "E-mail confirmado com sucesso."}
+
+
+@router.post("/resend-verification", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("3/minute")
+async def resend_verification(
+    request: Request,
+    body: ResendVerificationRequest,
+    db: Session = Depends(get_db),
+):
+    """Reenvia o e-mail de confirmação. Sempre 202 (anti-enumeração)."""
+    user = get_user_by_email(db, body.email)
+    if user:
+        try:
+            from app.core.account_tokens import PURPOSE_EMAIL_VERIFY, issue_token
+
+            _send_verification_email(body.email, issue_token(user["user_id"], PURPOSE_EMAIL_VERIFY))
+        except Exception:
+            logger_auth.exception("resend-verification: envio falhou (resposta segue 202)")
+
+    return {"message": "Se o e-mail estiver cadastrado, enviamos um novo link de confirmação."}
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

@@ -316,6 +316,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 | Camada | Implementação |
 |:---|:---|
 | **Autenticação** | JWT HS256 30 min + refresh token de 14 dias com **rotação de uso único** (reuso → 401); blacklist Redis por `jti`; anti-enumeração no login |
+| **Conta** | Reset de senha e verificação de e-mail com tokens de uso único (só o SHA-256 vai ao banco); respostas 202 uniformes (anti-enumeração); emitir link novo invalida o anterior; auditoria de cada evento |
 | **Autorização** | `require_owner` em todos os endpoints de dados (IDOR bloqueado); recursos aninhados verificam dono do objeto |
 | **Webhook Pluggy** | Segredo compartilhado comparado em tempo constante; produção sem segredo → 503 fail-closed; identidade resolvida server-side, nunca do payload |
 | **Headers** | CSP estrito, HSTS (produção), X-Frame-Options DENY, COOP, Permissions-Policy; CORS `*` proibido em produção (validador recusa boot) |
@@ -376,7 +377,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 | **Validação jurídica (D5)** | Revisão por advogado dos templates de petição JEC e cartas | Código pronto; lançar sem revisão gera risco de responsabilidade por orientação incorreta | Advogado parceiro |
 | **Contrato SERPRO (produção)** | A consulta real de restituição IRPF funciona em trial; produção exige contratar a API Consulta Restituição na Loja SERPRO (consumer key/secret + chave do e-CNPJ) | Sem o contrato, o `POST /rights/{user_id}/ir/check` degrada para o passo a passo de habilitação | Contratação SERPRO (custo por consulta) |
 | **UI da consulta SVR assistida** | Tela no app exibindo o captcha oficial do BACEN (endpoints prontos no backend) | O "existe dinheiro em seu nome?" em tempo real é o maior hook de conversão do produto | Frontend oficial |
-| **Conta de usuário completa** | Reset de senha e verificação de e-mail | Não existem no código; suporte e abuso no dia 1 sem isso | — |
+| ~~Conta de usuário completa~~ | ✅ Reset de senha + verificação de e-mail implementados (2026-07-18, tokens de uso único + anti-enumeração) — falta só a UI das telas | Frontend oficial |
 | **App mobile nativo** | Widget de homescreen nativo, push FCM | PWA cobre o essencial, mas retenção diária de massa exige mobile nativo | Time mobile |
 | **R4.a Relatório trimestral** | Consolidado automático por email | Reforço de valor percebido a cada 3 meses | Scheduler (pronto) — só falta o job |
 | **R5 Anti-churn** | Tela de cancelamento com impacto calculado, modo pausa, win-back | Reduz churn no momento crítico | Billing primeiro |
@@ -531,7 +532,9 @@ México: Open Banking regulado (Ley Fintech 2018), 60M sub-bancarizados, concent
 | Método | Rota | Descrição |
 |:---:|:---|:---|
 | `GET` | `/health` · `/readiness` · `/version` | Saúde e versão |
-| `POST` | `/api/v1/auth/register` · `/auth/token` · `/auth/refresh` · `/auth/logout` | Cadastro, login JWT, refresh rotativo, logout |
+| `POST` | `/api/v1/auth/register` · `/auth/token` · `/auth/refresh` · `/auth/logout` | Cadastro (dispara verificação de e-mail), login JWT, refresh rotativo, logout |
+| `POST` | `/api/v1/auth/forgot-password` · `/auth/reset-password` | Reset de senha: token de uso único (60min), sempre 202 (anti-enumeração) |
+| `POST` | `/api/v1/auth/verify-email` · `/auth/resend-verification` | Verificação de e-mail: token de uso único (48h) |
 
 <details>
 <summary><strong>Ver todos os endpoints por domínio</strong></summary>

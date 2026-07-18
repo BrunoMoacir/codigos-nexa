@@ -12,3 +12,5 @@ class User(Base):
     full_name = Column(String)
     is_active = Column(Boolean, default=True, nullable=False, server_default="true")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    email_verified = Column(Boolean, default=False, nullable=False, server_default="false")
+    email_verified_at = Column(DateTime(timezone=True), nullable=True)

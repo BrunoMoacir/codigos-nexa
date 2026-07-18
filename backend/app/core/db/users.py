@@ -140,3 +140,49 @@ def create_user(db: Session, email: str, hashed_password: str, full_name: Option
         except Exception:
             pass
         return _create_user_duckdb(email=email, hashed_password=hashed_password, full_name=full_name)
+
+
+def update_user_password(db: Session, user_id: str, hashed_password: str) -> bool:
+    """Atualiza a senha (fluxo de reset). Retorna False se o usuário não existe."""
+    try:
+        rows = (
+            db.query(User)
+            .filter(User.user_id == user_id)
+            .update({User.hashed_password: hashed_password}, synchronize_session=False)
+        )
+        db.commit()
+        return rows > 0
+    except Exception as e:
+        logger.error("update_user_password falhou user=%s: %s", user_id, e)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return False
+
+
+def mark_email_verified(db: Session, user_id: str) -> bool:
+    """Marca o e-mail do usuário como verificado (fluxo de verificação)."""
+    from datetime import datetime, timezone
+
+    try:
+        rows = (
+            db.query(User)
+            .filter(User.user_id == user_id)
+            .update(
+                {
+                    User.email_verified: True,
+                    User.email_verified_at: datetime.now(timezone.utc),
+                },
+                synchronize_session=False,
+            )
+        )
+        db.commit()
+        return rows > 0
+    except Exception as e:
+        logger.error("mark_email_verified falhou user=%s: %s", user_id, e)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return False
