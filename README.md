@@ -127,7 +127,7 @@ Agente LangGraph ReAct com **29 ferramentas** conectadas a todos os módulos do 
 | ID | Funcionalidade | Valor para o usuário | Status |
 |:---|:---|:---|:---:|
 | F1 | **ETL Pipeline + Cashflow** — 8 estágios, projeção 30 dias, safe-to-spend | Sabe exatamente quanto pode gastar hoje sem comprometer contas futuras | ✅ |
-| F2 | **Card Optimizer** — 2.000+ cartões, multi-card, custo de oportunidade | Recupera R$ 50–200/mês em cashback/pontos que estava deixando na mesa | ✅ |
+| F2 | **Card Optimizer** — catálogo curado de 25 cartões (expansão para 100+ no roadmap), multi-card, custo de oportunidade | Recupera R$ 50–200/mês em cashback/pontos que estava deixando na mesa | ✅ |
 | F3 | **Nexa Architect** — financiamento vs consórcio vs investir, VPL + Monte Carlo | Decisões de dezenas de milhares de reais com intervalo de confiança de 95% | ✅ |
 | F4 | **PF/PJ Classifier** — Random Forest + regras, relatório fiscal MEI | MEI separa gastos pessoais e da empresa automaticamente; base do relatório DAS | ✅ |
 | F5 | **Raio-X de Custos** — tarifas detectadas, benchmark de 16 bancos | Vê cada tarifa cobrada e se está acima da média de mercado | ✅ |
@@ -171,8 +171,10 @@ Endpoints: `GET /defense/{user_id}`, `/defense/{user_id}/dossier`, `/defense/{us
 |:---|:---|:---|:---:|
 | T1 | **Otimizador de IR** — tax loss harvesting, timing de resgate | Paga menos imposto legalmente sobre investimentos | ✅ |
 | T2 | **Modo Imposto Zero** — migração CDB→LCI/LCA com breakeven | Sabe exatamente quando um LCI isento ganha do CDB tributado | ✅ |
-| T3 | **Monitor de Direitos Esquecidos** — SVR BACEN, FGTS, PIS/PASEP, restituição IR | Encontra dinheiro esquecido em nome do usuário — o maior hook de conversão do produto | ✅ |
+| T3 | **Monitor de Direitos Esquecidos** — SVR BACEN, FGTS, PIS/PASEP, restituição IR | Guia orientativo personalizado: mostra onde e como verificar dinheiro esquecido nos canais oficiais (a consulta automática exige login GOV.BR e **não está implementada** — ver nota ↓) | ⚠️ orientativo |
 | R2.c | **Sazonalidade Fiscal** — IR, DAS/DASN-SIMEI, IPVA/IPTU, 13º, lucro FGTS, personalizado por perfil MEI/CLT | Nunca mais multa por perder prazo fiscal | ✅ |
+
+> **⚠️ Nota T3 (auditoria 2026-07-18):** o SVR/BACEN exige autenticação GOV.BR e não expõe API para terceiros; FGTS, PIS/PASEP e restituição de IR idem. A implementação real em produção é o guia orientativo (`GET /rights/{user_id}` + tool `get_forgotten_rights`), que direciona o usuário aos canais oficiais. **Atenção:** existe um segundo caminho, `GET /fiscal/forgotten-rights` (`app/fiscal/rights_monitor/`), cujo conector SVR é **mock que fabrica valores por hash do CPF** — não pode ir ao ar; remover ou desabilitar antes do lançamento.
 
 ### Engajamento e Retenção (MX/R)
 
@@ -208,7 +210,7 @@ Endpoints: `GET /viral/savings-card/{user_id}[/svg]`, `GET /viral/wrapped/{user_
 
 | Módulo | O que faz | Onde atua |
 |:---|:---|:---|
-| **ConsumptionProfiler** | Classifica o usuário em 1 de 8 clusters de estilo de vida (90 dias de transações) | Agente, optimizer, budget, notificações — 6+ módulos |
+| **ConsumptionProfiler** | Classifica o usuário em 1 de 8 clusters de estilo de vida (90 dias de transações; regras determinísticas calibradas — substituição por modelo ML prevista na Fase 3) | Agente, optimizer, budget, notificações — 6+ módulos |
 | **LifeEventsDetector** | Detecta bebê, mudança, casamento, faculdade, aumento/queda de renda via padrão de gastos | Cards LIFE_EVENT com ação sugerida |
 | **NotificationRelevanceFilter** | Elimina ruído com thresholds escalados por renda | Mesmo evento é ruído para quem ganha R$ 15k e crítico para quem ganha R$ 2k |
 | **IncomeProfiler** | Renda real após filtrar transferências e não-recorrentes | Base de todos os thresholds |
@@ -326,7 +328,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 
 | Plano | Preço | O que entrega | Valor que justifica o preço |
 |:---|:---:|:---|:---|
-| **Free** | R$ 0/mês | 1 banco conectado, dashboard básico, safe-to-spend, 3 consultas Compra Inteligente/mês, 5 msgs de IA/dia | Porta de entrada: o usuário **vê** quanto está perdendo (indignação → conversão). T3 (direitos esquecidos) no Free acha dinheiro na hora |
+| **Free** | R$ 0/mês | 1 banco conectado, dashboard básico, safe-to-spend, 3 consultas Compra Inteligente/mês, 5 msgs de IA/dia | Porta de entrada: o usuário **vê** quanto está perdendo (indignação → conversão). T3 (direitos esquecidos) no Free orienta onde verificar dinheiro esquecido nos canais oficiais |
 | **Pro** | R$ 19,90/mês | Bancos ilimitados, Raio-X completo, Radar de Oportunidades, chat ilimitado, Negociador (1/mês), digest diário, desafios e badges | Se o usuário recupera **R$ 50+/mês** (média esperada: tarifas + cashback + dinheiro parado), o plano se paga 2,5× |
 | **Total** | R$ 39,90/mês | Tudo do Pro + Defesa do Consumidor completa (dossiê PROCON/JEC), portabilidade simulada, otimizador de IR, Wrapped trimestral, Modo Família (futuro) | Uma única contestação de tarifa recuperada (R$ 200–800) paga o ano inteiro |
 
@@ -351,10 +353,10 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 
 | Área | Entregas |
 |:---|:---|
-| **Motor core** | F1 ETL + cashflow, F2 optimizer (2.000+ cartões), F3 Architect (Monte Carlo), F4 PF/PJ, F5 custos, F7 compra inteligente, F13 negociador, fiscal MEI/PJ |
+| **Motor core** | F1 ETL + cashflow, F2 optimizer (25 cartões curados), F3 Architect (Monte Carlo), F4 PF/PJ, F5 custos, F7 compra inteligente, F13 negociador, fiscal MEI/PJ |
 | **Oportunidades** | OPP.1–OPP.5 completos + Bank Match + catálogo público + refresh diário |
 | **Defesa** | D1–D6 codificados: venda casada, cobranças indevidas, juros abusivos, mudança unilateral, dossiê + ZIP, portabilidade |
-| **Direitos e impostos** | T1 otimizador IR, T2 imposto zero, T3 direitos esquecidos (SVR/FGTS/PIS/IR), calendário fiscal sazonal |
+| **Direitos e impostos** | T1 otimizador IR, T2 imposto zero, T3 direitos esquecidos (guia orientativo SVR/FGTS/PIS/IR), calendário fiscal sazonal |
 | **Engajamento** | Health score + desafios + badges, metas, 17 tipos de notificação com filtro de relevância, peer comparison, budget 50/30/20, shadow invoices |
 | **Retenção** | Scheduler com 6 jobs, daily digest, entrega email/in-app/push, PWA com widget instalável e Web Push VAPID, checkout-context, revisão de compras |
 | **Viral** | Placar de economia (SVG) e Wrapped anual (SVG) |
@@ -368,6 +370,9 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 | **Billing + gating de planos** | Cobrança (Stripe/Pagar.me) e enforcement Free/Pro/Total nos endpoints | Sem isso não há receita — o modelo de negócio existe só no papel | Decisão de gateway |
 | **Frontend oficial** | O `frontend-react/` atual é protótipo de validação (descartável); app oficial será construído do zero | Toda a inteligência do backend precisa de uma casa definitiva | Design system |
 | **Validação jurídica (D5)** | Revisão por advogado dos templates de petição JEC e cartas | Código pronto; lançar sem revisão gera risco de responsabilidade por orientação incorreta | Advogado parceiro |
+| **Remover mock do `/fiscal/forgotten-rights`** | O conector SVR de `app/fiscal/rights_monitor/` fabrica valores por hash do CPF | Endpoint exposto que retorna dinheiro inexistente destrói confiança se chegar a produção | — (só remover/desabilitar) |
+| **T3 consulta real** | Integração autenticada com SVR/FGTS/IR (hoje o T3 é guia orientativo) | O "acha dinheiro na hora" só existe com consulta real; exige GOV.BR/parceria | Regulatório/parceria gov.br |
+| **Conta de usuário completa** | Reset de senha e verificação de e-mail | Não existem no código; suporte e abuso no dia 1 sem isso | — |
 | **App mobile nativo** | Widget de homescreen nativo, push FCM | PWA cobre o essencial, mas retenção diária de massa exige mobile nativo | Time mobile |
 | **R4.a Relatório trimestral** | Consolidado automático por email | Reforço de valor percebido a cada 3 meses | Scheduler (pronto) — só falta o job |
 | **R5 Anti-churn** | Tela de cancelamento com impacto calculado, modo pausa, win-back | Reduz churn no momento crítico | Billing primeiro |
@@ -401,7 +406,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 
 > **2. Flywheel de dados** — Cada novo usuário melhora o benchmark de tarifas (`bank_fee_trends`) e os detectores de abuso. Meses de dados históricos que nenhum concorrente replica retroativamente.
 
-> **3. Complexidade técnica** — 20+ módulos de análise, ETL de 8 estágios, 2.000+ cartões, Monte Carlo, agente ReAct com 29 ferramentas, 8 clusters comportamentais, 6 detectores de defesa do consumidor e scheduler de inteligência proativa. Não é um wrapper de API.
+> **3. Complexidade técnica** — 20+ módulos de análise, ETL de 8 estágios, catálogo curado de cartões, Monte Carlo, agente ReAct com 29 ferramentas, 8 clusters comportamentais, 6 detectores de defesa do consumidor e scheduler de inteligência proativa. Não é um wrapper de API.
 
 > **4. Confiança do usuário** — Uma vez que o usuário confia na Nexa como seu advogado, o custo de troca é altíssimo.
 

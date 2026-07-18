@@ -8,6 +8,12 @@ O consultor financeiro que os bancos não querem que você tenha.
 > errada ou desatualizada, foi corrigida no lugar e marcada com "↳ verificado". Nenhum conteúdo
 > original foi removido — apenas corrigido ou complementado.
 
+> **Re-auditoria de 2026-07-18:** o repositório avançou muito desde 24/06 e várias correções daquela
+> auditoria ficaram, por sua vez, desatualizadas. Nesta passada: OPP, D1–D6, T1–T3, seasonality,
+> viral (V1/V2), scheduler completo (6 jobs), daily digest, PWA/Web Push e hardening de segurança
+> **estão implementados** (ver [README](../README.md) para o inventário completo). Notas corrigidas
+> abaixo estão marcadas com "↳ verificado 2026-07-18".
+
 ---
 
 ## App — Estrutura Final (2 páginas)
@@ -21,7 +27,7 @@ Lista priorizada das análises com maior impacto financeiro para o usuário.
 
 ### 2. Chat com Consultor IA
 Interface de conversa direta com o agente LangGraph ReAct.
-- 15 tools especializadas com acesso a todos os módulos do backend
+- 29 tools especializadas com acesso a todos os módulos do backend (↳ verificado 2026-07-18: contagem em `backend/app/agent/tools/`)
 - Histórico persistido por sessão (Redis)
 - Consultor disponível 24/7, sem viés de banco
 
@@ -43,18 +49,24 @@ Interface de conversa direta com o agente LangGraph ReAct.
 | M4.1 | Fiscal PJ | Relatório fiscal para MEI e PJ |
 | MX.1 | Health Score | Score financeiro 0–100 com histórico mensal |
 | MX.2 | Metas Financeiras | Rastreamento de objetivos com projeção de prazo |
-| MX.3 | Notificações Contextuais | Parcial: geração sob demanda via API; scheduler e entrega ainda não existem |
+| MX.3 | Notificações Contextuais | ↳ verificado 2026-07-18: **completo** — 17 tipos de card, filtro de relevância por renda, scheduler a cada 6h e entrega email/in-app/Web Push |
 | MX.4 | Peers | Benchmark anônimo com perfis financeiros similares |
-| AI Chat | Agente LangGraph ReAct | Consultor financeiro conversacional com 15 tools |
+| AI Chat | Agente LangGraph ReAct | Consultor financeiro conversacional com 29 tools (↳ verificado 2026-07-18) |
+
+↳ **verificado 2026-07-18:** a tabela acima é o inventário da Fase 1. Desde então também estão
+implementados e registrados em `api/v1/router.py`: **OPP** (Radar de Oportunidades + Bank Match),
+**D1–D6** (Defesa do Consumidor), **T1–T3** (impostos e direitos — T3 orientativo, ver Gap 4),
+**R2.c** (sazonalidade fiscal), **V1/V2** (placar + Wrapped SVG), goals, purchase (checkout-context),
+health_score com desafios/badges, privacy LGPD (export/erase) e push (VAPID). Inventário completo no
+[README](../README.md).
 
 **Infra:** Python 3.11+ (`pyproject.toml`, roda em 3.13 localmente) + FastAPI + PostgreSQL + DuckDB + Redis + LangGraph + LangChain.
 ↳ **verificado 2026-06-24:** Anthropic/OpenAI são usados via import dinâmico (`architect/services/llm_reasoner.py`,
 `negotiator/script_generator.py`) e via `langchain-anthropic`/`langchain-openai`; os SDKs puros `anthropic`/`openai`
 não estão pinados em `requirements.txt`.
-**Testes:** ↳ **verificado 2026-06-24:** 1.757 testes coletados via `pytest --collect-only` (o número "414 passando,
-cobertura 89%" está desatualizado e não há relatório de cobertura no repo). 3 erros de coleção conhecidos:
-`test_goals_2.py` (conflito de tabela SQLite `financial_goals` ao rodar em paralelo), `tests/architect/test_api.py`,
-`tests/test_e2e_production_ready.py`.
+**Testes:** ↳ **verificado 2026-07-18:** 2.189 testes coletados via `pytest --collect-only`, **sem erros
+de coleção** (os 3 erros apontados na auditoria de 2026-06-24 foram resolvidos). Política do projeto:
+suíte 100% verde. Ainda não há relatório de cobertura no repo.
 
 ---
 
@@ -62,6 +74,11 @@ cobertura 89%" está desatualizado e não há relatório de cobertura no repo). 
 
 ### D — Defesa do Consumidor
 *Diferencial competitivo: o único app que fica do lado do usuário contra o banco*
+
+↳ **verificado 2026-07-18: D1–D6 estão implementados** em `backend/app/defense/` (6 serviços,
+endpoints `/defense/{user_id}`, `/dossier`, `/zip`, `/portability` + 6 tools no agente).
+**D5/D6 permanecem bloqueados para lançamento pela validação jurídica (Gap 5).** A tabela abaixo é
+mantida como registro do planejamento original:
 
 | ID | Funcionalidade | Prioridade | Esforço Est. | Base técnica existente |
 |----|----------------|------------|--------------|------------------------|
@@ -74,13 +91,11 @@ cobertura 89%" está desatualizado e não há relatório de cobertura no repo). 
 
 **Fluxo D5 (maior impacto):** Detecta → Calcula valor a recuperar → Gera dossiê → Modelo de petição JEC
 
-↳ **Nota sobre D3 (verificado 2026-06-24):** `backend/app/negotiator/opportunity_detector.py` já tem um detector
-de juros rotativo (`_detect_juros_rotativo`) que busca a SELIC via `BacenConnector` dinamicamente (com fallback de
-3,99% a.m. se a API cair) — **não é hardcoded**. O que falta é trocar essa aproximação genérica (SELIC + spread)
-pelas séries SGS específicas de crédito rotativo PF (20714/20715) e cheque especial (20706), que ainda não têm
-conector (ver [MUDANÇAS.md §3.2 e §5.1](MUDANÇAS.md)). Já existe, sim, um valor hardcoded no mesmo arquivo —
-`_ANUIDADE_MARKET_MONTHLY_AVG = 30.0` — mas ele é usado pelo detector de **anuidade alta** (`_detect_anuidade_alta`),
-não pelo de juros rotativo.
+↳ **Nota sobre D3 (verificado 2026-07-18):** a lacuna apontada em 2026-06-24 foi fechada — o conector
+das séries SGS específicas existe (`backend/app/architect/connectors/bacen_credit.py`, séries 20714
+rotativo PF / 20706 cheque especial) e é usado pelo detector D3
+(`backend/app/defense/services/abusive_interest_detector.py`), com base legal Tema 27/STJ
+(REsp 1.061.530/RS) e linguagem de "indício" (nunca promessa de direito).
 
 ---
 
@@ -92,8 +107,15 @@ não pelo de juros rotativo.
 | T2 | Modo Imposto Zero (CDB→LCI/LCA, poupança→Tesouro SELIC, come-cotas) | Média | 2–3 sem | OPP (Radar) |
 | T3 | Monitor de Direitos Esquecidos (SVR BACEN, FGTS, PIS/PASEP, restituição IR, dividendos B3) | Alta | 2–3 sem | APIs públicas BCB/Caixa |
 
-**T3 — maior ROI de conversão:** encontra R$ esquecido → converte usuário na hora.
-SVR BACEN tem ~R$8,5 bilhões não reclamados no Brasil.
+↳ **verificado 2026-07-18:** T1 e T2 implementados (`app/tax/`). T3 implementado como **guia
+orientativo** (`app/rights/` + tool `get_forgotten_rights`): personaliza o roteiro de verificação e
+direciona aos canais oficiais, mas **não consulta SVR/FGTS/IR automaticamente** — não há API pública
+para terceiros (ver Gap 4). O hook "encontra R$ esquecido na hora" da linha abaixo **ainda não é
+verdade** e não deve ser usado em material de marketing.
+
+**T3 — maior ROI de conversão (aspiracional):** encontra R$ esquecido → converte usuário na hora.
+SVR BACEN tem ~R$ 6,2 bilhões não reclamados no Brasil (BACEN, mai/2026; era ~R$ 8,5 bi antes da
+transferência de R$ 5,7 bi ao FGO pela Lei 14.973/2024).
 
 ---
 
@@ -136,11 +158,11 @@ Bradesco, Santander, BB, Caixa, Sicoob, Tesouro Direto.
 ### V — Viral / Comunidade
 *CAC gratuito via indignação + dado pessoal*
 
-| ID | Funcionalidade | Prioridade | Esforço Est. | Dependência |
-|----|----------------|------------|--------------|-------------|
-| V1 | Placar de Economia Compartilhável (card PNG para redes) | Média | 1–2 sem | Consolidação de todos os insights |
-| V2 | Relatório Anual "Seu Banco vs Você" (Wrapped) | Média | 3–4 sem | F1+F2+F5+F13 com 12m de dados |
-| V3 | Ranking de Bancos Mais Abusivos (relatório trimestral público) | Baixa | 4+ sem | D1+D2+D3 + anonimização |
+| ID | Funcionalidade | Prioridade | Status (2026-07-18) |
+|----|----------------|------------|---------------------|
+| V1 | Placar de Economia Compartilhável (card SVG para redes) | Média | ✅ Implementado — `GET /viral/savings-card/{user_id}[/svg]` |
+| V2 | Relatório Anual "Seu Banco vs Você" (Wrapped) | Média | ✅ Implementado — `GET /viral/wrapped/{user_id}/{year}[/svg]`; lançamento público planejado para dezembro |
+| V3 | Ranking de Bancos Mais Abusivos (relatório trimestral público) | Baixa | 📅 A desenvolver — depende de massa de dados D1–D3 (`bank_fee_trends`) |
 
 **V1 hook:** "O Bradesco ganhou R$3.200 de mim em 2025. E você?" — Janeiro viraliza.
 **V2 hook:** "Você perdeu R$840 em tarifas que não deveria ter pago."
@@ -160,7 +182,7 @@ Bradesco, Santander, BB, Caixa, Sicoob, Tesouro Direto.
 | R2.c | Sazonalidade fiscal (alertas IR, FGTS, 13º) | Média | ✅ Implementado — módulo `app/seasonality/` (IR, restituição, IPVA/IPTU, DAS/DASN-SIMEI, 13º, lucro FGTS) personalizado por perfil MEI/CLT, `GET /seasonality/{user_id}`, card FISCAL_SEASON no feed, tool `get_fiscal_calendar` e prazos urgentes no daily digest |
 | R3.a | Histórico financeiro acumulado | — | Implementado (DuckDB) |
 | R3.b | Metas financeiras com projeção | — | Implementado (MX.2) |
-| R4.a | Relatório trimestral automático | Média | A desenvolver — requer scheduler |
+| R4.a | Relatório trimestral automático | Média | A desenvolver — ↳ verificado 2026-07-18: o scheduler já existe (Gap 2 resolvido); falta apenas escrever o job |
 | R4.b | Alerta de promoções de milhas/pontos | Parcial | PromotionTracker existe |
 | R5.a | Tela de cancelamento com impacto calculado | Média | 1 sem (frontend) |
 | R5.b | Modo pausa / downgrade gracioso | Baixa | Requer billing |
@@ -169,6 +191,10 @@ Bradesco, Santander, BB, Caixa, Sicoob, Tesouro Direto.
 ---
 
 ## Priorização de Sprints
+
+↳ **verificado 2026-07-18:** Sprints 1 e 2 estão entregues (T3 na forma orientativa — ver seção T).
+Do Sprint 3, entregues os itens 9 (código pronto; aguarda validação jurídica), 10, 11 e 12.
+Mantido como registro histórico da priorização.
 
 ### Sprint 1 — Conversão & Ativação (objetivo: primeiro R$ recuperado para o usuário)
 1. **OPP** Radar de Oportunidades — dinheiro parado + comparação de bancos
@@ -192,28 +218,32 @@ Bradesco, Santander, BB, Caixa, Sicoob, Tesouro Direto.
 
 ## Gaps Técnicos a Resolver
 
-### Gap 1 — Produto Mobile (impacto: Alto)
-A maioria das funcionalidades de retenção diária depende de mobile.
-- Sem mobile: sem widget de safe-to-spend, sem push notifications, sem "modo compra no momento"
-- O que falta: React Native ou PWA com push notifications e widget homescreen
-- Nota: cards virais (V1/V2) funcionam de web. Mas uso diário exige mobile.
+### Gap 1 — Produto Mobile (impacto: Alto) — ⚠️ parcialmente resolvido
+↳ **verificado 2026-07-18:** o PWA cobre widget de safe-to-spend (página `/widget` instalável,
+payload ~200 bytes) e push notifications (Web Push VAPID, tabela `push_subscriptions`).
+- O que ainda falta: app nativo (widget de homescreen nativo, push FCM) para retenção diária de massa
+- Nota: cards virais (V1/V2) funcionam de web.
 
-### Gap 2 — Scheduler / Cron (impacto: Médio)
-Daily digest, relatório trimestral, alertas D4 e R2.c precisam de execução periódica.
-- O que falta: Celery + Redis (Redis já existe na infra) ou APScheduler
-- Estimativa: 1 semana para infraestrutura básica
+### Gap 2 — Scheduler / Cron (impacto: Médio) — ✅ resolvido
+↳ **verificado 2026-07-18:** APScheduler com lock distribuído Redis (`SET NX EX`) e 6 jobs em
+`backend/app/jobs/` (fee_snapshot 02h, catálogo 02h30, opportunity_scan 03h, health_score 04h,
+notificações 6/6h, daily digest 07h). Falta apenas o job do relatório trimestral (R4.a).
 
-### Gap 3 — Base de Tarifas Bancárias (impacto: Médio)
-D4 (mudança unilateral) e V3 (ranking de bancos) precisam de baseline histórico de tarifas.
-- O que falta: coleta periódica manual ou crawler das páginas de tarifas dos bancos
-- Fontes: Páginas de tarifas dos bancos + BACEN (consulta de tarifas é pública)
+### Gap 3 — Base de Tarifas Bancárias (impacto: Médio) — ⚠️ parcialmente resolvido
+↳ **verificado 2026-07-18:** o job `fee_snapshot` já constrói baseline de mercado anonimizado a
+partir dos próprios usuários (`bank_fee_history` / `bank_fee_trends`) — mas ele só ganha
+representatividade com massa de usuários.
+- O que ainda falta: crawler/coleta das tabelas públicas de tarifas dos bancos para dar baseline
+  desde o dia 1 (BACEN publica consulta de tarifas)
 
-### Gap 4 — APIs de Direitos Públicos (impacto: Alto para T3)
-T3 Monitor de Direitos Esquecidos requer:
-- SVR BACEN: `https://www.bcb.gov.br/moenational/svr` (pública)
-- FGTS: App FGTS da Caixa tem API de consulta por CPF
-- PIS/PASEP: Dataprev
-- Restituição IR: Receita Federal (scraping ou consulta pública)
+### Gap 4 — APIs de Direitos Públicos (impacto: Alto para T3) — ❌ sem solução técnica direta
+↳ **verificado 2026-07-18:** nenhuma das fontes expõe API pública para terceiros — SVR exige login
+GOV.BR (OAuth), FGTS/PIS/restituição idem. Por isso o T3 em produção é **orientativo**
+(`app/rights/`): roteiro personalizado apontando aos canais oficiais.
+- ⚠️ **Alerta:** `GET /fiscal/forgotten-rights` (`app/fiscal/rights_monitor/`) usa conector SVR
+  **mock que fabrica valores por hash do CPF** — remover/desabilitar antes de qualquer lançamento.
+- Caminhos possíveis para consulta real: parceria/procuração via gov.br Conecta, ou o usuário
+  autenticando na própria sessão (avaliar viabilidade regulatória antes de prometer no marketing).
 
 ### Gap 5 — Validação Jurídica (impacto: Alto para D5/D6)
 Templates de petição para JEC e cartas de portabilidade precisam de revisão por advogado.
@@ -223,29 +253,22 @@ Sem isso, não lançar D5/D6 para evitar responsabilidade por orientação jurí
 
 ## Arquivos Criados como Base Técnica
 
-> ⚠️ **Correção (verificado 2026-06-24):** nenhum dos arquivos abaixo existe no repositório atual.
-> `backend/app/opportunities/` **não existe** (nenhum arquivo, nenhuma pasta) e `backend/data/bank_products.json`
-> **não existe**. O módulo OPP é 100% greenfield — não há rascunho estrutural iniciado, contrário ao que esta
-> seção afirmava antes. A lista abaixo é mantida como **proposta de estrutura inicial** (não como inventário do
-> que já existe):
-
-- `backend/data/bank_products.json` — catálogo curado de produtos por banco (a criar)
-- `backend/app/opportunities/__init__.py` — módulo (a criar)
-- `backend/app/opportunities/models.py` — modelos Pydantic (request/response) (a criar)
-- `backend/app/opportunities/services/__init__.py` — pasta de serviços (a criar)
-- `backend/app/opportunities/services/bank_comparator.py` — comparador (a criar)
-
-Nenhum router está registrado em `backend/app/api/v1/router.py` — começar este módulo não quebra nada no estado atual.
+> ✅ **Atualização (verificado 2026-07-18):** a correção de 2026-06-24 (que dizia que o módulo OPP
+> não existia) ficou obsoleta — o módulo foi implementado integralmente depois daquela data.
+> `backend/app/opportunities/` existe com 18 arquivos (~3.100 linhas), `backend/data/bank_products.json`
+> existe, e o router está registrado em `api/v1/router.py`. Entregas: OPP.1–OPP.5, Bank Match,
+> scorecard por banco, catálogo público e conector Open Finance Dados Abertos com refresh diário
+> (job 02h30). Ver a seção OPP acima e o [README](../README.md).
 
 ---
 
 ## Métricas de Sucesso (Referência)
 
-| Métrica | Estado Atual | Meta 6 meses |
-|---------|--------------|--------------|
-| Módulos implementados | 15 (todos confirmados registrados em `api/v1/router.py`, verificado 2026-06-24) | 22+ |
-| Cobertura de testes | desconhecida — sem relatório no repo (1.757 testes coletados via pytest em 2026-06-24; "89%" não pôde ser confirmado) | ≥ 85% |
-| Valor identificado por usuário/mês | — | R$50–500/mês |
-| Features de defesa do consumidor | 0 | 4 (D1–D4) |
-| Tempo até primeiro insight após conexão | — | < 30s |
-| Taxa de viralização (V1 share rate) | — | ≥ 15% dos usuários ativos |
+| Métrica | Estado Atual (verificado 2026-07-18) | Meta 6 meses |
+|---------|--------------------------------------|--------------|
+| Módulos implementados | 20+ registrados em `api/v1/router.py` (core F1–F13, OPP, D1–D6, T1–T3, MX.1–6, R, V1/V2, fiscal, privacy) | 22+ ✅ atingida |
+| Cobertura de testes | 2.189 testes coletados, sem erros de coleção; sem relatório de cobertura no repo | ≥ 85% com relatório |
+| Valor identificado por usuário/mês | — (sem usuários em produção) | R$50–500/mês |
+| Features de defesa do consumidor | 6 (D1–D6 em código; D5/D6 aguardam validação jurídica) | 4 (D1–D4) ✅ atingida |
+| Tempo até primeiro insight após conexão | — (medir na beta) | < 30s |
+| Taxa de viralização (V1 share rate) | — (medir na beta) | ≥ 15% dos usuários ativos |
