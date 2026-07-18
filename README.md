@@ -834,6 +834,7 @@ curl -X POST http://localhost:8000/api/v1/architect/simulate \
 
 | Arquivo | Conteúdo |
 |:---|:---|
+| [funcionalidades/](docs/funcionalidades/README.md) | **Documentação completa de todas as funcionalidades** — o que cada uma faz, o que NÃO faz e gaps, técnica e em palavras simples (18 domínios) |
 | [ROADMAP.md](docs/ROADMAP.md) | Roadmap de produto auditado contra o código |
 | [MUDANÇAS.md](docs/MUDANÇAS.md) | Mapa técnico de cada mudança por camada |
 | [SEGURANCA.md](docs/SEGURANCA.md) | Modelo de segurança completo |
