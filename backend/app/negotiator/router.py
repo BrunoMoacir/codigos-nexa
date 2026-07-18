@@ -73,6 +73,9 @@ async def generate_negotiation_script(
     - `ANUIDADE_ALTA` — anuidade > R$ 30/mês nos últimos 12 meses
     - `HEALTH_SCORE_ALTO` — score ≥ 70 sem outros triggers (renegociação proativa)
     """
+    # Gating: Free = 0 roteiros; Pro = 1/mês; Total = ilimitado
+    from app.billing.gating import consume_usage
+    consume_usage(current_user, "negotiator_scripts")
     if current_user != request.user_id:
         raise HTTPException(status_code=403, detail="Acesso negado")
     logger.info("[API] F13 negotiator/generate-script | user=%s bank=%s", request.user_id, request.bank_name)

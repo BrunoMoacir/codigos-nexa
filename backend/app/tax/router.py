@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.security import get_current_user, require_owner
+from app.billing.gating import require_plan
 from app.tax.models import (
     BreakevenRequest,
     BreakevenResponse,
@@ -31,7 +32,7 @@ _zero_tax = ZeroTaxMode()
 
 @router.get("/optimize/{user_id}", response_model=TaxAnalysisResponse)
 def get_tax_optimization(
-    user_id: str = Depends(require_owner),
+    user_id: str = require_plan("total"),
 ) -> TaxAnalysisResponse:
     """
     **Otimização de IR na Carteira de Investimentos (T1 + T2)**

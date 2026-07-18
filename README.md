@@ -336,7 +336,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 | **Pro** | R$ 19,90/mês | Bancos ilimitados, Raio-X completo, Radar de Oportunidades, chat ilimitado, Negociador (1/mês), digest diário, desafios e badges | Se o usuário recupera **R$ 50+/mês** (média esperada: tarifas + cashback + dinheiro parado), o plano se paga 2,5× |
 | **Total** | R$ 39,90/mês | Tudo do Pro + Defesa do Consumidor completa (dossiê PROCON/JEC), portabilidade simulada, otimizador de IR, Wrapped trimestral, Modo Família (futuro) | Uma única contestação de tarifa recuperada (R$ 200–800) paga o ano inteiro |
 
-**⚠️ Status de implementação:** os planos estão definidos como modelo de negócio, mas **billing e gating por plano ainda não existem no código** — hoje todos os endpoints são liberados para qualquer usuário autenticado. É um dos itens pendentes (ver seção seguinte).
+**Status de implementação (2026-07-18):** billing e gating **implementados** em `app/billing/` — Stripe Checkout/Portal/webhook assinado (fail-closed em produção), tabela `user_subscriptions` (Alembic), hierarquia Free/Pro/Total e limites de uso (5 msgs IA/dia e 3 Compra Inteligente/mês no Free; Negociador 1/mês no Pro) com contadores Redis + fallback em memória. Gates aplicados: Defesa e Otimizador de IR exigem **Total**; Radar de Oportunidades e Raio-X exigem **Pro**. **Dark launch:** `BILLING_ENFORCEMENT_ENABLED=false` por padrão — violações são apenas logadas (`would_block`); ligar a flag em produção ativa os 402 com contexto de upgrade. Falta apenas: criar Products/Prices no dashboard Stripe e preencher as chaves no `.env`.
 
 ### Unit Economics Target
 
@@ -371,7 +371,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 
 | Item | O que é | Por que importa | Dependência |
 |:---|:---|:---|:---|
-| **Billing + gating de planos** | Cobrança (Stripe/Pagar.me) e enforcement Free/Pro/Total nos endpoints | Sem isso não há receita — o modelo de negócio existe só no papel | Decisão de gateway |
+| **Chaves Stripe + flip do enforcement** | Billing/gating implementados em dark launch; falta criar os Prices no dashboard Stripe, preencher `.env` e ligar `BILLING_ENFORCEMENT_ENABLED` | Último passo entre o código e a receita | Conta Stripe |
 | **Frontend oficial** | O `frontend-react/` atual é protótipo de validação (descartável); app oficial será construído do zero | Toda a inteligência do backend precisa de uma casa definitiva | Design system |
 | **Validação jurídica (D5)** | Revisão por advogado dos templates de petição JEC e cartas | Código pronto; lançar sem revisão gera risco de responsabilidade por orientação incorreta | Advogado parceiro |
 | **Contrato SERPRO (produção)** | A consulta real de restituição IRPF funciona em trial; produção exige contratar a API Consulta Restituição na Loja SERPRO (consumer key/secret + chave do e-CNPJ) | Sem o contrato, o `POST /rights/{user_id}/ir/check` degrada para o passo a passo de habilitação | Contratação SERPRO (custo por consulta) |
@@ -609,6 +609,9 @@ México: Open Banking regulado (Ley Fintech 2018), 60M sub-bancarizados, concent
 | Método | Rota | Descrição |
 |:---:|:---|:---|
 | `POST` | `/api/v1/chat/` | Chat com agente (29 ferramentas) |
+| `GET` | `/api/v1/billing/plans` · `/billing/subscription/{user_id}` | Planos e assinatura + uso dos limites |
+| `POST` | `/api/v1/billing/checkout/{user_id}` · `/billing/portal/{user_id}` | Stripe Checkout e portal do cliente |
+| `POST` | `/api/v1/billing/webhook` | Webhook Stripe (assinado, fail-closed) |
 | `GET` | `/api/v1/privacy/export/{user_id}` | Export LGPD (portabilidade) |
 | `DELETE` | `/api/v1/privacy/erase/{user_id}` | Eliminação irreversível (LGPD) |
 | `GET` | `/api/v1/fiscal/*` | Relatório fiscal MEI/PJ |
@@ -803,7 +806,7 @@ curl -X POST http://localhost:8000/api/v1/architect/simulate \
 
 ### Fase 2 — Monetização e Casa Própria (próxima)
 
-- [ ] **Billing + gating Free/Pro/Total** (pré-requisito de receita)
+- [x] **Billing + gating Free/Pro/Total** (Stripe, dark launch — falta só chaves + flip da flag)
 - [ ] **Frontend oficial** (substituir protótipo)
 - [ ] Validação jurídica e lançamento do D5
 - [ ] R4.a relatório trimestral · R5 anti-churn

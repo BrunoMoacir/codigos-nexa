@@ -89,6 +89,9 @@ from app.tax.router import router as tax_router
 # Viral — Savings Card & Wrapped (V1/V2)
 from app.viral.router import router as viral_router
 
+# Billing — Planos e Stripe
+from app.billing.router import router as billing_router
+
 # Seasonality — Sazonalidade Fiscal (R2.c)
 from app.seasonality.router import router as seasonality_router
 
@@ -188,3 +191,6 @@ router.include_router(seasonality_router)
 
 # Privacy — Direitos do titular LGPD
 router.include_router(privacy_router)
+
+# Billing — Planos e Stripe
+router.include_router(billing_router)

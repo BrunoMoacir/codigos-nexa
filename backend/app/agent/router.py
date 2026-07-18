@@ -60,6 +60,10 @@ async def chat_with_agent(
     if chat_request.user_id != current_user:
         raise HTTPException(status_code=403, detail="Não autorizado (token não pertence a este user_id)")
 
+    # Gating: Free = 5 mensagens de IA/dia (402 quando enforcement ligado)
+    from app.billing.gating import consume_usage
+    consume_usage(current_user, "chat_messages")
+
     # Em dev, evita 500 quando LLM não está configurado
     if settings.LLM_PROVIDER == "openai" and (not settings.OPENAI_API_KEY or settings.OPENAI_API_KEY == "mock"):
         raise HTTPException(
