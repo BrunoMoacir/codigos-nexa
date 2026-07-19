@@ -23,7 +23,7 @@
 | 12 | [Impostos e Calendário Fiscal](12-impostos-e-calendario-fiscal.md) | T1/T2/R2.c — otimizador de IR, imposto zero, sazonalidade, relatório MEI |
 | 13 | [Inteligência Comportamental](13-inteligencia-comportamental.md) | 8 clusters, eventos de vida, perfil de renda, FSS, filtro de relevância |
 | 14 | [Engajamento e Retenção](14-engajamento-e-retencao.md) | Health score, metas, desafios/badges, peers, orçamento 50/30/20, notificações, digest, Wrapped |
-| 15 | [Agente de IA](15-agente-de-ia.md) | LangGraph ReAct, 29 ferramentas, memória Redis, mitigação de prompt injection |
+| 15 | [Agente de IA](15-agente-de-ia.md) | LangGraph ReAct, 30 ferramentas, memória Redis, mitigação de prompt injection |
 | 16 | [Billing e Planos](16-billing-e-planos.md) | Free/Pro/Total, Stripe, gating em dark launch, limites de uso |
 | 17 | [Segurança, Conta e LGPD](17-seguranca-conta-lgpd.md) | Auth, reset de senha, verificação de e-mail, IDOR, headers, export/erase LGPD, audit |
 | 18 | [Infraestrutura e Plataforma](18-infraestrutura-e-plataforma.md) | Scheduler/jobs, cache, A/B testing, explicabilidade, stack, testes, deploy |

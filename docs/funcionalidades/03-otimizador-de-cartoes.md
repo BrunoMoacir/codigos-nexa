@@ -37,8 +37,10 @@ resultado: "trocando para o cartão X você recupera R$ 84/mês".
   classificação.
 - **Insights acionáveis** (`insight_generator.py`): cards WAIVER_ALERT
   ("faltam R$ X para isentar a anuidade"), MUDAR_CATEGORIA, CARD_OPPORTUNITY.
-- **Promoções de transferência** (`promotion_tracker.py`, parcial): bônus
-  ≥20% em transferências de pontos.
+- **Promoções de transferência** (`promotion_tracker.py`, R4.b completo):
+  promoções bonificadas ativas com staleness guard (curadoria >45 dias não
+  alerta), matching por programa de fidelidade, card TRANSFER_PROMO no feed
+  (engine 6/6h, dedup 3 dias) e tool `get_transfer_promotions` no chat.
 
 ## Como funciona (técnico)
 
@@ -70,7 +72,8 @@ resultado: "trocando para o cartão X você recupera R$ 84/mês".
   cada registro tem `last_updated` e `data_trust_score`, mas não há job de
   revisão automática (recomendado: revisão trimestral; não existe API pública
   de metadados de cartões no Brasil).
-- **PromotionTracker parcial** (R4.b): estrutura existe, cobertura de
-  promoções é manual.
+- **PromotionTracker (R4.b) completo**: staleness guard, matching por
+  programa e feed+chat ligados; a fonte de promoções segue curada
+  manualmente (não existe API pública de promoções de transferência).
 - Cobertura: 81 cartões cobre o mercado relevante, mas não a cauda longa
   (regionais pequenos, variantes corporativas).

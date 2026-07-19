@@ -30,6 +30,7 @@ from app.notifications.notifier import (
     ProactiveNotifier,
     PurchaseFollowupInput,
     SavingsBelowCdiInput,
+    TransferPromoInput,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,9 @@ class NotificationEngine:
         # R1.a — compras grandes recentes pagas de forma subótima
         ctx.purchase_followups = self._detect_purchase_followups(user_id)
 
+        # R4.b — promoções de transferência de pontos relevantes p/ o usuário
+        ctx.transfer_promos = self._detect_transfer_promos(user_id)
+
         if (
             not ctx.fee_deltas
             and ctx.savings_below_cdi is None
@@ -78,6 +82,7 @@ class NotificationEngine:
             and not ctx.fiscal_events
             and not ctx.challenges
             and not ctx.purchase_followups
+            and not ctx.transfer_promos
         ):
             return []
 
@@ -177,6 +182,94 @@ class NotificationEngine:
         except Exception as exc:
             logger.warning("[NotificationEngine] _detect_fee_deltas user=%s: %s", user_id, exc)
             return []
+
+    @staticmethod
+    def _detect_transfer_promos(user_id: str) -> list[TransferPromoInput]:
+        """R4.b — promoções de transferência de pontos relevantes.
+
+        Relevância exige duas coisas: (1) promoção ativa e com curadoria
+        recente (staleness guard do tracker); (2) o usuário plausivelmente
+        acumula no programa — detectado pelos EMISSORES presentes nas
+        transações dele, mapeados para programas via base de 81 cartões.
+
+        O saldo de pontos não é observável via Open Finance; a estimativa é
+        conservadora: gasto médio mensal no crédito × 0,25 pt/R$ × 12 meses.
+        O card diz explicitamente que é estimativa.
+        """
+        try:
+            from app.optimizer.promotion_tracker import PromotionTracker
+
+            tracker = PromotionTracker()
+            active = tracker.get_active_promotions()
+            if not active:
+                return []  # pré-filtro barato: sem promoção, sem query
+
+            monthly_spend, issuers = NotificationEngine._credit_spend_and_issuers(user_id)
+            if monthly_spend <= 0 or not issuers:
+                return []
+
+            # Emissores do usuário → programas em que plausivelmente acumula
+            from app.optimizer.card_loader import CardKnowledgeBase
+            from app.opportunities.services.bank_names import banks_match
+
+            programs: set[str] = set()
+            for card in CardKnowledgeBase().load():
+                if not card.loyalty_program:
+                    continue
+                if any(banks_match(card.issuer, issuer) for issuer in issuers):
+                    programs.add(card.loyalty_program)
+            if not programs:
+                return []
+
+            estimated_points = int(monthly_spend * 0.25 * 12)
+            alerts = tracker.check_opportunities_by_program(
+                {prog: estimated_points for prog in programs}
+            )
+
+            return [
+                TransferPromoInput(
+                    from_program=a.promotion.loyalty_program,
+                    to_program=a.promotion.partner,
+                    bonus_pct=a.promotion.bonus_pct / 100.0,
+                    end_date=a.promotion.end_date.isoformat(),
+                    user_points=a.estimated_points,
+                )
+                for a in alerts[:2]  # no máximo 2 promoções por rodada
+            ]
+        except Exception as exc:
+            logger.warning("[NotificationEngine] transfer_promos user=%s: %s", user_id, exc)
+            return []
+
+    @staticmethod
+    def _credit_spend_and_issuers(user_id: str) -> tuple[float, set[str]]:
+        """Gasto médio mensal (90d, via transactions_clean) + instituições
+        conectadas pelo usuário (pluggy_items.connector_name)."""
+        try:
+            from app.core.database import SessionLocal
+            from sqlalchemy import text
+
+            with SessionLocal() as db:
+                total = db.execute(
+                    text(
+                        "SELECT COALESCE(SUM(ABS(amount)), 0)"
+                        " FROM transactions_clean"
+                        " WHERE user_id = :uid AND amount < 0"
+                        "   AND date >= CURRENT_DATE - INTERVAL '90 days'"
+                    ),
+                    {"uid": user_id},
+                ).scalar() or 0.0
+                issuer_rows = db.execute(
+                    text(
+                        "SELECT DISTINCT connector_name FROM pluggy_items"
+                        " WHERE user_id = :uid AND connector_name IS NOT NULL"
+                    ),
+                    {"uid": user_id},
+                ).fetchall()
+        except Exception:
+            return 0.0, set()
+
+        issuers = {str(r[0]).strip() for r in issuer_rows if str(r[0] or "").strip()}
+        return float(total) / 3.0, issuers
 
     @staticmethod
     def _detect_savings_below_cdi(user_id: str | None = None):

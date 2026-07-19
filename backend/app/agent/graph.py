@@ -57,6 +57,7 @@ from app.agent.tools.simulate_investment import simulate_investment
 from app.agent.tools.get_best_bank import get_best_bank
 from app.agent.tools.get_forgotten_rights import get_forgotten_rights
 from app.agent.tools.get_annual_wrapped import get_annual_wrapped
+from app.agent.tools.get_transfer_promotions import get_transfer_promotions
 from app.agent.tools.detect_abusive_fees import detect_abusive_fees
 from app.agent.tools.detect_wrongful_charges import detect_wrongful_charges
 from app.agent.tools.detect_abusive_interest import detect_abusive_interest
@@ -490,6 +491,7 @@ def build_financial_agent():
         get_best_bank,
         get_forgotten_rights,
         get_annual_wrapped,
+        get_transfer_promotions,
         detect_abusive_fees,
         detect_wrongful_charges,
         detect_abusive_interest,

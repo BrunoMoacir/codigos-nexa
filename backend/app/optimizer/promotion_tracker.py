@@ -57,11 +57,24 @@ class TransferPromotion:
     source: str
     last_verified: str
 
+    # Dados curados envelhecem: promoção "ativa" cuja última verificação
+    # passou deste limite não vira alerta (pode ter sido cancelada/alterada).
+    STALE_AFTER_DAYS = 45
+
     @property
     def is_active(self) -> bool:
         """Promoção está vigente hoje."""
         today = date.today()
         return self.start_date <= today <= self.end_date
+
+    @property
+    def is_stale(self) -> bool:
+        """Curadoria velha demais para alertar com confiança."""
+        try:
+            verified = date.fromisoformat(self.last_verified)
+        except (TypeError, ValueError):
+            return True
+        return (date.today() - verified).days > self.STALE_AFTER_DAYS
 
     @property
     def days_remaining(self) -> int:
@@ -129,17 +142,69 @@ class PromotionTracker:
         ... )
     """
 
-    def __init__(self, data_path: Path = _DATA_PATH):
-        self._data_path = data_path
+    def __init__(self, data_path: Path | None = None):
+        # None → resolve _DATA_PATH em tempo de chamada (permite monkeypatch
+        # do módulo em testes; default de função seria capturado no import)
+        self._data_path = data_path if data_path is not None else _DATA_PATH
         self._all_promotions: list[TransferPromotion] = self._load()
 
     # ─────────────────────────────────────────────────────────────────
     # CORE API
     # ─────────────────────────────────────────────────────────────────
 
-    def get_active_promotions(self) -> list[TransferPromotion]:
-        """Retorna somente as promoções vigentes hoje."""
-        return [p for p in self._all_promotions if p.is_active]
+    def get_active_promotions(self, include_stale: bool = False) -> list[TransferPromotion]:
+        """Promoções vigentes hoje. Por padrão exclui curadoria velha
+        (last_verified > STALE_AFTER_DAYS) — ativa-mas-não-verificada não
+        vira alerta; continua visível via include_stale=True (API)."""
+        active = [p for p in self._all_promotions if p.is_active]
+        if include_stale:
+            return active
+        return [p for p in active if not p.is_stale]
+
+    def check_opportunities_by_program(
+        self,
+        program_points: dict[str, int],
+    ) -> list[PromotionAlert]:
+        """
+        Matching robusto por PROGRAMA de fidelidade (não por nome de cartão):
+        se o usuário acumula no programa da promoção, ela é relevante —
+        independente da grafia do cartão. `eligible_cards` segue como
+        informação de exibição no alerta.
+
+        Args:
+            program_points: saldo estimado por programa
+                            (ex.: {"livelo": 25000, "pontos_itau": 8000}).
+        """
+        alerts: list[PromotionAlert] = []
+        for promo in self.get_active_promotions():
+            points = program_points.get(promo.loyalty_program, 0)
+            if points < promo.min_points:
+                continue
+
+            transferable = points
+            if promo.max_points is not None:
+                transferable = min(points, promo.max_points)
+
+            val_normal = transferable / 1000 * promo.normal_rate_per_1000
+            val_promo = transferable / 1000 * promo.effective_rate_per_1000
+            extra = val_promo - val_normal
+
+            display_card = promo.eligible_cards[0] if promo.eligible_cards else promo.loyalty_program
+            text = self._build_alert_text(
+                promo, display_card, transferable, val_normal, val_promo, extra
+            )
+            alerts.append(PromotionAlert(
+                promotion=promo,
+                user_card=display_card,
+                estimated_points=transferable,
+                potential_value_normal=val_normal,
+                potential_value_promo=val_promo,
+                extra_value=extra,
+                alert_text=text,
+            ))
+
+        alerts.sort(key=lambda a: a.extra_value, reverse=True)
+        return alerts
 
     def get_all_promotions(self, include_expired: bool = False) -> list[TransferPromotion]:
         """Retorna todas ou somente as ativas."""
