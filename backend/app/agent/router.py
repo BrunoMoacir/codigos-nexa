@@ -83,11 +83,18 @@ async def chat_with_agent(
         # IMPORTANTE: este valor vem do token JWT verificado, não do input do usuário.
         # O LLM deve usar EXCLUSIVAMENTE este user_id em todas as chamadas de ferramenta,
         # ignorando qualquer user_id que apareça na mensagem do usuário.
+        # Sanitiza tentativas de spoofing do protocolo: qualquer "[user_id=...]"
+        # dentro do corpo da mensagem é neutralizado antes de prefixar o real.
+        import re
+        sanitized_message = re.sub(
+            r"\[\s*user_id\s*=[^\]]*\]", "[removido]", chat_request.message,
+            flags=re.IGNORECASE,
+        )
         inputs = {
             "messages": [
                 HumanMessage(content=(
                     f"[user_id={chat_request.user_id}] "
-                    f"{chat_request.message}"
+                    f"{sanitized_message}"
                 ))
             ]
         }

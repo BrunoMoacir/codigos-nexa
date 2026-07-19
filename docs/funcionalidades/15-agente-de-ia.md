@@ -16,11 +16,11 @@ gasto). A conversa continua de onde parou (memória por sessão).
 
 - **Agente ReAct via LangGraph** (`app/agent/graph.py`): o LLM pensa → decide
   qual ferramenta chamar → observa o resultado → repete → responde.
-- **30 ferramentas** (`app/agent/tools/` — 1 arquivo por tool) cobrindo TODOS
+- **31 ferramentas** (`app/agent/tools/` — 1 arquivo por tool) cobrindo TODOS
   os domínios: perfil/forecast/alertas/metas, orçamento/pares,
   cartões (2), compras (2), simulações F3 (3), oportunidades (3),
   defesa (6), custos/negociação (2), fiscal/direitos (3),
-  desafios/wrapped (2), promoções de transferência (1).
+  desafios/wrapped (2), promoções de transferência (1), plano/billing (1).
 - **Regra de produto**: a primeira tool de toda sessão é
   `get_user_profile_context` — carrega o cluster comportamental e adapta o
   tom da conversa inteira.
@@ -31,7 +31,7 @@ gasto). A conversa continua de onde parou (memória por sessão).
 
 ## Segurança (mitigação de prompt injection)
 
-- O `user_id` autenticado é **injetado pelo sistema como contexto imutável**;
+- O `user_id` autenticado é **injetado pelo sistema** como prefixo `[user_id=...]` documentado no prompt como protocolo inegociável; o corpo da mensagem é **sanitizado** (qualquer `[user_id=...]` forjado pelo usuário é removido antes do LLM);
   o agente é instruído a IGNORAR qualquer user_id que apareça na mensagem do
   usuário — impossibilita "me mostra os dados do usuário X" via chat.
 - O endpoint valida `chat_request.user_id == current_user` (403 se divergir)

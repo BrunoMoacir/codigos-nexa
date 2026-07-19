@@ -114,7 +114,7 @@ Todo módulo do backend entrega valor por **duas superfícies** — é o padrão
 Lista priorizada de cards, ordenada por **impacto financeiro em R$/mês**. Cada card diz: o tipo de oportunidade, o valor em jogo, a urgência e — ao expandir — como foi calculado e os passos práticos para executar. São **17 tipos de card** (ver [Notificações](#-sistema-de-notificações-mx3)), gerados proativamente a cada 6 horas e filtrados por relevância conforme a renda do usuário.
 
 ### 2. Chat com Consultor IA
-Agente LangGraph ReAct com **30 ferramentas** conectadas a todos os módulos do backend. O usuário pergunta em linguagem natural ("posso comprar um carro de R$ 60 mil?") e o agente consulta forecast, simulações e perfil comportamental antes de responder — com tom adaptado ao cluster do usuário. Histórico persistido por sessão (Redis).
+Agente LangGraph ReAct com **31 ferramentas** conectadas a todos os módulos do backend. O usuário pergunta em linguagem natural ("posso comprar um carro de R$ 60 mil?") e o agente consulta forecast, simulações e perfil comportamental antes de responder — com tom adaptado ao cluster do usuário. Histórico persistido por sessão (Redis).
 
 > Regra de ouro do produto: **feature nova só está completa quando aparece no feed E no chat.**
 
@@ -227,7 +227,7 @@ Os 8 clusters: `EXPLORADOR_GLOBAL` (milhas/lounge), `URBANO_FOODIE` (cashback al
 
 Agente **ReAct (LangGraph)**: o LLM decide qual ferramenta chamar, observa o resultado e responde em linguagem natural. A primeira ferramenta de toda sessão é `get_user_profile_context`, que carrega o cluster comportamental e adapta o tom da conversa inteira. O `user_id` autenticado é injetado como contexto imutável — o agente ignora qualquer user_id vindo da mensagem (mitigação de prompt injection).
 
-### 30 Ferramentas Financeiras
+### 31 Ferramentas Financeiras
 
 | Domínio | Ferramentas |
 |:---|:---|
@@ -366,7 +366,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 | **Engajamento** | Health score + desafios + badges, metas, 17 tipos de notificação com filtro de relevância, peer comparison, budget 50/30/20, shadow invoices |
 | **Retenção** | Scheduler com 6 jobs, daily digest, entrega email/in-app/push, PWA com widget instalável e Web Push VAPID, checkout-context, revisão de compras |
 | **Viral** | Placar de economia (SVG) e Wrapped anual (SVG) |
-| **IA** | Agente ReAct com 30 ferramentas, memória Redis, perfil comportamental (8 clusters), life events |
+| **IA** | Agente ReAct com 31 ferramentas, memória Redis, perfil comportamental (8 clusters), life events |
 | **Plataforma** | Auth JWT + refresh rotativo, IDOR hardening, LGPD export/erase, rate limiting, audit log, pip-audit no CI, 2.189 testes coletados |
 
 ### 🚧 Falta (em ordem de prioridade de negócio)
@@ -402,7 +402,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 | **Ação automática** | ✅ Contesta, negocia, gera dossiê | ❌ | ❌ Só visualiza | ❌ Só compara |
 | **Open Finance nativo** | ✅ Multi-banco | ⚠️ Só o próprio | ⚠️ Manual | ⚠️ Parcial |
 | **Base legal integrada** | ✅ CDC, BACEN, STJ | ❌ | ❌ | ❌ |
-| **IA conversacional** | ✅ 30 ferramentas | ❌ | ❌ | ❌ |
+| **IA conversacional** | ✅ 31 ferramentas | ❌ | ❌ | ❌ |
 | **Defesa do consumidor** | ✅ D1–D6 | ❌ | ❌ | ❌ |
 | **Perfil comportamental** | ✅ 8 clusters adaptativos | ❌ | ❌ | ❌ |
 
@@ -412,7 +412,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 
 > **2. Flywheel de dados** — Cada novo usuário melhora o benchmark de tarifas (`bank_fee_trends`) e os detectores de abuso. Meses de dados históricos que nenhum concorrente replica retroativamente.
 
-> **3. Complexidade técnica** — 20+ módulos de análise, ETL de 8 estágios, catálogo curado de 81 cartões com 11 programas de fidelidade valorados, Monte Carlo, agente ReAct com 30 ferramentas, 8 clusters comportamentais, 6 detectores de defesa do consumidor e scheduler de inteligência proativa. Não é um wrapper de API.
+> **3. Complexidade técnica** — 20+ módulos de análise, ETL de 8 estágios, catálogo curado de 81 cartões com 11 programas de fidelidade valorados, Monte Carlo, agente ReAct com 31 ferramentas, 8 clusters comportamentais, 6 detectores de defesa do consumidor e scheduler de inteligência proativa. Não é um wrapper de API.
 
 > **4. Confiança do usuário** — Uma vez que o usuário confia na Nexa como seu advogado, o custo de troca é altíssimo.
 
@@ -612,7 +612,7 @@ México: Open Banking regulado (Ley Fintech 2018), 60M sub-bancarizados, concent
 
 | Método | Rota | Descrição |
 |:---:|:---|:---|
-| `POST` | `/api/v1/chat/` | Chat com agente (30 ferramentas) |
+| `POST` | `/api/v1/chat/` | Chat com agente (31 ferramentas) |
 | `GET` | `/api/v1/billing/plans` · `/billing/subscription/{user_id}` | Planos e assinatura + uso dos limites |
 | `POST` | `/api/v1/billing/checkout/{user_id}` · `/billing/portal/{user_id}` | Stripe Checkout e portal do cliente |
 | `POST` | `/api/v1/billing/webhook` | Webhook Stripe (assinado, fail-closed) |
@@ -851,7 +851,7 @@ curl -X POST http://localhost:8000/api/v1/architect/simulate \
 
 ### Nexa AI
 
-**20+ módulos implementados · 30 ferramentas de IA · 17 tipos de alerta proativo · 2.189 testes**
+**20+ módulos implementados · 31 ferramentas de IA · 17 tipos de alerta proativo · 2.189 testes**
 
 *Trabalhar para você, não para o banco.*
 
