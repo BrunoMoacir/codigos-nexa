@@ -36,6 +36,14 @@ DAS) · `NAO_CLASSIFICADO` (neutro).
     o threshold de 0,30 — semântica preservada para os consumidores);
   - **Invariante determinístico**: FSS CRÍTICO nunca passa pelo ML — o
     tratamento de estresse financeiro não depende de fronteira aprendida;
+  - **Piso de regras** (2026-07): quando o ML ABSTÉM (probabilidade do
+    primário abaixo do limiar → `NAO_CLASSIFICADO`) mas as regras — o
+    professor do modelo — têm veredito confiante (≥ 0,60), o híbrido usa as
+    regras (`source = ml+rules_floor`). Sem isso, o ML perdia classificações
+    claras em perfis realistas que espalham probabilidade entre classes
+    correlacionadas (ex.: foodie que também parece esticado pelo aluguel) —
+    defeito de calibração encontrado pelo harness de teste ponta a ponta
+    (`backend/demo/`).
   - **Fallback integral**: modelo ausente/corrompido/versão de features
     incompatível → regras respondem sozinhas (padrão ML→regras→default);
   - Artefatos: `models/lifestyle_classifier.pkl` + metadata JSON com

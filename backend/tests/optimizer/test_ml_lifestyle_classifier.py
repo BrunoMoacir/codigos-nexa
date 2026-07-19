@@ -127,6 +127,56 @@ def test_fallback_para_regras_quando_modelo_ausente(tmp_path, monkeypatch):
     assert result["lifestyle_cluster"] == "MICROEMPREENDEDOR"
 
 
+def test_rules_floor_recupera_classificacao_confiante_das_regras():
+    """
+    Piso de regras: quando o ML ABSTÉM (NAO_CLASSIFICADO) mas as regras têm
+    veredito confiante (≥ 0.60), o híbrido usa as regras. Regressão do bug
+    achado pelo teste ponta a ponta do demo (foodie com 0.73 nas regras virava
+    NAO_CLASSIFICADO porque o ML espalhava probabilidade).
+    """
+    from unittest.mock import patch
+
+    lc = LifestyleClassifier()
+    # perfil foodie inequívoco: as regras dão score alto
+    profile = _profile(foodie_score=90.0, spend_by_category={"alimentacao": 2400.0})
+    rules = lc.classify_rules(profile)
+    assert rules["lifestyle_cluster"] == "URBANO_FOODIE"
+    assert rules["cluster_scores"]["URBANO_FOODIE"] >= 0.60
+
+    # ML abstém (força NAO_CLASSIFICADO) → o piso deve resgatar as regras
+    ml_abstains = {
+        "lifestyle_cluster": "NAO_CLASSIFICADO",
+        "secondary_clusters": [],
+        "cluster_scores": {},
+        "ml_probabilities": {"URBANO_FOODIE": 0.33},
+        "classification_source": "ml",
+        "ml_confidence": 0.33,
+    }
+    with patch.object(MLLifestyleClassifier, "is_available", property(lambda self: True)), \
+         patch.object(MLLifestyleClassifier, "classify", lambda self, p: ml_abstains):
+        result = lc.classify(profile)
+    assert result["lifestyle_cluster"] == "URBANO_FOODIE"
+    assert result["classification_source"] == "ml+rules_floor"
+
+
+def test_rules_floor_nao_atropela_ml_confiante():
+    """Se o ML tem primário confiante, o piso NÃO intervém."""
+    from unittest.mock import patch
+
+    lc = LifestyleClassifier()
+    profile = _profile(is_likely_mei=True)
+    ml_confident = {
+        "lifestyle_cluster": "INVESTIDOR_CAUTELOSO",
+        "secondary_clusters": [], "cluster_scores": {},
+        "classification_source": "ml", "ml_confidence": 0.82,
+    }
+    with patch.object(MLLifestyleClassifier, "is_available", property(lambda self: True)), \
+         patch.object(MLLifestyleClassifier, "classify", lambda self, p: ml_confident):
+        result = lc.classify(profile)
+    assert result["lifestyle_cluster"] == "INVESTIDOR_CAUTELOSO"
+    assert result["classification_source"] == "ml"
+
+
 def test_modelo_com_versao_de_features_errada_e_ignorado(tmp_path):
     import pickle
 

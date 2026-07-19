@@ -57,13 +57,43 @@ class LifestyleClassifier:
                 if ml.is_available:
                     result = ml.classify(profile)
                     if result is not None:
-                        return result
+                        return self._apply_rules_floor(profile, result)
             except Exception:  # nunca deixa o ML derrubar a classificação
                 pass
 
         result = self.classify_rules(profile)
         result["classification_source"] = "rules"
         return result
+
+    # Piso de regras: quando o ML ABSTÉM (primário = NAO_CLASSIFICADO por
+    # ficar abaixo do limiar de probabilidade) mas as REGRAS — que são o
+    # professor do modelo — têm um veredito CONFIANTE, confia nas regras.
+    # Sem isso, o híbrido perde classificações claras em perfis realistas
+    # onde o ML espalha probabilidade entre classes correlacionadas (ex.:
+    # foodie que também parece esticado pelo aluguel). Descoberto pelo
+    # teste ponta a ponta do demo.
+    _RULES_FLOOR_CONFIDENCE = 0.60
+
+    def _apply_rules_floor(self, profile: UserProfile, ml_result: dict) -> dict:
+        if ml_result.get("lifestyle_cluster") != CLUSTER_UNCLASSIFIED:
+            return ml_result
+        rules = self.classify_rules(profile)
+        rule_primary = rules["lifestyle_cluster"]
+        if rule_primary == CLUSTER_UNCLASSIFIED:
+            return ml_result
+        rule_score = rules["cluster_scores"].get(rule_primary, 0.0)
+        if rule_score < self._RULES_FLOOR_CONFIDENCE:
+            return ml_result
+        # Regras confiantes vencem a abstenção do ML — mantém as afinidades
+        # das regras como cluster_scores (contrato preservado).
+        return {
+            "lifestyle_cluster": rule_primary,
+            "secondary_clusters": rules["secondary_clusters"],
+            "cluster_scores": rules["cluster_scores"],
+            "ml_probabilities": ml_result.get("ml_probabilities"),
+            "classification_source": "ml+rules_floor",
+            "ml_confidence": ml_result.get("ml_confidence"),
+        }
 
     def classify_rules(self, profile: UserProfile) -> dict:
         scores = {
