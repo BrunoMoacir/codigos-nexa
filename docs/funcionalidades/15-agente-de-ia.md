@@ -43,10 +43,30 @@ gasto). A conversa continua de onde parou (memória por sessão).
 
 - **Endpoint**: `POST /chat/` (+ histórico por sessão).
 - `graph.py::build_financial_agent()` monta o grafo; `singleton.py` mantém a
-  instância; `state.py` o estado tipado.
+  instância; `state.py` o estado tipado. As 31 ferramentas ficam no registro
+  canônico `AGENT_TOOLS` (fonte única para o build e para os evals).
+- **Trimming de histórico** (`_prepare_model_messages`): cada chamada ao LLM
+  recebe o system prompt + as últimas ~24 mensagens (ToolMessages órfãs no
+  corte são descartadas para não quebrar o contrato da API). Sessão longa
+  não faz o custo/latência crescer sem limite. A injeção é feita pelo
+  parâmetro do LangGraph detectado por assinatura (`prompt`/`state_modifier`),
+  sobrevivendo a upgrades da lib.
 - Gating: 5 mensagens/dia no plano Free (contador `chat_messages`).
 - Padrão feed+chat: toda feature nova entra como card no feed E tool no chat —
   o agente nunca fica sabendo menos que a interface.
+
+## Evals de qualidade de prosa (`evals/` + `scripts/run_agent_evals.py`)
+
+O que os testes unitários NÃO cobrem — a qualidade da prosa — tem harness
+próprio. `evals/golden_conversations.json` tem 9 casos com as saídas das
+ferramentas **fixadas** (a única variável é a redação do LLM), cobrindo os
+invariantes que mais importam: estresse financeiro (nunca sugerir gasto),
+linguagem de indício na defesa, disclaimer de investimento, encadeamento
+multi-tool, spoofing de user_id e honestidade de escopo. Duas camadas de
+avaliação: **determinística** (tools esperadas chamadas, termos obrigatórios/
+proibidos, formato monetário BR) e **juiz LLM** (`--judge`: nota 1–5 por
+clareza/fidelidade/tom/honestidade). O schema do golden set é validado na
+suíte normal (`test_golden_evals_schema.py`), sem gastar tokens.
 
 ## O que NÃO faz
 
@@ -60,10 +80,9 @@ gasto). A conversa continua de onde parou (memória por sessão).
 ## Gaps e limitações
 
 - Custo por conversa depende do LLM externo (Claude/OpenAI) — cache de
-  sessão reduz, mas chat ilimitado (Pro) precisa de monitoramento de custo
-  por usuário (métrica ainda não instrumentada).
+  sessão + trimming de histórico reduzem, mas chat ilimitado (Pro) ainda
+  não instrumenta custo por usuário (só volume, via `agent_messages`).
 - Streaming de resposta (token a token) não implementado — resposta chega
   completa; UX de espera é do frontend.
-- Avaliação sistemática de qualidade das respostas (evals) não existe — os
-  testes cobrem o mecanismo (tools chamadas, contexto injetado), não a
-  qualidade da prosa.
+- O juiz LLM dos evals é rodado sob demanda (`--judge`), não em cada CI —
+  gasta tokens; o ideal é rodá-lo antes de cada mudança no prompt.

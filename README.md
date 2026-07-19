@@ -306,6 +306,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 | 03h00 | `opportunity_scan` | Varredura de dinheiro parado e poupança sub-CDI por usuário |
 | 04h00 | `health_score_snapshot` | Série temporal do score (tendência 30/90 dias) |
 | a cada 6h | `notification_scheduler` | Gera e entrega notificações proativas (email/in-app/push) |
+| 05h30 | `intelligence_metrics` | Monitoramento de acurácia (aceitação de recomendações, sucesso do negociador, cobertura) + calibração do Negociador por desfechos reais |
 | 07h00 | `daily_digest` | Email diário com score, tarifas, oportunidades, prazos fiscais e desafios |
 
 ---

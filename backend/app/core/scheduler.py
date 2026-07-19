@@ -36,6 +36,7 @@ def register_jobs() -> None:
     from app.jobs.health_score_snapshot import run_health_score_snapshot
     from app.jobs.notification_scheduler import run_notification_scheduler
     from app.jobs.daily_digest import run_daily_digest
+    from app.jobs.intelligence_metrics import run_intelligence_metrics
 
     scheduler.add_job(
         run_fee_snapshot,
@@ -84,6 +85,14 @@ def register_jobs() -> None:
         name="Notificações Proativas (MX.3)",
         replace_existing=True,
         misfire_grace_time=1800,
+    )
+    scheduler.add_job(
+        run_intelligence_metrics,
+        CronTrigger(hour=5, minute=30),
+        id="intelligence_metrics",
+        name="Métricas de Inteligência + Calibração (loops de feedback)",
+        replace_existing=True,
+        misfire_grace_time=3600,
     )
     scheduler.add_job(
         run_daily_digest,

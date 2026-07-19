@@ -24,8 +24,33 @@ fallback em memória) — em multi-instância, cada job roda UMA vez. Ativado po
 | 02h30 | `product_catalog_refresh` | Catálogo vivo de renda fixa via Open Finance (varredura completa do diretório) |
 | 03h00 | `opportunity_scan` | Dinheiro parado e poupança sub-CDI por usuário → cards |
 | 04h00 | `health_score_snapshot` | Série temporal do score (tendências 30/90d) |
+| 05h30 | `intelligence_metrics` | **Monitoramento de acurácia + loops de aprendizado** (ver abaixo) |
 | a cada 6h | `notification_scheduler` | Gera + entrega notificações (e-mail/in-app/push) |
 | 07h00 | `daily_digest` | E-mail diário idempotente |
+
+## Loops de aprendizado e monitoramento de acurácia (`intelligence_metrics`)
+
+O gap histórico era "os dados de feedback existem mas nada os consome". O job
+das 05h30 fecha isso em duas frentes:
+
+**1. Loop fechado do Negociador (F13).** O detector estima `potential_gain`
+por heurística; usuários reportam o desfecho real (`PATCH /negotiator/history/
+{id}`: sucesso/parcial/recusado + ganho). `compute_calibration()` calcula, por
+tipo de gatilho, o **fator de realização** = mediana de (ganho real ÷
+estimado) — com "recusado" contando como 0 (o fator reflete a taxa real de
+sucesso, não só os vencedores). Só vira fator com ≥5 desfechos; limitado a
+[0.2, 1.2] contra outliers. O router do Negociador aplica o fator ao ganho
+apresentado **e declara a origem** ao usuário ("estimativa ajustada por 12
+negociações reais") — nunca calibração silenciosa. Persistido em
+`data/negotiator_calibration.json` (runtime, gitignored).
+
+**2. Monitoramento de acurácia em produção.** Grava série temporal em
+`intelligence_metrics` (uma linha por dia×métrica×dimensão): taxa de aceitação
+das recomendações por tipo de insight (de `recommendation_feedback`), taxa de
+sucesso e fator de realização do Negociador, cobertura dos catálogos vivos
+(tarifas, produtos) e volume de mensagens do agente. É a matéria-prima para
+enxergar se a inteligência melhora ou degrada ao longo do tempo — a fundação
+que faltava para "recalibrar sozinho".
 
 ## Padrões de resiliência (transversais)
 

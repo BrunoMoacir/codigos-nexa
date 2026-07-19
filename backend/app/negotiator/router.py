@@ -136,10 +136,30 @@ async def generate_negotiation_script(
         _persist_negotiation(request.user_id, opp)
 
     # ── 5. Montar relatório final ────────────────────────────────
-    total_saving = sum(o.potential_saving_monthly for o in opportunities)
+    # Loop fechado (F13): quando há desfechos reais suficientes, o ganho
+    # apresentado é calibrado pelo fator de realização observado — e a
+    # origem é declarada ao usuário (nunca calibração silenciosa).
+    from app.negotiator.calibration import get_calibration_factor
+
+    total_saving = 0.0
+    calibrated_notes: list[str] = []
+    for opp in opportunities:
+        trigger_name = getattr(opp.trigger, "value", str(opp.trigger))
+        calibration = get_calibration_factor(trigger_name)
+        if calibration is not None:
+            factor, samples = calibration
+            total_saving += opp.potential_saving_monthly * factor
+            calibrated_notes.append(
+                f"{trigger_name}: estimativa ajustada por resultados reais "
+                f"(fator {factor:.2f}, {samples} negociações reportadas)"
+            )
+        else:
+            total_saving += opp.potential_saving_monthly
+
     confidence = _compute_confidence(health_score, len(opportunities), transactions_df.height)
 
     summary = _build_summary(opportunities, total_saving, health_score)
+    warnings.extend(calibrated_notes)
 
     return NegotiationReport(
         user_id=request.user_id,

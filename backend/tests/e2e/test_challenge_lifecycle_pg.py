@@ -86,7 +86,7 @@ def pg_engine():
 
     with _engine.connect() as con:
         version = con.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        assert version == "b9c0d1e2f3a4"   # head único (billing + auth_tokens/verificação)
+        assert version == "c1d2e3f4a5b6"   # head único (+ intelligence_metrics)
         tables = {
             r[0] for r in con.execute(text(
                 "SELECT table_name FROM information_schema.tables"

@@ -12,15 +12,8 @@ from app.agent.graph import SYSTEM_PROMPT
 
 
 def _registered_tools():
-    """Extrai os nomes das tools da lista `tools = [...]` do build."""
-    src = open(graph_module.__file__, encoding="utf-8").read()
-    body = re.search(r"tools = \[(.*?)\]", src, re.S).group(1)
-    names = []
-    for line in body.strip().splitlines():
-        candidate = line.split("#", 1)[0].strip().rstrip(",")
-        if candidate.isidentifier():
-            names.append(candidate)
-    return names
+    """Nomes das tools do registro canônico do grafo (AGENT_TOOLS)."""
+    return [t.name for t in graph_module.AGENT_TOOLS]
 
 
 # ── cobertura prompt × grafo ─────────────────────────────────────────────────

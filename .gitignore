@@ -54,3 +54,7 @@ coverage.xml
 *.log
 logs/
 .env # se ainda não estiver lá
+
+# Artefatos de runtime da inteligência (gerados por jobs; não versionar)
+backend/data/negotiator_calibration.json
+backend/evals/last_report.json

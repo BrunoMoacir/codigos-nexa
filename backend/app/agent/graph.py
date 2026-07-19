@@ -35,8 +35,9 @@ Ferramentas disponíveis:
  29. get_transfer_promotions     → R4.b: promoções de transferência de pontos bonificadas
  30. get_plan_info               → Plano atual, limites de uso e catálogo Free/Pro/Total
 """
+import inspect
 import logging
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 from app.core.config import settings
 
@@ -436,6 +437,47 @@ Não encadeie mais do que o necessário: 2–3 ferramentas por resposta é o tet
 """
 
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# REGISTRO CANÔNICO DE FERRAMENTAS — fonte única para o build e para
+# os evals (scripts/run_agent_evals.py substitui os corpos por fixtures
+# mantendo nome/descrição/schema reais, para roteamento idêntico).
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+AGENT_TOOLS = [
+        get_user_profile_context,  # deve ser chamada primeiro em cada sessão
+        get_financial_forecast,
+        get_budget_advice,
+        get_card_optimization,
+        get_spending_alerts,
+        get_goals_summary,
+        get_financing_simulation,
+        get_timing_scenarios,
+        get_leverage_simulation,
+        get_fiscal_report,
+        get_peer_comparison,
+        get_purchase_recommendation,
+        get_bank_cost_analysis,
+        get_negotiation_script,
+        get_expert_card_analysis,
+        get_opportunities,
+        simulate_investment,
+        get_best_bank,
+        get_forgotten_rights,
+        get_annual_wrapped,
+        get_transfer_promotions,
+        get_plan_info,
+        detect_abusive_fees,
+        detect_wrongful_charges,
+        detect_abusive_interest,
+        get_defense_analysis,
+        get_evidence_dossier,
+        get_portability_analysis,
+        get_fiscal_calendar,
+        get_monthly_challenges,
+        review_recent_purchases,
+    ]
+
+
 def _build_llm():
     """
     Constrói o LLM baseado em LLM_PROVIDER:
@@ -507,51 +549,56 @@ def _build_checkpointer():
         return MemorySaver()
 
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TRIMMING DE HISTÓRICO — sessões longas não podem crescer sem limite
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# ~24 mensagens ≈ 8-12 turnos com tool calls — contexto de sobra para a
+# conversa, sem deixar o custo/latência crescer linearmente com a sessão.
+_MAX_HISTORY_MESSAGES = 24
+
+
+def _trim_history(messages: list[BaseMessage], max_messages: int = _MAX_HISTORY_MESSAGES) -> list[BaseMessage]:
+    """Mantém as últimas `max_messages` mensagens, descartando ToolMessages
+    órfãs no início do corte (resultado de tool sem o AIMessage que a chamou
+    quebraria o contrato da API do LLM)."""
+    if len(messages) <= max_messages:
+        return list(messages)
+    trimmed = list(messages[-max_messages:])
+    while trimmed and isinstance(trimmed[0], ToolMessage):
+        trimmed.pop(0)
+    return trimmed
+
+
+def _prepare_model_messages(state) -> list[BaseMessage]:
+    """state_modifier/prompt do agente: system prompt + histórico aparado."""
+    messages = state["messages"] if isinstance(state, dict) else state
+    return [SystemMessage(content=SYSTEM_PROMPT)] + _trim_history(messages)
+
+
 def build_financial_agent():
     """
     Constrói o agente LangGraph ReAct com todas as ferramentas financeiras disponíveis.
     """
-    # 1. Todas as ferramentas disponíveis
-    tools = [
-        get_user_profile_context,  # deve ser chamada primeiro em cada sessão
-        get_financial_forecast,
-        get_budget_advice,
-        get_card_optimization,
-        get_spending_alerts,
-        get_goals_summary,
-        get_financing_simulation,
-        get_timing_scenarios,
-        get_leverage_simulation,
-        get_fiscal_report,
-        get_peer_comparison,
-        get_purchase_recommendation,
-        get_bank_cost_analysis,
-        get_negotiation_script,
-        get_expert_card_analysis,
-        get_opportunities,
-        simulate_investment,
-        get_best_bank,
-        get_forgotten_rights,
-        get_annual_wrapped,
-        get_transfer_promotions,
-        get_plan_info,
-        detect_abusive_fees,
-        detect_wrongful_charges,
-        detect_abusive_interest,
-        get_defense_analysis,
-        get_evidence_dossier,
-        get_portability_analysis,
-        get_fiscal_calendar,
-        get_monthly_challenges,
-        review_recent_purchases,
-    ]
+    tools = AGENT_TOOLS
 
     # 2. LLM — Claude (preferencial) ou OpenAI (fallback)
     llm = _build_llm()
 
-    # 3. Memória (checkpointer) e Agente ReAct
+    # 3. Memória (checkpointer) e Agente ReAct.
+    # O parâmetro do prompt mudou de nome entre versões do LangGraph
+    # (state_modifier → prompt); detectamos por assinatura para não quebrar
+    # em upgrade. Nos dois casos passamos o CALLABLE que injeta o system
+    # prompt e apara o histórico (_prepare_model_messages).
     checkpointer = _build_checkpointer()
-    app = create_react_agent(llm, tools=tools, prompt=SYSTEM_PROMPT, checkpointer=checkpointer)
+    signature = inspect.signature(create_react_agent)
+    if "prompt" in signature.parameters:
+        prompt_kwarg = {"prompt": _prepare_model_messages}
+    elif "state_modifier" in signature.parameters:
+        prompt_kwarg = {"state_modifier": _prepare_model_messages}
+    else:  # versões antigas: messages_modifier
+        prompt_kwarg = {"messages_modifier": _prepare_model_messages}
+    app = create_react_agent(llm, tools=tools, checkpointer=checkpointer, **prompt_kwarg)
 
     logger.info(
         f"[Agent] Agente Nexa construído com {len(tools)} ferramentas: "
