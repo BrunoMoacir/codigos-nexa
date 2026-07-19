@@ -56,13 +56,78 @@ _BENCHMARK_DIGITAL_REFERENCE = MarketBenchmark(
 )
 
 
+# Baseline VIVO (job market_fees_refresh, 02h15): tarifas publicadas pelos
+# próprios bancos no Open Finance Dados Abertos, ponderadas por faixa de
+# clientes. Preferido quando existe; a tabela estática acima é o fallback.
+_LIVE_FEES_PATH = (
+    __import__("pathlib").Path(__file__).resolve().parents[2]
+    / "data" / "fees" / "market_fees_live.json"
+)
+_LIVE_TTL_SECONDS = 15 * 60
+
+
 class MarketFeesDB:
     """
     Resolve benchmarks de mercado para os bancos identificados no perfil do usuário.
 
+    Fontes (nesta ordem):
+      1. data/fees/market_fees_live.json — baseline vivo via Open Finance
+         (recarregado por mtime/TTL; o job diário atualiza sem restart);
+      2. _BANK_FEES_DB — tabela estática curada (fallback sempre disponível).
+
     Sempre inclui a referência digital (R$ 0/mês) para mostrar
     o potencial máximo de economia.
     """
+
+    def __init__(self) -> None:
+        self._live: dict[str, dict] | None = None
+        self._live_mtime: float = 0.0
+        self._live_loaded_at: float = 0.0
+
+    # ── baseline vivo ────────────────────────────────────────────────
+
+    def _refresh_live(self) -> None:
+        import json
+        import time
+
+        now = time.monotonic()
+        if self._live is not None and (now - self._live_loaded_at) < _LIVE_TTL_SECONDS:
+            return
+        self._live_loaded_at = now
+        try:
+            if not _LIVE_FEES_PATH.exists():
+                self._live = None
+                return
+            mtime = _LIVE_FEES_PATH.stat().st_mtime
+            if self._live is not None and mtime == self._live_mtime:
+                return
+            data = json.loads(_LIVE_FEES_PATH.read_text(encoding="utf-8"))
+            institutions = data.get("institutions", [])
+            self._live = {
+                inst["bank_name"].lower(): inst
+                for inst in institutions
+                if inst.get("monthly_package_typical") is not None
+            }
+            self._live_mtime = mtime
+        except Exception:
+            self._live = None
+
+    def _live_lookup(self, bank_name: str) -> float | None:
+        """Pacote mensal típico do baseline vivo, com matching tolerante."""
+        self._refresh_live()
+        if not self._live:
+            return None
+        from app.opportunities.services.bank_names import find_matching
+
+        key = find_matching(bank_name, set(self._live.keys()))
+        if key is None:
+            return None
+        return float(self._live[key]["monthly_package_typical"])
+
+    @property
+    def live_available(self) -> bool:
+        self._refresh_live()
+        return bool(self._live)
 
     def get_benchmarks(
         self, user_banks: list[BankFeeSummary]
@@ -85,16 +150,21 @@ class MarketFeesDB:
                 continue
             seen.add(name)
 
-            market_avg = _BANK_FEES_DB.get(name)
-            if market_avg is None:
-                # Banco não mapeado: usa média dos bancos tradicionais como proxy
-                market_avg = self._traditional_bank_avg()
+            live_avg = self._live_lookup(name)
+            if live_avg is not None:
+                market_avg, source = live_avg, "open_finance_dados_abertos"
+            else:
+                market_avg = _BANK_FEES_DB.get(name)
+                source = _SOURCE
+                if market_avg is None:
+                    # Banco não mapeado: média dos tradicionais como proxy
+                    market_avg = self._traditional_bank_avg()
 
             benchmarks.append(
                 MarketBenchmark(
                     bank_name=name,
                     monthly_avg_market=market_avg,
-                    source=_SOURCE,
+                    source=source,
                 )
             )
 
@@ -108,6 +178,9 @@ class MarketFeesDB:
 
     def get_avg_for_bank(self, bank_name: str) -> float:
         """Retorna custo médio mensal de mercado para um banco específico."""
+        live_avg = self._live_lookup(bank_name)
+        if live_avg is not None:
+            return live_avg
         return _BANK_FEES_DB.get(bank_name, self._traditional_bank_avg())
 
     @staticmethod

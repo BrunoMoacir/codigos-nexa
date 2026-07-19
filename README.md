@@ -300,7 +300,8 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 
 | Horário | Job | O que entrega |
 |:---:|:---|:---|
-| 02h00 | `fee_snapshot` | Histórico de tarifas por usuário + baseline de mercado (alimenta D2/D4) |
+| 02h00 | `fee_snapshot` | Histórico de tarifas por usuário + agregado anônimo `bank_fee_trends` (alimenta D2/D4) |
+| 02h15 | `market_fees_refresh` | Baseline VIVO de tarifas de mercado via Open Finance Dados Abertos (~28 instituições, preço típico ponderado por faixa de clientes) — F5/D4 desde o dia 1 |
 | 02h30 | `product_catalog_refresh` | Atualiza catálogo de produtos via Open Finance Dados Abertos (OPP) |
 | 03h00 | `opportunity_scan` | Varredura de dinheiro parado e poupança sub-CDI por usuário |
 | 04h00 | `health_score_snapshot` | Série temporal do score (tendência 30/90 dias) |

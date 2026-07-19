@@ -30,6 +30,7 @@ def register_jobs() -> None:
     Só deve ser chamado quando SCHEDULER_ENABLED=true.
     """
     from app.jobs.fee_snapshot import run_fee_snapshot
+    from app.jobs.market_fees_refresh import run_market_fees_refresh
     from app.jobs.opportunity_scan import run_opportunity_scan
     from app.jobs.product_catalog_refresh import run_product_catalog_refresh
     from app.jobs.health_score_snapshot import run_health_score_snapshot
@@ -41,6 +42,14 @@ def register_jobs() -> None:
         CronTrigger(hour=2, minute=0),
         id="fee_snapshot",
         name="Fee Snapshot Diário (D2/D4)",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    scheduler.add_job(
+        run_market_fees_refresh,
+        CronTrigger(hour=2, minute=15),
+        id="market_fees_refresh",
+        name="Baseline de Tarifas de Mercado (F5/D4 via Open Finance)",
         replace_existing=True,
         misfire_grace_time=3600,
     )

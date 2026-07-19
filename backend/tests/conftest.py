@@ -77,5 +77,16 @@ def _isolate_live_product_catalog(tmp_path_factory):
         )
     except Exception:
         pass
+    # Mesmo isolamento para o baseline vivo de tarifas (job market_fees_refresh)
+    try:
+        import app.costs.market_fees_db as fees_module
+
+        mp.setattr(
+            fees_module,
+            "_LIVE_FEES_PATH",
+            tmp_path_factory.mktemp("market_fees") / "nonexistent_fees.json",
+        )
+    except Exception:
+        pass
     yield
     mp.undo()

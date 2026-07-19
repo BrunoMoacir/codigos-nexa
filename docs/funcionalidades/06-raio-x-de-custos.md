@@ -17,8 +17,14 @@ Negociador (doc 08).
 - **Detecção de tarifas** (`costs/fee_detector.py`): identifica lançamentos de
   tarifa por padrão de descrição/valor (manutenção, pacote, TED, saque,
   anuidade, seguros embutidos).
-- **Benchmark de mercado** (`costs/market_fees_db.py`): tabela de tarifas
-  típicas por banco (16 bancos) para comparar o que o usuário paga.
+- **Benchmark de mercado VIVO** (`costs/market_fees_db.py` +
+  `costs/connectors/open_finance_fees.py`): tarifas e pacotes publicados
+  obrigatoriamente por cada participante do Open Finance Dados Abertos
+  (`opendata-accounts/personal-accounts`, ~28 instituições), com preço
+  **típico ponderado pela fração de clientes por faixa** — não o teto de
+  tabela. Job diário 02h15 (`market_fees_refresh`) atualiza
+  `data/fees/market_fees_live.json`; matching tolerante de nomes; fallback
+  na tabela estática curada.
 - **Análise por banco** (`costs/bank_fee_analyzer.py`): consolida por
   instituição e alimenta o histórico.
 - **Histórico e baseline coletivo**: job diário `fee_snapshot` (02h00) grava
@@ -44,8 +50,12 @@ Negociador (doc 08).
 
 ## Gaps e limitações
 
-- `market_fees_db` é curado manualmente (TODO declarado de migrar para
-  `data/fees/bank_fees.json` + cache Redis); o BACEN publica tarifas — um
-  crawler oficial daria baseline vivo desde o dia 1.
-- `bank_fee_trends` só ganha representatividade estatística com massa de
-  usuários; até lá, o benchmark curado domina.
+- O baseline vivo cobre os participantes do Open Finance que publicam
+  `personal-accounts` (~28 instituições hoje); bancos fora do diretório
+  caem na tabela estática curada.
+- `bank_fee_trends` (agregado anônimo dos usuários) segue como segunda
+  fonte — ganha valor com massa de usuários e captura o que os bancos NÃO
+  publicam (tarifas avulsas cobradas na prática).
+- O job das 02h00 (`fee_snapshot`) e o das 02h15 (`market_fees_refresh`)
+  são complementares: um mede o que os usuários pagam; o outro, o que os
+  bancos publicam.

@@ -238,12 +238,16 @@ payload ~200 bytes) e push notifications (Web Push VAPID, tabela `push_subscript
 `backend/app/jobs/` (fee_snapshot 02h, catálogo 02h30, opportunity_scan 03h, health_score 04h,
 notificações 6/6h, daily digest 07h). Falta apenas o job do relatório trimestral (R4.a).
 
-### Gap 3 — Base de Tarifas Bancárias (impacto: Médio) — ⚠️ parcialmente resolvido
-↳ **verificado 2026-07-18:** o job `fee_snapshot` já constrói baseline de mercado anonimizado a
-partir dos próprios usuários (`bank_fee_history` / `bank_fee_trends`) — mas ele só ganha
-representatividade com massa de usuários.
-- O que ainda falta: crawler/coleta das tabelas públicas de tarifas dos bancos para dar baseline
-  desde o dia 1 (BACEN publica consulta de tarifas)
+### Gap 3 — Base de Tarifas Bancárias (impacto: Médio) — ✅ resolvido
+↳ **atualizado 2026-07-18 (validado ao vivo):** baseline de mercado vivo desde o dia 1 via
+**Open Finance Dados Abertos** (`opendata-accounts/personal-accounts` — tarifas prioritárias da
+Res. 3.919 + pacotes padronizados, publicados obrigatoriamente por cada participante, com preço
+por faixa ponderado pela fração de clientes). Conector em `app/costs/connectors/open_finance_fees.py`
+(50 endpoints, ~28 instituições em ~8s), job diário `market_fees_refresh` (02h15) persiste
+`data/fees/market_fees_live.json`, e o `MarketFeesDB` (F5/D4) prefere o vivo com matching
+tolerante de nomes e fallback na tabela estática. Guarda de plausibilidade descarta dados
+publicados errados (pacote > R$ 500/mês). O `bank_fee_trends` (agregado anônimo dos usuários)
+continua como SEGUNDA fonte, que enriquece com massa de usuários.
 
 ### Gap 4 — APIs de Direitos Públicos (impacto: Alto para T3) — ✅ resolvido para SVR e IRPF
 ↳ **atualizado 2026-07-18 (validado ao vivo):** duas consultas REAIS implementadas em
