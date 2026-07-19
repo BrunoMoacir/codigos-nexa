@@ -214,7 +214,7 @@ Endpoints: `GET /viral/savings-card/{user_id}[/svg]`, `GET /viral/wrapped/{user_
 
 | Módulo | O que faz | Onde atua |
 |:---|:---|:---|
-| **ConsumptionProfiler** | Classifica o usuário em 1 de 8 clusters de estilo de vida (90 dias de transações; regras determinísticas calibradas — substituição por modelo ML prevista na Fase 3) | Agente, optimizer, budget, notificações — 6+ módulos |
+| **ConsumptionProfiler** | Classifica o usuário em 1 de 8 clusters de estilo de vida (90 dias de transações) — **modelo ML híbrido**: RandomForest destilado das regras (fidelidade 95,9% em holdout, artefato de 6 MB) decide o cluster primário com confiança calibrada; afinidades das regras dão os secundários; fallback integral nas regras; invariante determinístico para FSS crítico | Agente, optimizer, budget, notificações — 6+ módulos |
 | **LifeEventsDetector** | Detecta bebê, mudança, casamento, faculdade, aumento/queda de renda via padrão de gastos | Cards LIFE_EVENT com ação sugerida |
 | **NotificationRelevanceFilter** | Elimina ruído com thresholds escalados por renda | Mesmo evento é ruído para quem ganha R$ 15k e crítico para quem ganha R$ 2k |
 | **IncomeProfiler** | Renda real após filtrar transferências e não-recorrentes | Base de todos os thresholds |

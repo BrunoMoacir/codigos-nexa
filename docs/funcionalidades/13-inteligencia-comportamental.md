@@ -25,9 +25,23 @@ DAS) · `NAO_CLASSIFICADO` (neutro).
   (`travel_detector`, `foodie_detector`, `investor_detector`,
   `family_detector`, `mei_detector`, `fss_calculator`...); primário exige
   score ≥ 0,35 "ganhando claramente"; até 2 secundários ≥ 0,30.
-- **Honestidade técnica**: são regras determinísticas calibradas — NÃO é ML
-  (substituição por modelo de clustering está planejada; as regras têm a
-  vantagem de serem explicáveis).
+- **Motor ML híbrido (Fase 3 — implementado 2026-07)**: RandomForest
+  **destilado das regras** (professor→aluno) treinado sobre 80 mil perfis
+  sintéticos (55% arquétipos, 25% espaço amplo, 20% híbridos), fidelidade
+  **95,9%** em holdout (hiperparâmetros escolhidos por sweep fidelidade ×
+  tamanho: 97,4% custaria um artefato de 189 MB; o compacto tem 6 MB).
+  - **Primário** vem do modelo (`predict_proba` — fronteiras suaves e
+    `ml_confidence` calibrada); **secundários e cluster_scores** vêm das
+    afinidades independentes das regras (probabilidades somam 1 e diluiriam
+    o threshold de 0,30 — semântica preservada para os consumidores);
+  - **Invariante determinístico**: FSS CRÍTICO nunca passa pelo ML — o
+    tratamento de estresse financeiro não depende de fronteira aprendida;
+  - **Fallback integral**: modelo ausente/corrompido/versão de features
+    incompatível → regras respondem sozinhas (padrão ML→regras→default);
+  - Artefatos: `models/lifestyle_classifier.pkl` + metadata JSON com
+    fidelidade e importâncias; treino reproduzível em
+    `scripts/train_lifestyle_classifier.py` (seed fixa) — re-treinável com
+    dados reais rotulados quando existirem, sem mudar a inferência.
 
 ### Sinais transversais
 | Sinal | Onde | Efeito |
@@ -66,8 +80,11 @@ CRITICAL nunca é descartado.
 
 ## Gaps e limitações
 
-- Clusters por regras não capturam perfis híbridos raros; o plano de evoluir
-  para clustering ML (K-Means/HDBSCAN) precisa de massa de dados.
+- O modelo atual é **destilado das regras** (bootstrap sem dados reais):
+  aprende fronteiras suaves e interações, mas não descobre padrões que as
+  regras não conhecem — isso só vem re-treinando com dados reais rotulados
+  (correções de usuários/validação manual), o que o script de treino já
+  suporta sem mudar a inferência.
 - Janela de 90 dias: usuário recém-conectado fica `NAO_CLASSIFICADO`
   (neutro) até acumular histórico.
 - Peer comparison (doc 14) usa benchmarks IBGE hardcoded por faixa de renda —

@@ -25,17 +25,47 @@ class LifestyleClassifier:
     """
     Classifica o UserProfile em um ou mais clusters de estilo de vida.
 
-    Fase 1: regras determinísticas baseadas em scores dos detectors.
-    Fase 3: substituir por modelo ML (HDBSCAN ou K-Means treinado).
+    Fase 3 (ATUAL): modelo ML (RandomForest destilado das regras — ver
+    scripts/train_lifestyle_classifier.py) com FALLBACK nas regras
+    determinísticas — padrão multi-layer do projeto (ML → regras → default).
+    O modelo devolve probabilidades calibradas por cluster; sem modelo
+    disponível (arquivo ausente/corrompido), as regras respondem sozinhas.
 
     Retorna:
-        lifestyle_cluster:   cluster primário (o de maior score ≥ 0.35)
-        secondary_clusters:  clusters com score ≥ 0.30, distintos do primário,
-                             ordenados por score desc (máx 2)
-        cluster_scores:      afinidade 0.0–1.0 por cluster para uso futuro
+        lifestyle_cluster:      cluster primário (score/probabilidade ≥ 0.35)
+        secondary_clusters:     score ≥ 0.30, distintos do primário (máx 2)
+        cluster_scores:         afinidade 0.0–1.0 por cluster
+        classification_source:  "ml" | "rules"
     """
 
     def classify(self, profile: UserProfile) -> dict:
+        """ML primeiro; regras como fallback. Contrato idêntico nos dois.
+
+        INVARIANTE DE SEGURANÇA (determinístico, fora do ML): FSS CRITICO
+        sempre passa pelas regras — o tratamento de estresse financeiro
+        (empatia, zero sugestão de gasto) não pode depender de fronteira
+        aprendida.
+        """
+        fss_critical = getattr(profile, "fss_level", None) == "CRITICO"
+        if not fss_critical:
+            try:
+                from app.optimizer.detectors.ml_lifestyle_classifier import (
+                    MLLifestyleClassifier,
+                )
+
+                ml = MLLifestyleClassifier.shared()
+                if ml.is_available:
+                    result = ml.classify(profile)
+                    if result is not None:
+                        return result
+            except Exception:  # nunca deixa o ML derrubar a classificação
+                pass
+
+        result = self.classify_rules(profile)
+        result["classification_source"] = "rules"
+        return result
+
+    def classify_rules(self, profile: UserProfile) -> dict:
         scores = {
             CLUSTER_EXPLORER_GLOBAL:   self._score_explorer(profile),
             CLUSTER_URBAN_FOODIE:      self._score_foodie(profile),
