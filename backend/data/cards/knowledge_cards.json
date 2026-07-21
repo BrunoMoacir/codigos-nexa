@@ -1,1187 +1,3439 @@
 [
-  {
-    "card_id": "nubank-roxinho",
-    "name": "Nubank Roxinho",
-    "issuer": "Nubank",
-    "flag": "MASTERCARD",
-    "card_type": "CASHBACK",
-    "public_target": "geral",
-    "min_income": 0,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 0.0,
-    "waiver_rules": {
-      "type": "always_free",
-      "description": "Sem anuidade permanente"
-    },
-    "cashback_pct": 0.01,
-    "cashback_cap": null,
-    "cashback_default_pct": 0.01,
-    "cashback_categories": [],
-    "points_per_brl": null,
-    "points_currency": "cashback",
-    "points_conversion_rate": 0.0,
-    "loyalty_program": null,
-    "benefit_tags": [],
-    "benefits_detail": [
-      "1% cashback flat em todas as compras",
-      "Sem anuidade permanente",
-      "Referência de custo-zero no segmento"
-    ],
-    "revolving_interest_monthly": 0.1599,
-    "installment_interest_monthly": null,
-    "data_trust_score": 0.93,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+ {
+  "card_id": "nubank-roxinho",
+  "name": "Nubank Roxinho",
+  "issuer": "Nubank",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade permanente"
   },
-  {
-    "card_id": "inter-standard",
-    "name": "Inter Mastercard Standard",
-    "issuer": "Banco Inter",
-    "flag": "MASTERCARD",
-    "card_type": "CASHBACK",
-    "public_target": "geral",
-    "min_income": 0,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 0.0,
-    "waiver_rules": {
-      "type": "always_free",
-      "description": "Sem anuidade"
-    },
-    "cashback_pct": 0.005,
-    "cashback_cap": null,
-    "cashback_default_pct": 0.005,
-    "cashback_categories": [
-      {
-        "category": "supermercado",
-        "pct": 0.01,
-        "cap_monthly": null
-      },
-      {
-        "category": "alimentacao",
-        "pct": 0.01,
-        "cap_monthly": null
-      }
-    ],
-    "points_per_brl": null,
-    "points_currency": "cashback",
-    "points_conversion_rate": 0.0,
-    "loyalty_program": null,
-    "benefit_tags": [],
-    "benefits_detail": [
-      "0,5% cashback geral",
-      "1% supermercado e alimentação via Inter Shop",
-      "Cashback cai na conta no mês seguinte"
-    ],
-    "revolving_interest_monthly": 0.1599,
-    "installment_interest_monthly": null,
-    "data_trust_score": 0.95,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": 0.01,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.01,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "cashback",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "1% cashback flat em todas as compras",
+   "Sem anuidade permanente",
+   "Referência de custo-zero no segmento"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.93,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "inter-standard",
+  "name": "Inter Mastercard Standard",
+  "issuer": "Banco Inter",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
   },
-  {
-    "card_id": "c6-standard",
-    "name": "C6 Bank Standard",
-    "issuer": "C6 Bank",
-    "flag": "MASTERCARD",
-    "card_type": "POINTS",
-    "public_target": "geral",
-    "min_income": 0,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 0.0,
-    "waiver_rules": {
-      "type": "always_free",
-      "description": "Sem anuidade"
-    },
-    "cashback_pct": null,
-    "cashback_cap": null,
-    "cashback_default_pct": null,
-    "cashback_categories": [],
-    "points_per_brl": 0.25,
-    "points_currency": "meli pontos",
-    "points_conversion_rate": 22.0,
-    "loyalty_program": "smiles",
-    "benefit_tags": [],
-    "benefits_detail": [
-      "0,25 meli pontos por real gasto",
-      "Transferência para Smiles, TudoAzul, Latam Pass",
-      "Sem anuidade"
-    ],
-    "revolving_interest_monthly": 0.1599,
-    "installment_interest_monthly": null,
-    "data_trust_score": 0.9,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": 0.005,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.005,
+  "cashback_categories": [
+   {
+    "category": "supermercado",
+    "pct": 0.01,
+    "cap_monthly": null
+   },
+   {
+    "category": "alimentacao",
+    "pct": 0.01,
+    "cap_monthly": null
+   }
+  ],
+  "points_per_brl": null,
+  "points_currency": "cashback",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "0,5% cashback geral",
+   "1% supermercado e alimentação via Inter Shop",
+   "Cashback cai na conta no mês seguinte"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.95,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "c6-standard",
+  "name": "C6 Bank Standard",
+  "issuer": "C6 Bank",
+  "flag": "MASTERCARD",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
   },
-  {
-    "card_id": "neon-visa",
-    "name": "Neon Visa",
-    "issuer": "Neon",
-    "flag": "VISA",
-    "card_type": "CASHBACK",
-    "public_target": "geral",
-    "min_income": 0,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 0.0,
-    "waiver_rules": {
-      "type": "always_free",
-      "description": "Sem anuidade"
-    },
-    "cashback_pct": 0.005,
-    "cashback_cap": null,
-    "cashback_default_pct": 0.005,
-    "cashback_categories": [
-      {
-        "category": "combustivel",
-        "pct": 0.01,
-        "cap_monthly": null
-      },
-      {
-        "category": "supermercado",
-        "pct": 0.01,
-        "cap_monthly": null
-      }
-    ],
-    "points_per_brl": null,
-    "points_currency": "cashback",
-    "points_conversion_rate": 0.0,
-    "loyalty_program": null,
-    "benefit_tags": [],
-    "benefits_detail": [
-      "0,5% cashback geral",
-      "1% combustível e supermercado",
-      "Cashback no extrato"
-    ],
-    "revolving_interest_monthly": 0.1699,
-    "installment_interest_monthly": null,
-    "data_trust_score": 0.85,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.25,
+  "points_currency": "meli pontos",
+  "points_conversion_rate": 22.0,
+  "loyalty_program": "smiles",
+  "benefit_tags": [],
+  "benefits_detail": [
+   "0,25 meli pontos por real gasto",
+   "Transferência para Smiles, TudoAzul, Latam Pass",
+   "Sem anuidade"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.9,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "neon-visa",
+  "name": "Neon Visa",
+  "issuer": "Neon",
+  "flag": "VISA",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
   },
-  {
-    "card_id": "picpay-card",
-    "name": "PicPay Card Visa",
-    "issuer": "PicPay",
-    "flag": "VISA",
-    "card_type": "CASHBACK",
-    "public_target": "geral",
-    "min_income": 0,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 0.0,
-    "waiver_rules": {
-      "type": "always_free",
-      "description": "Sem anuidade"
-    },
-    "cashback_pct": 0.01,
-    "cashback_cap": null,
-    "cashback_default_pct": 0.01,
-    "cashback_categories": [
-      {
-        "category": "alimentacao",
-        "pct": 0.03,
-        "cap_monthly": null
-      },
-      {
-        "category": "streaming",
-        "pct": 0.02,
-        "cap_monthly": null
-      },
-      {
-        "category": "supermercado",
-        "pct": 0.015,
-        "cap_monthly": null
-      }
-    ],
-    "points_per_brl": null,
-    "points_currency": "cashback",
-    "points_conversion_rate": 0.0,
-    "loyalty_program": null,
-    "benefit_tags": [
-      "CASHBACK"
-    ],
-    "benefits_detail": [
-      "3% cashback em delivery e alimentação",
-      "2% cashback em streaming",
-      "1,5% cashback em supermercado",
-      "1% cashback geral",
-      "Cashback em saldo PicPay"
-    ],
-    "revolving_interest_monthly": 0.1699,
-    "installment_interest_monthly": null,
-    "data_trust_score": 0.8,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": 0.005,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.005,
+  "cashback_categories": [
+   {
+    "category": "transporte",
+    "pct": 0.01,
+    "cap_monthly": null
+   },
+   {
+    "category": "supermercado",
+    "pct": 0.01,
+    "cap_monthly": null
+   }
+  ],
+  "points_per_brl": null,
+  "points_currency": "cashback",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "0,5% cashback geral",
+   "1% combustível e supermercado",
+   "Cashback no extrato"
+  ],
+  "revolving_interest_monthly": 0.1699,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.85,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "picpay-card",
+  "name": "PicPay Card Visa",
+  "issuer": "PicPay",
+  "flag": "VISA",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
   },
-  {
-    "card_id": "meliuz-visa",
-    "name": "Méliuz Visa",
-    "issuer": "Méliuz",
-    "flag": "VISA",
-    "card_type": "CASHBACK",
-    "public_target": "geral",
-    "min_income": 0,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 0.0,
-    "waiver_rules": {
-      "type": "always_free",
-      "description": "Sem anuidade"
-    },
-    "cashback_pct": 0.005,
-    "cashback_cap": null,
-    "cashback_default_pct": 0.005,
-    "cashback_categories": [
-      {
-        "category": "supermercado",
-        "pct": 0.01,
-        "cap_monthly": null
-      },
-      {
-        "category": "combustivel",
-        "pct": 0.01,
-        "cap_monthly": null
-      },
-      {
-        "category": "farmacia",
-        "pct": 0.01,
-        "cap_monthly": null
-      }
-    ],
-    "points_per_brl": null,
-    "points_currency": "cashback",
-    "points_conversion_rate": 0.0,
-    "loyalty_program": null,
-    "benefit_tags": [
-      "CASHBACK"
-    ],
-    "benefits_detail": [
-      "0,5% cashback geral",
-      "1% supermercado, combustível e farmácia",
-      "Cashback extra em parceiros Méliuz",
-      "Cashback direto na conta bancária"
-    ],
-    "revolving_interest_monthly": 0.1599,
-    "installment_interest_monthly": null,
-    "data_trust_score": 0.88,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": 0.01,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.01,
+  "cashback_categories": [
+   {
+    "category": "alimentacao",
+    "pct": 0.03,
+    "cap_monthly": null
+   },
+   {
+    "category": "streaming",
+    "pct": 0.02,
+    "cap_monthly": null
+   },
+   {
+    "category": "supermercado",
+    "pct": 0.015,
+    "cap_monthly": null
+   }
+  ],
+  "points_per_brl": null,
+  "points_currency": "cashback",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "CASHBACK"
+  ],
+  "benefits_detail": [
+   "3% cashback em delivery e alimentação",
+   "2% cashback em streaming",
+   "1,5% cashback em supermercado",
+   "1% cashback geral",
+   "Cashback em saldo PicPay"
+  ],
+  "revolving_interest_monthly": 0.1699,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.8,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "meliuz-visa",
+  "name": "Méliuz Visa",
+  "issuer": "Méliuz",
+  "flag": "VISA",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
   },
-  {
-    "card_id": "amazon-prime-mastercard",
-    "name": "Amazon Prime Mastercard",
-    "issuer": "Bradesco",
-    "flag": "MASTERCARD",
-    "card_type": "CASHBACK",
-    "public_target": "usuários Amazon",
-    "min_income": 12000,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 0.0,
-    "waiver_rules": {
-      "type": "always_free",
-      "description": "Sem anuidade (exige assinatura Prime R$19,90/mês)"
-    },
-    "cashback_pct": 0.015,
-    "cashback_cap": null,
-    "cashback_default_pct": 0.015,
-    "cashback_categories": [],
-    "points_per_brl": null,
-    "points_currency": "cashback",
-    "points_conversion_rate": 0.0,
-    "loyalty_program": null,
-    "benefit_tags": [
-      "CASHBACK"
-    ],
-    "benefits_detail": [
-      "1,5% cashback geral",
-      "5% cashback em Amazon.com.br",
-      "Amazon Prime incluso (R$19,90/mês)"
-    ],
-    "revolving_interest_monthly": 0.1599,
-    "installment_interest_monthly": null,
-    "data_trust_score": 0.87,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": 0.005,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.005,
+  "cashback_categories": [
+   {
+    "category": "supermercado",
+    "pct": 0.01,
+    "cap_monthly": null
+   },
+   {
+    "category": "transporte",
+    "pct": 0.01,
+    "cap_monthly": null
+   },
+   {
+    "category": "farmacia",
+    "pct": 0.01,
+    "cap_monthly": null
+   }
+  ],
+  "points_per_brl": null,
+  "points_currency": "cashback",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "CASHBACK"
+  ],
+  "benefits_detail": [
+   "0,5% cashback geral",
+   "1% supermercado, combustível e farmácia",
+   "Cashback extra em parceiros Méliuz",
+   "Cashback direto na conta bancária"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.88,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "amazon-prime-mastercard",
+  "name": "Amazon Prime Mastercard",
+  "issuer": "Bradesco",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "usuários Amazon",
+  "min_income": 12000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade (exige assinatura Prime R$19,90/mês)"
   },
-  {
-    "card_id": "nubank-ultravioleta",
-    "name": "Nubank Ultravioleta",
-    "issuer": "Nubank",
-    "flag": "MASTERCARD",
-    "card_type": "CASHBACK",
-    "public_target": "classe média",
-    "min_income": 36000,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 600.0,
-    "waiver_rules": {
-      "type": "none",
-      "description": "Anuidade R$50/mês sem isenção por gasto"
-    },
-    "cashback_pct": 0.01,
-    "cashback_cap": null,
-    "cashback_default_pct": 0.01,
-    "cashback_categories": [],
-    "points_per_brl": null,
-    "points_currency": "cashback",
-    "points_conversion_rate": 0.0,
-    "loyalty_program": null,
-    "benefit_tags": [
-      "CASHBACK",
-      "LOUNGE",
-      "TRAVEL",
-      "INSURANCE",
-      "PREMIUM"
-    ],
-    "benefits_detail": [
-      "1% cashback em todas as compras",
-      "Cashback em débito (0,5%)",
-      "Acesso ilimitado a mais de 1.000 salas VIP em aeroportos (LoungeKey)",
-      "Seguro viagem internacional",
-      "Seguro celular e proteção de compras",
-      "Garantia estendida original",
-      "Mastercard Black — concierge 24h",
-      "Proteção de preço (Price Protect)"
-    ],
-    "revolving_interest_monthly": 0.1499,
-    "installment_interest_monthly": 0.0299,
-    "data_trust_score": 0.95,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": 0.015,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.015,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "cashback",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "CASHBACK"
+  ],
+  "benefits_detail": [
+   "1,5% cashback geral",
+   "5% cashback em Amazon.com.br",
+   "Amazon Prime incluso (R$19,90/mês)"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.87,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "nubank-ultravioleta",
+  "name": "Nubank Ultravioleta",
+  "issuer": "Nubank",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "classe média",
+  "min_income": 36000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 600.0,
+  "waiver_rules": {
+   "type": "none",
+   "description": "Anuidade R$50/mês sem isenção por gasto"
   },
-  {
-    "card_id": "santander-free",
-    "name": "Santander Free Mastercard",
-    "issuer": "Santander",
-    "flag": "MASTERCARD",
-    "card_type": "CASHBACK",
-    "public_target": "classe média",
-    "min_income": 12000,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 0.0,
-    "waiver_rules": {
-      "type": "always_free",
-      "description": "Sem anuidade permanente"
-    },
-    "cashback_pct": 0.005,
-    "cashback_cap": null,
-    "cashback_default_pct": 0.005,
-    "cashback_categories": [],
-    "points_per_brl": null,
-    "points_currency": "cashback",
-    "points_conversion_rate": 0.0,
-    "loyalty_program": null,
-    "benefit_tags": [],
-    "benefits_detail": [
-      "0,5% cashback geral",
-      "Sem anuidade permanente",
-      "Melhor opção Santander sem anuidade"
-    ],
-    "revolving_interest_monthly": 0.1599,
-    "installment_interest_monthly": null,
-    "data_trust_score": 0.9,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": 0.01,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.01,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "cashback",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "CASHBACK",
+   "LOUNGE",
+   "TRAVEL",
+   "INSURANCE",
+   "PREMIUM"
+  ],
+  "benefits_detail": [
+   "1% cashback em todas as compras",
+   "Cashback em débito (0,5%)",
+   "Acesso ilimitado a mais de 1.000 salas VIP em aeroportos (LoungeKey)",
+   "Seguro viagem internacional",
+   "Seguro celular e proteção de compras",
+   "Garantia estendida original",
+   "Mastercard Black — concierge 24h",
+   "Proteção de preço (Price Protect)"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.95,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "santander-free",
+  "name": "Santander Free Mastercard",
+  "issuer": "Santander",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "classe média",
+  "min_income": 12000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade permanente"
   },
-  {
-    "card_id": "btgplus-mastercard",
-    "name": "BTG+ Mastercard Gold",
-    "issuer": "BTG Pactual",
-    "flag": "MASTERCARD",
-    "card_type": "CASHBACK",
-    "public_target": "classe média / investidores",
-    "min_income": 36000,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 0.0,
-    "waiver_rules": {
-      "type": "always_free",
-      "description": "Sem anuidade (exige conta BTG+)"
-    },
-    "cashback_pct": 0.015,
-    "cashback_cap": null,
-    "cashback_default_pct": 0.015,
-    "cashback_categories": [
-      {
-        "category": "supermercado",
-        "pct": 0.02,
-        "cap_monthly": null
-      },
-      {
-        "category": "alimentacao",
-        "pct": 0.02,
-        "cap_monthly": null
-      },
-      {
-        "category": "combustivel",
-        "pct": 0.015,
-        "cap_monthly": null
-      }
-    ],
-    "points_per_brl": null,
-    "points_currency": "cashback",
-    "points_conversion_rate": 0.0,
-    "loyalty_program": null,
-    "benefit_tags": [
-      "CASHBACK"
-    ],
-    "benefits_detail": [
-      "1,5% cashback geral",
-      "2% supermercado e alimentação",
-      "Cashback investido automaticamente no BTG+",
-      "Exige conta BTG+"
-    ],
-    "revolving_interest_monthly": 0.1599,
-    "installment_interest_monthly": null,
-    "data_trust_score": 0.88,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": 0.005,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.005,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "cashback",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "0,5% cashback geral",
+   "Sem anuidade permanente",
+   "Melhor opção Santander sem anuidade"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.9,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "btgplus-mastercard",
+  "name": "BTG+ Mastercard Gold",
+  "issuer": "BTG Pactual",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "classe média / investidores",
+  "min_income": 36000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade (exige conta BTG+)"
   },
-  {
-    "card_id": "itau-platinum",
-    "name": "Itaucard Platinum Mastercard",
-    "issuer": "Itaú",
-    "flag": "MASTERCARD",
-    "card_type": "POINTS",
-    "public_target": "classe média",
-    "min_income": 36000,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 456.0,
-    "waiver_rules": {
-      "type": "spend_threshold",
-      "threshold": 60000,
-      "description": "Anuidade isenta gastando R$ 60k/ano"
-    },
-    "cashback_pct": null,
-    "cashback_cap": null,
-    "cashback_default_pct": null,
-    "cashback_categories": [],
-    "points_per_brl": 0.5,
-    "points_currency": "pontos Itaú",
-    "points_conversion_rate": 17.0,
-    "loyalty_program": "itau_multiplus",
-    "benefit_tags": [],
-    "benefits_detail": [
-      "0,5 pontos Itaú por real gasto",
-      "2 pontos/real em restaurantes",
-      "1,5 pontos/real em supermercado e viagem",
-      "Desconto em postos Shell Select",
-      "Proteção de compras"
-    ],
-    "revolving_interest_monthly": 0.1499,
-    "installment_interest_monthly": 0.0299,
-    "data_trust_score": 0.88,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": 0.015,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.015,
+  "cashback_categories": [
+   {
+    "category": "supermercado",
+    "pct": 0.02,
+    "cap_monthly": null
+   },
+   {
+    "category": "alimentacao",
+    "pct": 0.02,
+    "cap_monthly": null
+   },
+   {
+    "category": "transporte",
+    "pct": 0.015,
+    "cap_monthly": null
+   }
+  ],
+  "points_per_brl": null,
+  "points_currency": "cashback",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "CASHBACK"
+  ],
+  "benefits_detail": [
+   "1,5% cashback geral",
+   "2% supermercado e alimentação",
+   "Cashback investido automaticamente no BTG+",
+   "Exige conta BTG+"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.88,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "itau-platinum",
+  "name": "Itaucard Platinum Mastercard",
+  "issuer": "Itaú",
+  "flag": "MASTERCARD",
+  "card_type": "POINTS",
+  "public_target": "classe média",
+  "min_income": 36000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 456.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 60000,
+   "description": "Anuidade isenta gastando R$ 60k/ano"
   },
-  {
-    "card_id": "bradesco-amex-gold",
-    "name": "Bradesco Amex Gold",
-    "issuer": "Bradesco",
-    "flag": "AMEX",
-    "card_type": "POINTS",
-    "public_target": "classe média",
-    "min_income": 48000,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 398.0,
-    "waiver_rules": {
-      "type": "none",
-      "description": "Anuidade sem isenção por gasto"
-    },
-    "cashback_pct": null,
-    "cashback_cap": null,
-    "cashback_default_pct": null,
-    "cashback_categories": [],
-    "points_per_brl": 0.5,
-    "points_currency": "Membership Rewards",
-    "points_conversion_rate": 22.0,
-    "loyalty_program": "membership_amex",
-    "benefit_tags": [],
-    "benefits_detail": [
-      "2 pontos/real em supermercado e streaming (~4% efetivo)",
-      "1,5 pontos/real em farmácia (~3% efetivo)",
-      "Cashback Americanas/Submarino",
-      "Proteção de preço e garantia estendida",
-      "Amex — aceitação menor, levar cartão de backup"
-    ],
-    "revolving_interest_monthly": 0.1599,
-    "installment_interest_monthly": null,
-    "data_trust_score": 0.87,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.5,
+  "points_currency": "pontos Itaú",
+  "points_conversion_rate": 17.0,
+  "loyalty_program": "itau_multiplus",
+  "benefit_tags": [],
+  "benefits_detail": [
+   "0,5 pontos Itaú por real gasto",
+   "2 pontos/real em restaurantes",
+   "1,5 pontos/real em supermercado e viagem",
+   "Desconto em postos Shell Select",
+   "Proteção de compras"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.88,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "bradesco-amex-gold",
+  "name": "Bradesco Amex Gold",
+  "issuer": "Bradesco",
+  "flag": "AMEX",
+  "card_type": "POINTS",
+  "public_target": "classe média",
+  "min_income": 48000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 398.0,
+  "waiver_rules": {
+   "type": "none",
+   "description": "Anuidade sem isenção por gasto"
   },
-  {
-    "card_id": "bb-ourocard-gold",
-    "name": "Ourocard Elo Gold (Banco do Brasil)",
-    "issuer": "Banco do Brasil",
-    "flag": "ELO",
-    "card_type": "POINTS",
-    "public_target": "classe média",
-    "min_income": 24000,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 348.0,
-    "waiver_rules": {
-      "type": "spend_threshold",
-      "threshold": 48000,
-      "description": "Anuidade isenta gastando R$ 48k/ano"
-    },
-    "cashback_pct": null,
-    "cashback_cap": null,
-    "cashback_default_pct": null,
-    "cashback_categories": [],
-    "points_per_brl": 0.8,
-    "points_currency": "pontos Livelo",
-    "points_conversion_rate": 16.0,
-    "loyalty_program": "livelo",
-    "benefit_tags": [],
-    "benefits_detail": [
-      "0,8 pontos Livelo por real gasto",
-      "1,5 pontos/real em supermercado",
-      "Desconto Elo Flex (Cinemark, Shell)",
-      "Elo — boa aceitação no Brasil, limitada no exterior",
-      "Bom para clientes BB com relacionamento ativo"
-    ],
-    "revolving_interest_monthly": 0.1599,
-    "installment_interest_monthly": null,
-    "data_trust_score": 0.85,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.5,
+  "points_currency": "Membership Rewards",
+  "points_conversion_rate": 22.0,
+  "loyalty_program": "membership_amex",
+  "benefit_tags": [],
+  "benefits_detail": [
+   "2 pontos/real em supermercado e streaming (~4% efetivo)",
+   "1,5 pontos/real em farmácia (~3% efetivo)",
+   "Cashback Americanas/Submarino",
+   "Proteção de preço e garantia estendida",
+   "Amex — aceitação menor, levar cartão de backup"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.87,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "bb-ourocard-gold",
+  "name": "Ourocard Elo Gold (Banco do Brasil)",
+  "issuer": "Banco do Brasil",
+  "flag": "ELO",
+  "card_type": "POINTS",
+  "public_target": "classe média",
+  "min_income": 24000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 348.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 48000,
+   "description": "Anuidade isenta gastando R$ 48k/ano"
   },
-  {
-    "card_id": "xp-visa-infinite",
-    "name": "XP Visa Infinite",
-    "issuer": "XP",
-    "flag": "VISA",
-    "card_type": "POINTS",
-    "public_target": "premium / investidores",
-    "min_income": 96000,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 760.0,
-    "waiver_rules": {
-      "type": "spend_threshold",
-      "threshold": 120000,
-      "description": "Anuidade isenta gastando R$ 120k/ano"
-    },
-    "cashback_pct": null,
-    "cashback_cap": null,
-    "cashback_default_pct": null,
-    "cashback_categories": [],
-    "points_per_brl": 0.5,
-    "points_currency": "pontos XP",
-    "points_conversion_rate": 25.0,
-    "loyalty_program": "xp_pontos",
-    "benefit_tags": [
-      "TRAVEL",
-      "LOUNGE",
-      "INSURANCE",
-      "INTERNACIONAL",
-      "PREMIUM"
-    ],
-    "benefits_detail": [
-      "Pontos XP valem R$0,025 — mais valorizados do segmento",
-      "Sala VIP LoungeKey (4 visitas/ano)",
-      "Seguro viagem internacional",
-      "Concierge 24h Visa Infinite",
-      "Proteção de compras internacional",
-      "Isenção para R$10k/mês de gasto"
-    ],
-    "revolving_interest_monthly": 0.1499,
-    "installment_interest_monthly": 0.0249,
-    "data_trust_score": 0.9,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.8,
+  "points_currency": "pontos Livelo",
+  "points_conversion_rate": 16.0,
+  "loyalty_program": "livelo",
+  "benefit_tags": [],
+  "benefits_detail": [
+   "0,8 pontos Livelo por real gasto",
+   "1,5 pontos/real em supermercado",
+   "Desconto Elo Flex (Cinemark, Shell)",
+   "Elo — boa aceitação no Brasil, limitada no exterior",
+   "Bom para clientes BB com relacionamento ativo"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.85,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "xp-visa-infinite",
+  "name": "XP Visa Infinite",
+  "issuer": "XP",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "premium / investidores",
+  "min_income": 96000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 760.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 120000,
+   "description": "Anuidade isenta gastando R$ 120k/ano"
   },
-  {
-    "card_id": "c6-carbon",
-    "name": "C6 Carbon Mastercard Black",
-    "issuer": "C6 Bank",
-    "flag": "MASTERCARD",
-    "card_type": "POINTS",
-    "public_target": "premium",
-    "min_income": 96000,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 988.0,
-    "waiver_rules": {
-      "type": "spend_threshold",
-      "threshold": 180000,
-      "description": "Anuidade isenta gastando R$ 180k/ano"
-    },
-    "cashback_pct": null,
-    "cashback_cap": null,
-    "cashback_default_pct": null,
-    "cashback_categories": [],
-    "points_per_brl": 1.0,
-    "points_currency": "meli pontos",
-    "points_conversion_rate": 22.0,
-    "loyalty_program": "smiles",
-    "benefit_tags": [
-      "TRAVEL",
-      "LOUNGE",
-      "INSURANCE",
-      "INTERNACIONAL"
-    ],
-    "benefits_detail": [
-      "Sala VIP Mastercard Airport Experiences ILIMITADA",
-      "2 milhas Smiles/real em viagem (~4,4% efetivo)",
-      "Seguro viagem premium",
-      "Proteção de compras e garantia estendida",
-      "Wi-Fi grátis em aeroportos (Boingo)",
-      "Para 6+ voos/ano os benefícios pagam a anuidade"
-    ],
-    "revolving_interest_monthly": 0.1599,
-    "installment_interest_monthly": 0.0299,
-    "data_trust_score": 0.88,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.5,
+  "points_currency": "pontos XP",
+  "points_conversion_rate": 25.0,
+  "loyalty_program": "xp_pontos",
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "INSURANCE",
+   "INTERNACIONAL",
+   "PREMIUM"
+  ],
+  "benefits_detail": [
+   "Pontos XP valem R$0,025 — mais valorizados do segmento",
+   "Sala VIP LoungeKey (4 visitas/ano)",
+   "Seguro viagem internacional",
+   "Concierge 24h Visa Infinite",
+   "Proteção de compras internacional",
+   "Isenção para R$10k/mês de gasto"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0249,
+  "data_trust_score": 0.9,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "c6-carbon",
+  "name": "C6 Carbon Mastercard Black",
+  "issuer": "C6 Bank",
+  "flag": "MASTERCARD",
+  "card_type": "POINTS",
+  "public_target": "premium",
+  "min_income": 96000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 988.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 180000,
+   "description": "Anuidade isenta gastando R$ 180k/ano"
   },
-  {
-    "card_id": "inter-win",
-    "name": "Inter Win Mastercard Black",
-    "issuer": "Banco Inter",
-    "flag": "MASTERCARD",
-    "card_type": "CASHBACK",
-    "public_target": "premium",
-    "min_income": 72000,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 600.0,
-    "waiver_rules": {
-      "type": "spend_threshold",
-      "threshold": 120000,
-      "description": "Anuidade isenta gastando R$ 120k/ano"
-    },
-    "cashback_pct": 0.005,
-    "cashback_cap": null,
-    "cashback_default_pct": 0.005,
-    "cashback_categories": [
-      {
-        "category": "supermercado",
-        "pct": 0.01,
-        "cap_monthly": null
-      },
-      {
-        "category": "alimentacao",
-        "pct": 0.01,
-        "cap_monthly": null
-      },
-      {
-        "category": "viagem",
-        "pct": 0.015,
-        "cap_monthly": null
-      }
-    ],
-    "points_per_brl": null,
-    "points_currency": "cashback",
-    "points_conversion_rate": 0.0,
-    "loyalty_program": null,
-    "benefit_tags": [
-      "TRAVEL",
-      "LOUNGE",
-      "INSURANCE",
-      "INTERNACIONAL"
-    ],
-    "benefits_detail": [
-      "0,5% cashback geral",
-      "1% supermercado e alimentação",
-      "1,5% viagem",
-      "Sala VIP (2 visitas/mês)",
-      "Seguro viagem internacional",
-      "Cashback extra Inter Shop",
-      "Bom para quem quer premium sem gerenciar milhas"
-    ],
-    "revolving_interest_monthly": 0.1599,
-    "installment_interest_monthly": null,
-    "data_trust_score": 0.87,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 1.0,
+  "points_currency": "meli pontos",
+  "points_conversion_rate": 22.0,
+  "loyalty_program": "smiles",
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "INSURANCE",
+   "INTERNACIONAL"
+  ],
+  "benefits_detail": [
+   "Sala VIP Mastercard Airport Experiences ILIMITADA",
+   "2 milhas Smiles/real em viagem (~4,4% efetivo)",
+   "Seguro viagem premium",
+   "Proteção de compras e garantia estendida",
+   "Wi-Fi grátis em aeroportos (Boingo)",
+   "Para 6+ voos/ano os benefícios pagam a anuidade"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.88,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "inter-win",
+  "name": "Inter Win Mastercard Black",
+  "issuer": "Banco Inter",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "premium",
+  "min_income": 72000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 600.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 120000,
+   "description": "Anuidade isenta gastando R$ 120k/ano"
   },
-  {
-    "card_id": "inter-black",
-    "name": "Inter Mastercard Black",
-    "issuer": "Banco Inter",
-    "flag": "MASTERCARD",
-    "card_type": "CASHBACK",
-    "public_target": "premium",
-    "min_income": 96000,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 1200.0,
-    "waiver_rules": {
-      "type": "spend_threshold",
-      "threshold": 180000,
-      "description": "Anuidade isenta gastando R$ 180k/ano"
-    },
-    "cashback_pct": 0.01,
-    "cashback_cap": null,
-    "cashback_default_pct": 0.01,
-    "cashback_categories": [
-      {
-        "category": "supermercado",
-        "pct": 0.015,
-        "cap_monthly": null
-      },
-      {
-        "category": "alimentacao",
-        "pct": 0.015,
-        "cap_monthly": null
-      },
-      {
-        "category": "viagem",
-        "pct": 0.02,
-        "cap_monthly": null
-      },
-      {
-        "category": "combustivel",
-        "pct": 0.01,
-        "cap_monthly": null
-      }
-    ],
-    "points_per_brl": null,
-    "points_currency": "cashback",
-    "points_conversion_rate": 0.0,
-    "loyalty_program": null,
-    "benefit_tags": [
-      "TRAVEL",
-      "LOUNGE",
-      "INSURANCE",
-      "INTERNACIONAL"
-    ],
-    "benefits_detail": [
-      "1% cashback geral",
-      "2% cashback em viagem",
-      "1,5% supermercado e alimentação",
-      "Sala VIP Mastercard Black ILIMITADA",
-      "Seguro viagem internacional",
-      "Cashback em débito",
-      "Para viajantes que preferem cashback direto no premium"
-    ],
-    "revolving_interest_monthly": 0.1599,
-    "installment_interest_monthly": null,
-    "data_trust_score": 0.86,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": 0.005,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.005,
+  "cashback_categories": [
+   {
+    "category": "supermercado",
+    "pct": 0.01,
+    "cap_monthly": null
+   },
+   {
+    "category": "alimentacao",
+    "pct": 0.01,
+    "cap_monthly": null
+   },
+   {
+    "category": "viagem",
+    "pct": 0.015,
+    "cap_monthly": null
+   }
+  ],
+  "points_per_brl": null,
+  "points_currency": "cashback",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "INSURANCE",
+   "INTERNACIONAL"
+  ],
+  "benefits_detail": [
+   "0,5% cashback geral",
+   "1% supermercado e alimentação",
+   "1,5% viagem",
+   "Sala VIP (2 visitas/mês)",
+   "Seguro viagem internacional",
+   "Cashback extra Inter Shop",
+   "Bom para quem quer premium sem gerenciar milhas"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.87,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "inter-black",
+  "name": "Inter Mastercard Black",
+  "issuer": "Banco Inter",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "premium",
+  "min_income": 96000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 1200.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 180000,
+   "description": "Anuidade isenta gastando R$ 180k/ano"
   },
-  {
-    "card_id": "bradesco-diners-club",
-    "name": "Bradesco Diners Club",
-    "issuer": "Bradesco",
-    "flag": "MASTERCARD",
-    "card_type": "POINTS",
-    "public_target": "premium",
-    "min_income": 84000,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 588.0,
-    "waiver_rules": {
-      "type": "spend_threshold",
-      "threshold": 96000,
-      "description": "Anuidade isenta gastando R$ 96k/ano"
-    },
-    "cashback_pct": null,
-    "cashback_cap": null,
-    "cashback_default_pct": null,
-    "cashback_categories": [],
-    "points_per_brl": 1.0,
-    "points_currency": "pontos Livelo",
-    "points_conversion_rate": 16.0,
-    "loyalty_program": "livelo",
-    "benefit_tags": [
-      "TRAVEL",
-      "LOUNGE",
-      "INSURANCE",
-      "INTERNACIONAL",
-      "PREMIUM"
-    ],
-    "benefits_detail": [
-      "Sala VIP Club Milestones ILIMITADA",
-      "2 pontos/real em viagem",
-      "1,5 pontos/real em alimentação",
-      "Seguro viagem e assistência 24h",
-      "Concierge Diners Club",
-      "Diners — menor aceitação, levar Mastercard de backup",
-      "Sala VIP ilimitada a custo menor que o C6 Carbon"
-    ],
-    "revolving_interest_monthly": 0.1599,
-    "installment_interest_monthly": null,
-    "data_trust_score": 0.82,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": 0.01,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.01,
+  "cashback_categories": [
+   {
+    "category": "supermercado",
+    "pct": 0.015,
+    "cap_monthly": null
+   },
+   {
+    "category": "alimentacao",
+    "pct": 0.015,
+    "cap_monthly": null
+   },
+   {
+    "category": "viagem",
+    "pct": 0.02,
+    "cap_monthly": null
+   },
+   {
+    "category": "transporte",
+    "pct": 0.01,
+    "cap_monthly": null
+   }
+  ],
+  "points_per_brl": null,
+  "points_currency": "cashback",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "INSURANCE",
+   "INTERNACIONAL"
+  ],
+  "benefits_detail": [
+   "1% cashback geral",
+   "2% cashback em viagem",
+   "1,5% supermercado e alimentação",
+   "Sala VIP Mastercard Black ILIMITADA",
+   "Seguro viagem internacional",
+   "Cashback em débito",
+   "Para viajantes que preferem cashback direto no premium"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.86,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "bradesco-diners-club",
+  "name": "Bradesco Diners Club",
+  "issuer": "Bradesco",
+  "flag": "MASTERCARD",
+  "card_type": "POINTS",
+  "public_target": "premium",
+  "min_income": 84000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 588.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 96000,
+   "description": "Anuidade isenta gastando R$ 96k/ano"
   },
-  {
-    "card_id": "itau-personnalite-gold",
-    "name": "Itaucard Personnalité Visa Gold",
-    "issuer": "Itaú",
-    "flag": "VISA",
-    "card_type": "POINTS",
-    "public_target": "premium",
-    "min_income": 72000,
-    "requires_proof_of_income": true,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 600.0,
-    "waiver_rules": {
-      "type": "spend_threshold",
-      "threshold": 84000,
-      "description": "Anuidade isenta gastando R$ 84k/ano"
-    },
-    "cashback_pct": null,
-    "cashback_cap": null,
-    "cashback_default_pct": null,
-    "cashback_categories": [],
-    "points_per_brl": 1.0,
-    "points_currency": "pontos Itaú",
-    "points_conversion_rate": 17.0,
-    "loyalty_program": "itau_multiplus",
-    "benefit_tags": [
-      "TRAVEL",
-      "LOUNGE",
-      "INSURANCE"
-    ],
-    "benefits_detail": [
-      "Exige conta Personnalité",
-      "2 pontos/real em restaurantes e viagem (~3,4% efetivo)",
-      "1,5 pontos/real em supermercado",
-      "Sala VIP (2 visitas/ano)",
-      "Seguro viagem",
-      "Pontos transferíveis para Smiles"
-    ],
-    "revolving_interest_monthly": 0.1499,
-    "installment_interest_monthly": 0.0249,
-    "data_trust_score": 0.87,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 1.0,
+  "points_currency": "pontos Livelo",
+  "points_conversion_rate": 16.0,
+  "loyalty_program": "livelo",
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "INSURANCE",
+   "INTERNACIONAL",
+   "PREMIUM"
+  ],
+  "benefits_detail": [
+   "Sala VIP Club Milestones ILIMITADA",
+   "2 pontos/real em viagem",
+   "1,5 pontos/real em alimentação",
+   "Seguro viagem e assistência 24h",
+   "Concierge Diners Club",
+   "Diners — menor aceitação, levar Mastercard de backup",
+   "Sala VIP ilimitada a custo menor que o C6 Carbon"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.82,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "itau-personnalite-gold",
+  "name": "Itaucard Personnalité Visa Gold",
+  "issuer": "Itaú",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "premium",
+  "min_income": 72000,
+  "requires_proof_of_income": true,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 600.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 84000,
+   "description": "Anuidade isenta gastando R$ 84k/ano"
   },
-  {
-    "card_id": "smiles-gold-amex",
-    "name": "Smiles Gold Amex (Gol)",
-    "issuer": "Bradesco",
-    "flag": "AMEX",
-    "card_type": "POINTS",
-    "public_target": "viajante frequente / voadores Gol",
-    "min_income": 48000,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 399.0,
-    "waiver_rules": {
-      "type": "none",
-      "description": "Anuidade sem isenção por gasto"
-    },
-    "cashback_pct": null,
-    "cashback_cap": null,
-    "cashback_default_pct": null,
-    "cashback_categories": [],
-    "points_per_brl": 1.0,
-    "points_currency": "milhas Smiles",
-    "points_conversion_rate": 22.0,
-    "loyalty_program": "smiles",
-    "benefit_tags": [
-      "TRAVEL",
-      "INSURANCE",
-      "INTERNACIONAL"
-    ],
-    "benefits_detail": [
-      "2,5 milhas Smiles/real em passagens Gol (~5,5% efetivo)",
-      "1,5 milhas/real em alimentação e combustível",
-      "Milhas bônus na compra de passagens Gol",
-      "Upgrade de status Smiles",
-      "Seguro viagem",
-      "Co-branded Gol — ideal para voadores Gol",
-      "Amex — levar cartão de backup"
-    ],
-    "revolving_interest_monthly": 0.1599,
-    "installment_interest_monthly": null,
-    "data_trust_score": 0.83,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 1.0,
+  "points_currency": "pontos Itaú",
+  "points_conversion_rate": 17.0,
+  "loyalty_program": "itau_multiplus",
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "INSURANCE"
+  ],
+  "benefits_detail": [
+   "Exige conta Personnalité",
+   "2 pontos/real em restaurantes e viagem (~3,4% efetivo)",
+   "1,5 pontos/real em supermercado",
+   "Sala VIP (2 visitas/ano)",
+   "Seguro viagem",
+   "Pontos transferíveis para Smiles"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0249,
+  "data_trust_score": 0.87,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "smiles-gold-amex",
+  "name": "Smiles Gold Amex (Gol)",
+  "issuer": "Bradesco",
+  "flag": "AMEX",
+  "card_type": "POINTS",
+  "public_target": "viajante frequente / voadores Gol",
+  "min_income": 48000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 399.0,
+  "waiver_rules": {
+   "type": "none",
+   "description": "Anuidade sem isenção por gasto"
   },
-  {
-    "card_id": "latam-pass-black",
-    "name": "Latam Pass Itaucard Black",
-    "issuer": "Itaú",
-    "flag": "MASTERCARD",
-    "card_type": "POINTS",
-    "public_target": "viajante frequente / voadores Latam",
-    "min_income": 96000,
-    "requires_proof_of_income": false,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 684.0,
-    "waiver_rules": {
-      "type": "spend_threshold",
-      "threshold": 96000,
-      "description": "Anuidade isenta gastando R$ 96k/ano"
-    },
-    "cashback_pct": null,
-    "cashback_cap": null,
-    "cashback_default_pct": null,
-    "cashback_categories": [],
-    "points_per_brl": 1.0,
-    "points_currency": "milhas Latam Pass",
-    "points_conversion_rate": 21.0,
-    "loyalty_program": "latam_pass",
-    "benefit_tags": [
-      "TRAVEL",
-      "LOUNGE",
-      "INSURANCE",
-      "INTERNACIONAL"
-    ],
-    "benefits_detail": [
-      "2,5 milhas Latam Pass/real em Latam.com",
-      "Sala VIP (4 visitas/ano)",
-      "Milhas bônus em compras Latam.com",
-      "Seguro viagem",
-      "Co-branded Latam — Mastercard com boa aceitação global",
-      "Para voadores Latam"
-    ],
-    "revolving_interest_monthly": 0.1499,
-    "installment_interest_monthly": 0.0249,
-    "data_trust_score": 0.84,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 1.0,
+  "points_currency": "milhas Smiles",
+  "points_conversion_rate": 22.0,
+  "loyalty_program": "smiles",
+  "benefit_tags": [
+   "TRAVEL",
+   "INSURANCE",
+   "INTERNACIONAL"
+  ],
+  "benefits_detail": [
+   "2,5 milhas Smiles/real em passagens Gol (~5,5% efetivo)",
+   "1,5 milhas/real em alimentação e combustível",
+   "Milhas bônus na compra de passagens Gol",
+   "Upgrade de status Smiles",
+   "Seguro viagem",
+   "Co-branded Gol — ideal para voadores Gol",
+   "Amex — levar cartão de backup"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.83,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "latam-pass-black",
+  "name": "Latam Pass Itaucard Black",
+  "issuer": "Itaú",
+  "flag": "MASTERCARD",
+  "card_type": "POINTS",
+  "public_target": "viajante frequente / voadores Latam",
+  "min_income": 96000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 684.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 96000,
+   "description": "Anuidade isenta gastando R$ 96k/ano"
   },
-  {
-    "card_id": "bradesco-amex-platinum",
-    "name": "Bradesco Amex Platinum",
-    "issuer": "Bradesco",
-    "flag": "AMEX",
-    "card_type": "POINTS",
-    "public_target": "alta renda",
-    "min_income": 240000,
-    "requires_proof_of_income": true,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 2400.0,
-    "waiver_rules": {
-      "type": "none",
-      "description": "Anuidade sem isenção por gasto"
-    },
-    "cashback_pct": null,
-    "cashback_cap": null,
-    "cashback_default_pct": null,
-    "cashback_categories": [],
-    "points_per_brl": 2.2,
-    "points_currency": "Membership Rewards",
-    "points_conversion_rate": 22.0,
-    "loyalty_program": "membership_amex",
-    "benefit_tags": [
-      "TRAVEL",
-      "LOUNGE",
-      "INSURANCE",
-      "INTERNACIONAL",
-      "PREMIUM"
-    ],
-    "benefits_detail": [
-      "Priority Pass + Amex Centurion Lounge ILIMITADO em +1.300 aeroportos",
-      "Crédito de viagem anual R$1.000",
-      "Hotel Collection (upgrade + café da manhã)",
-      "Seguro viagem e cancelamento premium",
-      "Concierge global 24h",
-      "2,2 pontos/real geral (~4,8% efetivo)",
-      "3 pontos/real em viagem",
-      "Melhor cartão de benefícios de viagem do Brasil"
-    ],
-    "revolving_interest_monthly": 0.1499,
-    "installment_interest_monthly": 0.0199,
-    "data_trust_score": 0.85,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 1.0,
+  "points_currency": "milhas Latam Pass",
+  "points_conversion_rate": 21.0,
+  "loyalty_program": "latam_pass",
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "INSURANCE",
+   "INTERNACIONAL"
+  ],
+  "benefits_detail": [
+   "2,5 milhas Latam Pass/real em Latam.com",
+   "Sala VIP (4 visitas/ano)",
+   "Milhas bônus em compras Latam.com",
+   "Seguro viagem",
+   "Co-branded Latam — Mastercard com boa aceitação global",
+   "Para voadores Latam"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0249,
+  "data_trust_score": 0.84,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "bradesco-amex-platinum",
+  "name": "Bradesco Amex Platinum",
+  "issuer": "Bradesco",
+  "flag": "AMEX",
+  "card_type": "POINTS",
+  "public_target": "alta renda",
+  "min_income": 240000,
+  "requires_proof_of_income": true,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 2400.0,
+  "waiver_rules": {
+   "type": "none",
+   "description": "Anuidade sem isenção por gasto"
   },
-  {
-    "card_id": "itau-personnalite",
-    "name": "Itaucard Personnalité Visa Infinite",
-    "issuer": "Itaú",
-    "flag": "VISA",
-    "card_type": "POINTS",
-    "public_target": "alta renda",
-    "min_income": 180000,
-    "requires_proof_of_income": true,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 1296.0,
-    "waiver_rules": {
-      "type": "spend_threshold",
-      "threshold": 180000,
-      "description": "Anuidade isenta gastando R$ 180k/ano"
-    },
-    "cashback_pct": null,
-    "cashback_cap": null,
-    "cashback_default_pct": null,
-    "cashback_categories": [],
-    "points_per_brl": 2.2,
-    "points_currency": "pontos Itaú",
-    "points_conversion_rate": 17.0,
-    "loyalty_program": "itau_multiplus",
-    "benefit_tags": [
-      "TRAVEL",
-      "LOUNGE",
-      "INSURANCE",
-      "INTERNACIONAL",
-      "PREMIUM"
-    ],
-    "benefits_detail": [
-      "Exige conta Personnalité",
-      "2,2 pontos/real geral (~4,4% efetivo)",
-      "3 pontos/real em viagem",
-      "Sala VIP Visa Infinite ILIMITADA",
-      "Seguro viagem premium",
-      "Concierge Visa Infinite 24h",
-      "Proteção de compras global",
-      "Isenção atingível para R$15k/mês"
-    ],
-    "revolving_interest_monthly": 0.1499,
-    "installment_interest_monthly": 0.0249,
-    "data_trust_score": 0.87,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 2.2,
+  "points_currency": "Membership Rewards",
+  "points_conversion_rate": 22.0,
+  "loyalty_program": "membership_amex",
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "INSURANCE",
+   "INTERNACIONAL",
+   "PREMIUM"
+  ],
+  "benefits_detail": [
+   "Priority Pass + Amex Centurion Lounge ILIMITADO em +1.300 aeroportos",
+   "Crédito de viagem anual R$1.000",
+   "Hotel Collection (upgrade + café da manhã)",
+   "Seguro viagem e cancelamento premium",
+   "Concierge global 24h",
+   "2,2 pontos/real geral (~4,8% efetivo)",
+   "3 pontos/real em viagem",
+   "Melhor cartão de benefícios de viagem do Brasil"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0199,
+  "data_trust_score": 0.85,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "itau-personnalite",
+  "name": "Itaucard Personnalité Visa Infinite",
+  "issuer": "Itaú",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "alta renda",
+  "min_income": 180000,
+  "requires_proof_of_income": true,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 1296.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 180000,
+   "description": "Anuidade isenta gastando R$ 180k/ano"
   },
-  {
-    "card_id": "santander-unique",
-    "name": "Santander Unique Mastercard Black",
-    "issuer": "Santander",
-    "flag": "MASTERCARD",
-    "card_type": "POINTS",
-    "public_target": "alta renda",
-    "min_income": 180000,
-    "requires_proof_of_income": true,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 1500.0,
-    "waiver_rules": {
-      "type": "spend_threshold",
-      "threshold": 180000,
-      "description": "Anuidade isenta gastando R$ 180k/ano"
-    },
-    "cashback_pct": null,
-    "cashback_cap": null,
-    "cashback_default_pct": null,
-    "cashback_categories": [],
-    "points_per_brl": 2.0,
-    "points_currency": "pontos Esfera",
-    "points_conversion_rate": 18.0,
-    "loyalty_program": "esfera",
-    "benefit_tags": [
-      "TRAVEL",
-      "LOUNGE",
-      "INSURANCE",
-      "INTERNACIONAL",
-      "PREMIUM"
-    ],
-    "benefits_detail": [
-      "Exige conta Select",
-      "2 pontos Esfera/real geral (~3,6% efetivo)",
-      "2,5 pontos/real em viagem",
-      "Esfera transfere para Smiles e TudoAzul",
-      "Sala VIP Mastercard Lounge ILIMITADA",
-      "Seguro viagem internacional",
-      "Concierge 24h",
-      "Mastercard Black — melhor aceitação que Amex Platinum"
-    ],
-    "revolving_interest_monthly": 0.1499,
-    "installment_interest_monthly": 0.0199,
-    "data_trust_score": 0.84,
-    "request_link": null,
-    "last_updated": "2025-03-01"
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 2.2,
+  "points_currency": "pontos Itaú",
+  "points_conversion_rate": 17.0,
+  "loyalty_program": "itau_multiplus",
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "INSURANCE",
+   "INTERNACIONAL",
+   "PREMIUM"
+  ],
+  "benefits_detail": [
+   "Exige conta Personnalité",
+   "2,2 pontos/real geral (~4,4% efetivo)",
+   "3 pontos/real em viagem",
+   "Sala VIP Visa Infinite ILIMITADA",
+   "Seguro viagem premium",
+   "Concierge Visa Infinite 24h",
+   "Proteção de compras global",
+   "Isenção atingível para R$15k/mês"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0249,
+  "data_trust_score": 0.87,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "santander-unique",
+  "name": "Santander Unique Mastercard Black",
+  "issuer": "Santander",
+  "flag": "MASTERCARD",
+  "card_type": "POINTS",
+  "public_target": "alta renda",
+  "min_income": 180000,
+  "requires_proof_of_income": true,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 1500.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 180000,
+   "description": "Anuidade isenta gastando R$ 180k/ano"
   },
-  {
-    "card_id": "bb-ourocard-infinite",
-    "name": "Ourocard Infinite Visa (Banco do Brasil)",
-    "issuer": "Banco do Brasil",
-    "flag": "VISA",
-    "card_type": "POINTS",
-    "public_target": "alta renda",
-    "min_income": 144000,
-    "requires_proof_of_income": true,
-    "secured_card": false,
-    "prepaid": false,
-    "consigned": false,
-    "base_annuity": 1380.0,
-    "waiver_rules": {
-      "type": "spend_threshold",
-      "threshold": 156000,
-      "description": "Anuidade isenta gastando R$ 156k/ano"
-    },
-    "cashback_pct": null,
-    "cashback_cap": null,
-    "cashback_default_pct": null,
-    "cashback_categories": [],
-    "points_per_brl": 2.0,
-    "points_currency": "pontos Livelo",
-    "points_conversion_rate": 16.0,
-    "loyalty_program": "livelo",
-    "benefit_tags": [
-      "TRAVEL",
-      "LOUNGE",
-      "INSURANCE",
-      "INTERNACIONAL",
-      "PREMIUM"
-    ],
-    "benefits_detail": [
-      "Exige conta Estilo no BB",
-      "2 pontos Livelo/real geral (~4% efetivo)",
-      "2,5 pontos/real em viagem",
-      "Livelo: ampla rede (Smiles, TudoAzul, Latam)",
-      "Sala VIP Visa Infinite ILIMITADA",
-      "Seguro viagem premium",
-      "Concierge Visa Infinite",
-      "Menor renda mínima no ultra-premium"
-    ],
-    "revolving_interest_monthly": 0.1499,
-    "installment_interest_monthly": 0.0199,
-    "data_trust_score": 0.84,
-    "request_link": null,
-    "last_updated": "2025-03-01"
-  }
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 2.0,
+  "points_currency": "pontos Esfera",
+  "points_conversion_rate": 18.0,
+  "loyalty_program": "esfera",
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "INSURANCE",
+   "INTERNACIONAL",
+   "PREMIUM"
+  ],
+  "benefits_detail": [
+   "Exige conta Select",
+   "2 pontos Esfera/real geral (~3,6% efetivo)",
+   "2,5 pontos/real em viagem",
+   "Esfera transfere para Smiles e TudoAzul",
+   "Sala VIP Mastercard Lounge ILIMITADA",
+   "Seguro viagem internacional",
+   "Concierge 24h",
+   "Mastercard Black — melhor aceitação que Amex Platinum"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0199,
+  "data_trust_score": 0.84,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "bb-ourocard-infinite",
+  "name": "Ourocard Infinite Visa (Banco do Brasil)",
+  "issuer": "Banco do Brasil",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "alta renda",
+  "min_income": 144000,
+  "requires_proof_of_income": true,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 1380.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 156000,
+   "description": "Anuidade isenta gastando R$ 156k/ano"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 2.0,
+  "points_currency": "pontos Livelo",
+  "points_conversion_rate": 16.0,
+  "loyalty_program": "livelo",
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "INSURANCE",
+   "INTERNACIONAL",
+   "PREMIUM"
+  ],
+  "benefits_detail": [
+   "Exige conta Estilo no BB",
+   "2 pontos Livelo/real geral (~4% efetivo)",
+   "2,5 pontos/real em viagem",
+   "Livelo: ampla rede (Smiles, TudoAzul, Latam)",
+   "Sala VIP Visa Infinite ILIMITADA",
+   "Seguro viagem premium",
+   "Concierge Visa Infinite",
+   "Menor renda mínima no ultra-premium"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0199,
+  "data_trust_score": 0.84,
+  "request_link": null,
+  "last_updated": "2025-03-01"
+ },
+ {
+  "card_id": "pagbank-visa",
+  "name": "PagBank Cartão de Crédito",
+  "issuer": "PagBank",
+  "flag": "VISA",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": 0.01,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.01,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "CASHBACK"
+  ],
+  "benefits_detail": [
+   "1% de cashback nas compras (condições do app)",
+   "Limite pode ser garantido por CDB investido no PagBank",
+   "Sem anuidade permanente"
+  ],
+  "revolving_interest_monthly": 0.1399,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.85,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "will-bank-mastercard",
+  "name": "Will Bank Mastercard",
+  "issuer": "Will Bank",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Sem anuidade e sem exigência de gastos",
+   "Sem programa de recompensas — foco em custo zero",
+   "App simples, público de entrada"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.85,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "mercado-pago-mastercard",
+  "name": "Mercado Pago Mastercard",
+  "issuer": "Mercado Pago",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": 0.005,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.005,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "CASHBACK"
+  ],
+  "benefits_detail": [
+   "Cashback/benefícios em compras no Mercado Livre (com Meli+)",
+   "Sem anuidade",
+   "Parcelamento facilitado no ecossistema Mercado Livre"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.75,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "digio-visa",
+  "name": "Digio Visa",
+  "issuer": "Digio (BB)",
+  "flag": "VISA",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Sem anuidade",
+   "Cashback em parceiros via app",
+   "Emissão digital rápida"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.78,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "next-mastercard",
+  "name": "Next Mastercard",
+  "issuer": "Next (Bradesco)",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Sem anuidade",
+   "Programa de vantagens Next (mimos)",
+   "Conta digital do grupo Bradesco"
+  ],
+  "revolving_interest_monthly": 0.1549,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.78,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "iti-visa",
+  "name": "iti Itaú Visa",
+  "issuer": "iti (Itaú)",
+  "flag": "VISA",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Sem anuidade",
+   "Cartão digital do Itaú, aprovação facilitada"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.78,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "credicard-zero-visa",
+  "name": "Credicard ZERO Visa",
+  "issuer": "Credicard (Itaú)",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Sem anuidade permanente",
+   "Pontos opcionais via Clube Credicard (assinatura)"
+  ],
+  "revolving_interest_monthly": 0.1549,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.8,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "hipercard-zero",
+  "name": "Hipercard Zero Anuidade",
+  "issuer": "Hipercard (Itaú)",
+  "flag": "HIPERCARD",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Sem anuidade",
+   "Forte aceitação no Nordeste",
+   "Parcelamento em redes parceiras"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.78,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "pan-zero-visa",
+  "name": "Banco Pan Zero Visa",
+  "issuer": "Banco Pan",
+  "flag": "VISA",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Sem anuidade",
+   "Aprovação para perfis em reconstrução de crédito"
+  ],
+  "revolving_interest_monthly": 0.1649,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.75,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "bv-livre-visa",
+  "name": "BV Livre Visa",
+  "issuer": "Banco BV",
+  "flag": "VISA",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Sem anuidade",
+   "Descontos em parceiros BV"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.75,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "nubank-garantido",
+  "name": "Nubank Cartão Garantido",
+  "issuer": "Nubank",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": true,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Limite garantido por valor investido (Caixinha)",
+   "Sem anuidade",
+   "Caminho de construção de crédito dentro do Nubank"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.85,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "superdigital-mastercard",
+  "name": "Superdigital Mastercard (pré-pago)",
+  "issuer": "Superdigital (Santander)",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": true,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Cartão pré-pago internacional",
+   "Sem análise de crédito",
+   "Sem anuidade (mensalidade opcional)"
+  ],
+  "revolving_interest_monthly": 0.0,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.75,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "players-bank-visa",
+  "name": "Players Bank Visa (BTG)",
+  "issuer": "Players Bank (BTG)",
+  "flag": "VISA",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": 0.01,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.01,
+  "cashback_categories": [
+   {
+    "category": "streaming",
+    "pct": 0.01,
+    "cap_monthly": null
+   },
+   {
+    "category": "lazer",
+    "pct": 0.01,
+    "cap_monthly": null
+   }
+  ],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "CASHBACK"
+  ],
+  "benefits_detail": [
+   "Cartão gamer do BTG — 1% de cashback",
+   "Sem anuidade",
+   "Benefícios em jogos e assinaturas digitais"
+  ],
+  "revolving_interest_monthly": 0.1449,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.75,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "bmg-consignado-master",
+  "name": "BMG Card Consignado",
+  "issuer": "Banco BMG",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "aposentados e pensionistas INSS",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": true,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Consignado: desconto em folha, juros muito abaixo do rotativo comum",
+   "Sem anuidade",
+   "Saque complementar à margem consignável"
+  ],
+  "revolving_interest_monthly": 0.046,
+  "installment_interest_monthly": null,
+  "data_trust_score": 0.8,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "inter-gold",
+  "name": "Inter Mastercard Gold",
+  "issuer": "Inter",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": 0.0025,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.0025,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "CASHBACK"
+  ],
+  "benefits_detail": [
+   "Cashback via programa Inter Loop",
+   "Sem anuidade",
+   "Evolui para Platinum/Black por relacionamento"
+  ],
+  "revolving_interest_monthly": 0.1399,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.82,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "inter-platinum",
+  "name": "Inter Mastercard Platinum",
+  "issuer": "Inter",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 60000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": 0.005,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.005,
+  "cashback_categories": [
+   {
+    "category": "supermercado",
+    "pct": 0.0075,
+    "cap_monthly": null
+   },
+   {
+    "category": "alimentacao",
+    "pct": 0.0075,
+    "cap_monthly": null
+   }
+  ],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "CASHBACK",
+   "INSURANCE"
+  ],
+  "benefits_detail": [
+   "Cashback Loop maior que o Gold",
+   "Sem anuidade por relacionamento",
+   "Seguros Mastercard Platinum"
+  ],
+  "revolving_interest_monthly": 0.1399,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.8,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "c6-platinum",
+  "name": "C6 Bank Platinum",
+  "issuer": "C6 Bank",
+  "flag": "MASTERCARD",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 48000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.24,
+  "points_currency": "pontos Átomos",
+  "points_conversion_rate": 0.014,
+  "loyalty_program": "atomos",
+  "benefit_tags": [
+   "INSURANCE"
+  ],
+  "benefits_detail": [
+   "Pontos Átomos que não expiram",
+   "Sem anuidade com movimentação",
+   "Tag C6 grátis (pedágios)"
+  ],
+  "revolving_interest_monthly": 0.1449,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.8,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "itau-click-platinum",
+  "name": "Itaú Click Visa Platinum",
+  "issuer": "Itaú",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 18000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Sem anuidade permanente",
+   "Casadinho digital do Itaú; upgrade por relacionamento",
+   "iPhone Pra Sempre e Shell Box com desconto (campanhas)"
+  ],
+  "revolving_interest_monthly": 0.1549,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.85,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "itau-uniclass-signature",
+  "name": "Itaú Uniclass Visa Signature",
+  "issuer": "Itaú",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "renda média-alta (Uniclass)",
+  "min_income": 96000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 600.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 48000,
+   "description": "Isenta para clientes Uniclass com relacionamento"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.35,
+  "points_currency": "pontos Itaú",
+  "points_conversion_rate": 0.017,
+  "loyalty_program": "itau_multiplus",
+  "benefit_tags": [
+   "TRAVEL",
+   "INSURANCE"
+  ],
+  "benefits_detail": [
+   "Pontos Itaú por real gasto",
+   "Atendimento Uniclass",
+   "Seguros de viagem Visa Signature"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.8,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "itaucard-visa-gold",
+  "name": "Itaucard Visa Gold",
+  "issuer": "Itaú",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 30000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 336.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 12000,
+   "description": "Anuidade isenta gastando R$ 12.000/ano"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.35,
+  "points_currency": "pontos Itaú",
+  "points_conversion_rate": 0.017,
+  "loyalty_program": "itau_multiplus",
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Entrada da linha Itaucard com pontos",
+   "Isenção por gasto mensal (R$ 1.000/mês)"
+  ],
+  "revolving_interest_monthly": 0.1549,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.8,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "azul-itau-gold",
+  "name": "Azul Itaú Visa Gold",
+  "issuer": "Itaú",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 30000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 468.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 12000,
+   "description": "Isenção/desconto por gasto mensal"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.26,
+  "points_currency": "pontos Azul",
+  "points_conversion_rate": 0.02,
+  "loyalty_program": "azul_fidelidade",
+  "benefit_tags": [
+   "TRAVEL"
+  ],
+  "benefits_detail": [
+   "1,3 ponto Azul por US$ gasto",
+   "Desconto em bagagem e assentos Azul",
+   "Pontos com validade estendida"
+  ],
+  "revolving_interest_monthly": 0.1549,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.8,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "azul-itau-platinum",
+  "name": "Azul Itaú Visa Platinum",
+  "issuer": "Itaú",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 60000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 612.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 24000,
+   "description": "Anuidade isenta gastando R$ 24.000/ano"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.4,
+  "points_currency": "pontos Azul",
+  "points_conversion_rate": 0.02,
+  "loyalty_program": "azul_fidelidade",
+  "benefit_tags": [
+   "TRAVEL",
+   "INSURANCE"
+  ],
+  "benefits_detail": [
+   "2 pontos Azul por US$ gasto",
+   "25% de bônus na transferência de pontos (campanhas)",
+   "Franquia de bagagem em voos Azul"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.8,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "azul-itau-infinite",
+  "name": "Azul Itaú Visa Infinite",
+  "issuer": "Itaú",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "alta renda / viajantes Azul",
+  "min_income": 180000,
+  "requires_proof_of_income": true,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 1188.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 84000,
+   "description": "Isenção por gasto elevado ou Azul Diamante"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.6,
+  "points_currency": "pontos Azul",
+  "points_conversion_rate": 0.022,
+  "loyalty_program": "azul_fidelidade",
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "PREMIUM",
+   "INTERNACIONAL"
+  ],
+  "benefits_detail": [
+   "3 pontos Azul por US$ gasto; pontos não expiram",
+   "Acesso a salas VIP (LoungeKey + sala Azul GRU)",
+   "Status Azul mais rápido; bagagem e upgrades"
+  ],
+  "revolving_interest_monthly": 0.1449,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.82,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "latam-pass-gold",
+  "name": "LATAM Pass Itaú Visa Gold",
+  "issuer": "Itaú",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 30000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 456.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 12000,
+   "description": "Anuidade isenta gastando R$ 12.000/ano"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.24,
+  "points_currency": "milhas LATAM Pass",
+  "points_conversion_rate": 0.021,
+  "loyalty_program": "latam_pass",
+  "benefit_tags": [
+   "TRAVEL"
+  ],
+  "benefits_detail": [
+   "1,2 milha LATAM Pass por US$",
+   "Desconto em bagagem LATAM"
+  ],
+  "revolving_interest_monthly": 0.1549,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.8,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "latam-pass-platinum",
+  "name": "LATAM Pass Itaú Visa Platinum",
+  "issuer": "Itaú",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 60000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 660.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 24000,
+   "description": "Anuidade isenta gastando R$ 24.000/ano"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.4,
+  "points_currency": "milhas LATAM Pass",
+  "points_conversion_rate": 0.021,
+  "loyalty_program": "latam_pass",
+  "benefit_tags": [
+   "TRAVEL",
+   "INSURANCE"
+  ],
+  "benefits_detail": [
+   "2 milhas LATAM Pass por US$",
+   "Bônus de milhas na primeira compra (campanhas)"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.8,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "latam-pass-infinite",
+  "name": "LATAM Pass Itaú Visa Infinite",
+  "issuer": "Itaú",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "alta renda / viajantes LATAM",
+  "min_income": 180000,
+  "requires_proof_of_income": true,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 1260.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 120000,
+   "description": "Isenta gastando R$ 20 mil/fatura; 50% off com R$ 10 mil"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.55,
+  "points_currency": "milhas LATAM Pass",
+  "points_conversion_rate": 0.022,
+  "loyalty_program": "latam_pass",
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "PREMIUM",
+   "INTERNACIONAL"
+  ],
+  "benefits_detail": [
+   "Até 5,25 milhas por US$ (com clube e campanhas; base ~2,75)",
+   "Salas VIP LATAM e LoungeKey",
+   "Qualificação acelerada para elite LATAM Pass"
+  ],
+  "revolving_interest_monthly": 0.1449,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.82,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "smiles-visa-infinite",
+  "name": "Smiles Visa Infinite (Bradesco)",
+  "issuer": "Bradesco",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 144000,
+  "requires_proof_of_income": true,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 1080.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 90000,
+   "description": "Anuidade isenta gastando R$ 90.000/ano"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.44,
+  "points_currency": "milhas Smiles",
+  "points_conversion_rate": 0.022,
+  "loyalty_program": "smiles",
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "PREMIUM"
+  ],
+  "benefits_detail": [
+   "Milhas Smiles direto no programa (sem transferência)",
+   "Clube Smiles com desconto",
+   "Salas VIP por LoungeKey"
+  ],
+  "revolving_interest_monthly": 0.1449,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.78,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "santander-elite-platinum",
+  "name": "Santander Elite Platinum",
+  "issuer": "Santander",
+  "flag": "MASTERCARD",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 48000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 540.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 24000,
+   "description": "50% off com R$ 2 mil/fatura + 50% sendo correntista"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.3,
+  "points_currency": "pontos Esfera",
+  "points_conversion_rate": 0.018,
+  "loyalty_program": "esfera",
+  "benefit_tags": [
+   "INSURANCE"
+  ],
+  "benefits_detail": [
+   "1,5 ponto Esfera por US$",
+   "Pontos valem 36 meses",
+   "Descontos Esfera em parceiros"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.8,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "santander-unlimited",
+  "name": "Santander Unlimited Black",
+  "issuer": "Santander",
+  "flag": "MASTERCARD",
+  "card_type": "POINTS",
+  "public_target": "alta renda",
+  "min_income": 240000,
+  "requires_proof_of_income": true,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 1320.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 120000,
+   "description": "Isenção por investimento/relacionamento Select"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.45,
+  "points_currency": "pontos Esfera",
+  "points_conversion_rate": 0.02,
+  "loyalty_program": "esfera",
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "PREMIUM",
+   "INTERNACIONAL"
+  ],
+  "benefits_detail": [
+   "Até 5,4 pontos Esfera por US$ em compras internacionais",
+   "Salas VIP Mastercard Black",
+   "Concierge e seguros premium"
+  ],
+  "revolving_interest_monthly": 0.1449,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.78,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "bradesco-elo-grafite",
+  "name": "Bradesco Elo Grafite",
+  "issuer": "Bradesco",
+  "flag": "ELO",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 48000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 396.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 18000,
+   "description": "Anuidade isenta gastando R$ 18.000/ano"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.25,
+  "points_currency": "pontos Livelo",
+  "points_conversion_rate": 0.016,
+  "loyalty_program": "livelo",
+  "benefit_tags": [
+   "INSURANCE"
+  ],
+  "benefits_detail": [
+   "Pontos Livelo por real gasto",
+   "Benefícios Elo Grafite (seguros, Wi-Fi)"
+  ],
+  "revolving_interest_monthly": 0.1549,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.78,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "bradesco-visa-infinite",
+  "name": "Bradesco Visa Infinite",
+  "issuer": "Bradesco",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "alta renda / Prime",
+  "min_income": 216000,
+  "requires_proof_of_income": true,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 1320.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 120000,
+   "description": "Isenção por relacionamento Bradesco Prime"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.4,
+  "points_currency": "pontos Livelo",
+  "points_conversion_rate": 0.018,
+  "loyalty_program": "livelo",
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "PREMIUM",
+   "INTERNACIONAL"
+  ],
+  "benefits_detail": [
+   "Pontos Livelo acelerados",
+   "Salas VIP Visa Infinite (LoungeKey)",
+   "Seguros de viagem completos"
+  ],
+  "revolving_interest_monthly": 0.1449,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.78,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "bradesco-elo-nanquim",
+  "name": "Bradesco Elo Nanquim",
+  "issuer": "Bradesco",
+  "flag": "ELO",
+  "card_type": "POINTS",
+  "public_target": "alta renda",
+  "min_income": 216000,
+  "requires_proof_of_income": true,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 1080.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 96000,
+   "description": "Anuidade isenta gastando R$ 96.000/ano"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.4,
+  "points_currency": "pontos Livelo",
+  "points_conversion_rate": 0.018,
+  "loyalty_program": "livelo",
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "PREMIUM"
+  ],
+  "benefits_detail": [
+   "Elo Nanquim: salas VIP e concierge",
+   "Pontos Livelo",
+   "Anuidade menor que Infinite equivalente"
+  ],
+  "revolving_interest_monthly": 0.1449,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.75,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "bradesco-amex-green",
+  "name": "Bradesco American Express Green",
+  "issuer": "Bradesco",
+  "flag": "AMEX",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 60000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 360.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 24000,
+   "description": "Anuidade isenta gastando R$ 24.000/ano"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.2,
+  "points_currency": "Membership Rewards",
+  "points_conversion_rate": 0.02,
+  "loyalty_program": "membership_amex",
+  "benefit_tags": [
+   "TRAVEL"
+  ],
+  "benefits_detail": [
+   "Entrada da linha Amex no Brasil",
+   "Membership Rewards transfere para várias aéreas"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.75,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "bb-ourocard-facil",
+  "name": "BB Ourocard Fácil Elo",
+  "issuer": "Banco do Brasil",
+  "flag": "ELO",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Sem anuidade",
+   "Entrada da linha Ourocard",
+   "Pontos Livelo opcionais via clube"
+  ],
+  "revolving_interest_monthly": 0.1599,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.8,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "bb-ourocard-platinum",
+  "name": "BB Ourocard Visa Platinum",
+  "issuer": "Banco do Brasil",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 48000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 486.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 24000,
+   "description": "Anuidade isenta gastando R$ 24.000/ano"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.35,
+  "points_currency": "pontos Livelo",
+  "points_conversion_rate": 0.016,
+  "loyalty_program": "livelo",
+  "benefit_tags": [
+   "INSURANCE"
+  ],
+  "benefits_detail": [
+   "Pontos Livelo (BB é sócio do programa)",
+   "Seguros Visa Platinum"
+  ],
+  "revolving_interest_monthly": 0.1549,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.8,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "caixa-sim-visa",
+  "name": "Caixa SIM Visa",
+  "issuer": "Caixa Econômica",
+  "flag": "VISA",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Sem anuidade",
+   "Aprovação ampla (público bancarizado pela Caixa)"
+  ],
+  "revolving_interest_monthly": 0.1649,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.78,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "caixa-elo-nanquim",
+  "name": "Caixa Elo Nanquim",
+  "issuer": "Caixa Econômica",
+  "flag": "ELO",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 180000,
+  "requires_proof_of_income": true,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 960.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 84000,
+   "description": "Anuidade isenta gastando R$ 84.000/ano"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.3,
+  "points_currency": "pontos Caixa",
+  "points_conversion_rate": 0.016,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "PREMIUM"
+  ],
+  "benefits_detail": [
+   "Elo Nanquim da Caixa: salas VIP e seguros",
+   "Programa de pontos da Caixa"
+  ],
+  "revolving_interest_monthly": 0.1549,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.72,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "sicoob-platinum",
+  "name": "Sicoob Mastercard Platinum",
+  "issuer": "Sicoob",
+  "flag": "MASTERCARD",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 48000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 240.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 12000,
+   "description": "Isenção por relacionamento cooperativo"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.3,
+  "points_currency": "pontos Coopera",
+  "points_conversion_rate": 0.015,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "INSURANCE"
+  ],
+  "benefits_detail": [
+   "Anuidade baixa (modelo cooperativo)",
+   "Pontos Coopera",
+   "Resultado distribuído ao cooperado"
+  ],
+  "revolving_interest_monthly": 0.1299,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.75,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "sicredi-platinum",
+  "name": "Sicredi Visa Platinum",
+  "issuer": "Sicredi",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 48000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 252.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 12000,
+   "description": "Isenção por relacionamento cooperativo"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.3,
+  "points_currency": "pontos Sicredi",
+  "points_conversion_rate": 0.015,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "INSURANCE"
+  ],
+  "benefits_detail": [
+   "Anuidade baixa (cooperativa)",
+   "Juros menores que grandes bancos"
+  ],
+  "revolving_interest_monthly": 0.1249,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.75,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "banrisul-platinum",
+  "name": "Banrisul Mastercard Platinum",
+  "issuer": "Banrisul",
+  "flag": "MASTERCARD",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 48000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 300.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 15000,
+   "description": "Anuidade isenta gastando R$ 15.000/ano"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.25,
+  "points_currency": "pontos Banriclube",
+  "points_conversion_rate": 0.014,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Forte presença no RS",
+   "Banriclube de vantagens"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.7,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "brb-dux-infinite",
+  "name": "BRB DUX Visa Infinite",
+  "issuer": "BRB",
+  "flag": "VISA",
+  "card_type": "CASHBACK",
+  "public_target": "alta renda",
+  "min_income": 300000,
+  "requires_proof_of_income": true,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 1200.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 120000,
+   "description": "Isenção por investimento no BRB"
+  },
+  "cashback_pct": 0.01,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.01,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "CASHBACK",
+   "LOUNGE",
+   "PREMIUM"
+  ],
+  "benefits_detail": [
+   "Cashback direto em conta",
+   "Salas VIP Visa Infinite",
+   "Cartão metálico"
+  ],
+  "revolving_interest_monthly": 0.1449,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.68,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "safra-visa-infinite",
+  "name": "Safra Visa Infinite",
+  "issuer": "Safra",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 240000,
+  "requires_proof_of_income": true,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 1100.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 96000,
+   "description": "Anuidade isenta gastando R$ 96.000/ano"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.4,
+  "points_currency": "pontos Safra Rewards",
+  "points_conversion_rate": 0.02,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "PREMIUM"
+  ],
+  "benefits_detail": [
+   "Safra Rewards com transferência para aéreas",
+   "Concierge e salas VIP"
+  ],
+  "revolving_interest_monthly": 0.1449,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.72,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "btg-black",
+  "name": "BTG Pactual Mastercard Black",
+  "issuer": "BTG Pactual",
+  "flag": "MASTERCARD",
+  "card_type": "POINTS",
+  "public_target": "investidores BTG",
+  "min_income": 240000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 1188.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 0,
+   "description": "Isenta com investimentos a partir de R$ 200 mil no BTG"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.44,
+  "points_currency": "pontos BTG",
+  "points_conversion_rate": 0.022,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "TRAVEL",
+   "LOUNGE",
+   "PREMIUM",
+   "INTERNACIONAL"
+  ],
+  "benefits_detail": [
+   "2,2 pontos por US$ + cashback opcional",
+   "IOF reduzido em compras internacionais (campanhas)",
+   "Salas VIP LoungeKey ilimitadas"
+  ],
+  "revolving_interest_monthly": 0.1399,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.78,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "porto-bank-platinum",
+  "name": "Porto Bank Visa Platinum",
+  "issuer": "Porto Bank",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 42000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 300.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 12000,
+   "description": "Isenção para clientes de seguros Porto"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.25,
+  "points_currency": "pontos Porto",
+  "points_conversion_rate": 0.015,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "INSURANCE"
+  ],
+  "benefits_detail": [
+   "Desconto no seguro auto/residência Porto",
+   "Pontos trocáveis por desconto em seguro"
+  ],
+  "revolving_interest_monthly": 0.1499,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.75,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "magalu-itau-mastercard",
+  "name": "Cartão Magalu Itaú",
+  "issuer": "Itaú",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": 0.005,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.005,
+  "cashback_categories": [
+   {
+    "category": "lazer",
+    "pct": 0.005,
+    "cap_monthly": null
+   }
+  ],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "CASHBACK"
+  ],
+  "benefits_detail": [
+   "Cashback/desconto em compras no Magalu (até 2% no app)",
+   "Sem anuidade (campanha permanente)",
+   "Parcelamento estendido no Magalu"
+  ],
+  "revolving_interest_monthly": 0.1699,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.78,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "carrefour-mastercard",
+  "name": "Cartão Carrefour Mastercard",
+  "issuer": "Banco CSF (Carrefour)",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.0,
+  "cashback_categories": [
+   {
+    "category": "supermercado",
+    "pct": 0.01,
+    "cap_monthly": null
+   }
+  ],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "CASHBACK"
+  ],
+  "benefits_detail": [
+   "Descontos exclusivos em Carrefour (equivalente ~1% em mercado)",
+   "Sem anuidade nas versões digitais",
+   "Parcelamento de mercado em campanhas"
+  ],
+  "revolving_interest_monthly": 0.1699,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.75,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "atacadao-mastercard",
+  "name": "Cartão Atacadão",
+  "issuer": "Banco CSF (Carrefour)",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [
+   {
+    "category": "supermercado",
+    "pct": 0.005,
+    "cap_monthly": null
+   }
+  ],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Preço de atacado em menos unidades no Atacadão",
+   "Sem anuidade",
+   "Muito usado por MEIs para estoque"
+  ],
+  "revolving_interest_monthly": 0.1699,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.75,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "passai-mastercard",
+  "name": "Cartão Passaí (Assaí)",
+  "issuer": "Itaú",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 60.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 3600,
+   "description": "Mensalidade isenta com uso no Assaí"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [
+   {
+    "category": "supermercado",
+    "pct": 0.005,
+    "cap_monthly": null
+   }
+  ],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Descontos no Assaí Atacadista",
+   "Popular entre MEIs e famílias grandes"
+  ],
+  "revolving_interest_monthly": 0.1699,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.72,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "pao-de-acucar-itau",
+  "name": "Cartão Pão de Açúcar Itaú (Stix)",
+  "issuer": "Itaú",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 24000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 196.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 9600,
+   "description": "Anuidade isenta gastando R$ 9.600/ano"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [
+   {
+    "category": "supermercado",
+    "pct": 0.01,
+    "cap_monthly": null
+   }
+  ],
+  "points_per_brl": 0.2,
+  "points_currency": "pontos Stix",
+  "points_conversion_rate": 0.018,
+  "loyalty_program": "stix",
+  "benefit_tags": [
+   "CASHBACK"
+  ],
+  "benefits_detail": [
+   "Pontos Stix acelerados em Pão de Açúcar e Extra",
+   "Stix transfere para Smiles/TudoAzul",
+   "Descontos exclusivos no app"
+  ],
+  "revolving_interest_monthly": 0.1649,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.78,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "sams-club-mastercard",
+  "name": "Cartão Sam's Club",
+  "issuer": "Bradescard",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [
+   {
+    "category": "supermercado",
+    "pct": 0.01,
+    "cap_monthly": null
+   }
+  ],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Descontos e condições exclusivas no Sam's Club",
+   "Sem anuidade para sócios"
+  ],
+  "revolving_interest_monthly": 0.1699,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.7,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "renner-mastercard",
+  "name": "Meu Cartão Renner Mastercard",
+  "issuer": "Realize (Renner)",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Descontos e parcelamento exclusivo na Renner",
+   "Sem anuidade",
+   "Público feminino/moda"
+  ],
+  "revolving_interest_monthly": 0.1799,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.72,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "riachuelo-mastercard",
+  "name": "Cartão Riachuelo Mastercard",
+  "issuer": "Midway (Riachuelo)",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Descontos e parcelamento na Riachuelo",
+   "Sem anuidade"
+  ],
+  "revolving_interest_monthly": 0.1799,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.72,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "samsung-itau-visa",
+  "name": "Samsung Itaucard Visa",
+  "issuer": "Itaú",
+  "flag": "VISA",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 36000,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 396.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 12000,
+   "description": "Anuidade isenta gastando R$ 12.000/ano"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [],
+  "points_per_brl": 0.25,
+  "points_currency": "pontos Samsung",
+  "points_conversion_rate": 0.018,
+  "loyalty_program": null,
+  "benefit_tags": [],
+  "benefits_detail": [
+   "Pontos trocáveis por produtos Samsung com desconto",
+   "Descontos em lançamentos Samsung"
+  ],
+  "revolving_interest_monthly": 0.1549,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.75,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "ipiranga-kmv-itau",
+  "name": "Cartão Ipiranga KMV Itaú",
+  "issuer": "Itaú",
+  "flag": "MASTERCARD",
+  "card_type": "POINTS",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": null,
+  "cashback_categories": [
+   {
+    "category": "transporte",
+    "pct": 0.01,
+    "cap_monthly": null
+   }
+  ],
+  "points_per_brl": 0.2,
+  "points_currency": "Km de Vantagens",
+  "points_conversion_rate": 0.02,
+  "loyalty_program": "kmv",
+  "benefit_tags": [
+   "CASHBACK"
+  ],
+  "benefits_detail": [
+   "KMV acelerado abastecendo na Ipiranga",
+   "Desconto no Abastece Aí",
+   "Sem anuidade"
+  ],
+  "revolving_interest_monthly": 0.1649,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.75,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "shell-box-santander",
+  "name": "Shell Box Santander Mastercard",
+  "issuer": "Santander",
+  "flag": "MASTERCARD",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 348.0,
+  "waiver_rules": {
+   "type": "spend_threshold",
+   "threshold": 14400,
+   "description": "Isenção com gasto mensal de R$ 1.200"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.005,
+  "cashback_categories": [
+   {
+    "category": "transporte",
+    "pct": 0.03,
+    "cap_monthly": 60.0
+   }
+  ],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "CASHBACK"
+  ],
+  "benefits_detail": [
+   "Até 3% de volta abastecendo com Shell Box",
+   "0,5% nas demais compras"
+  ],
+  "revolving_interest_monthly": 0.1549,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.75,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ },
+ {
+  "card_id": "vivo-itau-visa",
+  "name": "Vivo Itaucard Visa",
+  "issuer": "Itaú",
+  "flag": "VISA",
+  "card_type": "CASHBACK",
+  "public_target": "geral",
+  "min_income": 0,
+  "requires_proof_of_income": false,
+  "secured_card": false,
+  "prepaid": false,
+  "consigned": false,
+  "base_annuity": 0.0,
+  "waiver_rules": {
+   "type": "always_free",
+   "description": "Sem anuidade"
+  },
+  "cashback_pct": null,
+  "cashback_cap": null,
+  "cashback_default_pct": 0.0,
+  "cashback_categories": [
+   {
+    "category": "streaming",
+    "pct": 0.02,
+    "cap_monthly": 30.0
+   }
+  ],
+  "points_per_brl": null,
+  "points_currency": "pontos",
+  "points_conversion_rate": 0.0,
+  "loyalty_program": null,
+  "benefit_tags": [
+   "CASHBACK"
+  ],
+  "benefits_detail": [
+   "Cashback/desconto na fatura Vivo",
+   "Sem anuidade",
+   "Bônus de internet no plano"
+  ],
+  "revolving_interest_monthly": 0.1649,
+  "installment_interest_monthly": 0.0299,
+  "data_trust_score": 0.72,
+  "request_link": null,
+  "last_updated": "2026-07-18"
+ }
 ]

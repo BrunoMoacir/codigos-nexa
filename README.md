@@ -114,7 +114,7 @@ Todo módulo do backend entrega valor por **duas superfícies** — é o padrão
 Lista priorizada de cards, ordenada por **impacto financeiro em R$/mês**. Cada card diz: o tipo de oportunidade, o valor em jogo, a urgência e — ao expandir — como foi calculado e os passos práticos para executar. São **17 tipos de card** (ver [Notificações](#-sistema-de-notificações-mx3)), gerados proativamente a cada 6 horas e filtrados por relevância conforme a renda do usuário.
 
 ### 2. Chat com Consultor IA
-Agente LangGraph ReAct com **29 ferramentas** conectadas a todos os módulos do backend. O usuário pergunta em linguagem natural ("posso comprar um carro de R$ 60 mil?") e o agente consulta forecast, simulações e perfil comportamental antes de responder — com tom adaptado ao cluster do usuário. Histórico persistido por sessão (Redis).
+Agente LangGraph ReAct com **31 ferramentas** conectadas a todos os módulos do backend. O usuário pergunta em linguagem natural ("posso comprar um carro de R$ 60 mil?") e o agente consulta forecast, simulações e perfil comportamental antes de responder — com tom adaptado ao cluster do usuário. Histórico persistido por sessão (Redis).
 
 > Regra de ouro do produto: **feature nova só está completa quando aparece no feed E no chat.**
 
@@ -127,7 +127,7 @@ Agente LangGraph ReAct com **29 ferramentas** conectadas a todos os módulos do 
 | ID | Funcionalidade | Valor para o usuário | Status |
 |:---|:---|:---|:---:|
 | F1 | **ETL Pipeline + Cashflow** — 8 estágios, projeção 30 dias, safe-to-spend | Sabe exatamente quanto pode gastar hoje sem comprometer contas futuras | ✅ |
-| F2 | **Card Optimizer** — 2.000+ cartões, multi-card, custo de oportunidade | Recupera R$ 50–200/mês em cashback/pontos que estava deixando na mesa | ✅ |
+| F2 | **Card Optimizer** — catálogo curado de 81 cartões (37 emissores, 11 programas de fidelidade valorados), multi-card, custo de oportunidade | Recupera R$ 50–200/mês em cashback/pontos que estava deixando na mesa | ✅ |
 | F3 | **Nexa Architect** — financiamento vs consórcio vs investir, VPL + Monte Carlo | Decisões de dezenas de milhares de reais com intervalo de confiança de 95% | ✅ |
 | F4 | **PF/PJ Classifier** — Random Forest + regras, relatório fiscal MEI | MEI separa gastos pessoais e da empresa automaticamente; base do relatório DAS | ✅ |
 | F5 | **Raio-X de Custos** — tarifas detectadas, benchmark de 16 bancos | Vê cada tarifa cobrada e se está acima da média de mercado | ✅ |
@@ -137,12 +137,12 @@ Agente LangGraph ReAct com **29 ferramentas** conectadas a todos os módulos do 
 
 ### Radar de Oportunidades (OPP)
 
-*Detecta dinheiro mal alocado e compara 13 bancos/produtos sem viés — ranking por retorno **líquido após IR**, não por taxa bruta.*
+*Detecta dinheiro mal alocado e compara o mercado sem viés — **varredura diária de todos os participantes do Open Finance Dados Abertos** (~23 instituições com renda fixa CDI publicada em 2026-07, cresce conforme adesão) com fallback curado. Ranking por retorno **líquido após IR**, não por taxa bruta; taxas-teaser (>130% CDI) são marcadas como promocionais e rebaixadas no ranking.*
 
 | Sub-feature | Valor para o usuário | Status |
 |:---|:---|:---:|
 | OPP.1 | **Dinheiro parado** — saldo ocioso além da reserva de emergência (threshold R$ 500/30d) | Descobre que tem R$ X rendendo zero na conta corrente | ✅ |
-| OPP.2 | **Comparador CDB/LCI/LCA** — retorno líquido após IR, catálogo curado + Open Finance | Compara produtos de 13 instituições sem comissão embutida | ✅ |
+| OPP.2 | **Comparador CDB/LCI/LCA** — retorno líquido após IR, catálogo vivo via Open Finance (varredura completa do diretório + paginação + dedup) com fallback curado | Compara as ofertas publicadas por todos os participantes do Open Finance sem comissão embutida | ✅ |
 | OPP.3 | **Tesouro SELIC vs CDB vs poupança** — simulador com IR e taxas | Vê em R$ quanto cada opção rende de verdade no seu prazo | ✅ |
 | OPP.4 | **Poupança abaixo do CDI** — SELIC + TR vs CDI | Card mostra quanto está perdendo por manter poupança | ✅ |
 | OPP.5 | **Passos práticos de troca** — instruções por produto | Não só "invista melhor": diz exatamente onde clicar | ✅ |
@@ -171,8 +171,14 @@ Endpoints: `GET /defense/{user_id}`, `/defense/{user_id}/dossier`, `/defense/{us
 |:---|:---|:---|:---:|
 | T1 | **Otimizador de IR** — tax loss harvesting, timing de resgate | Paga menos imposto legalmente sobre investimentos | ✅ |
 | T2 | **Modo Imposto Zero** — migração CDB→LCI/LCA com breakeven | Sabe exatamente quando um LCI isento ganha do CDB tributado | ✅ |
-| T3 | **Monitor de Direitos Esquecidos** — SVR BACEN, FGTS, PIS/PASEP, restituição IR | Encontra dinheiro esquecido em nome do usuário — o maior hook de conversão do produto | ✅ |
+| T3 | **Monitor de Direitos Esquecidos** — SVR BACEN, FGTS, PIS/PASEP, restituição IR | **Consulta REAL do SVR dentro do app** (API pública oficial do BACEN, usuário responde o captcha oficial) + **restituição IRPF em tempo real** (API SERPRO, autorizada pelo usuário no e-CAC); FGTS/PIS seguem orientativos (sem API para terceiros) — ver nota ↓ | ✅ |
 | R2.c | **Sazonalidade Fiscal** — IR, DAS/DASN-SIMEI, IPVA/IPTU, 13º, lucro FGTS, personalizado por perfil MEI/CLT | Nunca mais multa por perder prazo fiscal | ✅ |
+
+> **Nota T3 (atualizada 2026-07-18):** consultas reais implementadas em dois níveis, ambas exclusivamente por canais oficiais e validadas ao vivo:
+> - **SVR (consulta assistida):** `GET /rights/{user_id}/svr/captcha` + `POST /rights/{user_id}/svr/check` usam a consulta pública oficial do BACEN (a mesma do site) — o usuário responde o desafio de segurança oficial no app e a Nexa informa na hora se existe valor em seu nome. O montante e o resgate seguem no portal com login GOV.BR. CPF/data de nascimento não são persistidos; logs só registram CPF mascarado.
+> - **Restituição IRPF (consulta autorizada):** `POST /rights/{user_id}/ir/check` consulta a API oficial Consulta Restituição do SERPRO com o token de Autorização de Compartilhamento que o próprio usuário gera no e-CAC (LGPD art. 7º/11º), decriptando valor, situação e banco (RSA PKCS#1). Requer contrato SERPRO em produção (`SERPRO_CONSUMER_KEY/SECRET`); sem credenciais, o endpoint degrada para o passo a passo de habilitação.
+> - **FGTS e PIS/PASEP:** sem API pública para terceiros — permanecem orientativos.
+> - O antigo mock de `app/fiscal/rights_monitor/` (valores fabricados por hash do CPF) **foi removido**; a visão fiscal agora aponta para os fluxos reais acima, sem inventar valores.
 
 ### Engajamento e Retenção (MX/R)
 
@@ -190,7 +196,7 @@ Endpoints: `GET /defense/{user_id}`, `/defense/{user_id}/dossier`, `/defense/{us
 | R1.d | **Widget Safe-to-Spend (PWA)** — página `/widget` instalável + Web Push VAPID | Margem do dia na homescreen, payload de ~200 bytes | ✅ |
 | R2.b | **Desafios mensais e badges** — SEM_TARIFAS, REDUZIR_CATEGORIA, GUARDAR_VALOR, SUBIR_SCORE + badges de streak | Gamificação com impacto real no bolso | ✅ |
 | R3 | **Histórico acumulado** (DuckDB) + metas com projeção | Quanto mais tempo usa, mais insight — custo de troca cresce | ✅ |
-| R4.b | **PromotionTracker** — promoções de transferência de pontos | Bônus de 20%+ em milhas não passa despercebido | ⚠️ parcial |
+| R4.b | **PromotionTracker** — promoções de transferência de pontos: staleness guard (curadoria >45d não alerta), matching por programa de fidelidade, card TRANSFER_PROMO no engine 6/6h e tool no chat | Bônus de 80–110% em milhas não passa despercebido — com estimativa do valor extra em R$ | ✅ |
 
 ### Viral (V)
 
@@ -208,7 +214,7 @@ Endpoints: `GET /viral/savings-card/{user_id}[/svg]`, `GET /viral/wrapped/{user_
 
 | Módulo | O que faz | Onde atua |
 |:---|:---|:---|
-| **ConsumptionProfiler** | Classifica o usuário em 1 de 8 clusters de estilo de vida (90 dias de transações) | Agente, optimizer, budget, notificações — 6+ módulos |
+| **ConsumptionProfiler** | Classifica o usuário em 1 de 8 clusters de estilo de vida (90 dias de transações) — **modelo ML híbrido**: RandomForest destilado das regras (fidelidade 95,9% em holdout, artefato de 6 MB) decide o cluster primário com confiança calibrada; afinidades das regras dão os secundários; fallback integral nas regras; invariante determinístico para FSS crítico | Agente, optimizer, budget, notificações — 6+ módulos |
 | **LifeEventsDetector** | Detecta bebê, mudança, casamento, faculdade, aumento/queda de renda via padrão de gastos | Cards LIFE_EVENT com ação sugerida |
 | **NotificationRelevanceFilter** | Elimina ruído com thresholds escalados por renda | Mesmo evento é ruído para quem ganha R$ 15k e crítico para quem ganha R$ 2k |
 | **IncomeProfiler** | Renda real após filtrar transferências e não-recorrentes | Base de todos os thresholds |
@@ -221,7 +227,7 @@ Os 8 clusters: `EXPLORADOR_GLOBAL` (milhas/lounge), `URBANO_FOODIE` (cashback al
 
 Agente **ReAct (LangGraph)**: o LLM decide qual ferramenta chamar, observa o resultado e responde em linguagem natural. A primeira ferramenta de toda sessão é `get_user_profile_context`, que carrega o cluster comportamental e adapta o tom da conversa inteira. O `user_id` autenticado é injetado como contexto imutável — o agente ignora qualquer user_id vindo da mensagem (mitigação de prompt injection).
 
-### 29 Ferramentas Financeiras
+### 31 Ferramentas Financeiras
 
 | Domínio | Ferramentas |
 |:---|:---|
@@ -294,11 +300,13 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 
 | Horário | Job | O que entrega |
 |:---:|:---|:---|
-| 02h00 | `fee_snapshot` | Histórico de tarifas por usuário + baseline de mercado (alimenta D2/D4) |
+| 02h00 | `fee_snapshot` | Histórico de tarifas por usuário + agregado anônimo `bank_fee_trends` (alimenta D2/D4) |
+| 02h15 | `market_fees_refresh` | Baseline VIVO de tarifas de mercado via Open Finance Dados Abertos (~28 instituições, preço típico ponderado por faixa de clientes) — F5/D4 desde o dia 1 |
 | 02h30 | `product_catalog_refresh` | Atualiza catálogo de produtos via Open Finance Dados Abertos (OPP) |
 | 03h00 | `opportunity_scan` | Varredura de dinheiro parado e poupança sub-CDI por usuário |
 | 04h00 | `health_score_snapshot` | Série temporal do score (tendência 30/90 dias) |
 | a cada 6h | `notification_scheduler` | Gera e entrega notificações proativas (email/in-app/push) |
+| 05h30 | `intelligence_metrics` | Monitoramento de acurácia (aceitação de recomendações, sucesso do negociador, cobertura) + calibração do Negociador por desfechos reais |
 | 07h00 | `daily_digest` | Email diário com score, tarifas, oportunidades, prazos fiscais e desafios |
 
 ---
@@ -310,6 +318,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 | Camada | Implementação |
 |:---|:---|
 | **Autenticação** | JWT HS256 30 min + refresh token de 14 dias com **rotação de uso único** (reuso → 401); blacklist Redis por `jti`; anti-enumeração no login |
+| **Conta** | Reset de senha e verificação de e-mail com tokens de uso único (só o SHA-256 vai ao banco); respostas 202 uniformes (anti-enumeração); emitir link novo invalida o anterior; auditoria de cada evento |
 | **Autorização** | `require_owner` em todos os endpoints de dados (IDOR bloqueado); recursos aninhados verificam dono do objeto |
 | **Webhook Pluggy** | Segredo compartilhado comparado em tempo constante; produção sem segredo → 503 fail-closed; identidade resolvida server-side, nunca do payload |
 | **Headers** | CSP estrito, HSTS (produção), X-Frame-Options DENY, COOP, Permissions-Policy; CORS `*` proibido em produção (validador recusa boot) |
@@ -326,11 +335,11 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 
 | Plano | Preço | O que entrega | Valor que justifica o preço |
 |:---|:---:|:---|:---|
-| **Free** | R$ 0/mês | 1 banco conectado, dashboard básico, safe-to-spend, 3 consultas Compra Inteligente/mês, 5 msgs de IA/dia | Porta de entrada: o usuário **vê** quanto está perdendo (indignação → conversão). T3 (direitos esquecidos) no Free acha dinheiro na hora |
+| **Free** | R$ 0/mês | 1 banco conectado, dashboard básico, safe-to-spend, 3 consultas Compra Inteligente/mês, 5 msgs de IA/dia | Porta de entrada: o usuário **vê** quanto está perdendo (indignação → conversão). T3 (direitos esquecidos) no Free orienta onde verificar dinheiro esquecido nos canais oficiais |
 | **Pro** | R$ 19,90/mês | Bancos ilimitados, Raio-X completo, Radar de Oportunidades, chat ilimitado, Negociador (1/mês), digest diário, desafios e badges | Se o usuário recupera **R$ 50+/mês** (média esperada: tarifas + cashback + dinheiro parado), o plano se paga 2,5× |
 | **Total** | R$ 39,90/mês | Tudo do Pro + Defesa do Consumidor completa (dossiê PROCON/JEC), portabilidade simulada, otimizador de IR, Wrapped trimestral, Modo Família (futuro) | Uma única contestação de tarifa recuperada (R$ 200–800) paga o ano inteiro |
 
-**⚠️ Status de implementação:** os planos estão definidos como modelo de negócio, mas **billing e gating por plano ainda não existem no código** — hoje todos os endpoints são liberados para qualquer usuário autenticado. É um dos itens pendentes (ver seção seguinte).
+**Status de implementação (2026-07-18):** billing e gating **implementados** em `app/billing/` — Stripe Checkout/Portal/webhook assinado (fail-closed em produção), tabela `user_subscriptions` (Alembic), hierarquia Free/Pro/Total e limites de uso (5 msgs IA/dia e 3 Compra Inteligente/mês no Free; Negociador 1/mês no Pro) com contadores Redis + fallback em memória. Gates aplicados: Defesa e Otimizador de IR exigem **Total**; Radar de Oportunidades e Raio-X exigem **Pro**. **Dark launch:** `BILLING_ENFORCEMENT_ENABLED=false` por padrão — violações são apenas logadas (`would_block`); ligar a flag em produção ativa os 402 com contexto de upgrade. Falta apenas: criar Products/Prices no dashboard Stripe e preencher as chaves no `.env`.
 
 ### Unit Economics Target
 
@@ -351,29 +360,32 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 
 | Área | Entregas |
 |:---|:---|
-| **Motor core** | F1 ETL + cashflow, F2 optimizer (2.000+ cartões), F3 Architect (Monte Carlo), F4 PF/PJ, F5 custos, F7 compra inteligente, F13 negociador, fiscal MEI/PJ |
+| **Motor core** | F1 ETL + cashflow, F2 optimizer (81 cartões curados de 37 emissores), F3 Architect (Monte Carlo), F4 PF/PJ, F5 custos, F7 compra inteligente, F13 negociador, fiscal MEI/PJ |
 | **Oportunidades** | OPP.1–OPP.5 completos + Bank Match + catálogo público + refresh diário |
 | **Defesa** | D1–D6 codificados: venda casada, cobranças indevidas, juros abusivos, mudança unilateral, dossiê + ZIP, portabilidade |
-| **Direitos e impostos** | T1 otimizador IR, T2 imposto zero, T3 direitos esquecidos (SVR/FGTS/PIS/IR), calendário fiscal sazonal |
+| **Direitos e impostos** | T1 otimizador IR, T2 imposto zero, T3 direitos esquecidos (consulta REAL do SVR assistida + restituição IRPF via SERPRO autorizada; FGTS/PIS orientativos), calendário fiscal sazonal |
 | **Engajamento** | Health score + desafios + badges, metas, 17 tipos de notificação com filtro de relevância, peer comparison, budget 50/30/20, shadow invoices |
 | **Retenção** | Scheduler com 6 jobs, daily digest, entrega email/in-app/push, PWA com widget instalável e Web Push VAPID, checkout-context, revisão de compras |
 | **Viral** | Placar de economia (SVG) e Wrapped anual (SVG) |
-| **IA** | Agente ReAct com 29 ferramentas, memória Redis, perfil comportamental (8 clusters), life events |
+| **IA** | Agente ReAct com 31 ferramentas, memória Redis, perfil comportamental (8 clusters), life events |
 | **Plataforma** | Auth JWT + refresh rotativo, IDOR hardening, LGPD export/erase, rate limiting, audit log, pip-audit no CI, 2.189 testes coletados |
 
 ### 🚧 Falta (em ordem de prioridade de negócio)
 
 | Item | O que é | Por que importa | Dependência |
 |:---|:---|:---|:---|
-| **Billing + gating de planos** | Cobrança (Stripe/Pagar.me) e enforcement Free/Pro/Total nos endpoints | Sem isso não há receita — o modelo de negócio existe só no papel | Decisão de gateway |
+| **Chaves Stripe + flip do enforcement** | Billing/gating implementados em dark launch; falta criar os Prices no dashboard Stripe, preencher `.env` e ligar `BILLING_ENFORCEMENT_ENABLED` | Último passo entre o código e a receita | Conta Stripe |
 | **Frontend oficial** | O `frontend-react/` atual é protótipo de validação (descartável); app oficial será construído do zero | Toda a inteligência do backend precisa de uma casa definitiva | Design system |
 | **Validação jurídica (D5)** | Revisão por advogado dos templates de petição JEC e cartas | Código pronto; lançar sem revisão gera risco de responsabilidade por orientação incorreta | Advogado parceiro |
+| **Contrato SERPRO (produção)** | A consulta real de restituição IRPF funciona em trial; produção exige contratar a API Consulta Restituição na Loja SERPRO (consumer key/secret + chave do e-CNPJ) | Sem o contrato, o `POST /rights/{user_id}/ir/check` degrada para o passo a passo de habilitação | Contratação SERPRO (custo por consulta) |
+| **UI da consulta SVR assistida** | Tela no app exibindo o captcha oficial do BACEN (endpoints prontos no backend) | O "existe dinheiro em seu nome?" em tempo real é o maior hook de conversão do produto | Frontend oficial |
+| ~~Conta de usuário completa~~ | ✅ Reset de senha + verificação de e-mail implementados (2026-07-18, tokens de uso único + anti-enumeração) — falta só a UI das telas | Frontend oficial |
 | **App mobile nativo** | Widget de homescreen nativo, push FCM | PWA cobre o essencial, mas retenção diária de massa exige mobile nativo | Time mobile |
 | **R4.a Relatório trimestral** | Consolidado automático por email | Reforço de valor percebido a cada 3 meses | Scheduler (pronto) — só falta o job |
 | **R5 Anti-churn** | Tela de cancelamento com impacto calculado, modo pausa, win-back | Reduz churn no momento crítico | Billing primeiro |
 | **V3 Ranking de bancos abusivos** | Relatório trimestral público anonimizado | Autoridade de marca + imprensa | Massa de dados D1–D3 |
 | **F6 Sweep automático** | Mover sobra para investimento automaticamente | "Piloto automático" — valor passivo | Open Finance fase 4 (iniciação de pagamento) |
-| **F8 Radar 200+ instituições** | Ampliar catálogo OPP (hoje: 13 bancos/produtos) | Cobertura de cauda longa | Conectores adicionais |
+| **F8 Radar — cauda longa** | ✅ varredura completa do diretório Open Finance implementada (2026-07): todos os participantes com renda fixa publicada entram no catálogo diário. Restante: fontes fora do Open Finance (corretoras não participantes, catálogo ANBIMA) | Cobertura além dos participantes do Open Finance | Fontes adicionais |
 | **F9/F10** | Portabilidade de crédito assistida (execução), pagamento otimizado | D6 simula; falta executar | Validação jurídica + APIs |
 | **F12 Modo Família** | Até 4 membros | Aumenta ARPU e lock-in | Modelo multi-usuário |
 | **Nexa Score exportável** | Score como bureau de crédito alternativo | Vetor de escala fase 3 | Massa crítica de usuários |
@@ -391,7 +403,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 | **Ação automática** | ✅ Contesta, negocia, gera dossiê | ❌ | ❌ Só visualiza | ❌ Só compara |
 | **Open Finance nativo** | ✅ Multi-banco | ⚠️ Só o próprio | ⚠️ Manual | ⚠️ Parcial |
 | **Base legal integrada** | ✅ CDC, BACEN, STJ | ❌ | ❌ | ❌ |
-| **IA conversacional** | ✅ 29 ferramentas | ❌ | ❌ | ❌ |
+| **IA conversacional** | ✅ 31 ferramentas | ❌ | ❌ | ❌ |
 | **Defesa do consumidor** | ✅ D1–D6 | ❌ | ❌ | ❌ |
 | **Perfil comportamental** | ✅ 8 clusters adaptativos | ❌ | ❌ | ❌ |
 
@@ -401,7 +413,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 
 > **2. Flywheel de dados** — Cada novo usuário melhora o benchmark de tarifas (`bank_fee_trends`) e os detectores de abuso. Meses de dados históricos que nenhum concorrente replica retroativamente.
 
-> **3. Complexidade técnica** — 20+ módulos de análise, ETL de 8 estágios, 2.000+ cartões, Monte Carlo, agente ReAct com 29 ferramentas, 8 clusters comportamentais, 6 detectores de defesa do consumidor e scheduler de inteligência proativa. Não é um wrapper de API.
+> **3. Complexidade técnica** — 20+ módulos de análise, ETL de 8 estágios, catálogo curado de 81 cartões com 11 programas de fidelidade valorados, Monte Carlo, agente ReAct com 31 ferramentas, 8 clusters comportamentais, 6 detectores de defesa do consumidor e scheduler de inteligência proativa. Não é um wrapper de API.
 
 > **4. Confiança do usuário** — Uma vez que o usuário confia na Nexa como seu advogado, o custo de troca é altíssimo.
 
@@ -522,7 +534,9 @@ México: Open Banking regulado (Ley Fintech 2018), 60M sub-bancarizados, concent
 | Método | Rota | Descrição |
 |:---:|:---|:---|
 | `GET` | `/health` · `/readiness` · `/version` | Saúde e versão |
-| `POST` | `/api/v1/auth/register` · `/auth/token` · `/auth/refresh` · `/auth/logout` | Cadastro, login JWT, refresh rotativo, logout |
+| `POST` | `/api/v1/auth/register` · `/auth/token` · `/auth/refresh` · `/auth/logout` | Cadastro (dispara verificação de e-mail), login JWT, refresh rotativo, logout |
+| `POST` | `/api/v1/auth/forgot-password` · `/auth/reset-password` | Reset de senha: token de uso único (60min), sempre 202 (anti-enumeração) |
+| `POST` | `/api/v1/auth/verify-email` · `/auth/resend-verification` | Verificação de e-mail: token de uso único (48h) |
 
 <details>
 <summary><strong>Ver todos os endpoints por domínio</strong></summary>
@@ -574,7 +588,10 @@ México: Open Banking regulado (Ley Fintech 2018), 60M sub-bancarizados, concent
 | `GET` | `/api/v1/defense/{user_id}` | Venda casada + cobranças indevidas + juros abusivos |
 | `GET` | `/api/v1/defense/{user_id}/dossier` · `/zip` | Dossiê de evidências (PROCON/JEC) + export |
 | `GET` | `/api/v1/defense/{user_id}/portability` | Simulador de portabilidade total |
-| `GET` | `/api/v1/rights/{user_id}` | SVR BACEN, FGTS, PIS/PASEP, restituição IR |
+| `GET` | `/api/v1/rights/{user_id}` | Visão geral: 4 fontes + capacidade de consulta de cada uma |
+| `GET` | `/api/v1/rights/{user_id}/svr/captcha` | Desafio oficial do BACEN (consulta assistida SVR) |
+| `POST` | `/api/v1/rights/{user_id}/svr/check` | Consulta REAL na consulta pública do SVR/BACEN |
+| `POST` | `/api/v1/rights/{user_id}/ir/check` | Consulta REAL da restituição IRPF (e-CAC + SERPRO) |
 | `GET` | `/api/v1/tax/optimize/{user_id}` | Otimizador de IR + tax loss harvesting |
 | `POST` | `/api/v1/tax/breakeven` | Breakeven CDB vs LCI/LCA |
 | `GET` | `/api/v1/seasonality/{user_id}` | Calendário fiscal personalizado |
@@ -596,7 +613,10 @@ México: Open Banking regulado (Ley Fintech 2018), 60M sub-bancarizados, concent
 
 | Método | Rota | Descrição |
 |:---:|:---|:---|
-| `POST` | `/api/v1/chat/` | Chat com agente (29 ferramentas) |
+| `POST` | `/api/v1/chat/` | Chat com agente (31 ferramentas) |
+| `GET` | `/api/v1/billing/plans` · `/billing/subscription/{user_id}` | Planos e assinatura + uso dos limites |
+| `POST` | `/api/v1/billing/checkout/{user_id}` · `/billing/portal/{user_id}` | Stripe Checkout e portal do cliente |
+| `POST` | `/api/v1/billing/webhook` | Webhook Stripe (assinado, fail-closed) |
 | `GET` | `/api/v1/privacy/export/{user_id}` | Export LGPD (portabilidade) |
 | `DELETE` | `/api/v1/privacy/erase/{user_id}` | Eliminação irreversível (LGPD) |
 | `GET` | `/api/v1/fiscal/*` | Relatório fiscal MEI/PJ |
@@ -791,7 +811,7 @@ curl -X POST http://localhost:8000/api/v1/architect/simulate \
 
 ### Fase 2 — Monetização e Casa Própria (próxima)
 
-- [ ] **Billing + gating Free/Pro/Total** (pré-requisito de receita)
+- [x] **Billing + gating Free/Pro/Total** (Stripe, dark launch — falta só chaves + flip da flag)
 - [ ] **Frontend oficial** (substituir protótipo)
 - [ ] Validação jurídica e lançamento do D5
 - [ ] R4.a relatório trimestral · R5 anti-churn
@@ -816,6 +836,7 @@ curl -X POST http://localhost:8000/api/v1/architect/simulate \
 
 | Arquivo | Conteúdo |
 |:---|:---|
+| [funcionalidades/](docs/funcionalidades/README.md) | **Documentação completa de todas as funcionalidades** — o que cada uma faz, o que NÃO faz e gaps, técnica e em palavras simples (18 domínios) |
 | [ROADMAP.md](docs/ROADMAP.md) | Roadmap de produto auditado contra o código |
 | [MUDANÇAS.md](docs/MUDANÇAS.md) | Mapa técnico de cada mudança por camada |
 | [SEGURANCA.md](docs/SEGURANCA.md) | Modelo de segurança completo |
@@ -831,7 +852,7 @@ curl -X POST http://localhost:8000/api/v1/architect/simulate \
 
 ### Nexa AI
 
-**20+ módulos implementados · 29 ferramentas de IA · 17 tipos de alerta proativo · 2.189 testes**
+**20+ módulos implementados · 31 ferramentas de IA · 17 tipos de alerta proativo · 2.189 testes**
 
 *Trabalhar para você, não para o banco.*
 

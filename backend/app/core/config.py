@@ -95,6 +95,24 @@ class Settings(BaseSettings):
     # True em produção para ativar fee_snapshot, opportunity_scan, etc.
     SCHEDULER_ENABLED: bool = False
 
+    # Billing — Stripe (assinaturas Pro/Total)
+    # BILLING_ENFORCEMENT_ENABLED=false → dark launch: gating só loga
+    # ("would_block"), nada é bloqueado. Ligar em produção após o lançamento.
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    STRIPE_PRICE_PRO_MONTHLY: str = ""
+    STRIPE_PRICE_TOTAL_MONTHLY: str = ""
+    BILLING_ENFORCEMENT_ENABLED: bool = False
+
+    # SERPRO — API Consulta Restituição IRPF (T3)
+    # Trial usa o bearer público de demonstração do SERPRO; produção exige
+    # consumer key/secret contratados na Loja SERPRO. A chave privada (DER
+    # PKCS#8 em base64, arquivo `chave-privada` do e-CNPJ) decripta os campos.
+    SERPRO_RESTITUICAO_TRIAL: bool = False
+    SERPRO_CONSUMER_KEY: str = ""
+    SERPRO_CONSUMER_SECRET: str = ""
+    SERPRO_RESTITUICAO_PRIVATE_KEY_B64: str = ""
+
     # Email — remetente padrão
     EMAIL_FROM: str = "noreply@nexa.app"
     EMAIL_FROM_NAME: str = "Nexa"

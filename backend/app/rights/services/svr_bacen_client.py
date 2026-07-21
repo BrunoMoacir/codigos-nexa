@@ -47,15 +47,16 @@ class SvrBacenClient:
             official_channel="Portal SVR BACEN (acesso com GOV.BR)",
             official_url="https://valoresareceber.bcb.gov.br",
             action_steps=[
-                "Acesse valoresareceber.bcb.gov.br com sua conta GOV.BR (nível prata ou ouro).",
-                "Selecione 'Consultar valores a receber' e confirme seus dados.",
-                "Se houver valores, escolha como receber: Pix ou TED na conta indicada pelo banco.",
-                "O prazo de pagamento pelo banco é de até 12 dias úteis após a solicitação.",
+                "Consulte agora dentro da Nexa: informamos na hora se existe valor em seu nome "
+                "(você só responde o desafio de segurança oficial do BACEN).",
+                "Se houver valores, acesse valoresareceber.bcb.gov.br com sua conta GOV.BR "
+                "(nível prata ou ouro) para ver o montante e solicitar o resgate.",
+                "Escolha como receber: Pix ou TED — o banco tem até 12 dias úteis para pagar.",
                 "⚠️ Nunca forneça senha GOV.BR a terceiros ou apps não oficiais.",
             ],
             warning=(
-                "O SVR não expõe API pública para consulta por CPF. "
-                "Somente o portal oficial permite verificar se há valores disponíveis."
+                "A consulta pública do SVR informa apenas SE há valores; o montante e o "
+                "resgate exigem login GOV.BR no portal oficial."
             ),
         )
 

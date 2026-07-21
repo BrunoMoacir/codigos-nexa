@@ -36,8 +36,10 @@ def get_forgotten_rights(user_id: str) -> str:
         "── 1. SVR BACEN — Valores a Receber de Instituições Financeiras ──",
         "O que é: saldos esquecidos em contas bancárias, cheques não sacados, "
         "quotas de consórcio, tarifas cobradas indevidamente e parcelas restituíveis.",
-        "Como verificar: acesse valoresareceber.bcb.gov.br com sua conta GOV.BR.",
-        "Prazo: recursos disponíveis por tempo indeterminado, mas o resgate pode demorar 60 dias.",
+        "✨ CONSULTA REAL NA NEXA: a Nexa verifica NA HORA se existe valor em seu nome "
+        "pela consulta pública oficial do BACEN — você só responde o desafio de segurança "
+        "(captcha) oficial. Peça para 'consultar o SVR' na tela de Direitos Esquecidos.",
+        "Para ver o montante e resgatar: valoresareceber.bcb.gov.br com sua conta GOV.BR.",
         "⚠️ Atenção: nunca forneça senha GOV.BR a terceiros ou apps não oficiais.",
         "",
         "── 2. FGTS — Fundo de Garantia por Tempo de Serviço ──",
@@ -54,7 +56,10 @@ def get_forgotten_rights(user_id: str) -> str:
         "",
         "── 4. Restituição de Imposto de Renda ──",
         "O que é: IR retido na fonte acima do devido, deduzido na declaração anual.",
-        "Como verificar: app Meu Imposto de Renda (Receita Federal) ou e-CAC.",
+        "✨ CONSULTA REAL NA NEXA (quando habilitada): gere uma Autorização de "
+        "Compartilhamento no e-CAC (Compartilha Receita Federal) e cole o token na Nexa "
+        "para ver valor e situação da restituição em tempo real, via API oficial do SERPRO.",
+        "Alternativa: app Meu Imposto de Renda (Receita Federal) ou e-CAC.",
         "Restituição retida: se constar 'em análise' há mais de 60 dias, consulte o CPF no site da Receita.",
         "Dedutíveis comuns esquecidos: plano de saúde, despesas médicas, previdência privada (PGBL), dependentes.",
     ]

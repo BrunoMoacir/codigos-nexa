@@ -13,7 +13,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 
-from app.core.security import require_owner
+from app.core.security import require_owner  # noqa: F401 (mantido p/ referência)
+from app.billing.gating import require_plan
 from app.defense.models import DefenseResponse, EvidenceDossier, CorrectionIndex
 from app.defense.services.tied_sale_detector import TiedSaleDetector
 from app.defense.services.wrongful_charge_detector import WrongfulChargeDetector
@@ -39,7 +40,7 @@ _VALID_DETECTORS = {"d1", "d2", "d3", "d4", "d6"}
 
 @router.get("/{user_id}", response_model=DefenseResponse)
 def get_defense_analysis(
-    user_id: str = Depends(require_owner),
+    user_id: str = require_plan("total"),
     detectors: str = Query(
         default="d1,d2,d3,d4",
         description="Detectores a executar (vírgula): d1,d2,d3,d4,d6",
@@ -117,7 +118,7 @@ def get_defense_analysis(
 
 @router.get("/{user_id}/dossier", response_model=EvidenceDossier)
 def get_evidence_dossier(
-    user_id: str = Depends(require_owner),
+    user_id: str = require_plan("total"),
     charge_date: Optional[date] = Query(
         default=None,
         description="Data da cobrança mais antiga (YYYY-MM-DD) para correção monetária.",
@@ -166,7 +167,7 @@ def get_evidence_dossier(
 
 @router.get("/{user_id}/zip")
 def get_evidence_zip(
-    user_id: str = Depends(require_owner),
+    user_id: str = require_plan("total"),
     charge_date: Optional[date] = Query(
         default=None,
         description="Data da cobrança mais antiga (YYYY-MM-DD) para correção monetária.",
@@ -219,7 +220,7 @@ def get_evidence_zip(
 
 @router.get("/{user_id}/portability", response_model=DefenseResponse)
 def get_portability_analysis(
-    user_id: str = Depends(require_owner),
+    user_id: str = require_plan("total"),
 ) -> DefenseResponse:
     """
     **D6 — Portabilidade Assistida (Res. CMN 5.057/2022)**

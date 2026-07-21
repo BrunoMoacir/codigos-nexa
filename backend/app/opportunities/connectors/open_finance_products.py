@@ -1,32 +1,36 @@
 """
 app/opportunities/connectors/open_finance_products.py
 
-V2 (docs/OPP.md §3.3/§7, Etapa 3) — conector para os Dados Abertos de
-investimentos do Open Finance Brasil.
+V3 (F8) — conector para os Dados Abertos de investimentos do Open Finance
+Brasil, agora varrendo TODOS os participantes do diretório.
 
 Não requer consentimento do usuário — são ofertas públicas das instituições,
 padronizadas por regulação do BACEN. O fluxo:
 
   1. Diretório de participantes (data.directory.openbankingbrasil.org.br)
      → descobre os endpoints `opendata-investments/bank-fixed-incomes`
-       de cada instituição participante.
-  2. Busca as ofertas de CDB/RDB/LCI/LCA de cada endpoint (limitado a
-     _MAX_INSTITUTIONS por execução — o job de refresh roda diariamente).
-  3. Normaliza para o schema interno de bank_products.json (bank_name,
-     product_type, cdi_pct, min_amount, liquidity, liquidity_days, ...).
+       de cada instituição participante (~45 em 2026-07).
+  2. Busca as ofertas de CDB/RDB/LCI/LCA de todos os endpoints em paralelo
+     (ThreadPool), seguindo paginação via links.next (máx. _MAX_PAGES).
+  3. Normaliza para o schema interno (bank_name, product_type, cdi_pct,
+     min_amount, liquidity, liquidity_days, ...) seguindo o spec real do
+     opendata-investments v1: taxa em index.issueRemunerationRate.prices[]
+     (fração do CDI por faixa, ponderada por operationRate), condições em
+     investmentConditions, público em targetAudience (PJ é descartado).
+  4. Deduplica: mantém a melhor taxa por (banco, tipo, janela de liquidez).
 
 Fallback (get_fallback_rates): catálogo curado backend/data/bank_products.json
 — o OPP nunca fica sem catálogo, mesmo com o diretório fora do ar.
 
-A estrutura da API de dados abertos é verbosa e varia em detalhes entre
-instituições; a normalização é defensiva (best-effort com múltiplas chaves
-candidatas) e descarta silenciosamente produtos que não consegue interpretar.
+A normalização é defensiva: mantém caminhos legados para payloads fora do
+spec e descarta silenciosamente produtos que não consegue interpretar.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +45,9 @@ _API_FAMILY = "opendata-investments_bank-fixed-incomes"
 _ENDPOINT_SUFFIX = "/bank-fixed-incomes"
 
 _CACHE_TTL = 6 * 3600          # 6h — ofertas públicas não mudam a cada minuto
-_MAX_INSTITUTIONS = 20         # limite por execução (job diário completa a cobertura)
+_MAX_INSTITUTIONS = 80         # teto de segurança (diretório tem ~45 hoje)
+_MAX_PAGES = 3                 # páginas seguidas por instituição (links.next)
+_MAX_WORKERS = 8               # fetches concorrentes
 _MIN_PRODUCTS_FOR_LIVE = 8     # abaixo disso o catálogo vivo não substitui o curado
 
 _SUPPORTED_TYPES = {"CDB", "RDB", "LCI", "LCA"}
@@ -66,21 +72,24 @@ class OpenFinanceProductsConnector(BaseConnector):
 
     def fetch_rates(self) -> dict[str, Any]:
         """Busca e normaliza as ofertas públicas de renda fixa bancária."""
-        import httpx
-
         endpoints = self._discover_endpoints()
         if not endpoints:
             raise ConnectorError("Nenhum endpoint de bank-fixed-incomes descoberto no diretório")
 
+        endpoints = endpoints[:_MAX_INSTITUTIONS]
         products: list[dict] = []
-        with httpx.Client(timeout=self.timeout, follow_redirects=True) as client:
-            for institution, url in endpoints[:_MAX_INSTITUTIONS]:
+        with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
+            futures = {
+                pool.submit(self._fetch_institution, institution, url): institution
+                for institution, url in endpoints
+            }
+            for future in as_completed(futures):
                 try:
-                    resp = client.get(url, headers={"Accept": "application/json"})
-                    resp.raise_for_status()
-                    products.extend(self._normalize_payload(institution, resp.json()))
+                    products.extend(future.result())
                 except Exception as exc:
-                    logger.debug("[OpenFinanceProducts] %s (%s): %s", institution, url, exc)
+                    logger.debug("[OpenFinanceProducts] %s: %s", futures[future], exc)
+
+        products = self._dedupe(products)
 
         if len(products) < _MIN_PRODUCTS_FOR_LIVE:
             raise ConnectorError(
@@ -111,6 +120,28 @@ class OpenFinanceProductsConnector(BaseConnector):
         products = catalog.get("products", [])
         if product_type:
             products = [p for p in products if p.get("product_type") == product_type]
+        return products
+
+    # ── Fetch por instituição (com paginação) ────────────────────────
+
+    def _fetch_institution(self, institution: str, url: str) -> list[dict]:
+        """Busca todas as páginas (até _MAX_PAGES) de uma instituição."""
+        import httpx
+
+        products: list[dict] = []
+        next_url: str | None = url
+        with httpx.Client(timeout=self.timeout, follow_redirects=True) as client:
+            for _ in range(_MAX_PAGES):
+                if not next_url:
+                    break
+                resp = client.get(next_url, headers={"Accept": "application/json"})
+                resp.raise_for_status()
+                payload = resp.json()
+                products.extend(self._normalize_payload(institution, payload))
+                links = payload.get("links") or {}
+                candidate = links.get("next")
+                # alguns servidores repetem self em next — evita loop infinito
+                next_url = candidate if candidate and candidate != next_url else None
         return products
 
     # ── Descoberta de endpoints ──────────────────────────────────────
@@ -145,12 +176,29 @@ class OpenFinanceProductsConnector(BaseConnector):
                         endpoints.append((brand, url))
         return endpoints
 
+    # ── Deduplicação ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _dedupe(products: list[dict]) -> list[dict]:
+        """Mantém a melhor taxa por (banco, tipo, janela de liquidez) —
+        catálogo compacto sem perder a melhor oferta de cada banco."""
+        best: dict[tuple, dict] = {}
+        for p in products:
+            key = (p["bank_name"].lower(), p["product_type"], p["liquidity"])
+            current = best.get(key)
+            if current is None or p["cdi_pct"] > current["cdi_pct"]:
+                best[key] = p
+        return sorted(
+            best.values(),
+            key=lambda p: (p["bank_name"].lower(), p["product_type"], -p["cdi_pct"]),
+        )
+
     # ── Normalização ─────────────────────────────────────────────────
 
     @classmethod
     def _normalize_payload(cls, institution: str, payload: dict) -> list[dict]:
-        """Converte o payload verboso do opendata em produtos no schema
-        interno. Descarta o que não consegue interpretar (best-effort)."""
+        """Converte o payload do opendata em produtos no schema interno.
+        Descarta o que não consegue interpretar (best-effort)."""
         normalized: list[dict] = []
         for raw in payload.get("data", []) or []:
             try:
@@ -169,26 +217,39 @@ class OpenFinanceProductsConnector(BaseConnector):
         if ptype == "RDB":
             ptype = "CDB"  # RDB tem tratamento fiscal idêntico ao CDB
 
-        brand = (
-            (raw.get("participant") or {}).get("brandName")
+        # Catálogo do OPP é para pessoa física
+        audience = str(raw.get("targetAudience") or "").upper()
+        if "JURIDICA" in audience:
+            return None
+
+        from app.opportunities.services.bank_names import canonical_brand
+
+        participant = raw.get("participant") or {}
+        brand = canonical_brand(
+            participant.get("brand")
+            or participant.get("brandName")
+            or participant.get("name")
             or raw.get("issuerInstitutionName")
             or institution
         )
 
-        cdi_pct = cls._extract_cdi_pct(raw)
+        cdi_pct, cdi_pct_max = cls._extract_cdi_pct(raw)
         if cdi_pct is None or not (30.0 <= cdi_pct <= 200.0):
             return None  # só produtos pós-fixados CDI com taxa plausível
 
+        conditions = raw.get("investmentConditions") or {}
         min_amount = cls._extract_float(
+            conditions, ("minimumAmount",)
+        ) or cls._extract_float(
             raw, ("minimumAmount", "applicationMinimumAmount", "minimumApplicationAmount")
         ) or 1.0
 
-        redemption_days = cls._extract_redemption_days(raw)
+        redemption_days = cls._extract_redemption_days(raw, conditions)
         liquidity = "daily" if redemption_days <= 1 else (
             "12m" if redemption_days <= 365 else "24m"
         )
 
-        return {
+        product = {
             "bank_name": str(brand).strip(),
             "product_type": ptype,
             "cdi_pct": round(cdi_pct, 2),
@@ -200,11 +261,73 @@ class OpenFinanceProductsConnector(BaseConnector):
             "is_tax_exempt": ptype in ("LCI", "LCA"),
             "fgc_covered": True,
         }
+        if cdi_pct_max is not None and cdi_pct_max > cdi_pct:
+            product["cdi_pct_max"] = round(cdi_pct_max, 2)
+        # Acima de 130% do CDI é quase sempre teaser promocional (prazo curto,
+        # teto baixo, só clientes novos) — marcado para o comparador/UI não
+        # tratar como taxa permanente.
+        if cdi_pct > 130.0:
+            product["promotional"] = True
+        return product
 
-    @staticmethod
-    def _extract_cdi_pct(raw: dict) -> float | None:
-        """Taxa pós-fixada como % do CDI. O opendata expressa em decimal
-        (1.10 = 110% do CDI) dentro de estruturas variadas de remuneração."""
+    @classmethod
+    def _extract_cdi_pct(cls, raw: dict) -> tuple[float | None, float | None]:
+        """
+        Taxa pós-fixada como % do CDI: (típica, máxima).
+
+        Spec opendata-investments v1: `index.indexer` + faixas em
+        `index.issueRemunerationRate.prices[]`, onde `value` é a fração do
+        CDI (1.10 = 110%) e `operationRate` a participação daquela faixa
+        nas operações. A taxa "típica" é a média ponderada por
+        operationRate — representa o que o cliente comum recebe; `maximum`
+        vira cdi_pct_max ("até X% do CDI").
+        """
+        index_node = raw.get("index")
+        if isinstance(index_node, dict):
+            indexer = str(index_node.get("indexer") or "").upper()
+            if indexer in ("CDI", "DI"):
+                remuneration = index_node.get("issueRemunerationRate") or {}
+                prices = remuneration.get("prices") or []
+                weighted_sum = weight_sum = 0.0
+                values: list[float] = []
+                for price in prices:
+                    try:
+                        value = float(price.get("value") or 0)
+                        share = float(price.get("operationRate") or 0)
+                    except (TypeError, ValueError):
+                        continue
+                    if value <= 0:
+                        continue
+                    values.append(value)
+                    if share > 0:
+                        weighted_sum += value * share
+                        weight_sum += share
+
+                maximum = None
+                try:
+                    max_raw = float(remuneration.get("maximum") or 0)
+                    maximum = max_raw if max_raw > 0 else None
+                except (TypeError, ValueError):
+                    pass
+
+                typical = None
+                if weight_sum > 0:
+                    typical = weighted_sum / weight_sum
+                elif values:
+                    typical = max(values)
+                elif maximum:
+                    typical = maximum
+
+                if typical is not None:
+                    scale = 100 if typical <= 3.0 else 1
+                    return (
+                        typical * scale,
+                        maximum * (100 if (maximum or 0) <= 3.0 else 1) if maximum else None,
+                    )
+            elif indexer:
+                return (None, None)  # prefixado/IPCA — fora do comparador CDI
+
+        # Caminho legado: payloads fora do spec (chaves planas)
         candidates: list[Any] = []
         for key in ("remuneration", "indexedRates", "rates"):
             node = raw.get(key)
@@ -226,9 +349,8 @@ class OpenFinanceProductsConnector(BaseConnector):
                     rate = float(value)
                 except (TypeError, ValueError):
                     continue
-                # decimal (1.10) vs percentual (110.0)
-                return rate * 100 if rate <= 3.0 else rate
-        return None
+                return (rate * 100 if rate <= 3.0 else rate, None)
+        return (None, None)
 
     @staticmethod
     def _extract_float(raw: dict, keys: tuple[str, ...]) -> float | None:
@@ -243,7 +365,32 @@ class OpenFinanceProductsConnector(BaseConnector):
         return None
 
     @staticmethod
-    def _extract_redemption_days(raw: dict) -> int:
+    def _extract_redemption_days(raw: dict, conditions: dict) -> int:
+        """
+        Dias até liquidez, a partir do spec:
+          redemptionTerm "DIARIA" → 1 dia
+          "DATA_VENCIMENTO" → limite inferior de expirationPeriod
+        expirationPeriod é categórico: "1_180", "181_360", "361_1080",
+        "ACIMA_1080" — extraímos o primeiro número como piso conservador.
+        """
+        term = str(conditions.get("redemptionTerm") or "").upper()
+        if "DIARIA" in term:
+            return 1
+        if term:
+            expiration = str(conditions.get("expirationPeriod") or "")
+            digits = ""
+            for ch in expiration:
+                if ch.isdigit():
+                    digits += ch
+                elif digits:
+                    break
+            if digits:
+                days = int(digits)
+                # "ACIMA_1080" → o número é piso; soma 1 para cair na faixa seguinte
+                return days + 1 if "ACIMA" in expiration.upper() else max(days, 1)
+            return 360  # DATA_VENCIMENTO sem prazo declarado → assume 12 meses
+
+        # Caminho legado (chaves numéricas planas)
         for key in ("redemptionTerm", "term", "expirationTerm", "gracePeriod"):
             node = raw.get(key)
             if isinstance(node, dict):

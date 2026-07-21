@@ -53,3 +53,11 @@ coverage.xml
 # Logs
 *.log
 logs/
+.env # se ainda não estiver lá
+
+# Artefatos de runtime da inteligência (gerados por jobs; não versionar)
+backend/data/negotiator_calibration.json
+backend/evals/last_report.json
+
+# Demo — artefatos de runtime (o código do demo É versionado; os dados não)
+backend/demo/**/__pycache__/

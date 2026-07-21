@@ -27,6 +27,9 @@ from app.divider.models import ContextOverride  # noqa: F401
 from app.optimizer.models_orm import OptimizationReport  # noqa: F401
 from app.architect.models_orm import ArchitectSimulation, ArchitectSimulationMetrics  # noqa: F401
 from app.core.models.pluggy_item import PluggyItem  # noqa: F401
+from app.billing.models_orm import UserSubscription  # noqa: F401
+from app.core.models.auth_token import AuthToken  # noqa: F401
+from app.jobs.models_orm import IntelligenceMetric  # noqa: F401
 
 # Configurar logging
 logging.basicConfig(

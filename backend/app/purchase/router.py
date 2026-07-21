@@ -97,6 +97,9 @@ async def analyze_purchase(
     }
     ```
     """
+    # Gating: Free = 3 consultas Compra Inteligente/mês
+    from app.billing.gating import consume_usage
+    consume_usage(current_user, "purchase_checks")
     if current_user != request.user_id:
         raise HTTPException(status_code=403, detail="Acesso negado")
     logger.info(

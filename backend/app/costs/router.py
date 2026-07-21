@@ -8,7 +8,8 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.security import require_owner
+from app.core.security import require_owner  # noqa: F401
+from app.billing.gating import require_plan
 from app.costs.bank_fee_analyzer import BankFeeAnalyzer
 from app.costs.models import BankCostReport
 from fastapi.responses import JSONResponse
@@ -20,7 +21,7 @@ router = APIRouter(prefix="/costs", tags=["Custos Bancários (F5)"])
 
 @router.get("/raio-x/{user_id}", response_model=BankCostReport)
 def get_bank_cost_report(
-    user_id: str = Depends(require_owner),
+    user_id: str = require_plan("pro"),
 ) -> BankCostReport:
     """
     **F5 — Raio-X de Custos Bancários**

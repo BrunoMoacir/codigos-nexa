@@ -1,0 +1,52 @@
+{
+  "trained_at": "2026-07-19T01:02:45.074697+00:00",
+  "samples": 80000,
+  "seed": 42,
+  "fidelity_to_rules_holdout": 0.9591,
+  "features_version": "1.0",
+  "classes": [
+    "DIGITAL_NATIVO",
+    "ESTRESSE_FINANCEIRO",
+    "EXPLORADOR_GLOBAL",
+    "FAMILIA_ESTRUTURADA",
+    "INVESTIDOR_CAUTELOSO",
+    "MICROEMPREENDEDOR",
+    "NAO_CLASSIFICADO",
+    "URBANO_FOODIE"
+  ],
+  "top_features": [
+    {
+      "name": "savings_rate_norm",
+      "importance": 0.1261
+    },
+    {
+      "name": "is_likely_mei",
+      "importance": 0.1177
+    },
+    {
+      "name": "food_share",
+      "importance": 0.0809
+    },
+    {
+      "name": "travel_freq",
+      "importance": 0.0638
+    },
+    {
+      "name": "foodie_score",
+      "importance": 0.062
+    },
+    {
+      "name": "edu_health_share",
+      "importance": 0.056
+    },
+    {
+      "name": "investor_level",
+      "importance": 0.0545
+    },
+    {
+      "name": "committed_pct",
+      "importance": 0.0515
+    }
+  ],
+  "method": "Destilação das regras do LifestyleClassifier em RandomForest sobre perfis sintéticos (55% arquétipos, 25% uniforme, 20% híbridos). Re-treinar com dados reais rotulados quando disponíveis."
+}

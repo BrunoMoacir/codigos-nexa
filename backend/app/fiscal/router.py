@@ -279,9 +279,12 @@ async def get_forgotten_rights(
     cpf: str = Query(..., description="CPF do usuário para consulta (somente números)"),
 ):
     """
-    T3 - Monitor de Direitos Esquecidos.
-    Consulta SVR BACEN, FGTS Inativo e Restituição IRPF usando o CPF.
-    Retorna o total estimado esquecido e os detalhes de cada candidato.
+    T3 - Monitor de Direitos Esquecidos (visão fiscal).
+
+    Retorna o status de verificação por fonte, sem fabricar valores:
+    - SVR BACEN → consulta REAL assistida em `POST /rights/{user_id}/svr/check`
+    - Restituição IRPF → consulta REAL autorizada em `POST /rights/{user_id}/ir/check`
+    - FGTS → orientação (sem API pública para terceiros)
     """
     try:
         report = await _rights_monitor.run_scan(user_id=user_id, cpf=cpf)

@@ -15,6 +15,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.security import get_current_user, require_owner
+from app.billing.gating import require_plan
 from app.core.database import get_db
 from sqlalchemy.orm import Session
 
@@ -148,7 +149,7 @@ def get_product_catalog() -> ProductCatalogResponse:
 
 @router.get("/{user_id}/bank-match", response_model=BankMatchResponse)
 def get_bank_match(
-    user_id: str = Depends(require_owner),
+    user_id: str = require_plan("pro"),
     amount: float = Query(default=0.0, ge=0, description="Valor a simular (R$). 0 = usa o dinheiro ocioso detectado."),
     holding_months: int = Query(default=12, ge=1, le=360),
 ) -> BankMatchResponse:
@@ -190,7 +191,7 @@ def get_bank_match(
 
 @router.get("/{user_id}/banks", response_model=BankComparisonResponse)
 def get_bank_scorecard(
-    user_id: str = Depends(require_owner),
+    user_id: str = require_plan("pro"),
     amount: float = Query(default=0.0, ge=0, description="Valor a simular (R$). 0 = usa o dinheiro ocioso detectado."),
     holding_months: int = Query(default=12, ge=1, le=360),
 ) -> BankComparisonResponse:
@@ -229,7 +230,7 @@ def get_bank_scorecard(
 
 @router.get("/{user_id}", response_model=OpportunitiesResponse)
 def get_opportunities(
-    user_id: str = Depends(require_owner),
+    user_id: str = require_plan("pro"),
     holding_months: int = Query(
         default=12,
         ge=1,

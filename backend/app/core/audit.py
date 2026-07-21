@@ -115,6 +115,36 @@ def log_logout(user_id: str, ip: str, request_id: str | None = None) -> None:
     ))
 
 
+def log_password_reset_requested(user_id: str, ip: str, request_id: str | None = None) -> None:
+    _audit.info(_fmt(
+        event="AUTH_PASSWORD_RESET_REQUESTED",
+        user=user_id,
+        ip=ip,
+        req=request_id,
+        ts=_now(),
+    ))
+
+
+def log_password_reset_completed(user_id: str, ip: str, request_id: str | None = None) -> None:
+    _audit.info(_fmt(
+        event="AUTH_PASSWORD_RESET_COMPLETED",
+        user=user_id,
+        ip=ip,
+        req=request_id,
+        ts=_now(),
+    ))
+
+
+def log_email_verified(user_id: str, ip: str, request_id: str | None = None) -> None:
+    _audit.info(_fmt(
+        event="AUTH_EMAIL_VERIFIED",
+        user=user_id,
+        ip=ip,
+        req=request_id,
+        ts=_now(),
+    ))
+
+
 # ── Eventos de acesso a dados ──────────────────────────────────────────────
 
 def log_data_access(

@@ -25,17 +25,77 @@ class LifestyleClassifier:
     """
     Classifica o UserProfile em um ou mais clusters de estilo de vida.
 
-    Fase 1: regras determinísticas baseadas em scores dos detectors.
-    Fase 3: substituir por modelo ML (HDBSCAN ou K-Means treinado).
+    Fase 3 (ATUAL): modelo ML (RandomForest destilado das regras — ver
+    scripts/train_lifestyle_classifier.py) com FALLBACK nas regras
+    determinísticas — padrão multi-layer do projeto (ML → regras → default).
+    O modelo devolve probabilidades calibradas por cluster; sem modelo
+    disponível (arquivo ausente/corrompido), as regras respondem sozinhas.
 
     Retorna:
-        lifestyle_cluster:   cluster primário (o de maior score ≥ 0.35)
-        secondary_clusters:  clusters com score ≥ 0.30, distintos do primário,
-                             ordenados por score desc (máx 2)
-        cluster_scores:      afinidade 0.0–1.0 por cluster para uso futuro
+        lifestyle_cluster:      cluster primário (score/probabilidade ≥ 0.35)
+        secondary_clusters:     score ≥ 0.30, distintos do primário (máx 2)
+        cluster_scores:         afinidade 0.0–1.0 por cluster
+        classification_source:  "ml" | "rules"
     """
 
     def classify(self, profile: UserProfile) -> dict:
+        """ML primeiro; regras como fallback. Contrato idêntico nos dois.
+
+        INVARIANTE DE SEGURANÇA (determinístico, fora do ML): FSS CRITICO
+        sempre passa pelas regras — o tratamento de estresse financeiro
+        (empatia, zero sugestão de gasto) não pode depender de fronteira
+        aprendida.
+        """
+        fss_critical = getattr(profile, "fss_level", None) == "CRITICO"
+        if not fss_critical:
+            try:
+                from app.optimizer.detectors.ml_lifestyle_classifier import (
+                    MLLifestyleClassifier,
+                )
+
+                ml = MLLifestyleClassifier.shared()
+                if ml.is_available:
+                    result = ml.classify(profile)
+                    if result is not None:
+                        return self._apply_rules_floor(profile, result)
+            except Exception:  # nunca deixa o ML derrubar a classificação
+                pass
+
+        result = self.classify_rules(profile)
+        result["classification_source"] = "rules"
+        return result
+
+    # Piso de regras: quando o ML ABSTÉM (primário = NAO_CLASSIFICADO por
+    # ficar abaixo do limiar de probabilidade) mas as REGRAS — que são o
+    # professor do modelo — têm um veredito CONFIANTE, confia nas regras.
+    # Sem isso, o híbrido perde classificações claras em perfis realistas
+    # onde o ML espalha probabilidade entre classes correlacionadas (ex.:
+    # foodie que também parece esticado pelo aluguel). Descoberto pelo
+    # teste ponta a ponta do demo.
+    _RULES_FLOOR_CONFIDENCE = 0.60
+
+    def _apply_rules_floor(self, profile: UserProfile, ml_result: dict) -> dict:
+        if ml_result.get("lifestyle_cluster") != CLUSTER_UNCLASSIFIED:
+            return ml_result
+        rules = self.classify_rules(profile)
+        rule_primary = rules["lifestyle_cluster"]
+        if rule_primary == CLUSTER_UNCLASSIFIED:
+            return ml_result
+        rule_score = rules["cluster_scores"].get(rule_primary, 0.0)
+        if rule_score < self._RULES_FLOOR_CONFIDENCE:
+            return ml_result
+        # Regras confiantes vencem a abstenção do ML — mantém as afinidades
+        # das regras como cluster_scores (contrato preservado).
+        return {
+            "lifestyle_cluster": rule_primary,
+            "secondary_clusters": rules["secondary_clusters"],
+            "cluster_scores": rules["cluster_scores"],
+            "ml_probabilities": ml_result.get("ml_probabilities"),
+            "classification_source": "ml+rules_floor",
+            "ml_confidence": ml_result.get("ml_confidence"),
+        }
+
+    def classify_rules(self, profile: UserProfile) -> dict:
         scores = {
             CLUSTER_EXPLORER_GLOBAL:   self._score_explorer(profile),
             CLUSTER_URBAN_FOODIE:      self._score_foodie(profile),

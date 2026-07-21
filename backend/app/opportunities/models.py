@@ -51,6 +51,11 @@ class OpportunityItem(BaseModel):
     index: str = "CDI"          # "CDI" | "SELIC" — indexador do produto
     fgc_covered: bool = True    # garantia FGC até R$250k (False para Tesouro: garantia soberana)
     steps: list[str] = []       # OPP.5 — passos práticos para executar a troca
+    # V3 (F8) — taxa acima de 130% do CDI marcada pelo conector como teaser
+    # promocional (prazo curto/teto baixo/só clientes novos): rebaixada no
+    # ranking em relação a taxas permanentes, mas mantida visível
+    promotional: bool = False
+    cdi_pct_max: float | None = None  # "até X% do CDI" quando o emissor publica faixa máxima
 
 
 class OpportunitiesResponse(BaseModel):
