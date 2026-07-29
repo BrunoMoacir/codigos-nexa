@@ -501,6 +501,7 @@ def _build_llm():
                 temperature=0.0,
                 api_key=settings.ANTHROPIC_API_KEY,
                 max_tokens=4096,
+                timeout=15.0,
             )
 
     # Fallback: OpenAI
@@ -517,6 +518,7 @@ def _build_llm():
         api_key=settings.OPENAI_API_KEY,
         model=settings.LLM_MODEL if settings.LLM_PROVIDER == "openai" else "gpt-4o-mini",
         temperature=0.0,
+        timeout=15.0,
     )
 
 
