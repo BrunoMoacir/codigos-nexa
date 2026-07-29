@@ -22,10 +22,17 @@ def get_connection():
     from pathlib import Path
 
     env_path = os.getenv("DUCKDB_PATH")
-    if env_path and Path(env_path).exists():
+    if env_path:
         return duckdb.connect(env_path)
+        
+    if os.getenv("APP_ENV") == "production":
+        import logging
+        logging.getLogger(__name__).warning(
+            "⚠️ DUCKDB_PATH não configurado em PRODUÇÃO. Usando banco efêmero. "
+            "Se o container reiniciar, os dados analíticos serão PERDIDOS!"
+        )
 
-    # Tenta múltiplos caminhos (relativo ao CWD ou absoluto)
+    # Caso contrário, tenta paths relativos típicos de desenvolvimento)
     candidates = [
         Path("backend/finance.duckdb"),  # relativo
         Path("finance.duckdb"),  # raiz
