@@ -1,0 +1,95 @@
+name: AWS Nexa Deploy Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - 'frontend-react/**'
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: nexa-backend
+  ECS_CLUSTER: nexa-cluster
+
+jobs:
+  test:
+    name: Run Pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt pytest pytest-cov
+        
+      - name: Run Tests
+        env:
+          APP_ENV: testing
+          SECRET_KEY: mock
+        run: cd backend && pytest
+
+  build-and-push-backend:
+    name: Build & Push API to AWS ECR
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push API image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Compila o container da API usando o Dockerfile.api desacoplado
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:api-$IMAGE_TAG -f aws/Dockerfile.api .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:api-$IMAGE_TAG
+          
+          # No futuro: aws ecs update-service --cluster nexa-cluster --service nexa-api-service --force-new-deployment
+
+  deploy-frontend-s3:
+    name: Deploy React to S3
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+          
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Build Frontend
+        run: |
+          cd frontend-react
+          npm ci
+          export VITE_API_URL=https://api.nexa.finance
+          npm run build
+          
+      - name: Sync S3 and Invalidate CloudFront
+        run: |
+          # aws s3 sync frontend-react/dist/ s3://${{ secrets.S3_BUCKET_NAME }} --delete
+          # aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_ID }} --paths "/*"
+          echo "Pronto para ativar o deploy via AWS CLI"
