@@ -1,0 +1,64 @@
+FROM python:3.12-slim
+
+# Variáveis de ambiente exclusivas do Worker
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/backend \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    SCHEDULER_ENABLED=true \
+    ROLE=worker
+
+WORKDIR /app/backend
+
+# Instalar dependências do sistema
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copiar e instalar dependências Python
+COPY backend/requirements.txt /tmp/requirements.txt
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install -r /tmp/requirements.txt
+
+# Copiar código da aplicação
+COPY backend/ /app/backend/
+
+# Script de inicialização (Worker Headless, roda os jobs ou consome SQS)
+COPY <<'EOF' /app/start.sh
+#!/bin/bash
+set -e
+
+echo "=========================================="
+echo "⚙️ NEXA WORKER - AWS ECS/FARGATE STARTUP"
+echo "=========================================="
+echo ""
+
+echo "🌟 Starting Python Worker Process..."
+# Em um cenário puramente cron, rodamos um script python que mantém o APScheduler vivo
+# Ou futuramente, um worker Celery/SQS.
+exec python -c "
+import time, logging
+from app.core.scheduler import scheduler, register_jobs
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('NexaWorker')
+
+register_jobs()
+scheduler.start()
+logger.info(f'[Worker] Scheduler rodando com {len(scheduler.get_jobs())} jobs. Pressione Ctrl+C para sair.')
+
+try:
+    while True:
+        time.sleep(60)
+except (KeyboardInterrupt, SystemExit):
+    scheduler.shutdown()
+"
+EOF
+
+RUN chmod +x /app/start.sh
+
+# Workers não recebem tráfego externo de HTTP
+CMD ["/app/start.sh"]
