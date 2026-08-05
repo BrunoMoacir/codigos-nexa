@@ -76,9 +76,10 @@ persona_key = st.sidebar.selectbox(
     format_func=lambda k: PERSONAS[k].full_name,
 )
 persona = PERSONAS[persona_key]
+_banks_str = ", ".join(b.name for b in persona.banks)
 st.sidebar.markdown(
     f"**Plano:** `{persona.plan.upper()}`  \n"
-    f"**Banco:** {persona.institution.title()}  \n"
+    f"**Bancos conectados:** {_banks_str}  \n"
     f"**Renda alvo:** {_brl(persona.monthly_income)}  \n"
     f"**Perfil esperado:** {_CLUSTER_LABEL.get(persona.expected_cluster, persona.expected_cluster)}"
 )
@@ -301,22 +302,28 @@ elif page == "🗄️ Meus Dados":
         "de produção (contas, histórico de score, tarifas, negociações, desafios, chat)."
     )
 
-    # ── Contas e saldos ──
-    st.subheader("🏦 Contas e saldos")
+    # ── Contas e saldos (agrupados por banco conectado) ──
     accs = R.accounts(persona.user_id)
     if accs:
-        import pandas as pd
         _label = {"CHECKING": "Conta corrente", "SAVINGS": "Poupança",
                   "INVESTMENT": "Investimentos", "CREDIT": "Cartão de crédito"}
-        cols = st.columns(len(accs))
-        for col, a in zip(cols, accs):
-            col.metric(_label.get(a["account_type"], a["account_type"]),
-                       _brl(a["balance"]), a["bank_name"])
+        # agrupa por banco
+        by_bank: dict[str, list] = {}
+        for a in accs:
+            by_bank.setdefault(a["bank_name"], []).append(a)
+
+        st.subheader(f"🏦 {len(by_bank)} bancos conectados · {len(accs)} contas (Open Finance)")
+        for bank_name, bank_accs in by_bank.items():
+            st.markdown(f"**🏛️ {bank_name}**")
+            cols = st.columns(len(bank_accs))
+            for col, a in zip(cols, bank_accs):
+                col.metric(_label.get(a["account_type"], a["account_type"]),
+                           _brl(a["balance"]))
         patrimonio = sum(a["balance"] for a in accs)
-        st.info(f"**Patrimônio líquido:** {_brl(patrimonio)} "
-                f"(soma de {len(accs)} contas conectadas)")
+        st.success(f"**Patrimônio líquido consolidado:** {_brl(patrimonio)} "
+                   f"— a Nexa soma tudo que está espalhado em {len(by_bank)} bancos.")
     else:
-        st.caption("Sem contas — rode `python3 -m demo.seed_full`.")
+        st.caption("Sem contas — rode `python3 -m demo.seed`.")
 
     # ── Evolução do health score ──
     st.subheader("📈 Evolução do Health Score (6 meses)")

@@ -24,16 +24,40 @@ from datetime import date, datetime, timedelta, timezone
 
 
 @dataclass
+class BankAccount:
+    """Uma conta dentro de um banco conectado."""
+    type: str                       # CHECKING | SAVINGS | INVESTMENT | CREDIT
+    balance: float
+
+
+@dataclass
+class ConnectedBank:
+    """Um banco conectado via Open Finance, com suas contas."""
+    institution: str                # nubank | itau | inter | bradesco | caixa | pagbank
+    name: str                       # nome de exibição
+    role: str                       # primary | spending | investment | savings | business
+    accounts: list[BankAccount] = field(default_factory=list)
+
+
+@dataclass
 class Persona:
     user_id: str
     full_name: str
     email: str
     plan: str                       # free | pro | total
-    institution: str                # nubank | itau | inter | bradesco
     monthly_income: float
     expected_cluster: str           # o que o profiler DEVE detectar
+    banks: list[ConnectedBank] = field(default_factory=list)  # múltiplos bancos!
     goals: list[dict] = field(default_factory=list)
-    _gen: object = None             # função geradora de transações
+    _gen: object = None             # gerador do fluxo principal (banco primário)
+
+    @property
+    def institution(self) -> str:
+        """Banco primário — retrocompat com serviços que usam persona.institution."""
+        return self.banks[0].institution if self.banks else "nubank"
+
+    def bank_by_role(self, role: str) -> ConnectedBank | None:
+        return next((b for b in self.banks if b.role == role), None)
 
 
 # ── utilidades de geração ────────────────────────────────────────────────
@@ -163,7 +187,49 @@ def _gen_carla(acc: str) -> list[dict]:
     return txns
 
 
-# ── registro ─────────────────────────────────────────────────────────────
+# ── fluxos SECUNDÁRIOS (outros bancos conectados) ────────────────────────
+#
+# Além do banco primário (fluxo principal do dia a dia), o brasileiro típico
+# tem conta em banco digital para gastar, corretora/banco para investir e às
+# vezes poupança em outro. Cada um vira uma conexão Open Finance com seu
+# próprio extrato. Estes geradores criam o extrato realista de cada papel.
+
+def _gen_investment_stream(acc: str, monthly_amount: float, seed: int) -> list[dict]:
+    """Banco de investimentos: aporte mensal + rendimento creditado."""
+    random.seed(seed)
+    txns: list = []
+    for start in _month_starts():
+        _tx(txns, acc, _day(start, 6), "APLICACAO CDB LIQUIDEZ DIARIA", -monthly_amount, 9)
+        _tx(txns, acc, _day(start, 28), "RENDIMENTO CDB CREDITO", monthly_amount * 0.011, 9)
+    return txns
+
+
+def _gen_savings_stream(acc: str, monthly_amount: float, seed: int) -> list[dict]:
+    """Poupança: depósito mensal + rendimento da poupança."""
+    random.seed(seed)
+    txns: list = []
+    for start in _month_starts():
+        _tx(txns, acc, _day(start, 7), "DEPOSITO POUPANCA", -monthly_amount, 9)
+        _tx(txns, acc, _day(start, 30), "RENDIMENTO POUPANCA", monthly_amount * 0.005, 9)
+    return txns
+
+
+def _gen_second_card_stream(acc: str, seed: int, merchants: list[str], lo: float, hi: float) -> list[dict]:
+    """Cartão em outro banco: compras discricionárias."""
+    random.seed(seed)
+    txns: list = []
+    for start in _month_starts():
+        for j, dd in enumerate((4, 12, 19, 26)):
+            _tx(txns, acc, _day(start, dd), merchants[j % len(merchants)],
+                -random.uniform(lo, hi))
+    return txns
+
+
+# ── registro (agora com MÚLTIPLOS bancos conectados por pessoa) ───────────
+
+def _acc(institution: str, acc_type: str) -> str:
+    return f"acc-{institution}-{acc_type.lower()}"
+
 
 PERSONAS: dict[str, Persona] = {
     "ana": Persona(
@@ -171,9 +237,16 @@ PERSONAS: dict[str, Persona] = {
         full_name="Ana Souza",
         email="ana.demo@nexa.test",
         plan="total",
-        institution="nubank",
         monthly_income=6500.0,
         expected_cluster="URBANO_FOODIE",
+        banks=[
+            ConnectedBank("nubank", "Nubank", "primary", [
+                BankAccount("CHECKING", 3200.0), BankAccount("CREDIT", -2840.0)]),
+            ConnectedBank("itau", "Itaú", "investment", [
+                BankAccount("INVESTMENT", 18700.0)]),
+            ConnectedBank("inter", "Banco Inter", "savings", [
+                BankAccount("SAVINGS", 12500.0)]),
+        ],
         goals=[
             {"name": "Reserva de emergência", "target": 30000, "current": 8500, "type": "outros"},
             {"name": "Viagem Europa 2027", "target": 18000, "current": 3200, "type": "viagem"},
@@ -185,9 +258,16 @@ PERSONAS: dict[str, Persona] = {
         full_name="Bruno Lima (MEI)",
         email="bruno.demo@nexa.test",
         plan="pro",
-        institution="inter",
         monthly_income=3800.0,
         expected_cluster="MICROEMPREENDEDOR",
+        banks=[
+            ConnectedBank("inter", "Banco Inter", "primary", [
+                BankAccount("CHECKING", 1850.0), BankAccount("CREDIT", -1120.0)]),
+            ConnectedBank("nubank", "Nubank", "spending", [
+                BankAccount("CHECKING", 620.0)]),
+            ConnectedBank("pagbank", "PagBank", "business", [
+                BankAccount("CHECKING", 4200.0)]),
+        ],
         goals=[
             {"name": "Capital de giro", "target": 15000, "current": 4000, "type": "outros"},
         ],
@@ -198,9 +278,14 @@ PERSONAS: dict[str, Persona] = {
         full_name="Carla Mendes",
         email="carla.demo@nexa.test",
         plan="free",
-        institution="bradesco",
         monthly_income=3600.0,
         expected_cluster="ESTRESSE_FINANCEIRO",
+        banks=[
+            ConnectedBank("bradesco", "Bradesco", "primary", [
+                BankAccount("CHECKING", 180.0), BankAccount("CREDIT", -3450.0)]),
+            ConnectedBank("caixa", "Caixa Econômica", "savings", [
+                BankAccount("SAVINGS", 640.0)]),
+        ],
         goals=[
             {"name": "Sair do vermelho", "target": 5000, "current": 200, "type": "outros"},
         ],
@@ -209,19 +294,64 @@ PERSONAS: dict[str, Persona] = {
 }
 
 
-def generate_raw_transactions(persona: Persona) -> list[dict]:
-    """Transações brutas estilo Pluggy para a persona (entram no ETL real).
+# Fluxos secundários por persona/role (extrato realista de cada banco extra)
+def _secondary_streams(persona: Persona) -> dict[str, list[dict]]:
+    """{institution: [raw_txns]} para os bancos NÃO-primários da persona.
 
-    Remove lançamentos com data futura: o mês corrente fica PARCIAL (só até
-    hoje), como seria em produção — sem isso o burn rate trata o mês inteiro
-    como consumido e inunda o feed com cards CRITICAL artificiais."""
-    acc = f"acc-{persona.user_id}"
+    Contas de INVESTIMENTO e POUPANÇA são balance-only (aparecem com saldo,
+    mas não geram extrato diário — como na vida real; o aporte foi uma
+    transferência pontual). Só contas de GASTO e de NEGÓCIO geram extrato,
+    para não distorcer o perfil comportamental com saídas que o profiler
+    leria como gasto comprometido.
+    """
+    out: dict[str, list[dict]] = {}
+    for bank in persona.banks[1:]:  # pula o primário
+        acc = _acc(bank.institution, bank.accounts[0].type)
+        seed = abs(hash(persona.user_id + bank.institution)) % 100000
+        if bank.role == "spending":
+            out[bank.institution] = _gen_second_card_stream(
+                acc, seed, ["MERCADO LIVRE", "SHOPEE *COMPRA", "AMAZON BR", "POSTO SHELL"],
+                40, 180)
+        elif bank.role == "business":
+            # PagBank do MEI: recebimentos da maquininha (PJ)
+            random.seed(seed)
+            txns: list = []
+            for start in _month_starts():
+                for dd in (5, 15, 25):
+                    _tx(txns, acc, _day(start, dd), "PAGBANK *VENDA MAQUININHA",
+                        random.uniform(200, 600))
+            out[bank.institution] = txns
+        # investment / savings → sem transações (só saldo via seed_full)
+    return out
+
+
+def generate_raw_transactions(persona: Persona) -> dict[str, list[dict]]:
+    """
+    Transações brutas estilo Pluggy AGRUPADAS POR BANCO conectado:
+        {institution: [raw_txns]}
+    O banco primário recebe o fluxo principal (comportamento da persona);
+    os demais recebem seus extratos secundários. Cada grupo entra no ETL
+    com o seu institution_id (BankStrategy por banco), como em produção.
+
+    Datas futuras são removidas (mês corrente parcial, como no real).
+    """
     today = date.today()
-    raw = persona._gen(acc)
-    return [
-        t for t in raw
-        if datetime.fromisoformat(t["transaction_date"]).date() <= today
-    ]
+    primary = persona.banks[0]
+    primary_acc = _acc(primary.institution, "checking")
+
+    grouped: dict[str, list[dict]] = {primary.institution: persona._gen(primary_acc)}
+    for inst, txns in _secondary_streams(persona).items():
+        grouped.setdefault(inst, []).extend(txns)
+
+    # filtra datas futuras em cada banco
+    return {
+        inst: [t for t in txns
+               if datetime.fromisoformat(t["transaction_date"]).date() <= today]
+        for inst, txns in grouped.items()
+    }
 
 
-__all__ = ["Persona", "PERSONAS", "generate_raw_transactions"]
+__all__ = [
+    "Persona", "ConnectedBank", "BankAccount", "PERSONAS",
+    "generate_raw_transactions",
+]

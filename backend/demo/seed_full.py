@@ -97,32 +97,24 @@ def _months_back(n: int) -> list[str]:
 # ── contas e saldos (múltiplas contas por usuário) ───────────────────────
 
 def seed_balances(persona) -> int:
+    """Saldos de TODAS as contas em TODOS os bancos conectados da persona."""
     from app.core.database import SessionLocal
     from app.core.models.account_balance import AccountBalance
-
-    bank = {"nubank": "Nubank", "inter": "Banco Inter", "bradesco": "Bradesco",
-            "itau": "Itaú"}.get(persona.institution, persona.institution.title())
-    # perfis de conta por persona (realista: quem tem mais/menos)
-    accounts = {
-        "demo-ana": [("CHECKING", 3200.0), ("SAVINGS", 12500.0), ("INVESTMENT", 18700.0),
-                     ("CREDIT", -2840.0)],
-        "demo-bruno": [("CHECKING", 1850.0), ("SAVINGS", 4200.0), ("CREDIT", -1120.0)],
-        "demo-carla": [("CHECKING", 180.0), ("CREDIT", -3450.0)],
-    }.get(persona.user_id, [("CHECKING", 1000.0)])
 
     now = datetime.now(timezone.utc)
     n = 0
     with SessionLocal() as db:
         db.query(AccountBalance).filter(AccountBalance.user_id == persona.user_id).delete()
-        for acc_type, bal in accounts:
-            db.add(AccountBalance(
-                id=str(uuid.uuid4()), user_id=persona.user_id,
-                item_id=f"demo-item-{persona.user_id}",
-                account_id=f"acc-{persona.user_id}-{acc_type.lower()}",
-                bank_name=bank, account_type=acc_type, balance=bal,
-                currency="BRL", captured_at=now,
-            ))
-            n += 1
+        for bank in persona.banks:
+            for acc in bank.accounts:
+                db.add(AccountBalance(
+                    id=str(uuid.uuid4()), user_id=persona.user_id,
+                    item_id=f"demo-item-{persona.user_id}-{bank.institution}",
+                    account_id=f"acc-{bank.institution}-{acc.type.lower()}",
+                    bank_name=bank.name, account_type=acc.type, balance=acc.balance,
+                    currency="BRL", captured_at=now,
+                ))
+                n += 1
         db.commit()
     return n
 

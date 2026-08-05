@@ -28,7 +28,7 @@ logger = logging.getLogger("demo.seed")
 
 _INSTITUTION_LABEL = {
     "nubank": "Nubank", "itau": "Itaú", "inter": "Banco Inter",
-    "bradesco": "Bradesco",
+    "bradesco": "Bradesco", "caixa": "Caixa Econômica", "pagbank": "PagBank",
 }
 
 
@@ -53,33 +53,32 @@ def _run_etl(raw: list[dict], institution: str):
     return df_pfpj, batch.total_valid, batch.total_rejected
 
 
-def _persist_transactions(user_id: str, account_id: str, df) -> int:
-    """Mapeia o DataFrame do ETL para o ORM transactions_clean e persiste."""
-    import polars as pl
-
+def _persist_transactions(user_id: str, df, clear_existing: bool = False) -> int:
+    """Mapeia o DataFrame do ETL para o ORM transactions_clean e persiste.
+    O account_id vem de CADA transação (preserva o banco de origem)."""
     from app.core.database import SessionLocal
     from app.core.models.transaction import Transaction
-
-    def col(name, default=None):
-        return name if name in df.columns else None
 
     date_col = "transaction_date" if "transaction_date" in df.columns else "date"
     cat_col = next((c for c in ("predicted_category", "category") if c in df.columns), None)
     pfpj_col = next((c for c in ("pf_pj_label", "context_type") if c in df.columns), None)
     inst_col = "installment_total" if "installment_total" in df.columns else None
+    acc_col = next((c for c in ("account_id", "accountId") if c in df.columns), None)
 
     rows = df.to_dicts()
     n = 0
     with SessionLocal() as db:
-        db.query(Transaction).filter(Transaction.user_id == user_id).delete()
+        if clear_existing:
+            db.query(Transaction).filter(Transaction.user_id == user_id).delete()
         for r in rows:
             raw_date = r.get(date_col)
             d = raw_date.date() if hasattr(raw_date, "date") else raw_date
             category = r.get(cat_col) if cat_col else None
             pf_pj = (r.get(pfpj_col) or "PF") if pfpj_col else "PF"
             installments = int(r.get(inst_col) or 1) if inst_col else 1
+            account_id = str(r.get(acc_col) or f"acc-{user_id}") if acc_col else f"acc-{user_id}"
             db.add(Transaction(
-                transaction_id=str(r.get("transaction_id") or f"{user_id}-{n}"),
+                transaction_id=str(r.get("transaction_id") or f"{user_id}-{n}-{uuid_hex()}"),
                 user_id=user_id,
                 account_id=account_id,
                 description=str(r.get("description") or "sem descrição"),
@@ -97,6 +96,11 @@ def _persist_transactions(user_id: str, account_id: str, df) -> int:
             n += 1
         db.commit()
     return n
+
+
+def uuid_hex() -> str:
+    import uuid
+    return uuid.uuid4().hex[:8]
 
 
 def _ensure_user(persona) -> None:
@@ -136,28 +140,26 @@ def _ensure_plan(persona) -> None:
         db.commit()
 
 
-def _ensure_pluggy_item(persona) -> None:
-    """Registra a instituição conectada (usado por get_transfer_promotions
-    e outros que leem pluggy_items)."""
+def _ensure_pluggy_items(persona) -> int:
+    """Registra UMA conexão Open Finance por banco conectado da persona."""
     import uuid
 
     from app.core.database import SessionLocal
     from app.core.models.pluggy_item import PluggyItem
 
+    n = 0
     with SessionLocal() as db:
-        exists = (
-            db.query(PluggyItem)
-            .filter(PluggyItem.user_id == persona.user_id)
-            .first()
-        )
-        if exists is None:
+        db.query(PluggyItem).filter(PluggyItem.user_id == persona.user_id).delete()
+        for bank in persona.banks:
             db.add(PluggyItem(
                 id=str(uuid.uuid4()),
                 user_id=persona.user_id,
-                item_id=f"demo-item-{persona.user_id}",
-                connector_name=_INSTITUTION_LABEL.get(persona.institution, persona.institution),
+                item_id=f"demo-item-{persona.user_id}-{bank.institution}",
+                connector_name=bank.name,
             ))
-            db.commit()
+            n += 1
+        db.commit()
+    return n
 
 
 def _ensure_goals(persona) -> None:
@@ -186,22 +188,37 @@ def _ensure_goals(persona) -> None:
 def seed_persona(persona) -> dict:
     from demo.personas import generate_raw_transactions
 
-    raw = generate_raw_transactions(persona)
-    df, valid, rejected = _run_etl(raw, persona.institution)
-    account_id = f"acc-{persona.user_id}"
-
     _ensure_user(persona)
     _ensure_plan(persona)
-    _ensure_pluggy_item(persona)
-    n = _persist_transactions(persona.user_id, account_id, df)
+    n_banks = _ensure_pluggy_items(persona)
+
+    # Roda o ETL SEPARADAMENTE por banco (BankStrategy por instituição, como
+    # em produção) e persiste tudo sob o mesmo usuário — várias contas.
+    by_bank = generate_raw_transactions(persona)
+    total_raw = total_valid = total_rej = total_persisted = 0
+    first = True
+    for institution, raw in by_bank.items():
+        if not raw:
+            continue
+        df, valid, rejected = _run_etl(raw, institution)
+        total_raw += len(raw)
+        total_valid += valid
+        total_rej += rejected
+        # limpa as transações do usuário só na primeira instituição
+        total_persisted += _persist_transactions(
+            persona.user_id, df, clear_existing=first
+        )
+        first = False
+
     _ensure_goals(persona)
 
     return {
         "user_id": persona.user_id,
-        "raw": len(raw),
-        "etl_valid": valid,
-        "etl_rejected": rejected,
-        "persisted": n,
+        "banks": n_banks,
+        "raw": total_raw,
+        "etl_valid": total_valid,
+        "etl_rejected": total_rej,
+        "persisted": total_persisted,
     }
 
 
@@ -214,9 +231,8 @@ def seed_all(reset: bool = False) -> list[dict]:
         r["persona"] = key
         results.append(r)
         print(
-            f"✅ {persona.full_name:<22} raw={r['raw']:>3} → "
-            f"ETL válidas={r['etl_valid']:>3} (rej {r['etl_rejected']}) → "
-            f"persistidas={r['persisted']:>3}  [{persona.plan}]"
+            f"✅ {persona.full_name:<22} {r['banks']} bancos · raw={r['raw']:>3} → "
+            f"ETL válidas={r['etl_valid']:>3} → persistidas={r['persisted']:>3}  [{persona.plan}]"
         )
     return results
 
