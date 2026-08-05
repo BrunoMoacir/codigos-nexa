@@ -8,8 +8,8 @@ cd "$(dirname "$0")/.."   # → backend/
 echo "==> 1/3 Aplicando migrações (alembic upgrade head)"
 python3 -m alembic upgrade head || echo "   (aviso: alembic falhou — seguindo)"
 
-echo "==> 2/3 Semeando personas pelo ETL real"
-python3 -m demo.seed
+echo "==> 2/3 Semeando personas (ETL real) + footprint completo de produção"
+python3 -m demo.seed   # base (ETL) + enriquecimento (contas, score, negociações, chat...)
 
 echo "==> 3/3 Subindo o Streamlit em http://localhost:8501"
 exec streamlit run demo/streamlit_app.py

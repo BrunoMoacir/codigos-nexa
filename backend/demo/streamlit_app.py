@@ -26,6 +26,7 @@ _BACKEND = Path(__file__).resolve().parents[1]
 if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
+from demo import data_readers as R  # noqa: E402
 from demo.personas import PERSONAS  # noqa: E402
 from demo.services import build_feed, dashboard_data  # noqa: E402
 
@@ -91,7 +92,11 @@ st.sidebar.caption(
     "pipeline real: Pluggy-style → validação → ETL → classificação → PF/PJ → banco."
 )
 
-page = st.sidebar.radio("Superfície", ["📊 Dashboard", "🔔 Feed", "💬 Chat"], index=0)
+page = st.sidebar.radio(
+    "Superfície",
+    ["📊 Dashboard", "🔔 Feed", "💬 Chat", "🗄️ Meus Dados", "🧬 Aprendizado"],
+    index=0,
+)
 
 data = _load_dashboard(persona.user_id)
 if not data.get("ok"):
@@ -283,3 +288,166 @@ elif page == "💬 Chat":
                 answer = f"❌ Erro ao consultar o agente: {exc}"
             st.markdown(answer)
             st.session_state[session_key].append(("assistant", answer))
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 🗄️ MEUS DADOS — o footprint completo que a Nexa armazena
+# ══════════════════════════════════════════════════════════════════════
+
+elif page == "🗄️ Meus Dados":
+    st.title("🗄️ Tudo que a Nexa guarda sobre você")
+    st.caption(
+        "Este é o footprint real de uma conta usada há meses — as mesmas tabelas "
+        "de produção (contas, histórico de score, tarifas, negociações, desafios, chat)."
+    )
+
+    # ── Contas e saldos ──
+    st.subheader("🏦 Contas e saldos")
+    accs = R.accounts(persona.user_id)
+    if accs:
+        import pandas as pd
+        _label = {"CHECKING": "Conta corrente", "SAVINGS": "Poupança",
+                  "INVESTMENT": "Investimentos", "CREDIT": "Cartão de crédito"}
+        cols = st.columns(len(accs))
+        for col, a in zip(cols, accs):
+            col.metric(_label.get(a["account_type"], a["account_type"]),
+                       _brl(a["balance"]), a["bank_name"])
+        patrimonio = sum(a["balance"] for a in accs)
+        st.info(f"**Patrimônio líquido:** {_brl(patrimonio)} "
+                f"(soma de {len(accs)} contas conectadas)")
+    else:
+        st.caption("Sem contas — rode `python3 -m demo.seed_full`.")
+
+    # ── Evolução do health score ──
+    st.subheader("📈 Evolução do Health Score (6 meses)")
+    hist = R.score_history(persona.user_id)
+    if hist:
+        import pandas as pd
+        df = pd.DataFrame(hist)
+        st.line_chart(df.set_index("date")["health_score"])
+        delta = hist[-1]["health_score"] - hist[0]["health_score"]
+        st.caption(f"Variação no período: {'📈 +' if delta >= 0 else '📉 '}{delta} pontos "
+                   f"· perfil atual: {hist[-1]['profile_type']}")
+
+    # ── Metas ──
+    gs = R.goals(persona.user_id)
+    if gs:
+        st.subheader("🎯 Metas")
+        for g in gs:
+            st.markdown(f"**{g['name']}** — {_brl(g['current'])} de {_brl(g['target'])}")
+            st.progress(min(g["pct"] / 100, 1.0), text=f"{g['pct']:.0f}%")
+
+    c1, c2 = st.columns(2)
+
+    # ── Tarifas pagas ──
+    with c1:
+        st.subheader("💸 Tarifas pagas (histórico)")
+        fees = R.fee_history(persona.user_id)
+        if fees:
+            import pandas as pd
+            fdf = pd.DataFrame(fees)
+            total = fdf["amount"].sum()
+            st.dataframe(fdf, use_container_width=True, hide_index=True, height=200)
+            st.caption(f"Total no período: **{_brl(float(total))}** — matéria-prima do "
+                       f"Raio-X (F5) e da Defesa (D2/D4).")
+        else:
+            st.caption("Sem tarifas registradas.")
+
+    # ── Desafios e badges ──
+    with c2:
+        st.subheader("🏆 Desafios do mês")
+        chs = R.challenges(persona.user_id)
+        for ch in chs:
+            icon = "✅" if ch["status"] == "COMPLETED" else "🔵"
+            st.markdown(f"{icon} **{ch['title']}** — {ch.get('target_label', '')}")
+            st.progress(min(float(ch["pct_progress"]) / 100, 1.0))
+        bs = R.badges(persona.user_id)
+        if bs:
+            st.caption("Badges: " + " · ".join(f"🏅 {b['badge_type']}" for b in bs))
+
+    # ── Negociações com desfecho ──
+    st.subheader("🤝 Negociações (com desfecho reportado)")
+    negs = R.negotiations(persona.user_id)
+    if negs:
+        import pandas as pd
+        ndf = pd.DataFrame(negs)
+        st.dataframe(ndf, use_container_width=True, hide_index=True, height=180)
+        st.caption("Os desfechos reais alimentam a **calibração** do Negociador "
+                   "(ver aba Aprendizado).")
+    else:
+        st.caption("Sem negociações.")
+
+    # ── Correções manuais (PF/PJ) ──
+    ovr = R.context_overrides(persona.user_id)
+    if ovr:
+        st.subheader("✏️ Correções manuais do usuário (PF/PJ)")
+        for o in ovr:
+            st.markdown(f"- {o['original_context']} → **{o['corrected_context']}** "
+                        f"· _{o['reason']}_")
+
+    # ── Histórico de chat ──
+    st.subheader("💬 Histórico de conversas")
+    chat = R.chat_history(persona.user_id)
+    if chat:
+        for m in chat:
+            with st.chat_message("user" if m["role"] == "human" else "assistant"):
+                st.markdown(m["content"])
+    else:
+        st.caption("Sem histórico de chat.")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 🧬 APRENDIZADO — a inteligência sobre a inteligência (loops fechados)
+# ══════════════════════════════════════════════════════════════════════
+
+elif page == "🧬 Aprendizado":
+    st.title("🧬 Loops de Aprendizado (dados agregados)")
+    st.caption(
+        "O que a Nexa APRENDE com o comportamento real dos usuários — dados "
+        "globais (não de uma persona só). É a inteligência que se recalibra sozinha."
+    )
+    loops = R.learning_loops()
+
+    st.subheader("🤝 Calibração do Negociador (F13)")
+    st.caption("Desfechos reais reportados → fator de realização por gatilho. "
+               "O ganho apresentado ao usuário passa a ser `estimado × fator`.")
+    cal = loops["calibration"]
+    if cal:
+        import pandas as pd
+        rows = [{"gatilho": k, "fator de realização": v["factor"],
+                 "taxa de sucesso": f"{v['success_rate']:.0%}",
+                 "amostras": v["samples"]} for k, v in cal.items()]
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("Ainda sem gatilhos com amostras suficientes (mín. 5 desfechos).")
+
+    st.subheader("👍 Peso das recomendações (feedback)")
+    st.caption("Recomendação que os usuários rejeitam perde peso no ranking: "
+               "`peso = 0,5 + taxa_de_aceitação` (range 0,5–1,5).")
+    fb = loops["feedback"]
+    if fb:
+        import pandas as pd
+        rows = [{"tipo de insight": f["insight_type"],
+                 "aceitação": f"{f['acceptance_rate']:.0%}",
+                 "peso resultante": round(0.5 + f["acceptance_rate"], 2),
+                 "total": f["total"]} for f in fb]
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("Ainda sem feedback registrado.")
+
+    st.subheader("📊 Métricas de inteligência (série temporal)")
+    st.caption("Persistidas pelo job `intelligence_metrics` (05h30) — a régua de "
+               "acurácia e cobertura em produção.")
+    metrics = loops["metrics"]
+    if metrics:
+        import pandas as pd
+        st.dataframe(pd.DataFrame(metrics), use_container_width=True, hide_index=True)
+    else:
+        st.info("Rode o job de métricas para popular a série.")
+
+    st.divider()
+    st.caption(
+        "💡 Estes loops estavam vazios até o banco ter dados de desfecho reais. "
+        "Com o footprint completo semeado, eles passam a computar — é a diferença "
+        "entre ter a inteligência instrumentada e ter ela aprendendo."
+    )

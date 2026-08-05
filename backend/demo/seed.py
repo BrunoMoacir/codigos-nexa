@@ -224,7 +224,13 @@ def seed_all(reset: bool = False) -> list[dict]:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--reset", action="store_true", help="repopula do zero")
+    parser.add_argument("--base-only", action="store_true",
+                        help="só transações (pula o footprint completo)")
     args = parser.parse_args()
     print("Semeando personas pelo ETL real...\n")
     seed_all(reset=args.reset)
+    if not args.base_only:
+        print("\nEnriquecendo com o footprint completo (contas, score, negociações...)...\n")
+        from demo.seed_full import enrich_all
+        enrich_all()
     print("\n✨ Pronto. Rode:  streamlit run demo/streamlit_app.py")

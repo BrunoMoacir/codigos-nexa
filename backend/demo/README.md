@@ -14,8 +14,11 @@ cd backend
 #    (o mesmo banco que os testes usam)
 python3 -m alembic upgrade head
 
-# 2. Popular as 3 personas passando pelo ETL real
-python3 -m demo.seed
+# 2. Popular as 3 personas: ETL real + footprint COMPLETO de produção
+#    (contas/saldos, histórico de score, tarifas, negociações com desfecho,
+#     chat, desafios/badges, feedback — tudo que a Nexa guarda de um usuário)
+python3 -m demo.seed              # base + enriquecimento (um comando)
+# python3 -m demo.seed --base-only  # só transações, sem o footprint
 
 # 3. Subir a interface
 streamlit run demo/streamlit_app.py
@@ -34,7 +37,7 @@ e o Feed funcionam normalmente e o Chat mostra as perguntas de exemplo.
 | **Bruno Lima** | MEI | Pro | Classificador PF/PJ, renda via maquininha, DAS/fiscal MEI, mistura de gastos pessoais e do negócio |
 | **Carla Mendes** | Renda caindo | Free | **FSS crítico → cluster ESTRESSE_FINANCEIRO**, juros abusivos (rotativo/cheque especial crescentes), margem apertada, tarifa recorrente |
 
-## As 3 superfícies
+## As 5 superfícies
 
 - **📊 Dashboard** — `demo.services.dashboard_data`: roda `run_from_db` (o
   pipeline real), o `UserProfileAnalyzer` (health score), o `LifestyleClassifier`
@@ -48,6 +51,25 @@ e o Feed funcionam normalmente e o Chat mostra as perguntas de exemplo.
 - **💬 Chat** — o **agente LangGraph real** (`build_financial_agent`, 31
   ferramentas) com o `[user_id=...]` da persona. Cada pergunta chama as
   ferramentas reais sobre os dados semeados.
+- **🗄️ Meus Dados** — o **footprint completo** que a Nexa armazena: múltiplas
+  contas e saldos, evolução do health score (6 meses), tarifas pagas,
+  negociações com desfecho, desafios/badges, correções PF/PJ e histórico de
+  chat. É como o banco de dados de uma conta usada há meses.
+- **🧬 Aprendizado** — a **meta-inteligência**: os loops fechados que
+  computam a partir dos dados reais — calibração do Negociador (fator de
+  realização por gatilho), peso das recomendações por taxa de aceitação, e a
+  série temporal de `intelligence_metrics`. Vazios sem dados; **vivos** com o
+  footprint semeado.
+
+## O que o footprint completo popula (tabelas de produção)
+
+`demo/seed_full.py` preenche tudo que um usuário real acumula:
+`account_balances` (várias contas), `health_score_history`, `bank_fee_history`,
+`negotiation_history` (com desfecho), `recommendation_feedback`,
+`chat_messages`, `user_challenges` + `user_badges`, `context_overrides`.
+Isso faz os **loops de aprendizado saírem do zero**: com desfechos de
+negociação reais, a calibração computa um fator (ex.: JUROS_ROTATIVO → 0,53);
+com aceites/rejeições, os pesos de recomendação se ajustam.
 
 ## O que este harness comprova
 
