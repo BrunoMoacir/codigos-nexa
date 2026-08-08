@@ -4,7 +4,7 @@
 > recomenda o cartão certo para o perfil real de gastos dele.
 
 ## Em palavras simples
-
+ 
 A maioria das pessoas escolhe cartão por propaganda, não por matemática. A
 Nexa olha onde você realmente gasta (mercado? iFood? viagem?) e calcula, em
 R$/mês, quanto cada cartão do mercado devolveria em cashback ou milhas — 
