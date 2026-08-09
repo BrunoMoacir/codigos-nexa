@@ -9,64 +9,184 @@
 Apps financeiros morrem no mês 4: o usuário arruma a casa e não volta. Esta
 camada existe para criar razões de retorno diário (margem do dia na
 homescreen, digest matinal), semanal (desafios, score) e anual (Wrapped
-estilo Spotify: "seu banco lucrou R$ 3.200 com você em 2026").
+estilo Spotify).
 
-## O que faz
+---
 
-### MX.1 Health Score (`app/health_score/`)
-- Score 0–100 da saúde financeira com tendência (30/90 dias) e histórico
-  (snapshot diário via job 04h00 → `health_score_history`).
-- Card `SCORE_IMPROVED` quando varia ≥5 pontos.
+## Como é calculado
 
-### MX.2 Metas (`app/goals/`)
-- CRUD de metas com projeção de prazo ("nesse ritmo, sua reserva fica pronta
-  em 7 meses"), progresso automático via transações, controle de concorrência
-  otimista (coluna `version`). Cards `GOAL_PROGRESS` em 50/75/100%.
+### MX.1 — Health Score e Resilience Score (`etl/profiles.py`)
 
-### R2.b Desafios mensais e badges (`health_score/challenge_service.py`)
-- 4 tipos personalizados pelos dados: `SEM_TARIFAS`, `REDUZIR_CATEGORIA` (a
-  categoria que mais cresce), `GUARDAR_VALOR`, `SUBIR_SCORE`. Ciclo completo:
-  geração no início do mês → progresso → conclusão → fechamento na virada →
-  badges (streaks incluídos). Validado por e2e contra Postgres real.
+Existem **dois scores**, e a distinção importa.
 
-### MX.4 Peer Comparison (`app/peers/`)
-- "Você gasta 40% mais em delivery que pares da sua renda" — benchmarks da
-  POF/IBGE 2022-23 ajustados, por 4 faixas de renda (até 3k, 3–8k, 8–20k,
-  20k+). Anônimo por construção (benchmark agregado, não dados de outros
-  usuários).
+**`financial_health_score` (0–100) — 3 fatores**, mantido por
+retrocompatibilidade com o banco:
 
-### MX.5 Budget Advisor (`app/budget/`)
-- Orçamento 50/30/20 adaptado ao padrão REAL: "Essenciais em 58% (ideal 50%) —
-  reduza R$ 380/mês em alimentação". Alimenta burn rate e cards.
+| Fator | Pontos |
+|---|---|
+| **Taxa de poupança** (50 pts) | ≥25% → 50 · ≥15% → 45 · ≥10% → 40 · ≥5% → 30 · ≥0% → 20 · <0 → 0 |
+| **Renda > despesa** (30 pts) | renda > despesa → 30 · diferença < 2% → 20 · renda ≥ 95% da despesa → 10 · senão 0 |
+| **Proporção despesa/renda** (20 pts) | <60% → 20 · <75% → 15 · <85% → 10 · <95% → 7 · <100% → 5 · ≥100% → 0 |
 
-### MX.3 + R1.b Notificações proativas (`app/notifications/`)
-- **17 tipos de card** (burn rate, anomalia, assinatura que subiu, cashback
-  perdido, isenção de anuidade próxima, score, metas, margem baixa, eventos de
-  vida, tarifa unilateral, poupança sub-CDI, dinheiro parado, janela fiscal,
-  desafios, compra subótima...), gerados a cada 6h pelo `NotificationEngine`,
-  filtrados por relevância (doc 13), entregues por e-mail/in-app/**Web Push**
-  (VAPID; WARNING/CRITICAL sobem para push quando há inscrição PWA), com dedup
-  por TTL por tipo e idempotência.
+**`resilience_score` (0–100) — 6 fatores**, o que efetivamente alimenta o
+`pressure_score` e o FSS:
 
-### R1.c Daily Digest (job 07h00)
-- E-mail diário: score, tarifas, oportunidades, prazos fiscais, desafios.
-  Idempotente (`daily_digest_log`).
+| # | Fator | Pontos | Faixas |
+|---|---|---|---|
+| 1 | Taxa de poupança | 25 | ≥20% → 25 · ≥10% → 20 · ≥5% → 12 · ≥0 → 5 · <0 → 0 |
+| 2 | Equilíbrio renda/gasto | 20 | folga ≥5% → 20 · positivo → 15 · ±2% → 8 · leve déficit → 3 |
+| 3 | Proporção gasto/renda | 15 | <60% → 15 · <75% → 12 · <85% → 8 · <95% → 4 · ≥95% → 0 |
+| 4 | **Tendência dos gastos** | 20 | DECRESCENTE → 20 · ESTÁVEL → 15 · **CRESCENTE → 0** |
+| 5 | Obrigações comprometidas | 10 | <30% → 10 · <50% → 7 · <70% → 4 · <90% → 1 · ≥90% → 0 |
+| 6 | Estabilidade da renda | 10 | `round(income_stability × 10)`; sem `confidence ≥ 0,4` → 0,5 neutro (5 pts) |
 
-### R1.d Widget PWA
-- Página `/widget` instalável na homescreen + Web Push. Payload ~200 bytes.
+O fator 4 é o mais opinativo: gastos crescendo zeram 20 dos 100 pontos, com a
+justificativa no código — *"gastos crescendo = piora iminente"*. Direção pesa
+tanto quanto nível.
 
-### V1/V2 Viral (`app/viral/`)
-- **Placar de Economia** compartilhável (SVG): total economizado "contra os
-  bancos". **Nexa Wrapped** anual (SVG): quanto cada banco lucrou com você,
-  tarifas evitáveis, evolução do score. CAC zero por compartilhamento.
+**Tendência do score** (`_compute_trend`): IMPROVING se subiu ≥ 3 pontos vs.
+3 meses atrás; DECLINING se caiu ≥ 3; senão STABLE. Snapshot diário via job
+04h00 → `health_score_history`. Card `SCORE_IMPROVED` quando varia ≥ 5 pontos.
 
-### R3 Histórico acumulado
-- DuckDB + séries temporais: quanto mais tempo de uso, mais insight — custo
-  de troca crescente (retenção estrutural).
+**Perfil derivado**: poupança ≥ 20% → CONSERVADOR · ≥ 10% → EQUILIBRADO ·
+< 10% → GASTADOR.
+
+### MX.2 — Metas (`app/goals/tracker.py`)
+
+```
+progress_pct = min(100, current_amount / target_amount × 100)
+monthly_needed = (target − current) / meses_restantes
+gap = monthly_needed − contribuição_mensal_real
+```
+
+**Viabilidade** (`_derive_feasibility`), pela razão do gap:
+
+| Viabilidade | Condição |
+|---|---|
+| EASY | no ritmo, ou `gap ≤ 0` |
+| MODERATE | `gap / monthly_needed ≤ 25%` |
+| HARD | `≤ 50%` |
+| UNREALISTIC | `> 50%` |
+
+Dizer "UNREALISTIC" é uma decisão de produto — a meta impossível é sinalizada
+como impossível, não maquiada.
+
+**Concorrência otimista**: coluna `version` na tabela; o tracker detecta se a
+coluna existe (`_detect_version_column`) e degrada se não. Cards
+`GOAL_PROGRESS` em 50/75/100%.
+
+### R2.b — Desafios mensais (`health_score/challenge_service.py`)
+
+**Máximo 3 desafios por mês** (`_MAX_CHALLENGES_PER_MONTH`), de 4 tipos:
+
+| Tipo | Alvo | Progresso / falha |
+|---|---|---|
+| `SEM_TARIFAS` | 0 tarifas no mês | % do mês decorrido sem tarifa; **FAILED na 1ª tarifa** |
+| `REDUZIR_CATEGORIA` | gastar **15% menos** que a média trimestral (`_CATEGORY_CUT_PCT`), só em categorias com **≥ R$ 200/mês** | % do mês dentro do teto; FAILED ao estourar |
+| `GUARDAR_VALOR` | **10% da renda mensal** (`_SAVE_TARGET_INCOME_PCT`), piso R$ 50 | % do alvo poupado; COMPLETED ao atingir, mesmo antes do fim do mês |
+| `SUBIR_SCORE` | **+3 pontos** no health score (`_SCORE_TARGET_DELTA`) | % dos pontos-alvo ganhos |
+
+O filtro de gasto mínimo tem justificativa explícita no código: *"desafio de
+R$ 40/mês não motiva ninguém"*. Categorias fixas/não-discricionárias são
+excluídas do `REDUZIR_CATEGORIA`.
+
+Ciclo completo: geração no início do mês → progresso → conclusão → fechamento
+na virada → badges (incluindo streaks), persistidos em `user_badges`.
+
+### MX.4 — Peer Comparison (`app/peers/peer_comparison.py`)
+
+Benchmarks da **POF/IBGE 2022-2023** (% da renda líquida), por 4 faixas de
+renda. Exemplo da faixa BAIXA (até R$ 3.000/mês):
+
+```
+moradia 40% · alimentação 27% · transporte 11% · saúde 6%
+lazer 3% · educação 2% · vestuário 2% · …
+```
+
+**Offsets por cluster** somados ao benchmark de faixa: o mesmo perfil de renda
+gasta diferente conforme o estilo de vida, então o benchmark efetivo é
+`benchmark_da_faixa + offset_do_cluster`. A fonte reportada muda de
+`"IBGE/POF 2022-2023"` para `"IBGE/POF 2022-2023 + cluster X"` — o usuário sabe
+contra o que está sendo comparado.
+
+Percentil de poupança estimado pelo desvio vs. a faixa
+(`_savings_percentile_label`). **Anônimo por construção**: é benchmark público
+agregado, nunca dados de outros usuários.
+
+### MX.5 — Budget Advisor (`app/budget/budget_advisor.py`)
+
+Regra 50/30/20 como padrão (essenciais / desejos / poupança), com
+**tolerância de ±3 p.p.** antes de sinalizar OVER/UNDER.
+
+**5 clusters têm meta própria**, e cada um traz a justificativa mostrada ao
+usuário:
+
+| Cluster | Regra | Racional codificado |
+|---|---|---|
+| `EXPLORADOR_GLOBAL` | **47/35/18** | "viagem é estilo de vida, não desperdício" |
+| `INVESTIDOR_CAUTELOSO` | **50/20/30** | poupança elevada para alimentar aportes |
+| `ESTRESSE_FINANCEIRO` | **55/15/30** | ⚠️ desejos cortados a 15%, reserva priorizada — "estabilize antes de qualquer gasto discricionário" |
+| `FAMILIA_ESTRUTURADA` | **55/25/20** | "escola, saúde e alimentação naturalmente ultrapassam os 50%" |
+| `MICROEMPREENDEDOR` | **50/30/20** | ⚠️ "considera SOMENTE o fluxo pessoal (PF)" |
+
+Clusters não listados herdam o 50/30/20 padrão. O caso do
+`ESTRESSE_FINANCEIRO` é notável: o orçamento **aumenta** a meta de poupança
+para 30% justamente para quem está apertado — porque o objetivo ali é reserva
+de emergência, não conforto.
+
+### MX.3 + R1.b — Notificações proativas (`app/notifications/`)
+
+**17 tipos de card**, gerados a cada 6h pelo `NotificationEngine`, filtrados
+pelo Filtro de Relevância (doc 13) e entregues por e-mail / in-app / Web Push
+(VAPID — WARNING e CRITICAL sobem para push quando há inscrição PWA).
+
+**A dedup é por TTL específico do tipo** (`state_store._SEEN_TTL_DAYS`), e cada
+valor é uma decisão de produto:
+
+| Tipo | TTL (dias) | Racional |
+|---|---|---|
+| `SAFE_TO_SPEND_LOW` | 1 | muda todo dia |
+| `BURN_RATE_HIGH` | 3 | |
+| `TRANSFER_PROMO` | 3 | promoção é efêmera |
+| `ANOMALY_DETECTED` | 7 | |
+| `WAIVER_ALERT` | 7 | |
+| `CHALLENGE_PROGRESS` | 7 | "no máx. 1 empurrão por semana" |
+| `FISCAL_SEASON` | 10 | "~2–3 lembretes por janela fiscal" |
+| `CARD_OPPORTUNITY` | 14 | |
+| `IDLE_MONEY_DETECTED` | 14 | "oportunidade persiste; não martelar diariamente" |
+| `SUBSCRIPTION_INCREASE` | 30 | |
+| `SCORE_IMPROVED` | 30 | |
+| `GOAL_PROGRESS` | 30 | |
+| `LIFE_EVENT` | 30 | |
+| `SAVINGS_BELOW_CDI` | 30 | "dado macro, um lembrete por mês basta" |
+| `CHALLENGE_COMPLETED` | 30 | "conclusão é evento único no mês" |
+| `PURCHASE_FOLLOWUP` | 30 | "cada compra gera no máx. 1 card" |
+| (default) | 7 | |
+
+A dedup usa **fingerprint** do conteúdo, não só o tipo — a mesma anomalia não
+reaparece, mas uma anomalia nova passa.
+
+Guarda extra contra retrabalho: `_has_recent_idle_snapshot` exige um snapshot
+recente com saldo ocioso ≥ R$ 500 antes de recalcular — *"sem isso, cada
+rodada de 6h refaria"* a análise inteira.
+
+### R1.c / R1.d / V1 / V2 / R3
+
+- **Daily Digest** (job 07h00): e-mail com score, tarifas, oportunidades,
+  prazos fiscais e desafios. Idempotente via `daily_digest_log`.
+- **Widget PWA**: página `/widget` instalável + Web Push; payload ~200 bytes
+  (fórmula no doc 02).
+- **V1 Placar de Economia** e **V2 Nexa Wrapped**: SVG compartilhável — quanto
+  cada banco lucrou com você, tarifas evitáveis, evolução do score. CAC zero
+  por compartilhamento.
+- **R3 Histórico acumulado**: DuckDB + séries temporais — quanto mais tempo de
+  uso, mais insight; custo de troca crescente (retenção estrutural).
+
+---
 
 ## O que NÃO faz
 
-- **Sem dark patterns**: nenhuma notificação de "volte para o app" vazia — 
+- **Sem dark patterns**: nenhuma notificação de "volte para o app" vazia —
   todo card precisa passar no filtro de relevância com valor em R$ ou prazo.
 - Peer comparison não expõe dados de outros usuários (só benchmark público).
 - Wrapped não posta sozinho — gera a imagem; compartilhar é decisão do
@@ -74,11 +194,23 @@ estilo Spotify: "seu banco lucrou R$ 3.200 com você em 2026").
 
 ## Gaps e limitações
 
+- **Dois scores coexistem** (`financial_health_score` de 3 fatores e
+  `resilience_score` de 6). O primeiro só existe por compatibilidade com o
+  banco, mas ainda é o que aparece como "health score" em parte da API —
+  fonte de confusão real.
+- **As faixas de pontuação são calibradas por julgamento**, não por
+  correlação com desfecho financeiro observado. "Poupança ≥ 25% vale 50
+  pontos" é uma escolha de produto, não um achado empírico.
+- **Peer comparison usa benchmarks IBGE hardcoded** — precisam de atualização
+  manual a cada nova POF, e os offsets por cluster são estimativas internas
+  sem validação externa.
+- **As metas de orçamento por cluster também são julgamento** (47/35/18 para
+  viajante etc.) — plausíveis, não validadas.
 - **R4.a relatório trimestral**: falta (job pequeno; scheduler pronto).
 - **R5 anti-churn** (tela de cancelamento com impacto, modo pausa, win-back):
   depende do billing estar ativo.
 - **V3 ranking público de bancos**: aguarda massa de dados D1–D3.
-- Push nativo mobile (FCM) não existe — Web Push cobre PWA; retenção de massa
-  pedirá app nativo.
-- Share rate do Wrapped/Placar ainda não é medido (analytics de
+- **Push nativo mobile (FCM) não existe** — Web Push cobre PWA; retenção de
+  massa pedirá app nativo.
+- **Share rate do Wrapped/Placar não é medido** (analytics de
   compartilhamento é frontend).
