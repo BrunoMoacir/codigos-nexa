@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Any, List, Optional
+import asyncio
 import logging
 import requests as http_requests
 import uuid
@@ -396,7 +397,6 @@ async def stream_sync_job(
     job_id: str,
     cursor: int = Query(default=0, ge=0, description="Último `cursor` recebido (retomada)."),
     current_user_str: str = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     """Envia o progresso como `text/event-stream` até o job terminar.
 
@@ -407,8 +407,11 @@ async def stream_sync_job(
     frontend consome com `fetch` + ReadableStream. Token em query string
     ficaria gravado nos logs de acesso, então não é aceito aqui.
     """
+    # Sem Depends(get_db) aqui de propósito: a dependência com yield só é
+    # fechada quando o corpo termina de ser enviado, e um SSE fica aberto por
+    # minutos — seria uma conexão do pool presa por cliente conectado.
     user_id = str(current_user_str)
-    if sync_service.get_job(db, job_id, user_id) is None:
+    if await asyncio.to_thread(sync_service.get_job_state, job_id, user_id) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job de sincronização não encontrado.",

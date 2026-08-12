@@ -104,6 +104,34 @@ GET /transactions/user_123?limit=10 → {
 | POST | `/pluggy/connect-token` | Gera token para Widget Pluggy | ✅ Sim | - | ✅ Sim |
 | GET | `/pluggy/items` | Lista contas conectadas do usuário | ✅ Sim | - | ✅ Sim |
 | POST | `/pluggy/sandbox` | Cria conexão Sandbox para testes | ✅ Sim | - | ✅ Sim |
+| POST | `/pluggy/sync` | Sync bloqueante (legado — só serve com item já UPDATED) | ✅ Sim | - | ❌ Não |
+| POST | `/pluggy/sync/jobs` | Inicia sync assíncrono → 202 com `job_id` + `cursor` | ✅ Sim | force | ✅ Sim |
+| GET | `/pluggy/sync/jobs` | Últimos jobs de sync do usuário | ✅ Sim | limit | ✅ Sim |
+| GET | `/pluggy/sync/jobs/{id}` | **Long-polling**: pendura até o job passar de `cursor` | ✅ Sim | cursor, timeout | ✅ Sim |
+| GET | `/pluggy/sync/jobs/{id}/stream` | **SSE**: `text/event-stream` com o progresso | ✅ Sim | cursor | ✅ Sim |
+| POST | `/pluggy/webhook` | Webhook `item/*` — acorda o job e dispara auto-sync | ❌ Segredo | payload | ❌ Não |
+
+### Sync assíncrono (por que existe)
+
+O item da Pluggy nasce em `UPDATING` e só vira `UPDATED` quando a instituição
+devolve os dados — de segundos a minutos, com MFA no meio. O `POST /pluggy/sync`
+fazia isso dentro do request: numa conexão nova, respondia com zero transação
+(o banco ainda não tinha entregado) ou estourava o timeout do proxy.
+
+Fluxo novo (`backend/app/pluggy_sync/`):
+
+```
+POST /pluggy/sync/jobs                    → 202 {job_id, cursor: 1, status: PENDING}
+GET  /pluggy/sync/jobs/{id}/stream        → event: state {phase: waiting_bank, progress: 6}
+   (ou GET /pluggy/sync/jobs/{id}?cursor=1&timeout=25 em long-polling)
+Pluggy → POST /pluggy/webhook item/updated  ⇒ acorda o job na hora
+                                          → event: state {phase: processing, progress: 60}
+                                          → event: done  {status: SUCCESS, totals.saved: 128}
+```
+
+`cursor` é o `version` do job, monotônico e persistido: o cliente pode alternar
+entre SSE e long-polling, reconectar ou trocar de worker sem perder evento.
+Estados do job: `PENDING → RUNNING → SUCCESS | PARTIAL | ERROR`.
 
 ---
 

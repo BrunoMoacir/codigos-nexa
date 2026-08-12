@@ -548,6 +548,10 @@ México: Open Banking regulado (Ley Fintech 2018), 60M sub-bancarizados, concent
 | `GET` | `/api/v1/pluggy/institutions` | Lista instituições |
 | `POST` | `/api/v1/pluggy/connect` | Conecta conta bancária |
 | `GET` | `/api/v1/pluggy/accounts/{user_id}` · `/transactions/{user_id}` | Contas e transações |
+| `POST` | `/api/v1/pluggy/sync/jobs` | Inicia sync assíncrono (item Pluggy leva minutos p/ ficar `UPDATED`) |
+| `GET` | `/api/v1/pluggy/sync/jobs/{id}` | Long-polling do progresso (cursor + timeout de 25s) |
+| `GET` | `/api/v1/pluggy/sync/jobs/{id}/stream` | Streaming SSE do progresso (`text/event-stream`) |
+| `POST` | `/api/v1/pluggy/webhook` | Webhook `item/*` (assinado) — acorda o job e dispara auto-sync |
 | `POST` | `/api/v1/transactions/webhook` | Webhook Pluggy (assinado) |
 
 ### Saúde Financeira (F1)

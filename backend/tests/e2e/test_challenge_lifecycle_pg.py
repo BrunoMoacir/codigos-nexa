@@ -86,7 +86,7 @@ def pg_engine():
 
     with _engine.connect() as con:
         version = con.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        assert version == "c1d2e3f4a5b6"   # head único (+ intelligence_metrics)
+        assert version == "d4e7f1a90b2c"   # head único (+ pluggy_sync_jobs)
         tables = {
             r[0] for r in con.execute(text(
                 "SELECT table_name FROM information_schema.tables"
@@ -95,6 +95,7 @@ def pg_engine():
         }
         assert "user_challenges" in tables
         assert "transactions_clean" in tables
+        assert "pluggy_sync_jobs" in tables
 
     yield _engine
 

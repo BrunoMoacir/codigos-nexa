@@ -305,7 +305,10 @@ def run_job(
             detail = json.loads(job.detail) if job.detail else []
         except (TypeError, ValueError):
             detail = []
-        item_ids = [entry.get("item_id") for entry in detail if entry.get("item_id")]
+        # Entrada sem item_id não tem o que sincronizar — some do detail para
+        # que índice do loop e entrada do relatório nunca saiam de sincronia.
+        detail = [entry for entry in detail if entry.get("item_id")]
+        item_ids = [entry["item_id"] for entry in detail]
 
     if not item_ids:
         return update_job(
