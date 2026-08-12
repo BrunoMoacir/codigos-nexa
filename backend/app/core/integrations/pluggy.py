@@ -114,6 +114,23 @@ class PluggyClient:
         response.raise_for_status()
         return response.json()
 
+    def get_item(self, item_id: str) -> dict:
+        """Estado atual do item (status UPDATING/UPDATED/LOGIN_ERROR/...).
+
+        É por este endpoint que o sync sabe se o banco já entregou os dados —
+        chamar /accounts antes de UPDATED devolve lista vazia.
+        """
+        url = f"{self.BASE_URL}/items/{item_id}"
+
+        response = requests.get(
+            url,
+            headers=self._headers(),
+            timeout=10,
+        )
+
+        response.raise_for_status()
+        return response.json()
+
     def get_accounts(self, item_id: str) -> dict:
         url = f"{self.BASE_URL}/accounts"
 

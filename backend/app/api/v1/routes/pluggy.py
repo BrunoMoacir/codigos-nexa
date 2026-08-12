@@ -1,7 +1,8 @@
 # app/api/v1/routes/pluggy.py
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Any, List, Optional
 import logging
 import requests as http_requests
 import uuid
@@ -14,9 +15,10 @@ from app.core.security import get_current_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.models.pluggy_item import PluggyItem
-from app.core.schemas.transaction import TransactionBatchResult
-from app.forecast.etl import TransactionIngestor
-from app.forecast.etl.runner import run_etl_pipeline
+from app.core.webhook_security import resolve_user_from_item, verify_webhook_token
+from app.pluggy_sync import events as sync_events
+from app.pluggy_sync import service as sync_service
+from app.pluggy_sync.runner import sync_item_transactions
 
 logger = logging.getLogger(__name__)
 
@@ -28,97 +30,9 @@ def _sync_item_transactions(
     current_user_str: str,
     item_id: str,
 ) -> dict:
-    """Sincroniza contas/transações de um item Pluggy para transactions_clean."""
-    pluggy = PluggyClient()
+    """Compat: o corpo do sync agora vive em app/pluggy_sync/runner.py."""
+    return sync_item_transactions(db=db, user_id=str(current_user_str), item_id=item_id)
 
-    accounts_resp = pluggy.get_accounts(item_id)
-    accounts = accounts_resp.get("results", []) if isinstance(accounts_resp, dict) else []
-
-    # Snapshot de saldo real por conta (poupança, corrente, ...) — base da
-    # personalização do OPP. Falha silenciosamente; nunca derruba o sync.
-    from app.core.db.balances import save_account_balances
-    balances_saved = save_account_balances(str(current_user_str), item_id, accounts)
-
-    total_accounts = 0
-    total_received = 0
-    total_valid = 0
-    total_saved = 0
-    errors: list[str] = []
-
-    for account in accounts:
-        account_id = account.get("id")
-        if not account_id:
-            continue
-
-        total_accounts += 1
-        try:
-            raw_transactions = pluggy.get_transactions(account_id)
-            raw_results = raw_transactions.get("results", []) if isinstance(raw_transactions, dict) else []
-            total_received += len(raw_results)
-
-            if not raw_results:
-                continue
-
-            # Ajustes de compatibilidade do payload Pluggy -> schema local
-            normalized_results = []
-            for tx in raw_results:
-                if not isinstance(tx, dict):
-                    continue
-                tx_n = dict(tx)
-                merchant = tx_n.get("merchant")
-                if isinstance(merchant, dict):
-                    tx_n["merchant"] = merchant.get("businessName") or merchant.get("name")
-                if not tx_n.get("description") and tx_n.get("descriptionRaw"):
-                    tx_n["description"] = tx_n.get("descriptionRaw")
-                normalized_results.append(tx_n)
-
-            connector = account.get("connector") if isinstance(account.get("connector"), dict) else {}
-            connector_id = str(
-                connector.get("id")
-                or account.get("connectorId")
-                or "unknown"
-            )
-            institution_map = {
-                "201": "nubank",
-                "202": "itau",
-                "203": "bradesco",
-                "204": "inter",
-                "0": "pluggy_sandbox",
-            }
-            institution_id = institution_map.get(connector_id, "unknown")
-
-            batch_result = TransactionBatchResult.from_raw_batch(
-                raw_data=normalized_results,
-                institution_id=institution_id,
-                item_id=item_id,
-                fetched_at=datetime.now(timezone.utc),
-            )
-            total_valid += batch_result.total_valid
-
-            if not batch_result.valid_transactions:
-                continue
-
-            ingestor = TransactionIngestor()
-            clean_df, _ = ingestor.process(batch_result.valid_transactions)
-            processed_df = run_etl_pipeline(
-                db=db,
-                transactions_df=clean_df,
-                user_id=str(current_user_str),
-                account_id=account_id,
-            )
-            total_saved += len(processed_df) if processed_df is not None else 0
-        except Exception as e:
-            errors.append(f"account {account_id}: {e}")
-
-    return {
-        "item_id": item_id,
-        "accounts": total_accounts,
-        "received": total_received,
-        "valid": total_valid,
-        "saved": total_saved,
-        "balances_saved": balances_saved,
-        "errors": errors,
-    }
 
 class ConnectTokenResponse(BaseModel):
     connect_token: str
@@ -326,11 +240,18 @@ def create_sandbox_item(
         )
 
 
-@router.post("/sync", summary="Sincroniza transações reais da Pluggy para o usuário logado")
+@router.post("/sync", summary="Sincroniza transações reais da Pluggy (modo bloqueante — legado)")
 def sync_user_items_transactions(
     current_user_str: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """Sincroniza tudo dentro do request e só responde no fim.
+
+    Só funciona quando os items já estão UPDATED (ex.: sandbox). Para uma
+    conexão recém-criada, o banco ainda está entregando os dados e este
+    endpoint devolve zero transações — ou estoura o timeout do proxy antes
+    de responder. Use `POST /pluggy/sync/jobs` + long-polling/SSE.
+    """
     if not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -366,3 +287,223 @@ def sync_user_items_transactions(
         totals["saved"] += report.get("saved", 0)
 
     return {"success": True, "items": reports, "totals": totals}
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# SYNC ASSÍNCRONO — job + long-polling + streaming (SSE)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#
+# A Pluggy entrega os dados quando o banco responde — de segundos a
+# minutos, com MFA no meio. O cliente cria um job e acompanha por um dos
+# dois canais; ambos partilham o mesmo cursor (`version` do job), então dá
+# para alternar entre eles ou reconectar sem perder evento.
+#
+#   POST /pluggy/sync/jobs                  → 202 {job_id, cursor, ...}
+#   GET  /pluggy/sync/jobs/{id}?cursor=N    → pendura até mudar (long-poll)
+#   GET  /pluggy/sync/jobs/{id}/stream      → text/event-stream (SSE)
+
+@router.post(
+    "/sync/jobs",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Inicia uma sincronização assíncrona (long-polling/SSE)",
+)
+def start_sync_job(
+    force: bool = Query(
+        default=False,
+        description="Cria um job novo mesmo se já houver um em andamento.",
+    ),
+    current_user_str: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enfileira o sync e devolve na hora o job para acompanhamento.
+
+    Se já houver um job em andamento do mesmo usuário, devolve esse mesmo
+    job (`reused: true`) em vez de duplicar o trabalho — dois cliques no
+    botão sincronizar não viram duas ETLs concorrentes.
+    """
+    if not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
+        )
+
+    user_id = str(current_user_str)
+
+    if not force:
+        active = sync_service.find_active_job(db, user_id)
+        if active is not None:
+            state = sync_service.job_to_dict(active)
+            state["reused"] = True
+            return state
+
+    item_ids = sync_service.user_item_ids(db, user_id)
+    job = sync_service.create_job(db, user_id, item_ids)
+    sync_service.start_job(job.id, user_id)
+
+    state = sync_service.job_to_dict(job)
+    state["reused"] = False
+    return state
+
+
+@router.get("/sync/jobs", summary="Lista os últimos jobs de sincronização do usuário")
+def list_sync_jobs(
+    limit: int = Query(default=10, ge=1, le=50),
+    current_user_str: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    jobs = sync_service.list_jobs(db, str(current_user_str), limit=limit)
+    return {"jobs": [sync_service.job_to_dict(j) for j in jobs]}
+
+
+@router.get("/sync/jobs/{job_id}", summary="Long-polling do estado de um job de sync")
+async def poll_sync_job(
+    job_id: str,
+    cursor: int = Query(
+        default=0,
+        ge=0,
+        description="Último `cursor` recebido. A resposta só volta quando o job passar dele.",
+    ),
+    timeout: float = Query(
+        default=sync_service.DEFAULT_LONG_POLL_TIMEOUT,
+        ge=0,
+        le=sync_service.MAX_LONG_POLL_TIMEOUT,
+        description="Segundos que a conexão pode ficar pendurada (máx. 30).",
+    ),
+    current_user_str: str = Depends(get_current_user),
+):
+    """Segura a resposta até o job avançar, terminar ou estourar o timeout.
+
+    Timeout não é erro: devolve o estado atual com `changed: false` e o
+    cliente reabre a conexão com o mesmo cursor. Job já terminado responde
+    imediatamente, mesmo sem mudança de cursor.
+    """
+    state = await sync_service.wait_for_job(
+        job_id=job_id,
+        user_id=str(current_user_str),
+        cursor=cursor,
+        timeout=timeout,
+    )
+    if state is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job de sincronização não encontrado.",
+        )
+    return state
+
+
+@router.get("/sync/jobs/{job_id}/stream", summary="Streaming (SSE) do progresso de um job")
+async def stream_sync_job(
+    job_id: str,
+    cursor: int = Query(default=0, ge=0, description="Último `cursor` recebido (retomada)."),
+    current_user_str: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Envia o progresso como `text/event-stream` até o job terminar.
+
+    Eventos: `state` (mudou algo), `ping` (heartbeat 15s), `done` (fim) e
+    `timeout` (sessão longa demais — reconecte com o último cursor).
+
+    O EventSource nativo do navegador não manda header Authorization: o
+    frontend consome com `fetch` + ReadableStream. Token em query string
+    ficaria gravado nos logs de acesso, então não é aceito aqui.
+    """
+    user_id = str(current_user_str)
+    if sync_service.get_job(db, job_id, user_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job de sincronização não encontrado.",
+        )
+
+    return StreamingResponse(
+        sync_service.stream_job(job_id=job_id, user_id=user_id, cursor=cursor),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            # Desliga o buffering de proxies (nginx/Railway): sem isso os
+            # eventos só chegariam ao cliente quando o buffer enchesse.
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# WEBHOOK DE ITEMS — é o que torna o long-poll/SSE instantâneo
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Eventos que significam "o banco entregou os dados".
+_ITEM_READY_EVENTS = {
+    "item/updated",
+    "item/login_succeeded",
+    "transactions/created",
+    "transactions/updated",
+}
+
+
+@router.post("/webhook", status_code=status.HTTP_200_OK, summary="Webhook de eventos de item da Pluggy")
+def receive_item_webhook(
+    payload: dict[str, Any],
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Recebe `item/*` da Pluggy e acorda quem está esperando.
+
+    Sem isto, o job só descobriria que o item ficou pronto no próximo tick
+    do poller (5s) — com isto, no instante em que a Pluggy avisa. E se
+    ninguém estiver esperando (usuário fechou o app), dispara o sync
+    sozinho, para os dados já estarem lá quando ele voltar.
+
+    Mesma postura de segurança do /transactions/webhook: segredo
+    compartilhado obrigatório e dono resolvido server-side por item_id.
+    """
+    verify_webhook_token(request)
+
+    event = str(payload.get("event") or payload.get("eventType") or "").lower()
+    item_id = str(
+        payload.get("itemId")
+        or (payload.get("item") or {}).get("id")
+        or payload.get("id")
+        or ""
+    )
+
+    if not item_id:
+        return {"received": True, "ignored": True, "reason": "payload sem itemId"}
+
+    # Acorda o job que estiver esperando este item (mesmo worker).
+    sync_events.publish(sync_events.item_key(item_id))
+
+    user_id = resolve_user_from_item(item_id)
+    if user_id is None:
+        # Item de outro ambiente/cliente: nada a fazer. 200 (e não 404) para
+        # não colocar a Pluggy num loop de retentativa.
+        logger.info("[PluggyWebhook] item_id=%s sem dono conhecido — ignorado", item_id)
+        return {"received": True, "ignored": True, "reason": "item desconhecido"}
+
+    if event not in _ITEM_READY_EVENTS:
+        return {"received": True, "event": event, "item_id": item_id, "started_job": False}
+
+    # Job em andamento já vai capturar o evento no seu próprio loop.
+    active = sync_service.find_active_job(db, user_id)
+    if active is not None:
+        return {
+            "received": True,
+            "event": event,
+            "item_id": item_id,
+            "started_job": False,
+            "job_id": active.id,
+        }
+
+    if not settings.PLUGGY_AUTOSYNC_ON_WEBHOOK:
+        return {"received": True, "event": event, "item_id": item_id, "started_job": False}
+
+    job = sync_service.create_job(db, user_id, [item_id])
+    sync_service.start_job(job.id, user_id)
+    logger.info("[PluggyWebhook] %s em %s → job %s iniciado", event, item_id, job.id)
+
+    return {
+        "received": True,
+        "event": event,
+        "item_id": item_id,
+        "started_job": True,
+        "job_id": job.id,
+    }

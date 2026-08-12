@@ -4,6 +4,8 @@ import toast from 'react-hot-toast';
 import { AppShell } from '../components/layout/AppShell';
 import { nexaApi } from '../api/nexa';
 import { API_BASE_URL } from '../api/client';
+import { followSyncJob, pluggySyncApi } from '../api/pluggySync';
+import type { SyncJobState } from '../api/pluggySync';
 
 const card: React.CSSProperties = {
   background: 'var(--bg-surface)',
@@ -28,6 +30,7 @@ export const ConnectionsPage: React.FC = () => {
   const [connectToken, setConnectToken] = useState<string>('');
   const [widgetError, setWidgetError] = useState<string>('');
   const [widgetInfo, setWidgetInfo] = useState<string>('');
+  const [syncProgress, setSyncProgress] = useState<SyncJobState | null>(null);
   const token = localStorage.getItem('jwt_token') || '';
   const apiBase = API_BASE_URL;
 
@@ -74,14 +77,37 @@ export const ConnectionsPage: React.FC = () => {
     return () => window.removeEventListener('message', handler);
   }, [itemsQuery.refetch]);
 
+  // Sync assíncrono: o backend devolve um job na hora e o progresso chega por
+  // SSE (com fallback para long-polling). O sync bloqueante antigo devolvia
+  // zero transações numa conexão recém-criada — o banco ainda não tinha
+  // entregado os dados quando a resposta saía.
   const syncMutation = useMutation({
-    mutationFn: () => nexaApi.syncPluggyTransactions(),
-    onSuccess: (data) => {
-      const totals = data?.totals || {};
+    mutationFn: async () => {
+      const job = await pluggySyncApi.startSyncJob();
+      setSyncProgress(job);
+      if (job.done) return job;
+
+      return followSyncJob({
+        jobId: job.job_id,
+        cursor: job.cursor,
+        onState: setSyncProgress,
+      });
+    },
+    onSuccess: (state) => {
+      const totals = state?.totals || { saved: 0, accounts: 0 };
+
+      if (state.status === 'ERROR') {
+        toast.error(state.message || state.error || 'Falha ao sincronizar transações.');
+        return;
+      }
+
       setDataOrigin('real');
-      toast.success(
-        `Sync concluído: ${totals.saved || 0} transações em ${totals.accounts || 0} contas.`
+      const notify = state.status === 'PARTIAL' ? toast : toast.success;
+      notify(
+        state.message ||
+          `Sync concluído: ${totals.saved} transações em ${totals.accounts} contas.`
       );
+
       itemsQuery.refetch();
       // Invalidar queries que dependem de transações
       queryClient.invalidateQueries({ queryKey: ['forecast'] });
@@ -90,6 +116,7 @@ export const ConnectionsPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['goals'] });
     },
     onError: () => toast.error('Falha ao sincronizar transações.'),
+    onSettled: () => setSyncProgress(null),
   });
 
   const tokenMutation = useMutation({
@@ -187,7 +214,9 @@ export const ConnectionsPage: React.FC = () => {
               onClick={() => syncMutation.mutate()}
               disabled={syncMutation.isPending}
             >
-              {syncMutation.isPending ? 'Sincronizando...' : 'Sincronizar transações'}
+              {syncMutation.isPending
+                ? `Sincronizando... ${syncProgress?.progress ?? 0}%`
+                : 'Sincronizar transações'}
             </button>
             <button
               style={{ ...button, background: 'var(--bg-surface)', color: 'var(--text-primary)' }}
@@ -196,6 +225,27 @@ export const ConnectionsPage: React.FC = () => {
               Atualizar lista
             </button>
           </div>
+
+          {syncProgress && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ height: 6, background: 'var(--border-color)', borderRadius: 999 }}>
+                <div
+                  style={{
+                    height: 6,
+                    width: `${syncProgress.progress}%`,
+                    background: 'var(--text-primary)',
+                    borderRadius: 999,
+                    transition: 'width 240ms ease',
+                  }}
+                />
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                {syncProgress.message || 'Sincronizando...'}
+                {syncProgress.items.total > 1 &&
+                  ` (${syncProgress.items.done}/${syncProgress.items.total} conexões)`}
+              </div>
+            </div>
+          )}
 
           <div style={{ marginTop: 14, borderTop: '1px solid #f0f0f0', paddingTop: 12 }}>
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Sandbox Pluggy</div>

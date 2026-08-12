@@ -134,6 +134,11 @@ class Settings(BaseSettings):
     # configurado é recusado (fail-closed).
     PLUGGY_WEBHOOK_SECRET: str = ""
 
+    # Webhook item/* da Pluggy dispara um job de sync quando não há nenhum
+    # em andamento (o usuário conectou o banco e fechou o app). Desligue
+    # para sincronizar apenas sob demanda.
+    PLUGGY_AUTOSYNC_ON_WEBHOOK: bool = True
+
     # Web Push (PWA — R1.d). Gerar par VAPID com:
     #   python3 -c "from py_vapid import Vapid; v=Vapid(); v.generate_keys(); \
     #               print(v.private_pem()); print(v.public_pem())"
