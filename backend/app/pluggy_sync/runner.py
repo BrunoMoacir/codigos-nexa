@@ -15,6 +15,7 @@ Duas responsabilidades, ambas bloqueantes (rodam na thread do job):
 
 from __future__ import annotations
 
+import inspect
 import logging
 import time
 from datetime import datetime, timezone
@@ -25,6 +26,11 @@ from sqlalchemy.orm import Session
 from app.core.integrations.pluggy import PluggyClient
 from app.core.schemas.transaction import TransactionBatchResult
 from app.forecast.etl import TransactionIngestor
+from app.forecast.etl.bank_strategy.institutions import (
+    DESCONHECIDO,
+    extract_connector,
+    resolve_institution_id,
+)
 from app.forecast.etl.runner import run_etl_pipeline
 from app.pluggy_sync import events
 
@@ -43,6 +49,12 @@ ITEM_BLOCKED = {
 _DEFAULT_POLL_INTERVAL = 5.0
 
 ProgressFn = Callable[..., None]
+
+
+# Paginação da Pluggy: pageSize padrão 20, máximo 500.
+_PAGE_SIZE = 500
+# Trava de segurança contra `totalPages` absurdo/loop infinito.
+_MAX_PAGES = 200
 
 
 class ItemNotReady(Exception):
@@ -108,6 +120,83 @@ def wait_item_ready(
             waiter.wait(min(poll_interval, remaining))
 
 
+def _supports_paging(pluggy) -> bool:
+    """O cliente aceita os kwargs de paginação?
+
+    Os dublês de teste (MockPluggyClient e afins) implementam a assinatura
+    antiga `get_transactions(account_id)` e devolvem uma página só. Checar a
+    assinatura evita tanto quebrá-los quanto mascarar um TypeError real
+    vindo de dentro do cliente de verdade.
+    """
+    try:
+        return "page" in inspect.signature(pluggy.get_transactions).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def fetch_all_transactions(pluggy, account_id: str) -> list[dict]:
+    """TODAS as transações da conta, percorrendo as páginas da Pluggy.
+
+    Sem isto o sync ingeria só a primeira página — com o pageSize padrão de
+    20, um usuário com um ano de extrato entrava no ETL com 20 lançamentos e
+    todo o resto do produto (recorrências, burn rate, tarifas) via um mês
+    truncado.
+    """
+    if not _supports_paging(pluggy):
+        response = pluggy.get_transactions(account_id)
+        return list(response.get("results") or []) if isinstance(response, dict) else []
+
+    results: list[dict] = []
+    page = 1
+    while page <= _MAX_PAGES:
+        response = pluggy.get_transactions(account_id, page=page, page_size=_PAGE_SIZE)
+        if not isinstance(response, dict):
+            break
+
+        batch = response.get("results") or []
+        results.extend(batch)
+
+        try:
+            total_pages = int(response.get("totalPages") or 1)
+        except (TypeError, ValueError):
+            total_pages = 1
+
+        if not batch or page >= total_pages:
+            break
+        page += 1
+    else:
+        logger.warning(
+            "[PluggySync] conta %s parou em %d páginas (limite de segurança)",
+            account_id, _MAX_PAGES,
+        )
+
+    return results
+
+
+def _resolve_institution(pluggy: PluggyClient, item_id: str) -> str:
+    """
+    Slug do banco do item, via GET /items/{id}.
+
+    Nunca levanta: se a consulta falhar, o sync segue com "unknown" e a
+    DefaultStrategy — perder o tratamento por banco é ruim, perder o sync
+    inteiro é pior.
+    """
+    try:
+        item = pluggy.get_item(item_id)
+    except Exception as e:
+        logger.warning("[PluggySync] Não resolveu o conector do item %s: %s", item_id, e)
+        return DESCONHECIDO
+
+    nome, connector_id = extract_connector(item)
+    institution_id = resolve_institution_id(nome, connector_id)
+
+    logger.info(
+        "[PluggySync] Item %s → conector=%r institution_id=%s",
+        item_id, nome, institution_id,
+    )
+    return institution_id
+
+
 def sync_item_transactions(
     db: Session,
     user_id: str,
@@ -119,6 +208,11 @@ def sync_item_transactions(
 
     accounts_resp = pluggy.get_accounts(item_id)
     accounts = accounts_resp.get("results", []) if isinstance(accounts_resp, dict) else []
+
+    # Banco do item: é GET /items/{id} que traz o `connector` (o objeto
+    # Account não traz). Sem isso o institution_id caía sempre em "unknown" e
+    # a BankStrategy do banco nunca rodava em produção.
+    institution_padrao = _resolve_institution(pluggy, item_id)
 
     # Snapshot de saldo real por conta (poupança, corrente, ...) — base da
     # personalização do OPP. Falha silenciosamente; nunca derruba o sync.
@@ -145,8 +239,7 @@ def sync_item_transactions(
             )
 
         try:
-            raw_transactions = pluggy.get_transactions(account_id)
-            raw_results = raw_transactions.get("results", []) if isinstance(raw_transactions, dict) else []
+            raw_results = fetch_all_transactions(pluggy, account_id)
             total_received += len(raw_results)
 
             if not raw_results:
@@ -165,20 +258,12 @@ def sync_item_transactions(
                     tx_n["description"] = tx_n.get("descriptionRaw")
                 normalized_results.append(tx_n)
 
-            connector = account.get("connector") if isinstance(account.get("connector"), dict) else {}
-            connector_id = str(
-                connector.get("id")
-                or account.get("connectorId")
-                or "unknown"
-            )
-            institution_map = {
-                "201": "nubank",
-                "202": "itau",
-                "203": "bradesco",
-                "204": "inter",
-                "0": "pluggy_sandbox",
-            }
-            institution_id = institution_map.get(connector_id, "unknown")
+            # A conta às vezes carrega o próprio conector (payload antigo,
+            # mock); quando carrega, ela manda — é mais específica que o item.
+            nome_conta, id_conta = extract_connector(account)
+            institution_id = resolve_institution_id(nome_conta, id_conta)
+            if institution_id == DESCONHECIDO:
+                institution_id = institution_padrao
 
             batch_result = TransactionBatchResult.from_raw_batch(
                 raw_data=normalized_results,

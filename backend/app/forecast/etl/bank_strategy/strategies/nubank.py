@@ -38,17 +38,29 @@ class NubankStrategy(BankStrategy):
         3. Limpa categoria (Nubank não é confiável)
         """
         
-        # 2. Extrair merchant da description
+        # 2. Extrair merchant da description QUANDO o banco não mandou um.
         # Ex: "COMPRA NO DÉBITO - UBER *1234" → "uber"
-        # ✅ CORREÇÃO: .str.strip_chars() (API correta do Polars)
-        df = df.with_columns(
+        #
+        # Só preenche vazio: antes sobrescrevia sempre e jogava fora o
+        # merchant.businessName que a Pluggy entrega no cartão — dado melhor
+        # do que qualquer split de descrição.
+        derivado = (
             pl.col("description")
             .str.split("-")
             .list.get(-1)
             .str.replace(r"\*.*", "")
             .str.strip_chars()
-            .alias("merchant")
         )
+
+        if "merchant" in df.columns:
+            df = df.with_columns(
+                pl.when(pl.col("merchant").cast(pl.String).fill_null("").str.len_chars() > 0)
+                .then(pl.col("merchant"))
+                .otherwise(derivado)
+                .alias("merchant")
+            )
+        else:
+            df = df.with_columns(derivado.alias("merchant"))
         
         # 3. Nubank envia categoria, mas não é confiável
         # Melhor usar o Classifier (CatBoost)
@@ -59,26 +71,18 @@ class NubankStrategy(BankStrategy):
     
     def evaluate_quality(self, df: pl.DataFrame) -> DataStatus:
         """
-        Avalia qualidade dos dados do Nubank.
-        
-        TRUSTED se:
-            - merchant preenchido (extraído com sucesso)
-            - transaction_date válida
-        
-        DEGRADED se:
-            - merchant null mas data válida
-        
-        UNTRUSTED se:
-            - transaction_date inválida
+        Teto de confiança do Nubank como FONTE (TIER_1).
+
+        Este método responde "dá para confiar neste banco?", não "esta linha
+        está completa?" — lacuna de linha é rebaixada depois, no
+        TransactionIngestor._apply_row_quality(). Antes o critério era
+        `merchant.is_null()`, que nunca disparava (o ingestor preenche null
+        com "" antes das strategies): o portão ficava sempre aberto.
+
+        UNTRUSTED só quando o lote vem com data inválida — aí não é lacuna,
+        é o conector quebrado.
         """
-        # Verifica datas inválidas
         if df.filter(pl.col("transaction_date").is_null()).height > 0:
             return DataStatus.UNTRUSTED
-        
-        # ✅ CORREÇÃO: Usar DataStatus.DEGRADED (não PARTIAL)
-        # Verifica merchant (se conseguiu extrair)
-        if df.filter(pl.col("merchant").is_null()).height > 0:
-            return DataStatus.DEGRADED
-        
-        # ✅ CORREÇÃO: Usar DataStatus.TRUSTED (não OK)
+
         return DataStatus.TRUSTED

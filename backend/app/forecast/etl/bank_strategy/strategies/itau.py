@@ -34,13 +34,20 @@ class ItauStrategy(BankStrategy):
                 .alias("merchant")
             )
 
-        # 2. Corrigir sinal do amount baseado no transaction_type
-        # O Itaú frequentemente manda valor positivo com flag "DEBITO"
-        if "transaction_type" in df.columns:
+        # 2. Corrigir sinal do amount baseado na flag de débito/crédito.
+        # O Itaú frequentemente manda valor positivo com flag "DEBITO".
+        #
+        # A coluna é `type` (campo do schema). Estava escrito
+        # "transaction_type", que só nasce no PASSO 7 do ingestor — depois
+        # desta strategy rodar: a correção nunca era aplicada.
+        if "type" in df.columns:
+            flag = pl.col("type").cast(pl.String).fill_null("").str.to_uppercase()
             df = df.with_columns(
-                pl.when(pl.col("transaction_type").str.to_uppercase().str.contains("DEBIT"))
-                .then(pl.col("amount").abs() * -1) # Garante negativo
-                .otherwise(pl.col("amount").abs()) # Garante positivo
+                pl.when(flag.str.contains("DEBIT"))
+                .then(pl.col("amount").abs() * -1)   # Garante negativo
+                .when(flag.str.contains("CREDIT"))
+                .then(pl.col("amount").abs())        # Garante positivo
+                .otherwise(pl.col("amount"))         # Sem flag: não adivinha
                 .alias("amount")
             )
 

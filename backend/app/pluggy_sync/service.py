@@ -68,7 +68,15 @@ SSE_HEARTBEAT_INTERVAL = 15.0
 SSE_MAX_DURATION = 900.0
 
 # Job RUNNING sem atualização há mais que isso = worker morreu no meio.
+# Só é seguro porque `touch_job` renova o relógio a cada tique do poller,
+# inclusive durante os minutos parados esperando o banco.
 STALE_AFTER = timedelta(minutes=15)
+
+# Teto de syncs simultâneos por processo. A ETL é pesada (polars + writes) e
+# cada job ocupa uma thread: sem o teto, um pico de conexões derruba o worker
+# que também atende as requisições HTTP.
+MAX_CONCURRENT_JOBS = 4
+_job_slots = threading.BoundedSemaphore(MAX_CONCURRENT_JOBS)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -149,15 +157,46 @@ def get_job(db: Session, job_id: str, user_id: str) -> Optional[PluggySyncJob]:
     )
 
 
+def _expire_if_stale(job: PluggySyncJob) -> bool:
+    """Encerra o job cujo executor morreu. True se foi encerrado agora.
+
+    O job vive numa thread: um deploy ou um crash no meio do sync deixaria o
+    registro em RUNNING para sempre, e quem estivesse no long-poll/SSE
+    esperaria por um progresso que nunca mais vem. `touch_job` mantém o
+    `updated_at` fresco enquanto a thread está viva — parou de andar por mais
+    que STALE_AFTER, o executor não existe mais.
+    """
+    if job.status not in (JOB_PENDING, JOB_RUNNING):
+        return False
+
+    updated = _utc(job.updated_at) or _utc(job.created_at)
+    if updated is None or datetime.now(timezone.utc) - updated <= STALE_AFTER:
+        return False
+
+    logger.warning("[PluggySync] Job %s órfão (sem update desde %s) — encerrando", job.id, updated)
+    update_job(
+        job.id,
+        status=JOB_ERROR,
+        phase=PHASE_ERROR,
+        error="Sincronização interrompida (processo reiniciado). Tente novamente.",
+        finished_at=datetime.now(timezone.utc),
+    )
+    return True
+
+
 def get_job_state(job_id: str, user_id: str) -> Optional[dict]:
     """Estado serializado, lido em sessão própria (uso fora do request)."""
     with _session() as db:
         job = get_job(db, job_id, user_id)
-        return job_to_dict(job) if job else None
+        if job is None:
+            return None
+        if _expire_if_stale(job):
+            db.refresh(job)
+        return job_to_dict(job)
 
 
 def find_active_job(db: Session, user_id: str) -> Optional[PluggySyncJob]:
-    """Job PENDING/RUNNING do usuário; marca como ERROR o que ficou órfão."""
+    """Job PENDING/RUNNING do usuário; descarta o que ficou órfão."""
     job = (
         db.query(PluggySyncJob)
         .filter(
@@ -169,19 +208,8 @@ def find_active_job(db: Session, user_id: str) -> Optional[PluggySyncJob]:
     )
     if job is None:
         return None
-
-    updated = _utc(job.updated_at) or _utc(job.created_at)
-    if updated is not None and datetime.now(timezone.utc) - updated > STALE_AFTER:
-        logger.warning("[PluggySync] Job %s órfão (sem update desde %s) — encerrando", job.id, updated)
-        update_job(
-            job.id,
-            status=JOB_ERROR,
-            phase=PHASE_ERROR,
-            error="Sincronização interrompida (processo reiniciado). Tente novamente.",
-            finished_at=datetime.now(timezone.utc),
-        )
+    if _expire_if_stale(job):
         return None
-
     return job
 
 
@@ -268,14 +296,52 @@ def update_job(job_id: str, **fields) -> Optional[dict]:
     return state
 
 
+def touch_job(job_id: str) -> None:
+    """Prova de vida: adia o `updated_at` sem mexer no cursor.
+
+    Enquanto o banco não responde não há progresso novo para contar — mas o
+    job precisa parecer vivo para `_expire_if_stale`. Se isso passasse por
+    `update_job`, cada tique do poller acordaria todo mundo no long-poll/SSE
+    com um estado idêntico, transformando o long-polling em polling comum.
+    """
+    with _session() as db:
+        db.query(PluggySyncJob).filter(PluggySyncJob.id == job_id).update(
+            {PluggySyncJob.updated_at: datetime.now(timezone.utc)},
+            synchronize_session=False,
+        )
+        db.commit()
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # EXECUÇÃO
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def _run_job_with_slot(job_id: str, user_id: str) -> None:
+    """Executa o job ocupando um slot do pool de sync."""
+    if not _job_slots.acquire(blocking=False):
+        # Fila cheia: o usuário vê "na fila" em vez de uma barra parada sem
+        # explicação. O job continua PENDING até um slot liberar.
+        update_job(job_id, message="Na fila — há outras sincronizações em andamento.")
+        _job_slots.acquire()
+    try:
+        run_job(job_id, str(user_id))
+    except Exception as e:
+        logger.error("[PluggySync] Job %s morreu: %s", job_id, e, exc_info=True)
+        update_job(
+            job_id,
+            status=JOB_ERROR,
+            phase=PHASE_ERROR,
+            error="Falha inesperada na sincronização.",
+            finished_at=datetime.now(timezone.utc),
+        )
+    finally:
+        _job_slots.release()
+
+
 def start_job(job_id: str, user_id: str) -> None:
     """Dispara o job numa thread daemon (não segura o worker do uvicorn)."""
     thread = threading.Thread(
-        target=run_job,
+        target=_run_job_with_slot,
         args=(job_id, str(user_id)),
         name=f"pluggy-sync-{job_id[:8]}",
         daemon=True,
@@ -357,6 +423,12 @@ def run_job(
             publish(PHASE_WAITING_BANK, "Aguardando o banco liberar os dados...", 5)
 
             def on_wait(item_status: Optional[str] = None, remaining: float = 0.0) -> None:
+                # Enquanto o status do item não muda não há novidade: só
+                # renova a prova de vida. Publicar a cada 5s acordaria todo
+                # long-poll/SSE com um estado idêntico ao anterior.
+                if item_status == entry.get("item_status"):
+                    touch_job(job_id)
+                    return
                 publish(
                     PHASE_WAITING_BANK,
                     "Aguardando o banco liberar os dados...",

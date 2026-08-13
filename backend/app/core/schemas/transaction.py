@@ -2090,6 +2090,32 @@ class TransactionBatchResult(BaseModel):
         # nunca enxerga o campo que a Pluggy realmente manda (camelCase).
         if "descriptionRaw" in normalized and "description_raw" not in normalized:
             normalized["description_raw"] = normalized.pop("descriptionRaw")
+
+        # currencyCode → currency
+        # Sem o mapeamento, compra em dólar era gravada como BRL e o valor
+        # em USD entrava no fluxo de caixa como se fosse real.
+        if "currencyCode" in normalized and "currency" not in normalized:
+            moeda = normalized.pop("currencyCode")
+            if moeda:
+                normalized["currency"] = moeda
+
+        # creditCardMetadata.{installmentNumber,totalInstallments}
+        # A Pluggy já diz "parcela 2 de 10" no cartão; sem isso, parcelamento
+        # dependia só de regex na descrição.
+        metadata = normalized.get("creditCardMetadata")
+        if isinstance(metadata, dict):
+            numero = metadata.get("installmentNumber")
+            total = metadata.get("totalInstallments")
+            # Par incoerente (o bug de "13 de 12" existe em conector real) é
+            # ignorado: parcela é melhorador, nunca motivo para perder a
+            # transação inteira na validação.
+            if (
+                isinstance(numero, int)
+                and isinstance(total, int)
+                and 1 <= numero <= total <= MAX_INSTALLMENTS
+            ):
+                normalized.setdefault("installment_number", numero)
+                normalized.setdefault("installment_total", total)
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # ITAÚ (Campos não-padrão)

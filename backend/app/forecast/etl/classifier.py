@@ -262,18 +262,26 @@ class TransactionClassifier:
         confidences = []
         
         for row in df.iter_rows(named=True):
-            desc = normalize_text(row.get("description"))
-            merchant_raw = row.get("merchant")
-            merchant = normalize_text(merchant_raw) if merchant_raw else ""
-            
-            category, confidence = self._classify_text(desc)
-            
-            if category == "Outros" and merchant:
-                cat_merchant, conf_merchant = self._classify_text(merchant)
-                if cat_merchant != "Outros":
-                    category = cat_merchant
-                    confidence = conf_merchant * 0.9
-            
+            # Ordem importa: a chave canônica primeiro, porque é o texto com
+            # maior densidade de sinal. A descrição crua do Itaú
+            # ("compra cartao 1234 netflix.com sao paulo br") tem tanto ruído
+            # que casava com a regra errada antes de chegar ao merchant.
+            candidatos = [
+                (normalize_text(row.get("merchant_key")), 1.0),
+                (normalize_text(row.get("description")), 1.0),
+                (normalize_text(row.get("merchant")), 0.9),
+            ]
+
+            category, confidence = "Outros", 0.50
+
+            for texto, peso in candidatos:
+                if not texto:
+                    continue
+                cat, conf = self._classify_text(texto)
+                if cat != "Outros":
+                    category, confidence = cat, conf * peso
+                    break
+
             categories.append(category)
             confidences.append(confidence)
         

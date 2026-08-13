@@ -14,6 +14,7 @@ import json
 import threading
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -33,7 +34,7 @@ from app.pluggy_sync.models_orm import (
     PHASE_WAITING_BANK,
     PluggySyncJob,
 )
-from app.pluggy_sync.runner import ItemNotReady, wait_item_ready
+from app.pluggy_sync.runner import ItemNotReady, fetch_all_transactions, wait_item_ready
 
 USER_ID = "user-sync-test"
 OTHER_USER_ID = "user-intruso"
@@ -116,6 +117,38 @@ class FakePluggy:
         return {"id": item_id, "status": self.final_status}
 
 
+class FakePaginado:
+    """Cliente que pagina como a Pluggy real (results + totalPages)."""
+
+    def __init__(self, total: int = 1250, page_size_servidor: int = 500):
+        self.total = total
+        self.page_size_servidor = page_size_servidor
+        self.paginas_pedidas: list[int] = []
+
+    def get_transactions(self, account_id: str, page: int | None = None, page_size: int | None = None) -> dict:
+        tamanho = min(page_size or 20, self.page_size_servidor)
+        atual = page or 1
+        self.paginas_pedidas.append(atual)
+
+        inicio = (atual - 1) * tamanho
+        fim = min(inicio + tamanho, self.total)
+        total_pages = max(1, -(-self.total // tamanho))  # ceil
+
+        return {
+            "total": self.total,
+            "totalPages": total_pages,
+            "page": atual,
+            "results": [{"id": f"tx-{i}"} for i in range(inicio, fim)],
+        }
+
+
+class FakeSemPaginacao:
+    """Assinatura antiga — é o que os mocks do projeto implementam."""
+
+    def get_transactions(self, account_id: str) -> dict:
+        return {"results": [{"id": "tx-1"}, {"id": "tx-2"}]}
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ESPERA DO ITEM (o problema de origem)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -169,6 +202,46 @@ class TestWaitItemReady:
 
         assert status_str == "UPDATED"
         assert elapsed < 3.0, "deveria ter acordado pelo webhook, não pelo poll de 5s"
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# PAGINAÇÃO (a Pluggy devolve 20 por página por padrão)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class TestPaginacao:
+
+    def test_percorre_todas_as_paginas(self):
+        pluggy = FakePaginado(total=1250)
+
+        resultados = fetch_all_transactions(pluggy, "acc-1")
+
+        assert len(resultados) == 1250, "o sync não pode parar na primeira página"
+        assert resultados[0]["id"] == "tx-0"
+        assert resultados[-1]["id"] == "tx-1249"
+        assert pluggy.paginas_pedidas == [1, 2, 3]
+
+    def test_uma_pagina_so_nao_pede_a_segunda(self):
+        pluggy = FakePaginado(total=10)
+
+        resultados = fetch_all_transactions(pluggy, "acc-1")
+
+        assert len(resultados) == 10
+        assert pluggy.paginas_pedidas == [1]
+
+    def test_cliente_com_assinatura_antiga_continua_funcionando(self):
+        """Mocks do projeto expõem get_transactions(account_id) e uma página só."""
+        resultados = fetch_all_transactions(FakeSemPaginacao(), "acc-1")
+
+        assert len(resultados) == 2
+
+    def test_mock_oficial_do_projeto_segue_compativel(self):
+        from app.core.integrations.pluggy_mock import MockPluggyClient
+
+        pluggy = MockPluggyClient()
+        item = pluggy.create_sandbox_item()
+        account_id = pluggy.get_accounts(item["id"])["results"][0]["id"]
+
+        assert fetch_all_transactions(pluggy, account_id)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -467,6 +540,89 @@ class TestRunJob:
 
         assert final["status"] == "PARTIAL"
         assert final["totals"]["saved"] == 5
+
+
+class TestRuidoDeProgresso:
+    """O long-polling só vale se o cursor andar quando algo muda de verdade."""
+
+    def test_espera_longa_nao_publica_estado_repetido(self, db_factory, monkeypatch):
+        session = db_factory()
+        job = sync_service.create_job(session, USER_ID, ["item-1"])
+        session.close()
+
+        import app.core.integrations.pluggy as pluggy_module
+
+        # 12 consultas seguidas devolvendo UPDATING antes de liberar.
+        pluggy = FakePluggy(updating_calls=12)
+        monkeypatch.setattr(pluggy_module, "PluggyClient", lambda: pluggy)
+        monkeypatch.setattr(
+            sync_service,
+            "sync_item_transactions",
+            lambda db, user_id, item_id, on_progress=None: {
+                "item_id": item_id, "accounts": 1, "received": 3,
+                "valid": 3, "saved": 3, "errors": [],
+            },
+        )
+
+        final = sync_service.run_job(job.id, USER_ID, item_timeout=10, poll_interval=0.01)
+
+        assert final["status"] == JOB_SUCCESS
+        assert pluggy.calls == 13, "o poller precisa ter rodado várias vezes"
+        # Sem a correção, cada tique do poller virava uma versão nova e o
+        # long-poll voltava a cada 10ms com um estado idêntico.
+        assert final["cursor"] - job.version <= 8, (
+            f"cursor subiu {final['cursor'] - job.version} vezes em 13 polls — "
+            "o job está republicando estado repetido"
+        )
+
+    def test_touch_mantem_o_job_vivo_sem_mexer_no_cursor(self, db_factory):
+        session = db_factory()
+        job = sync_service.create_job(session, USER_ID, ["item-1"])
+        session.close()
+
+        antes = sync_service.get_job_state(job.id, USER_ID)
+        sync_service.touch_job(job.id)
+        depois = sync_service.get_job_state(job.id, USER_ID)
+
+        assert depois["cursor"] == antes["cursor"]
+        assert depois["updated_at"] >= antes["updated_at"]
+
+
+class TestJobOrfao:
+
+    def test_job_parado_ha_muito_tempo_vira_erro_para_quem_espera(self, db_factory):
+        """Deploy no meio do sync não pode deixar o cliente esperando para sempre."""
+        session = db_factory()
+        job = sync_service.create_job(session, USER_ID, ["item-1"])
+        job_id = job.id
+        job.status = JOB_RUNNING
+        job.updated_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        session.commit()
+        session.close()
+
+        state = sync_service.get_job_state(job_id, USER_ID)
+
+        assert state["status"] == JOB_ERROR
+        assert state["done"] is True
+        assert "interrompida" in state["error"].lower()
+
+    def test_falha_inesperada_na_thread_fecha_o_job(self, db_factory, monkeypatch):
+        session = db_factory()
+        job = sync_service.create_job(session, USER_ID, ["item-1"])
+        session.close()
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(sync_service, "run_job", explode)
+        sync_service._run_job_with_slot(job.id, USER_ID)
+
+        state = sync_service.get_job_state(job.id, USER_ID)
+        assert state["status"] == JOB_ERROR
+        assert state["done"] is True
+        # O slot precisa voltar para o pool, senão a fila trava depois de N falhas.
+        assert sync_service._job_slots.acquire(blocking=False)
+        sync_service._job_slots.release()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

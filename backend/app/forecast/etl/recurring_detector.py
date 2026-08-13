@@ -171,8 +171,15 @@ class RecurringDetector:
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # STEP 1: DETECTAR ASSINATURAS (com validação temporal)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-        subscriptions_df = self.subscription_detector.detect(df)
+        #
+        # Assinatura é detectada sobre a CHAVE canônica, não sobre a
+        # descrição: bancos que carimbam a competência no texto
+        # ("DEB AUT NETFLIX*ASSINAT 08/26") geram uma string nova por mês e
+        # nunca formavam série mensal. Parcelamento continua na descrição
+        # original — é lá que mora o "3/12".
+
+        df_assinaturas = self._df_por_chave(df)
+        subscriptions_df = self.subscription_detector.detect(df_assinaturas)
         
         self.logger.debug(
             f"Assinaturas detectadas: {subscriptions_df.height if not subscriptions_df.is_empty() else 0}"
@@ -223,6 +230,26 @@ class RecurringDetector:
     # PRIVATE HELPERS
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
+    def _tem_chave(self, df: pl.DataFrame) -> bool:
+        """merchant_key existe e não está vazia (ingestor pode não ter rodado)."""
+        return "merchant_key" in df.columns
+
+    def _df_por_chave(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Cópia do DataFrame com `description` := merchant_key, para o
+        SubscriptionDetector agrupar por estabelecimento em vez de por texto
+        cru. Cai para a descrição original quando não há chave.
+        """
+        if not self._tem_chave(df):
+            return df
+
+        return df.with_columns(
+            pl.when(pl.col("merchant_key").cast(pl.String).fill_null("").str.len_chars() > 0)
+            .then(pl.col("merchant_key"))
+            .otherwise(pl.col("description"))
+            .alias("description")
+        )
+
     def _validate_required_columns(self, df: pl.DataFrame):
         """Valida colunas obrigatórias."""
         required = {"description", "amount", "transaction_date"}
@@ -265,9 +292,23 @@ class RecurringDetector:
         # NORMALIZAR DESCRIÇÃO (lowercase)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
+        # Duas chaves de comparação, porque as duas detecções olham textos
+        # diferentes: assinatura casa pela chave canônica (estável entre
+        # meses), parcelamento casa pela descrição original (é onde está o
+        # "3/12" que o InstallmentDetector leu).
         df = df.with_columns(
             pl.col("description").str.to_lowercase().alias("description_norm")
         )
+
+        if self._tem_chave(df):
+            df = df.with_columns(
+                pl.when(pl.col("merchant_key").cast(pl.String).fill_null("").str.len_chars() > 0)
+                .then(pl.col("merchant_key").str.to_lowercase())
+                .otherwise(pl.col("description_norm"))
+                .alias("_chave_assinatura")
+            )
+        else:
+            df = df.with_columns(pl.col("description_norm").alias("_chave_assinatura"))
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # EXTRAIR DESCRIPTIONS DETECTADAS
@@ -303,10 +344,10 @@ class RecurringDetector:
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
         df = df.with_columns([
-            # is_recurring (comparar com description_norm)
-            pl.col("description_norm").is_in(list(subscription_descriptions)).alias("is_recurring"),
-            
-            # is_installment (comparar com description_norm)
+            # is_recurring (comparar com a chave canônica)
+            pl.col("_chave_assinatura").is_in(list(subscription_descriptions)).alias("is_recurring"),
+
+            # is_installment (comparar com a descrição original)
             pl.col("description_norm").is_in(list(installment_descriptions)).alias("is_installment"),
         ])
         
@@ -314,22 +355,25 @@ class RecurringDetector:
         # ADICIONAR CONFIDENCE (prioriza subscription)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
-        # Mapa combinado (subscription sobrescreve installment)
-        confidence_map = {**installment_confidence_map, **subscription_confidence_map}
-        
-        # Adicionar coluna recurring_confidence (usando description_norm)
-        df = df.with_columns(
-            pl.col("description_norm")
-            .map_elements(
-                lambda desc: confidence_map.get(desc, None),
-                return_dtype=pl.Float64
+        # Confiança: cada mapa é consultado pela chave que o gerou —
+        # assinatura pela chave canônica, parcelamento pela descrição.
+        def _lookup(coluna: str, mapa: dict) -> pl.Expr:
+            if not mapa:
+                return pl.lit(None, dtype=pl.Float64)
+            return pl.col(coluna).replace_strict(
+                mapa, default=None, return_dtype=pl.Float64
             )
-            .alias("recurring_confidence")
+
+        df = df.with_columns(
+            pl.coalesce([
+                _lookup("_chave_assinatura", subscription_confidence_map),
+                _lookup("description_norm", installment_confidence_map),
+            ]).alias("recurring_confidence")
         )
-        
-        # Remover coluna temporária description_norm
-        df = df.drop("description_norm")
-        
+
+        # Remover colunas temporárias
+        df = df.drop("description_norm", "_chave_assinatura")
+
         return df
     
     def _extract_installment_info(self, df: pl.DataFrame) -> pl.DataFrame:

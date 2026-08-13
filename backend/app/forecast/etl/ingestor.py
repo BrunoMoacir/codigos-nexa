@@ -7,10 +7,12 @@ from dataclasses import dataclass
 from datetime import datetime
 import polars as pl
 
+from app.core.schemas.enums import DataStatus
 from app.core.schemas.transaction import TransactionWebhook
 from app.forecast.etl.bank_strategy import get_bank_strategy
 from app.forecast.etl.dedup.base import DedupPolicy
 from app.forecast.etl.dedup.default import DefaultDedupPolicy
+from app.forecast.etl.text_normalizer import canonical_key_expr
 
 logger = logging.getLogger(__name__)
 
@@ -86,10 +88,15 @@ class TransactionIngestor:
         # 4. BankStrategy
         df = self._apply_bank_strategies(df)
 
-        # 5. Conversão de tipos
+        # 5. Chave canônica de estabelecimento (une o que cada banco escreve
+        #    do seu jeito) + downgrade de qualidade POR LINHA
+        df = self._canonicalize_merchant(df)
+        df = self._apply_row_quality(df)
+
+        # 6. Conversão de tipos
         df = self._convert_types(df)
 
-        # 6. Enriquecimento
+        # 7. Enriquecimento
         df = self._enrich_columns(df)
 
         processing_time = (datetime.now() - start_time).total_seconds() * 1000
@@ -159,7 +166,72 @@ class TransactionIngestor:
         return pl.concat(processed, how="diagonal_relaxed")
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # PASSO 4 — TIPOS
+    # PASSO 5a — CHAVE CANÔNICA DE ESTABELECIMENTO
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _canonicalize_merchant(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Cria `merchant_key`: a mesma compra escrita por bancos diferentes
+        (e por meses diferentes) converge para a mesma chave.
+
+        Deriva do merchant quando o banco mandou um — é o dado mais limpo —
+        e cai para a descrição quando não mandou. A descrição original NÃO é
+        tocada: quem precisa do texto cru (extrato, auditoria) continua tendo.
+
+        Consumidores: RecurringDetector (agrupa assinatura por chave, não por
+        descrição, que muda de mês em mês em Bradesco/Itaú) e
+        TransactionClassifier (classifica texto limpo, não ruído de adquirente).
+        """
+        base = pl.col("description")
+        if "merchant" in df.columns:
+            base = (
+                pl.when(pl.col("merchant").cast(pl.String).fill_null("").str.len_chars() > 0)
+                .then(pl.col("merchant"))
+                .otherwise(pl.col("description"))
+            )
+
+        df = df.with_columns(canonical_key_expr(base).alias("merchant_key"))
+
+        # merchant vazio herda a chave — melhor "netflix" do que nada
+        if "merchant" in df.columns:
+            df = df.with_columns(
+                pl.when(pl.col("merchant").cast(pl.String).fill_null("").str.len_chars() == 0)
+                .then(pl.col("merchant_key"))
+                .otherwise(pl.col("merchant"))
+                .alias("merchant")
+            )
+
+        return df
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # PASSO 5b — QUALIDADE POR LINHA
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _apply_row_quality(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        A BankStrategy dá o TETO de confiança do banco (tier); aqui cada linha
+        é rebaixada pelo que falta NELA.
+
+        Antes o veredito era só do lote: um saldo nulo em 50 transações
+        marcava as 50 como DEGRADED, e o Nubank saía TRUSTED mesmo com a
+        descrição inteira vazia. Só rebaixa — nunca promove acima do teto.
+        """
+        if "data_status" not in df.columns:
+            return df
+
+        incompleta = pl.col("description").cast(pl.String).fill_null("").str.len_chars() == 0
+        if "balance" in df.columns:
+            incompleta = incompleta | pl.col("balance").is_null()
+
+        return df.with_columns(
+            pl.when((pl.col("data_status") == DataStatus.TRUSTED.value) & incompleta)
+            .then(pl.lit(DataStatus.DEGRADED.value))
+            .otherwise(pl.col("data_status"))
+            .alias("data_status")
+        )
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # PASSO 6 — TIPOS
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def _convert_types(self, df: pl.DataFrame) -> pl.DataFrame:

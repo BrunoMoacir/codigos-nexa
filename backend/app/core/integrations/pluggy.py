@@ -144,14 +144,31 @@ class PluggyClient:
         response.raise_for_status()
         return response.json()
 
-    def get_transactions(self, account_id: str) -> dict:
+    def get_transactions(
+        self,
+        account_id: str,
+        page: int | None = None,
+        page_size: int | None = None,
+    ) -> dict:
+        """Uma página de transações da conta.
+
+        A Pluggy pagina este endpoint (pageSize padrão 20, máximo 500) e
+        devolve `totalPages` na resposta. Quem chama precisa percorrer as
+        páginas — ver fetch_all_transactions() em app/pluggy_sync/runner.py.
+        """
         url = f"{self.BASE_URL}/transactions"
+
+        params: dict = {"accountId": account_id}
+        if page is not None:
+            params["page"] = page
+        if page_size is not None:
+            params["pageSize"] = page_size
 
         response = requests.get(
             url,
-            params={"accountId": account_id},
+            params=params,
             headers=self._headers(),
-            timeout=10,
+            timeout=20,
         )
 
         response.raise_for_status()

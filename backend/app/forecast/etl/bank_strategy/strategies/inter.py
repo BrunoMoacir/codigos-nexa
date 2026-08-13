@@ -58,24 +58,17 @@ class InterStrategy(BankStrategy):
     
     def evaluate_quality(self, df: pl.DataFrame) -> DataStatus:
         """
-        Avalia qualidade dos dados do Inter.
-        
-        TRUSTED se:
-            - transaction_date válida
-            - balance presente
-        
-        DEGRADED se:
-            - balance ausente mas data válida
-        
-        UNTRUSTED se:
-            - transaction_date inválida
+        Teto de confiança do Inter como FONTE (TIER_2).
+
+        A checagem de balance saiu daqui: era por LOTE, então um único saldo
+        nulo (normal em cartão de crédito) rebaixava todas as outras
+        transações junto. Saldo faltando agora rebaixa só a linha afetada,
+        no TransactionIngestor._apply_row_quality().
         """
-        # Verifica datas inválidas
         if df.filter(pl.col("transaction_date").is_null()).height > 0:
             return DataStatus.UNTRUSTED
-        
-        # Verifica balance (Inter normalmente envia)
-        if "balance" not in df.columns or df.filter(pl.col("balance").is_null()).height > 0:
+
+        if "balance" not in df.columns:
             return DataStatus.DEGRADED
-        
+
         return DataStatus.TRUSTED

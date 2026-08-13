@@ -219,8 +219,23 @@ def save_transactions_clean(
         if "account_id" not in df.columns:
             df = df.with_columns(pl.lit(account_id).alias("account_id"))
             
+        # A categoria do classificador (Step 2) VENCE a categoria crua do
+        # banco — que vem em inglês e sem padrão entre instituições.
+        # Isso não podia ser um rename: `category` sempre existe (é campo do
+        # TransactionWebhook), então o rename nunca disparava e 100% do
+        # trabalho do classificador era descartado aqui, silenciosamente.
+        if "predicted_category" in df.columns:
+            if "category" in df.columns:
+                df = df.with_columns(
+                    pl.coalesce([
+                        pl.col("predicted_category").cast(pl.Utf8),
+                        pl.col("category").cast(pl.Utf8),  # fallback: o do banco
+                    ]).alias("category")
+                ).drop("predicted_category")
+            else:
+                df = df.rename({"predicted_category": "category"})
+
         rename_map = {
-            "predicted_category": "category",
             "pf_pj_label": "context_type",
             "pf_pj_confidence": "context_confidence",
             "transaction_date": "date",
