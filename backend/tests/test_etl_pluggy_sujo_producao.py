@@ -1311,6 +1311,37 @@ class TestCamada4PipelineCompleto:
         assert processado["is_installment"].any(), "tem que ser reconhecido como parcelamento"
         assert not processado["is_recurring"].any(), "parcelamento não é assinatura"
 
+    def test_assinatura_nao_vira_parcelamento_pelo_chute_do_detector(self):
+        """
+        Espelho do teste acima: sem marcador de parcela, o InstallmentDetector
+        chuta parcelamento em qualquer série mensal de valor fixo — inclusive
+        Netflix. As duas flags têm que ser excludentes no caso ambíguo, senão
+        o Shadow Invoice projeta plano finito para assinatura contínua.
+        """
+        rows = [
+            _tx_pluggy(
+                f"netflix_competencia_{n}",
+                dias_atras=30 * n + 3,
+                amount=-49.90,
+                description=f"DEB AUT NETFLIX*ASSINAT {(AGORA - timedelta(days=30 * n + 3)).strftime('%m/%y')}",
+            )
+            for n in range(6)
+        ]
+
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=rows, institution_id="bradesco", item_id=ITEM_ID, fetched_at=AGORA
+        )
+        df, _ = TransactionIngestor().process(batch.valid_transactions)
+        processado = run_etl_pipeline(
+            transactions_df=df, user_id=USER_ID, skip_steps=["save_db"], db=None
+        )
+
+        assert processado["is_recurring"].all(), "é assinatura"
+        assert not processado["is_installment"].any(), (
+            "competência '08/26' não é 'parcela 8 de 26'"
+        )
+        assert processado["installment_info"].null_count() == processado.height
+
     def test_ruido_do_adquirente_nao_desvia_a_categoria(self):
         """
         "compra cartao 1234 netflix.com sao paulo br" era classificado como
