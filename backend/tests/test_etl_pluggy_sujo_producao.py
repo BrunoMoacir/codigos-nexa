@@ -913,11 +913,47 @@ class TestCamada2ParsingDeCamposSujos:
         assert validas["tx_saldo_vazio"].balance is None, "cartão sem saldo → None (Polars estima)"
 
     def test_campos_desconhecidos_da_pluggy_sao_ignorados_sem_erro(self, validas):
-        """paymentData/creditCardMetadata/MCC não podem quebrar a validação."""
+        """paymentData/MCC não podem quebrar a validação."""
         tx = validas["tx_campos_extras_pluggy"]
         assert tx.account_id == ACC_CARTAO
         assert tx.amount == Decimal("-63.9")
         assert not hasattr(tx, "paymentData")
+
+    def test_parcelas_vem_do_credit_card_metadata(self, validas):
+        """A Pluggy já diz 'parcela 2 de 10' — não precisa adivinhar por regex."""
+        tx = validas["tx_campos_extras_pluggy"]
+        assert tx.installment_number == 2
+        assert tx.installment_total == 10
+
+    def test_parcela_incoerente_do_conector_e_ignorada_sem_perder_a_transacao(self):
+        """
+        Conector com o bug de "13 de 12" não pode custar a transação:
+        parcela é melhorador, não campo fundamental.
+        """
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=[
+                _tx_pluggy(
+                    "parcela_metadata_quebrada",
+                    creditCardMetadata={"installmentNumber": 13, "totalInstallments": 12},
+                )
+            ],
+            institution_id="nubank",
+            item_id=ITEM_ID,
+            fetched_at=AGORA,
+        )
+        assert batch.total_valid == 1
+        assert batch.valid_transactions[0].installment_number is None
+
+    def test_moeda_estrangeira_nao_e_gravada_como_real(self):
+        """currencyCode=USD virava BRL: o valor em dólar entrava no fluxo como R$."""
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=[_tx_pluggy("compra_em_dolar", currencyCode="USD", description="AMAZON US")],
+            institution_id="nubank",
+            item_id=ITEM_ID,
+            fetched_at=AGORA,
+        )
+        assert batch.total_valid == 1
+        assert batch.valid_transactions[0].currency.value == "USD"
 
     def test_mapeamento_de_campos_do_itau_e_do_inter(self, validas):
         itau = validas["tx_itau_portugues"]
@@ -978,17 +1014,36 @@ class TestCamada3IngestorMultiBanco:
 
     def test_data_status_reflete_o_tier_do_banco(self, df_ingerido):
         """
-        Nubank (TIER_1) → TRUSTED; Itaú (TIER_3) e Inter sem saldo → DEGRADED;
-        conector desconhecido → DefaultStrategy → DEGRADED (conservador).
+        A strategy dá o TETO por banco: Nubank (TIER_1) TRUSTED; Itaú (TIER_3)
+        e conector desconhecido (DefaultStrategy) DEGRADED.
         """
         status: dict[str, set[str]] = {}
         for linha in df_ingerido.select("institution_id", "data_status").unique().to_dicts():
             status.setdefault(linha["institution_id"], set()).add(linha["data_status"])
 
-        assert status["nubank"] == {"TRUSTED"}
+        assert "TRUSTED" in status["nubank"], "TIER_1 pode chegar a TRUSTED"
         assert status["itau"] == {"DEGRADED"}
         assert status["inter"] == {"DEGRADED"}, "Inter sem balance no payload → degradado"
         assert status["c6"] == {"DEGRADED"}, "banco sem strategy cai no fallback conservador"
+
+    def test_lacuna_de_uma_linha_nao_contamina_o_lote(self, df_ingerido):
+        """
+        Antes o veredito era por LOTE: um saldo nulo em 50 transações marcava
+        as 50 como DEGRADED. Agora só a linha incompleta é rebaixada.
+        """
+        nubank = df_ingerido.filter(pl.col("institution_id") == "nubank")
+
+        sem_saldo = nubank.filter(pl.col("transaction_id") == "tx_saldo_vazio")
+        assert sem_saldo["data_status"].to_list() == ["DEGRADED"], (
+            "cartão sem saldo é dado incompleto — a linha tem que ser rebaixada"
+        )
+
+        vizinhas = nubank.filter(
+            (pl.col("transaction_id") != "tx_saldo_vazio") & pl.col("balance").is_not_null()
+        )
+        assert set(vizinhas["data_status"].to_list()) == {"TRUSTED"}, (
+            "as linhas completas do mesmo lote continuam confiáveis"
+        )
 
     def test_normalizacao_e_colunas_derivadas(self, df_ingerido):
         # tipos convertidos para o Polars
@@ -1067,6 +1122,43 @@ class TestCamada3IngestorMultiBanco:
         )
         assert df.height == 3
         assert metrics.duplicates_removed == 0
+
+    def test_chave_canonica_une_o_mesmo_gasto_escrito_por_bancos_diferentes(self):
+        """
+        O MESMO Netflix, como cada banco escreve. Sem chave canônica isso são
+        5 estabelecimentos diferentes — e o Bradesco, que carimba a
+        competência no texto, nunca forma série mensal.
+        """
+        escritas = {
+            "nubank": "Netflix.com",
+            "itau": "COMPRA CARTAO 1234 NETFLIX.COM SAO PAULO BR",
+            "bradesco": "DEB AUT NETFLIX*ASSINAT 08/26",
+            "inter": "PAGAMENTO NETFLIX ENTRETENIMENTO LTDA",
+            "c6": "COMPRA NO DEBITO - NETFLIX - SAO PAULO",
+        }
+
+        chaves = set()
+        for banco, descricao in escritas.items():
+            batch = TransactionBatchResult.from_raw_batch(
+                raw_data=[_tx_pluggy(f"netflix_{banco}", description=descricao, amount=-49.90)],
+                institution_id=banco,
+                item_id=ITEM_ID,
+                fetched_at=AGORA,
+            )
+            df, _ = TransactionIngestor().process(batch.valid_transactions)
+            chaves.add(df["merchant_key"][0])
+
+        assert chaves == {"netflix"}, f"cada banco gerou uma chave diferente: {chaves}"
+
+    def test_chave_canonica_preserva_a_descricao_original(self, df_ingerido):
+        """A chave é coluna nova — extrato e auditoria continuam com o texto cru."""
+        assert "merchant_key" in df_ingerido.columns
+
+        itau = df_ingerido.filter(pl.col("institution_id") == "itau")
+        assert itau["description"][0] == "compra cartao supermercado", (
+            "a descrição original não pode ser sobrescrita pela chave"
+        )
+        assert itau["merchant_key"][0] == "supermercado"
 
     def test_lote_vazio_e_erro_explicito(self):
         """Chamar o ingestor sem transação é bug do chamador — tem que estourar."""
@@ -1162,6 +1254,121 @@ class TestCamada4PipelineCompleto:
         ]
         assert not sem_colunas, "IncomeProfiler não enxergou as colunas do ETL"
 
+    def test_assinatura_e_detectada_mesmo_com_competencia_na_descricao(self):
+        """
+        Bradesco escreve "DEB AUT NETFLIX*ASSINAT 08/26" — a descrição muda
+        todo mês. Agrupando por descrição, ele perdia 100% das assinaturas.
+        """
+        rows = []
+        for mes in range(6):
+            dia = AGORA - timedelta(days=30 * mes + 4)
+            rows.append(
+                _tx_pluggy(
+                    f"bradesco_netflix_{mes}",
+                    dias_atras=30 * mes + 4,
+                    amount=-49.90,
+                    description=f"DEB AUT NETFLIX*ASSINAT {dia.strftime('%m/%y')}",
+                )
+            )
+
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=rows, institution_id="bradesco", item_id=ITEM_ID, fetched_at=AGORA
+        )
+        df, _ = TransactionIngestor().process(batch.valid_transactions)
+        processado = run_etl_pipeline(
+            transactions_df=df, user_id=USER_ID, skip_steps=["save_db"], db=None
+        )
+
+        assert processado["merchant_key"].n_unique() == 1, "os 6 meses são o mesmo serviço"
+        assert processado["is_recurring"].all(), "as 6 cobranças são uma assinatura"
+
+    def test_parcelamento_fixo_nao_vira_assinatura(self):
+        """
+        Contrapartida da chave canônica: sem o contador "4/10", um
+        parcelamento de valor fixo fica idêntico a uma assinatura. Parcela
+        tem que vencer — senão o Shadow Invoice projeta cobrança eterna de
+        algo que acaba na décima.
+        """
+        rows = [
+            _tx_pluggy(
+                f"parcela_notebook_{n}",
+                dias_atras=30 * n + 3,
+                amount=-389.90,
+                description=f"PARCELA {n + 1}/10 - MAGAZINE LUIZA NOTEBOOK DELL",
+            )
+            for n in range(6)
+        ]
+
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=rows, institution_id="nubank", item_id=ITEM_ID, fetched_at=AGORA
+        )
+        df, _ = TransactionIngestor().process(batch.valid_transactions)
+        processado = run_etl_pipeline(
+            transactions_df=df, user_id=USER_ID, skip_steps=["save_db"], db=None
+        )
+
+        assert processado["merchant_key"].n_unique() == 1, "as parcelas são o mesmo bem"
+        assert processado["is_installment"].any(), "tem que ser reconhecido como parcelamento"
+        assert not processado["is_recurring"].any(), "parcelamento não é assinatura"
+
+    def test_ruido_do_adquirente_nao_desvia_a_categoria(self):
+        """
+        "compra cartao 1234 netflix.com sao paulo br" era classificado como
+        Saúde: a regra casava com o ruído antes de chegar ao nome real.
+        """
+        limpo = _tx_pluggy("netflix_limpo", description="Netflix.com", amount=-49.90)
+        sujo = _tx_pluggy(
+            "netflix_sujo",
+            description="COMPRA CARTAO 1234 NETFLIX.COM SAO PAULO BR",
+            amount=-49.90,
+        )
+
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=[limpo, sujo], institution_id="itau", item_id=ITEM_ID, fetched_at=AGORA
+        )
+        df, _ = TransactionIngestor().process(batch.valid_transactions)
+        processado = run_etl_pipeline(
+            transactions_df=df, user_id=USER_ID, skip_steps=["save_db"], db=None
+        )
+
+        categorias = processado["predicted_category"].unique().to_list()
+        assert len(categorias) == 1, f"o mesmo gasto recebeu categorias diferentes: {categorias}"
+        assert categorias[0] == "Lazer"
+
+    def test_categoria_do_classificador_chega_ao_banco(self, df_pipeline):
+        """
+        `category` sempre existe (campo cru da Pluggy, em inglês), então o
+        rename nunca disparava e o Step 2 era descartado no save.
+        """
+        from app.core.db import queries
+
+        salvos: dict = {}
+
+        class SessionQueSoRegistra:
+            def execute(self, stmt, *a, **k):
+                salvos["colunas"] = list(stmt.compile().params.keys())
+                salvos["stmt"] = stmt
+
+            def commit(self):
+                pass
+
+            def rollback(self):
+                pass
+
+        linhas = queries.save_transactions_clean(
+            SessionQueSoRegistra(), df_pipeline, user_id=USER_ID, account_id=ACC_CORRENTE
+        )
+
+        assert linhas == df_pipeline.height
+        gravado = {p for p in salvos["colunas"] if p.startswith("category")}
+        assert gravado, "nenhuma categoria chegou ao INSERT"
+
+        valores = {salvos["stmt"].compile().params[p] for p in gravado}
+        assert "Entertainment" not in valores, "gravou a categoria crua do banco"
+        assert valores & {"Lazer", "Alimentação", "Transporte", "Transferências", "Outros"}, (
+            f"esperava categorias do classificador, veio {valores}"
+        )
+
     def test_pipeline_e_resiliente_a_step_quebrado(self, df_ingerido, monkeypatch):
         """
         Contrato do runner: se um step explode (modelo indisponível, bug novo),
@@ -1237,6 +1444,15 @@ class _FakePluggyClient:
     coisas que só a rota resolve (merchant aninhado e description nula) e o
     lixo que nem é dict.
     """
+
+    def get_item(self, item_id: str) -> dict:
+        # É AQUI que a Pluggy diz qual é o banco — o objeto Account não traz
+        # connector, por isso o sync resolve a instituição pelo item.
+        return {
+            "id": item_id,
+            "status": "UPDATED",
+            "connector": {"id": 212, "name": "Nubank", "institutionUrl": "https://nubank.com.br"},
+        }
 
     def get_accounts(self, item_id: str) -> dict:
         return {
@@ -1387,25 +1603,55 @@ class TestCamada5RotaDeProducao:
         assert batch.total_valid == 1
         assert batch.valid_transactions[0].description == "COMPRA CARTAO 4020 MERCADO"
 
-    def test_conta_sem_connector_cai_no_default_strategy(self, sync_com_pluggy_fake):
+    def test_banco_e_resolvido_pelo_item_e_nao_por_id_numerico(self, sync_com_pluggy_fake):
         """
-        O /accounts real da Pluggy não traz 'connector'. Nesse caso o sync usa
-        institution_id="unknown" → DefaultStrategy → DEGRADED. Não pode explodir.
+        O /accounts real da Pluggy não traz 'connector' — quem traz é
+        /items/{id}. Com o mapa antigo de IDs numéricos, toda conta bancária
+        caía em "unknown" e a BankStrategy do banco nunca rodava.
         """
-        from app.core.schemas.enums import BankTier
-        from app.forecast.etl.bank_strategy import get_bank_strategy
-
-        strategy = get_bank_strategy("unknown")
-        assert strategy.tier == BankTier.TIER_3
-
         contas = _FakePluggyClient().get_accounts(ITEM_ID)["results"]
         assert "connector" not in contas[0], "conta bancária real não traz connector"
+
+        resolvido = sync_com_pluggy_fake._resolve_institution(_FakePluggyClient(), ITEM_ID)
+        assert resolvido == "nubank", "o nome do conector no item tem que mandar"
 
         db = _FakeSession()
         relatorio = sync_com_pluggy_fake.sync_item_transactions(
             db=db, user_id=USER_ID, item_id=ITEM_ID
         )
         assert relatorio["errors"] == []
+
+    def test_falha_ao_resolver_o_banco_nao_derruba_o_sync(self, sync_com_pluggy_fake, monkeypatch):
+        """Perder o tratamento por banco é ruim; perder o sync inteiro é pior."""
+
+        def get_item_quebrado(self, item_id):
+            raise RuntimeError("Pluggy 503")
+
+        monkeypatch.setattr(_FakePluggyClient, "get_item", get_item_quebrado)
+
+        db = _FakeSession()
+        relatorio = sync_com_pluggy_fake.sync_item_transactions(
+            db=db, user_id=USER_ID, item_id=ITEM_ID
+        )
+        assert relatorio["errors"] == []
+        assert relatorio["saved"] == 4, "seguiu com DefaultStrategy"
+
+    @pytest.mark.parametrize(
+        "nome,esperado",
+        [
+            ("Nubank", "nubank"),
+            ("Itaú Unibanco", "itau"),
+            ("Banco Inter ", "inter"),
+            ("Bradesco", "bradesco"),
+            ("Mercado Pago", "mercadopago"),
+            ("Pluggy Bank", "pluggy_sandbox"),
+            ("Cooperativa de Crédito Qualquer", "unknown"),
+        ],
+    )
+    def test_resolucao_de_instituicao_por_nome(self, nome, esperado):
+        from app.forecast.etl.bank_strategy.institutions import resolve_institution_id
+
+        assert resolve_institution_id(nome) == esperado
 
     def test_conta_que_falha_nao_contamina_as_outras(self, sync_com_pluggy_fake, monkeypatch):
         """Erro em uma conta é isolado no relatório; as demais seguem salvando."""

@@ -76,6 +76,19 @@ from app.subscriptions.shadow_invoices.installment_detector import InstallmentDe
 
 logger = logging.getLogger(__name__)
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# MARCADOR EXPLÍCITO DE PARCELA
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Distinguir "3/12" (parcela) de "08/26" (competência) é o problema: as
+# duas formas são idênticas. O desempate:
+#   • palavra de parcelamento presente → parcela, sem discussão;
+#   • fração isolada só conta como parcela quando o total é plausível de
+#     plano (≤ 19) — de 20 em diante entra na faixa de ano ("08/26"), e aí
+#     exigimos a palavra.
+_RE_PALAVRA_PARCELA = r"(?i)\b(parcela|parc|parcelad[ao]|parcelamento|installment)\b|\b\d{1,2}\s*x\b"
+_RE_FRACAO = r"\b(\d{1,2})\s*/\s*(\d{1,3})\b"
+_MAX_FRACAO_PARCELA = 19
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # RECURRING DETECTOR
@@ -350,13 +363,63 @@ class RecurringDetector:
             # is_installment (comparar com a descrição original)
             pl.col("description_norm").is_in(list(installment_descriptions)).alias("is_installment"),
         ])
-        
+
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # ADICIONAR CONFIDENCE (prioriza subscription)
+        # PARCELAMENTO VENCE ASSINATURA
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-        # Confiança: cada mapa é consultado pela chave que o gerou —
-        # assinatura pela chave canônica, parcelamento pela descrição.
+        #
+        # A chave canônica remove o contador da descrição — de propósito,
+        # senão "netflix 08/26" nunca fecha série. O efeito colateral é que
+        # "parcela 4/10 - notebook dell" também vira uma série mensal de
+        # valor fixo, indistinguível de assinatura. Se QUALQUER lançamento da
+        # chave carrega contador de parcela, a chave inteira é parcelamento.
+
+        # Só marcador EXPLÍCITO de parcela derruba assinatura. O
+        # InstallmentDetector, quando não acha keyword, chuta parcelamento
+        # por PADRÃO (série mensal de valor fixo) — que é exatamente o
+        # formato de uma assinatura. Deixar esse palpite mandar apagaria
+        # Netflix e Spotify de todo mundo.
+        df = df.with_columns(
+            (
+                pl.col("description_norm").str.contains(_RE_PALAVRA_PARCELA)
+                | (
+                    pl.col("description_norm")
+                    .str.extract(_RE_FRACAO, 2)
+                    .cast(pl.Int32, strict=False)
+                    .is_between(1, _MAX_FRACAO_PARCELA)
+                )
+            ).alias("_parcela_explicita")
+        )
+
+        chaves_parceladas = (
+            df.filter(pl.col("is_installment") & pl.col("_parcela_explicita"))
+            ["_chave_assinatura"]
+            .unique()
+            .to_list()
+        )
+        if chaves_parceladas:
+            df = df.with_columns(
+                (
+                    pl.col("is_recurring")
+                    & ~pl.col("_chave_assinatura").is_in(chaves_parceladas)
+                ).alias("is_recurring")
+            )
+
+        # E o espelho: assinatura confirmada sem marcador de parcela não pode
+        # sair marcada como parcelamento pelo chute por padrão. As duas flags
+        # são excludentes — o Shadow Invoice projeta cobrança contínua OU
+        # plano finito, nunca os dois para o mesmo lançamento.
+        df = df.with_columns(
+            (
+                pl.col("is_installment")
+                & (~pl.col("is_recurring") | pl.col("_parcela_explicita"))
+            ).alias("is_installment")
+        )
+
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # ADICIONAR CONFIDENCE (segue a flag que sobreviveu)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
         def _lookup(coluna: str, mapa: dict) -> pl.Expr:
             if not mapa:
                 return pl.lit(None, dtype=pl.Float64)
@@ -365,14 +428,16 @@ class RecurringDetector:
             )
 
         df = df.with_columns(
-            pl.coalesce([
-                _lookup("_chave_assinatura", subscription_confidence_map),
-                _lookup("description_norm", installment_confidence_map),
-            ]).alias("recurring_confidence")
+            pl.when(pl.col("is_recurring"))
+            .then(_lookup("_chave_assinatura", subscription_confidence_map))
+            .when(pl.col("is_installment"))
+            .then(_lookup("description_norm", installment_confidence_map))
+            .otherwise(pl.lit(None, dtype=pl.Float64))
+            .alias("recurring_confidence")
         )
 
         # Remover colunas temporárias
-        df = df.drop("description_norm", "_chave_assinatura")
+        df = df.drop("description_norm", "_chave_assinatura", "_parcela_explicita")
 
         return df
     

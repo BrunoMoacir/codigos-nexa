@@ -139,6 +139,14 @@ class Settings(BaseSettings):
     # para sincronizar apenas sob demanda.
     PLUGGY_AUTOSYNC_ON_WEBHOOK: bool = True
 
+    # Sync incremental: quantos dias ANTES da última transação salva o sync
+    # pede de novo à Pluggy. A janela existe porque lançamento não é imutável
+    # — PENDING vira POSTED, valor de cartão muda, e o banco publica compra
+    # retroativa. Tudo é upsert por transaction_id, então reler é barato e
+    # seguro; o que a janela não cobrir só entra num sync completo.
+    # 0 = sempre completo (mais caro, cobre retroatividade ilimitada).
+    PLUGGY_SYNC_LOOKBACK_DAYS: int = 7
+
     # Web Push (PWA — R1.d). Gerar par VAPID com:
     #   python3 -c "from py_vapid import Vapid; v=Vapid(); v.generate_keys(); \
     #               print(v.private_pem()); print(v.public_pem())"

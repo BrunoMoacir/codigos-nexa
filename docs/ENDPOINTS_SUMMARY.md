@@ -133,6 +133,18 @@ Pluggy → POST /pluggy/webhook item/updated  ⇒ acorda o job na hora
 entre SSE e long-polling, reconectar ou trocar de worker sem perder evento.
 Estados do job: `PENDING → RUNNING → SUCCESS | PARTIAL | ERROR`.
 
+**Paginação e janela.** `/accounts` e `/transactions` da Pluggy são paginados
+(`pageSize` padrão 20, máx. 500) — o sync percorre `totalPages` em ambos. Conta
+que já tem histórico puxa só a janela nova (última data salva menos
+`PLUGGY_SYNC_LOOKBACK_DAYS`, padrão 7); conta nova puxa o extrato inteiro. A
+persistência é upsert por `transaction_id`, então reler a janela de margem
+atualiza `PENDING → POSTED` sem duplicar. Consequência esperada nos números:
+depois do primeiro sync, `received` reflete a janela, não o extrato todo.
+
+**Retomada.** Job vive numa thread do processo; no boot, `resume_orphan_jobs()`
+reenfileira os que ficaram sem executor (deploy/crash), com CAS na `version`
+para que só um worker assuma cada job.
+
 ---
 
 ## 5. SHADOW INVOICE (Obrigações Futuras Detectadas)

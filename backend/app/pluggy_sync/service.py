@@ -78,6 +78,10 @@ STALE_AFTER = timedelta(minutes=15)
 MAX_CONCURRENT_JOBS = 4
 _job_slots = threading.BoundedSemaphore(MAX_CONCURRENT_JOBS)
 
+# Só retoma no boot o job parado há mais que isso. Job vivo em outro worker
+# renova o `updated_at` a cada tique do poller (5s), então nunca é roubado.
+_RESUME_MIN_IDLE = timedelta(seconds=60)
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # SESSÃO PRÓPRIA
@@ -315,6 +319,85 @@ def touch_job(job_id: str) -> None:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # EXECUÇÃO
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _claim_job(job_id: str, expected_version: int) -> bool:
+    """Compare-and-swap no cursor: só um processo assume o job.
+
+    Com WEB_CONCURRENCY > 1 todos os workers sobem juntos depois do deploy e
+    todos veem os mesmos jobs órfãos. O UPDATE condicionado à `version` que
+    foi lida garante que exatamente um ganha a corrida.
+    """
+    with _session() as db:
+        rows = (
+            db.query(PluggySyncJob)
+            .filter(
+                PluggySyncJob.id == job_id,
+                PluggySyncJob.version == expected_version,
+                PluggySyncJob.status.in_([JOB_PENDING, JOB_RUNNING]),
+            )
+            .update(
+                {
+                    PluggySyncJob.version: expected_version + 1,
+                    PluggySyncJob.status: JOB_RUNNING,
+                    PluggySyncJob.message: "Retomando a sincronização...",
+                    PluggySyncJob.updated_at: datetime.now(timezone.utc),
+                },
+                synchronize_session=False,
+            )
+        )
+        db.commit()
+
+    if rows == 1:
+        events.publish(events.job_key(job_id))
+        return True
+    return False
+
+
+def resume_orphan_jobs(limit: int = 20) -> int:
+    """Reenfileira, no boot, os jobs que ficaram sem executor. Retorna quantos.
+
+    O job vive numa thread do processo: um deploy no meio do sync deixava o
+    usuário olhando uma barra parada até o stale de 15 minutos. No boot,
+    todo job ainda aberto é órfão de fato — os workers acabaram de reiniciar.
+
+    Reexecutar é seguro: a persistência é upsert por transaction_id, então
+    reprocessar o que já entrou não duplica nada.
+
+    Só considera job parado há mais de `_RESUME_MIN_IDLE`: um job vivo em
+    outro worker renova o `updated_at` a cada tique do poller, então nunca
+    entra nessa lista. O CAS de `_claim_job` fecha o resto da corrida.
+    """
+    corte = datetime.now(timezone.utc) - _RESUME_MIN_IDLE
+    retomados = 0
+
+    try:
+        with _session() as db:
+            candidatos = (
+                db.query(PluggySyncJob)
+                .filter(
+                    PluggySyncJob.status.in_([JOB_PENDING, JOB_RUNNING]),
+                    PluggySyncJob.updated_at < corte,
+                )
+                .order_by(PluggySyncJob.created_at.desc())
+                .limit(max(1, limit))
+                .all()
+            )
+            pendentes = [(j.id, j.user_id, j.version) for j in candidatos]
+    except Exception as e:
+        # Banco fora no boot não pode impedir a API de subir.
+        logger.warning("[PluggySync] Não foi possível listar jobs órfãos: %s", e)
+        return 0
+
+    for job_id, user_id, version in pendentes:
+        if not _claim_job(job_id, version):
+            continue  # outro worker assumiu
+        start_job(job_id, user_id)
+        retomados += 1
+
+    if retomados:
+        logger.info("[PluggySync] %d job(s) retomado(s) após o restart", retomados)
+    return retomados
+
 
 def _run_job_with_slot(job_id: str, user_id: str) -> None:
     """Executa o job ocupando um slot do pool de sync."""

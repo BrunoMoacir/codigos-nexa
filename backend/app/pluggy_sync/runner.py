@@ -15,10 +15,11 @@ Duas responsabilidades, ambas bloqueantes (rodam na thread do job):
 
 from __future__ import annotations
 
+import functools
 import inspect
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
 from sqlalchemy.orm import Session
@@ -120,8 +121,8 @@ def wait_item_ready(
             waiter.wait(min(poll_interval, remaining))
 
 
-def _supports_paging(pluggy) -> bool:
-    """O cliente aceita os kwargs de paginação?
+def _supports_paging(metodo) -> bool:
+    """O método do cliente aceita os kwargs de paginação?
 
     Os dublês de teste (MockPluggyClient e afins) implementam a assinatura
     antiga `get_transactions(account_id)` e devolvem uma página só. Checar a
@@ -129,27 +130,27 @@ def _supports_paging(pluggy) -> bool:
     vindo de dentro do cliente de verdade.
     """
     try:
-        return "page" in inspect.signature(pluggy.get_transactions).parameters
+        return "page" in inspect.signature(metodo).parameters
     except (TypeError, ValueError):
         return False
 
 
-def fetch_all_transactions(pluggy, account_id: str) -> list[dict]:
-    """TODAS as transações da conta, percorrendo as páginas da Pluggy.
+def _fetch_paginated(metodo, extras: dict, alvo: str) -> list[dict]:
+    """Percorre `totalPages` acumulando `results`.
 
-    Sem isto o sync ingeria só a primeira página — com o pageSize padrão de
-    20, um usuário com um ano de extrato entrava no ETL com 20 lançamentos e
-    todo o resto do produto (recorrências, burn rate, tarifas) via um mês
-    truncado.
+    Ignorar a paginação foi o que fez o sync ingerir só os primeiros
+    lançamentos de cada conta: com o pageSize padrão de 20, um usuário com um
+    ano de extrato entrava no ETL com 20 linhas e todo o resto do produto
+    (recorrências, burn rate, tarifas) via um mês truncado.
     """
-    if not _supports_paging(pluggy):
-        response = pluggy.get_transactions(account_id)
+    if not _supports_paging(metodo):
+        response = metodo()
         return list(response.get("results") or []) if isinstance(response, dict) else []
 
     results: list[dict] = []
     page = 1
     while page <= _MAX_PAGES:
-        response = pluggy.get_transactions(account_id, page=page, page_size=_PAGE_SIZE)
+        response = metodo(page=page, page_size=_PAGE_SIZE, **extras)
         if not isinstance(response, dict):
             break
 
@@ -166,11 +167,33 @@ def fetch_all_transactions(pluggy, account_id: str) -> list[dict]:
         page += 1
     else:
         logger.warning(
-            "[PluggySync] conta %s parou em %d páginas (limite de segurança)",
-            account_id, _MAX_PAGES,
+            "[PluggySync] %s parou em %d páginas (limite de segurança)",
+            alvo, _MAX_PAGES,
         )
 
     return results
+
+
+def fetch_all_accounts(pluggy, item_id: str) -> list[dict]:
+    """TODAS as contas do item, percorrendo as páginas."""
+    return _fetch_paginated(
+        functools.partial(pluggy.get_accounts, item_id),
+        extras={},
+        alvo=f"item {item_id}",
+    )
+
+
+def fetch_all_transactions(pluggy, account_id: str, date_from: Optional[str] = None) -> list[dict]:
+    """TODAS as transações da conta na janela pedida.
+
+    `date_from` (YYYY-MM-DD) vem do sync incremental; None = extrato inteiro.
+    """
+    extras = {"date_from": date_from} if date_from else {}
+    return _fetch_paginated(
+        functools.partial(pluggy.get_transactions, account_id),
+        extras=extras,
+        alvo=f"conta {account_id}",
+    )
 
 
 def _resolve_institution(pluggy: PluggyClient, item_id: str) -> str:
@@ -197,6 +220,40 @@ def _resolve_institution(pluggy: PluggyClient, item_id: str) -> str:
     return institution_id
 
 
+def _incremental_start(db: Session, user_id: str, account_id: str) -> Optional[str]:
+    """A partir de que data pedir transações desta conta (None = tudo).
+
+    Última transação salva menos PLUGGY_SYNC_LOOKBACK_DAYS. Conta nova (sem
+    histórico) devolve None e puxa o extrato inteiro — a janela só se aplica
+    a quem já tem base.
+    """
+    try:
+        from app.core.config import settings
+
+        lookback = int(getattr(settings, "PLUGGY_SYNC_LOOKBACK_DAYS", 7) or 0)
+        if lookback <= 0:
+            return None
+
+        from app.core.db.queries import get_last_transaction_date
+
+        ultima = get_last_transaction_date(db, user_id, account_id)
+        if ultima is None:
+            return None
+
+        if isinstance(ultima, datetime):
+            ultima = ultima.date()
+
+        return (ultima - timedelta(days=lookback)).isoformat()
+    except Exception as e:
+        # Qualquer dúvida sobre a janela → sync completo. Reler o extrato
+        # inteiro custa tempo; pular a conta perderia lançamento.
+        logger.warning(
+            "[PluggySync] Janela incremental de %s indisponível (%s) — sync completo",
+            account_id, e,
+        )
+        return None
+
+
 def sync_item_transactions(
     db: Session,
     user_id: str,
@@ -206,8 +263,7 @@ def sync_item_transactions(
     """Sincroniza contas/transações de um item Pluggy para transactions_clean."""
     pluggy = PluggyClient()
 
-    accounts_resp = pluggy.get_accounts(item_id)
-    accounts = accounts_resp.get("results", []) if isinstance(accounts_resp, dict) else []
+    accounts = fetch_all_accounts(pluggy, item_id)
 
     # Banco do item: é GET /items/{id} que traz o `connector` (o objeto
     # Account não traz). Sem isso o institution_id caía sempre em "unknown" e
@@ -223,6 +279,7 @@ def sync_item_transactions(
     total_received = 0
     total_valid = 0
     total_saved = 0
+    incremental_accounts = 0
     errors: list[str] = []
 
     for index, account in enumerate(accounts):
@@ -239,7 +296,13 @@ def sync_item_transactions(
             )
 
         try:
-            raw_results = fetch_all_transactions(pluggy, account_id)
+            # Incremental: sem isso, cada webhook de 3 transações novas
+            # rebaixaria e reprocessaria um ano inteiro de extrato.
+            date_from = _incremental_start(db, user_id, account_id)
+            if date_from:
+                incremental_accounts += 1
+
+            raw_results = fetch_all_transactions(pluggy, account_id, date_from=date_from)
             total_received += len(raw_results)
 
             if not raw_results:
@@ -295,5 +358,7 @@ def sync_item_transactions(
         "valid": total_valid,
         "saved": total_saved,
         "balances_saved": balances_saved,
+        # Quantas contas puxaram só a janela nova (o resto foi extrato inteiro).
+        "incremental_accounts": incremental_accounts,
         "errors": errors,
     }

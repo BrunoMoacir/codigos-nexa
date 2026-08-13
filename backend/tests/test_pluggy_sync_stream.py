@@ -14,7 +14,7 @@ import json
 import threading
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -34,7 +34,12 @@ from app.pluggy_sync.models_orm import (
     PHASE_WAITING_BANK,
     PluggySyncJob,
 )
-from app.pluggy_sync.runner import ItemNotReady, fetch_all_transactions, wait_item_ready
+from app.pluggy_sync.runner import (
+    ItemNotReady,
+    fetch_all_accounts,
+    fetch_all_transactions,
+    wait_item_ready,
+)
 
 USER_ID = "user-sync-test"
 OTHER_USER_ID = "user-intruso"
@@ -124,11 +129,21 @@ class FakePaginado:
         self.total = total
         self.page_size_servidor = page_size_servidor
         self.paginas_pedidas: list[int] = []
+        self.janelas: list[str] = []
 
-    def get_transactions(self, account_id: str, page: int | None = None, page_size: int | None = None) -> dict:
+    def get_transactions(
+        self,
+        account_id: str,
+        page: int | None = None,
+        page_size: int | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict:
         tamanho = min(page_size or 20, self.page_size_servidor)
         atual = page or 1
         self.paginas_pedidas.append(atual)
+        if date_from:
+            self.janelas.append(date_from)
 
         inicio = (atual - 1) * tamanho
         fim = min(inicio + tamanho, self.total)
@@ -147,6 +162,29 @@ class FakeSemPaginacao:
 
     def get_transactions(self, account_id: str) -> dict:
         return {"results": [{"id": "tx-1"}, {"id": "tx-2"}]}
+
+    def get_accounts(self, item_id: str) -> dict:
+        return {"results": [{"id": "acc-1"}]}
+
+
+class FakeContasPaginadas:
+    """Contas paginadas como a Pluggy real."""
+
+    def __init__(self, total: int = 45):
+        self.total = total
+        self.paginas_pedidas: list[int] = []
+
+    def get_accounts(self, item_id: str, page: int | None = None, page_size: int | None = None) -> dict:
+        tamanho = page_size or 20
+        atual = page or 1
+        self.paginas_pedidas.append(atual)
+
+        inicio = (atual - 1) * tamanho
+        fim = min(inicio + tamanho, self.total)
+        return {
+            "totalPages": max(1, -(-self.total // tamanho)),
+            "results": [{"id": f"acc-{i}"} for i in range(inicio, fim)],
+        }
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -242,6 +280,95 @@ class TestPaginacao:
         account_id = pluggy.get_accounts(item["id"])["results"][0]["id"]
 
         assert fetch_all_transactions(pluggy, account_id)
+        assert fetch_all_accounts(pluggy, item["id"])
+
+    def test_contas_tambem_percorrem_as_paginas(self):
+        """Item PJ com dezenas de contas não pode perder as contas do fim."""
+        pluggy = FakeContasPaginadas(total=45)
+
+        contas = fetch_all_accounts(pluggy, "item-1")
+
+        assert len(contas) == 45
+        assert contas[-1]["id"] == "acc-44"
+        assert pluggy.paginas_pedidas == [1]  # pageSize=500 cobre tudo numa página
+
+    def test_contas_com_cliente_antigo_continuam_funcionando(self):
+        assert len(fetch_all_accounts(FakeSemPaginacao(), "item-1")) == 1
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# SYNC INCREMENTAL (janela from/to)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class TestSyncIncremental:
+
+    def test_conta_com_historico_pede_so_a_janela_nova(self, monkeypatch):
+        """Webhook de 3 transações não pode rebaixar um ano de extrato."""
+        import app.core.db.queries as queries
+        from app.pluggy_sync.runner import _incremental_start
+
+        monkeypatch.setattr(
+            queries, "get_last_transaction_date",
+            lambda db, user_id, account_id: date(2026, 8, 10),
+        )
+
+        inicio = _incremental_start(object(), USER_ID, "acc-1")
+
+        # última salva (10/08) menos os 7 dias de margem
+        assert inicio == "2026-08-03"
+
+    def test_conta_nova_puxa_o_extrato_inteiro(self, monkeypatch):
+        import app.core.db.queries as queries
+        from app.pluggy_sync.runner import _incremental_start
+
+        monkeypatch.setattr(
+            queries, "get_last_transaction_date",
+            lambda db, user_id, account_id: None,
+        )
+
+        assert _incremental_start(object(), USER_ID, "acc-nova") is None
+
+    def test_lookback_zero_desliga_o_incremental(self, monkeypatch):
+        import app.core.db.queries as queries
+        from app.core.config import settings
+        from app.pluggy_sync.runner import _incremental_start
+
+        monkeypatch.setattr(settings, "PLUGGY_SYNC_LOOKBACK_DAYS", 0)
+        monkeypatch.setattr(
+            queries, "get_last_transaction_date",
+            lambda db, user_id, account_id: date(2026, 8, 10),
+        )
+
+        assert _incremental_start(object(), USER_ID, "acc-1") is None
+
+    def test_janela_chega_na_chamada_da_pluggy(self):
+        pluggy = FakePaginado(total=10)
+
+        fetch_all_transactions(pluggy, "acc-1", date_from="2026-08-03")
+
+        assert pluggy.janelas == ["2026-08-03"]
+
+    def test_falha_ao_ler_a_ultima_data_cai_em_sync_completo(self, monkeypatch):
+        """Degradar para completo é caro; pular a conta perderia lançamento."""
+        import app.core.db.queries as queries
+        from app.pluggy_sync.runner import _incremental_start
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("banco fora")
+
+        monkeypatch.setattr(queries, "get_last_transaction_date", explode)
+
+        assert _incremental_start(object(), USER_ID, "acc-1") is None
+
+    def test_get_last_transaction_date_nao_levanta_com_sessao_quebrada(self):
+        """A blindagem mora na query, onde o db de verdade é usado."""
+        from app.core.db.queries import get_last_transaction_date
+
+        class SessaoQuebrada:
+            def query(self, *a, **k):
+                raise RuntimeError("conexão caiu")
+
+        assert get_last_transaction_date(SessaoQuebrada(), USER_ID, "acc-1") is None
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -605,6 +732,69 @@ class TestJobOrfao:
         assert state["status"] == JOB_ERROR
         assert state["done"] is True
         assert "interrompida" in state["error"].lower()
+
+    def test_boot_retoma_job_que_ficou_sem_executor(self, db_factory, monkeypatch):
+        """Deploy no meio do sync: o job volta a rodar em vez de esperar 15min."""
+        session = db_factory()
+        job = sync_service.create_job(session, USER_ID, ["item-1"])
+        job_id = job.id
+        job.status = JOB_RUNNING
+        job.updated_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+        session.commit()
+        session.close()
+
+        retomados: list[tuple[str, str]] = []
+        monkeypatch.setattr(
+            sync_service, "start_job",
+            lambda jid, uid: retomados.append((jid, uid)),
+        )
+
+        assert sync_service.resume_orphan_jobs() == 1
+        assert retomados == [(job_id, USER_ID)]
+
+        state = sync_service.get_job_state(job_id, USER_ID)
+        assert state["status"] == JOB_RUNNING
+        assert "retomando" in state["message"].lower()
+
+    def test_boot_nao_rouba_job_vivo_em_outro_worker(self, db_factory, monkeypatch):
+        """Job vivo renova o updated_at a cada tique — não pode ser reenfileirado."""
+        session = db_factory()
+        sync_service.create_job(session, USER_ID, ["item-1"])
+        session.close()
+
+        retomados: list[str] = []
+        monkeypatch.setattr(sync_service, "start_job", lambda jid, uid: retomados.append(jid))
+
+        assert sync_service.resume_orphan_jobs() == 0
+        assert retomados == []
+
+    def test_dois_workers_no_boot_so_um_assume_o_job(self, db_factory, monkeypatch):
+        """O CAS na version decide a corrida entre workers que sobem juntos."""
+        session = db_factory()
+        job = sync_service.create_job(session, USER_ID, ["item-1"])
+        job_id, version = job.id, job.version
+        job.status = JOB_RUNNING
+        job.updated_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+        session.commit()
+        session.close()
+
+        assert sync_service._claim_job(job_id, version) is True
+        # Segundo worker chega com a mesma version que leu antes: perde.
+        assert sync_service._claim_job(job_id, version) is False
+
+    def test_job_ja_terminado_nao_e_retomado(self, db_factory, monkeypatch):
+        session = db_factory()
+        job = sync_service.create_job(session, USER_ID, ["item-1"])
+        job_id = job.id
+        job.status = JOB_SUCCESS
+        job.updated_at = datetime.now(timezone.utc) - timedelta(hours=2)
+        session.commit()
+        session.close()
+
+        monkeypatch.setattr(sync_service, "start_job", lambda jid, uid: None)
+
+        assert sync_service.resume_orphan_jobs() == 0
+        assert sync_service.get_job_state(job_id, USER_ID)["status"] == JOB_SUCCESS
 
     def test_falha_inesperada_na_thread_fecha_o_job(self, db_factory, monkeypatch):
         session = db_factory()

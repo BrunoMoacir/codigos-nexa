@@ -73,6 +73,16 @@ async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────
     _create_db_tables()
 
+    # Jobs de sync Pluggy que ficaram sem executor (deploy/crash no meio do
+    # sync) voltam a rodar aqui — senão o usuário fica olhando uma barra
+    # parada até o stale de 15 min. Reexecutar é seguro (upsert por
+    # transaction_id) e o teto de concorrência evita avalanche pós-deploy.
+    try:
+        from app.pluggy_sync.service import resume_orphan_jobs
+        resume_orphan_jobs()
+    except Exception as e:
+        logger.warning("[PluggySync] Retomada de jobs órfãos falhou: %s", e)
+
     from app.core.scheduler import scheduler, register_jobs
     if settings.SCHEDULER_ENABLED:
         register_jobs()

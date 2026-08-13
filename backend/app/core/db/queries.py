@@ -206,6 +206,39 @@ def save_context_override(
         db.rollback()
         return False
 
+def get_last_transaction_date(
+    db: Session,
+    user_id: str,
+    account_id: str,
+):
+    """Data da transação mais recente já salva para a conta (ou None).
+
+    Base do sync incremental: a partir dela o sync pede à Pluggy só a janela
+    nova em vez de rebaixar o extrato inteiro a cada webhook. Sem histórico
+    (primeira conexão) devolve None e o sync roda completo.
+
+    Nunca levanta: qualquer problema aqui deve degradar para sync completo,
+    que é mais caro mas nunca perde lançamento.
+    """
+    try:
+        row = (
+            db.query(func.max(Transaction.date))
+            .filter(
+                Transaction.user_id == str(user_id),
+                Transaction.account_id == str(account_id),
+            )
+            .first()
+        )
+    except Exception as e:
+        logger.warning(
+            "[Sync] Não obteve a última data de %s/%s (%s) — sync completo",
+            user_id, account_id, e,
+        )
+        return None
+
+    return row[0] if row else None
+
+
 def save_transactions_clean(
     db: Session,
     df,

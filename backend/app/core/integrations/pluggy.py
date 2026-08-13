@@ -131,12 +131,24 @@ class PluggyClient:
         response.raise_for_status()
         return response.json()
 
-    def get_accounts(self, item_id: str) -> dict:
+    def get_accounts(
+        self,
+        item_id: str,
+        page: int | None = None,
+        page_size: int | None = None,
+    ) -> dict:
+        """Uma página de contas do item (paginado como /transactions)."""
         url = f"{self.BASE_URL}/accounts"
+
+        params: dict = {"itemId": item_id}
+        if page is not None:
+            params["page"] = page
+        if page_size is not None:
+            params["pageSize"] = page_size
 
         response = requests.get(
             url,
-            params={"itemId": item_id},
+            params=params,
             headers=self._headers(),
             timeout=10,
         )
@@ -149,12 +161,17 @@ class PluggyClient:
         account_id: str,
         page: int | None = None,
         page_size: int | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
     ) -> dict:
         """Uma página de transações da conta.
 
         A Pluggy pagina este endpoint (pageSize padrão 20, máximo 500) e
         devolve `totalPages` na resposta. Quem chama precisa percorrer as
         páginas — ver fetch_all_transactions() em app/pluggy_sync/runner.py.
+
+        `date_from`/`date_to` (YYYY-MM-DD) recortam a janela: é o que permite
+        o sync incremental em vez de rebaixar o extrato inteiro toda vez.
         """
         url = f"{self.BASE_URL}/transactions"
 
@@ -163,6 +180,10 @@ class PluggyClient:
             params["page"] = page
         if page_size is not None:
             params["pageSize"] = page_size
+        if date_from:
+            params["from"] = date_from
+        if date_to:
+            params["to"] = date_to
 
         response = requests.get(
             url,
