@@ -9,6 +9,8 @@ import polars as pl
 
 from app.core.schemas.transaction import TransactionWebhook
 from app.forecast.etl.bank_strategy import get_bank_strategy
+from app.forecast.etl.dedup.base import DedupPolicy
+from app.forecast.etl.dedup.default import DefaultDedupPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +39,17 @@ class QualityMetrics:
 
 class TransactionIngestor:
 
-    def __init__(self):
+    def __init__(self, dedup_policy: DedupPolicy | None = None):
         """
         Inicializa o TransactionIngestor.
         (Removida a dependência legacy do DuckDB)
+
+        Args:
+            dedup_policy: política de deduplicação. Default: DefaultDedupPolicy
+                (dedup_hash composto conta+data+valor+descrição).
         """
         self.logger = logging.getLogger(__name__)
+        self.dedup_policy = dedup_policy or DefaultDedupPolicy()
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # PROCESS
@@ -61,23 +68,35 @@ class TransactionIngestor:
         # 1. JSON → DataFrame
         df = self._to_dataframe(transactions)
 
-        # 2. Normalização de texto
+        # 2. Deduplicação semântica (dedup_hash já vem calculado do schema).
+        #    Cobre reentrega de webhook e reprocessamento de item pela Pluggy,
+        #    que gera IDs novos para a MESMA transação — caso em que o upsert
+        #    por transaction_id não protege.
+        df, duplicates_removed = self.dedup_policy.apply(df)
+        if duplicates_removed:
+            self.logger.info(
+                "Ingestor: %s duplicatas removidas de %s registros",
+                duplicates_removed,
+                len(transactions),
+            )
+
+        # 3. Normalização de texto
         df = self._normalize_texts(df)
 
-        # 3. BankStrategy
+        # 4. BankStrategy
         df = self._apply_bank_strategies(df)
 
-        # 4. Conversão de tipos
+        # 5. Conversão de tipos
         df = self._convert_types(df)
 
-        # 5. Enriquecimento
+        # 6. Enriquecimento
         df = self._enrich_columns(df)
 
         processing_time = (datetime.now() - start_time).total_seconds() * 1000
 
         metrics = QualityMetrics(
             total_records=len(transactions),
-            duplicates_removed=0, # Legacy
+            duplicates_removed=duplicates_removed,
             records_after_dedup=len(df),
             quality_score=1.0, # Assumindo 100% de qualidade pré-validação
             processing_time_ms=processing_time,

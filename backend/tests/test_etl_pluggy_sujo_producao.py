@@ -30,7 +30,14 @@ ORGANIZAÇÃO
     TestCamada3IngestorMultiBanco  — 4 bancos no mesmo lote + data_status + dedup
     TestCamada4PipelineCompleto    — 8 steps sobrevivem ao lote sujo
     TestCamada5RotaDeProducao      — a rota real de sync, ponta a ponta
-    TestGapsConhecidosDeProducao   — falhas REAIS achadas por este teste (xfail)
+
+HISTÓRICO
+    A primeira versão deste arquivo encontrou 7 falhas de produção (registro
+    não-dict derrubando o lote, teto de valor furado na via numérica, descrição
+    longa descartando a transação, fallback de descrição morto, dedup não
+    plugada, Step 7 sempre no except, IncomeProfiler cego para as colunas do
+    ETL). Todas foram corrigidas — os testes abaixo são a trava contra a
+    regressão de cada uma.
 
 Como executar:
     cd backend && python -m pytest tests/test_etl_pluggy_sujo_producao.py -v -s
@@ -43,6 +50,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from itertools import count
 from pathlib import Path
 from typing import Any, Literal
 
@@ -103,6 +111,9 @@ class RegistroSujo:
         return self.payload.get("id") or self.payload.get("transaction_id") or ""
 
 
+_SEQUENCIA = count()
+
+
 def _tx_pluggy(caso: str, *, dias_atras: int = 3, **overrides: Any) -> dict[str, Any]:
     """
     Transação no formato REAL da Pluggy (camelCase, objetos aninhados,
@@ -111,8 +122,13 @@ def _tx_pluggy(caso: str, *, dias_atras: int = 3, **overrides: Any) -> dict[str,
     'nexaCaso' é marcador do teste — campo desconhecido, que o schema deve
     ignorar e o DLQ deve preservar em raw_data (é assim que rastreamos cada
     caso, já que registro rejeitado pode nem ter id).
+
+    Cada chamada ganha um instante próprio (segundos da sequência): com a
+    deduplicação por dedup_hash ligada no ingestor, dois casos com mesma
+    conta/data/valor/descrição seriam colapsados — o que é certo em produção
+    e péssimo dentro de um catálogo de casos distintos.
     """
-    data = AGORA - timedelta(days=dias_atras)
+    data = AGORA - timedelta(days=dias_atras, seconds=next(_SEQUENCIA) * 37)
     base: dict[str, Any] = {
         "nexaCaso": caso,
         "id": f"tx_{caso}",
@@ -270,10 +286,31 @@ CATALOGO: list[RegistroSujo] = [
         payload=_tx_pluggy(
             "descricao_vazia_com_observacao",
             description="   ",
+            descriptionRaw=None,  # terceiro elo da cadeia: só sobra observations
             observations="TARIFA PACOTE DE SERVICOS",
         ),
         esperado=VALIDA,
         tags=("texto",),
+    ),
+    RegistroSujo(
+        caso="descricao_nula",
+        motivo=(
+            "description = null com descriptionRaw preenchido — o fallback "
+            "description → description_raw → observations tem que salvar a linha"
+        ),
+        payload=_tx_pluggy("descricao_nula", description=None),
+        esperado=VALIDA,
+        tags=("texto",),
+    ),
+    RegistroSujo(
+        caso="descricao_gigante",
+        motivo=(
+            "Descrição de 501 chars (PIX com mensagem longa concatenada): "
+            "trunca em 500, não descarta a transação"
+        ),
+        payload=_tx_pluggy("descricao_gigante", description="A" * 501),
+        esperado=VALIDA,
+        tags=("texto", "seguranca"),
     ),
     RegistroSujo(
         caso="status_processed",
@@ -481,23 +518,12 @@ CATALOGO: list[RegistroSujo] = [
         tags=("payload", "rota"),
     ),
     RegistroSujo(
-        caso="descricao_nula",
-        motivo=(
-            "description = null com descriptionRaw preenchido. Só sobrevive "
-            "porque a rota copia descriptionRaw antes (ver TestCamada5)."
-        ),
-        payload=_tx_pluggy("descricao_nula", description=None),
+        caso="valor_numerico_absurdo",
+        motivo="Valor numérico acima do teto de 1 bi (erro de escala do conector)",
+        payload=_tx_pluggy("valor_numerico_absurdo", amount=1e12, type=None),
         esperado=REJEITADA,
-        campo_erro="description",
-        tags=("texto", "rota"),
-    ),
-    RegistroSujo(
-        caso="descricao_gigante",
-        motivo="Descrição de 501 chars (PIX com mensagem longa concatenada)",
-        payload=_tx_pluggy("descricao_gigante", description="A" * 501),
-        esperado=REJEITADA,
-        campo_erro="description",
-        tags=("texto", "seguranca"),
+        campo_erro="amount",
+        tags=("valor", "seguranca"),
     ),
     # ══════════════════════════════════════════════════════════════════════
     # C) OUTROS BANCOS DO MESMO USUÁRIO (mapeamentos não-padrão)
@@ -683,6 +709,28 @@ class TestCamada1ValidacaoTolerante:
             f"esperava erro em '{registro.campo_erro}', veio {list(alvo.field_errors)}"
         )
 
+    def test_registro_que_nao_e_objeto_json_vai_para_o_dlq(self):
+        """
+        Um None/string/lista no array 'results' (conector truncando resposta)
+        não pode derrubar o lote: vai para o DLQ como qualquer outro registro.
+        """
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=[_tx_pluggy("boa_entre_lixo"), None, "quebrado", []],
+            institution_id="nubank",
+            item_id=ITEM_ID,
+            fetched_at=AGORA,
+        )
+
+        assert batch.total_valid == 1, "a transação boa tem que sobreviver ao lixo"
+        assert batch.total_rejected == 3
+        assert batch.error_summary.get("TypeError") == 3
+
+        auditavel = [r for r in batch.rejected_transactions if r.error_type == "TypeError"]
+        assert all("_invalid_payload" in r.raw_data for r in auditavel), (
+            "o registro inválido tem que ficar auditável no DLQ"
+        )
+        assert any("NoneType" in r.error_message for r in auditavel)
+
     def test_lote_totalmente_corrompido_gera_alerta_critico(self):
         """Conector quebrado devolve lixo: o batch tem que gritar, não passar batido."""
         batch = TransactionBatchResult.from_raw_batch(
@@ -807,6 +855,47 @@ class TestCamada2ParsingDeCamposSujos:
         tx = validas["tx_descricao_vazia_com_observacao"]
         assert tx.description == "TARIFA PACOTE DE SERVICOS"
 
+    def test_descricao_nula_cai_para_description_raw(self, validas):
+        """
+        Fallback documentado do schema: description → description_raw →
+        observations. A Pluggy manda 'descriptionRaw' em camelCase, mapeado
+        no _normalize_webhook_fields.
+        """
+        tx = validas["tx_descricao_nula"]
+        assert tx.description == "IFD*IFOOD DELIVERY BR"
+
+    def test_descricao_longa_e_truncada_e_nao_descarta_a_transacao(self, validas):
+        """Perder a transação por causa do texto é pior do que cortar o texto."""
+        tx = validas["tx_descricao_gigante"]
+        assert len(tx.description) == 500
+        assert tx.amount == Decimal("-63.9"), "o valor sobreviveu intacto"
+
+    def test_teto_de_seguranca_vale_para_valor_numerico_e_nao_so_string(self, validas, batches):
+        """
+        O limite de R$ 1 bi tem que valer para float/int também — era só a via
+        string que passava pelo check, e valor com erro de escala entrava na base.
+        """
+        rejeitadas = {
+            r.raw_data.get("nexaCaso") for r in batches["nubank"].rejected_transactions
+        }
+        assert "valor_numerico_absurdo" in rejeitadas
+        assert "valor_texto_absurdo" in rejeitadas
+        assert "tx_valor_numerico_absurdo" not in validas
+
+    def test_valor_nao_finito_e_rejeitado(self):
+        """NaN/Infinity num campo monetário envenenam todo cálculo a jusante."""
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=[
+                _tx_pluggy("valor_nan", amount=float("nan"), type=None),
+                _tx_pluggy("valor_inf", amount=float("inf"), type=None),
+            ],
+            institution_id="nubank",
+            item_id=ITEM_ID,
+            fetched_at=AGORA,
+        )
+        assert batch.total_valid == 0
+        assert all("amount" in r.field_errors for r in batch.rejected_transactions)
+
     @pytest.mark.parametrize(
         "caso,esperado",
         [
@@ -878,6 +967,7 @@ class TestCamada3IngestorMultiBanco:
 
         assert df_ingerido.height == total_validas, "ingestor não pode perder transação"
         assert metricas_ingestor.total_records == total_validas
+        assert metricas_ingestor.duplicates_removed == 0, "não há reentrega neste lote"
         assert (
             metricas_ingestor.trusted_count
             + metricas_ingestor.degraded_count
@@ -921,17 +1011,17 @@ class TestCamada3IngestorMultiBanco:
             for linha in derivado
         )
 
-    def test_politica_de_dedup_remove_reentregas_do_webhook(self):
+    def test_ingestor_remove_reentregas_do_webhook(self):
         """
-        O ingestor hoje é passa-tudo (duplicates_removed=0); quem sabe remover
-        reentrega é a DefaultDedupPolicy, via dedup_hash. Este teste garante
-        que a política funciona sobre a saída real do ingestor.
+        Reentrega da Pluggy chega de duas formas: o mesmo lote de novo (id
+        igual, que o upsert já resolveria) e o reprocessamento do item, que
+        gera ID NOVO para a mesma transação — esse o upsert não pega. A
+        deduplicação por dedup_hash no ingestor cobre os dois.
         """
         originais = [
             _tx_pluggy(f"unica_{i}", dias_atras=i + 1, amount=-(10.0 + i))
             for i in range(5)
         ]
-        # a Pluggy reentrega as 2 primeiras — uma igualzinha, outra com id novo
         reenvios = [dict(originais[0]), {**originais[1], "id": "tx_reenvio_id_novo"}]
 
         batch = TransactionBatchResult.from_raw_batch(
@@ -942,13 +1032,41 @@ class TestCamada3IngestorMultiBanco:
         )
         df, metrics = TransactionIngestor().process(batch.valid_transactions)
 
-        assert df.height == 7, "ingestor não deduplica (política roda depois)"
-        assert metrics.records_after_dedup == 7
+        assert metrics.total_records == 7
+        assert metrics.duplicates_removed == 2
+        assert metrics.records_after_dedup == 5
+        assert df.height == 5
+        assert df["dedup_hash"].n_unique() == df.height
 
-        deduplicado, removidas = DefaultDedupPolicy().apply(df)
-        assert removidas == 2, "as duas reentregas têm que sair"
-        assert deduplicado.height == 5
-        assert deduplicado["dedup_hash"].n_unique() == deduplicado.height
+        # a primeira ocorrência é que fica (a de ID novo é a descartada)
+        assert "tx_reenvio_id_novo" not in df["transaction_id"].to_list()
+        assert df["transaction_id"].to_list()[:2] == ["tx_unica_0", "tx_unica_1"], (
+            "a ordem cronológica do lote tem que ser preservada"
+        )
+
+    def test_politica_de_dedup_e_injetavel(self):
+        """
+        O ingestor aceita outra DedupPolicy (contrato DedupPolicy) — útil para
+        bancos que reemitem transação legítima idêntica no mesmo dia.
+        """
+
+        class SemDedup(DefaultDedupPolicy):
+            def apply(self, df):
+                return df, 0
+
+        originais = [_tx_pluggy("injetavel", dias_atras=1)]
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=originais * 3,
+            institution_id="nubank",
+            item_id=ITEM_ID,
+            fetched_at=AGORA,
+        )
+
+        df, metrics = TransactionIngestor(dedup_policy=SemDedup()).process(
+            batch.valid_transactions
+        )
+        assert df.height == 3
+        assert metrics.duplicates_removed == 0
 
     def test_lote_vazio_e_erro_explicito(self):
         """Chamar o ingestor sem transação é bug do chamador — tem que estourar."""
@@ -1014,6 +1132,35 @@ class TestCamada4PipelineCompleto:
             f"nível={relatorio.quality_level} gaps={relatorio.gap_count} "
             f"anomalias={relatorio.anomaly_count}"
         )
+
+    def test_steps_finais_rodam_sem_erro_com_lote_sujo(self, df_ingerido, caplog):
+        """
+        Step 7 (perfil + IncomeProfiler) rodava sempre no except em produção:
+        o log usava profile.score (atributo inexistente) e o IncomeProfiler
+        procurava a coluna 'date' num DataFrame que usa 'transaction_date'.
+        """
+        caplog.set_level(logging.WARNING)
+
+        run_etl_pipeline(
+            transactions_df=df_ingerido,
+            user_id=USER_ID,
+            skip_steps=["save_db"],
+            db=None,
+        )
+
+        erros = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno >= logging.ERROR and "Erro no Step" in r.getMessage()
+        ]
+        assert not erros, f"steps do pipeline falharam: {erros}"
+
+        sem_colunas = [
+            r.getMessage()
+            for r in caplog.records
+            if "IncomeProfiler" in r.getMessage() and "ausentes" in r.getMessage()
+        ]
+        assert not sem_colunas, "IncomeProfiler não enxergou as colunas do ETL"
 
     def test_pipeline_e_resiliente_a_step_quebrado(self, df_ingerido, monkeypatch):
         """
@@ -1281,159 +1428,3 @@ class TestCamada5RotaDeProducao:
         assert ACC_CARTAO in relatorio["errors"][0]
         assert relatorio["saved"] == 2, "a conta corrente continuou sendo processada"
 
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# GAPS REAIS ENCONTRADOS POR ESTE TESTE
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#
-# Cada teste abaixo descreve o comportamento CORRETO e está marcado com
-# xfail(strict=True): a suíte continua verde, e no dia em que o bug for
-# corrigido o teste vira XPASS e cobra a remoção do marcador.
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-
-class TestGapsConhecidosDeProducao:
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "GAP 1: from_raw_batch faz raw_txn.copy() sem checar o tipo; um None no "
-            "array 'results' estoura AttributeError e derruba o LOTE INTEIRO — o "
-            "oposto da 'validação tolerante' do módulo. Hoje só a rota escapa, "
-            "porque filtra não-dicts antes. Correção: isinstance(raw_txn, dict) → DLQ."
-        ),
-    )
-    def test_elemento_nao_dict_deveria_ir_para_o_dlq_e_nao_derrubar_o_lote(self):
-        batch = TransactionBatchResult.from_raw_batch(
-            raw_data=[_tx_pluggy("boa"), None, "quebrado", []],
-            institution_id="nubank",
-            item_id=ITEM_ID,
-            fetched_at=AGORA,
-        )
-        assert batch.total_valid == 1
-        assert batch.total_rejected == 3
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "GAP 2: parse_amount_safe devolve int/float logo no começo e só checa "
-            "MAX_AMOUNT depois — o teto de 1 bilhão vale para string, mas não para "
-            "número. Valor com erro de escala entra na base e contamina forecast, "
-            "safe-to-spend e health score."
-        ),
-    )
-    def test_valor_numerico_acima_do_teto_deveria_ser_rejeitado(self):
-        batch = TransactionBatchResult.from_raw_batch(
-            raw_data=[_tx_pluggy("valor_absurdo_numerico", amount=1e12, type=None)],
-            institution_id="nubank",
-            item_id=ITEM_ID,
-            fetched_at=AGORA,
-        )
-        assert batch.total_valid == 0
-        assert "amount" in batch.rejected_transactions[0].field_errors
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "GAP 3: sanitize_text trunca em 500 chars, mas o Field(max_length=500) "
-            "roda antes e rejeita. A transação inteira é perdida por causa do texto "
-            "— basta trocar o validator de description para mode='before'."
-        ),
-    )
-    def test_descricao_longa_deveria_ser_truncada_e_nao_rejeitada(self):
-        batch = TransactionBatchResult.from_raw_batch(
-            raw_data=[_tx_pluggy("desc_longa", description="PIX " + "X" * 900)],
-            institution_id="nubank",
-            item_id=ITEM_ID,
-            fetched_at=AGORA,
-        )
-        assert batch.total_valid == 1
-        assert len(batch.valid_transactions[0].description) == 500
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "GAP 4: o schema documenta o fallback description → description_raw → "
-            "observations (step3_merge_descriptions), mas description=None falha no "
-            "tipo antes de chegar lá. Hoje só não perdemos essas linhas porque a rota "
-            "de sync copia descriptionRaw na mão."
-        ),
-    )
-    def test_descricao_nula_deveria_cair_no_fallback_do_schema(self):
-        batch = TransactionBatchResult.from_raw_batch(
-            raw_data=[
-                _tx_pluggy("desc_nula_fallback", description=None,
-                           description_raw="COMPRA CARTAO 4020 MERCADO")
-            ],
-            institution_id="nubank",
-            item_id=ITEM_ID,
-            fetched_at=AGORA,
-        )
-        assert batch.total_valid == 1
-        assert batch.valid_transactions[0].description == "COMPRA CARTAO 4020 MERCADO"
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "GAP 5: a DefaultDedupPolicy existe mas não está plugada no ingestor "
-            "(duplicates_removed é fixo em 0). Reentrega da Pluggy com ID novo para a "
-            "mesma transação vira linha duplicada em transactions_clean — o upsert por "
-            "transaction_id não pega, porque o ID mudou."
-        ),
-    )
-    def test_reentrega_com_id_novo_nao_deveria_duplicar_no_ingestor(self):
-        original = _tx_pluggy("dup_original", dias_atras=2)
-        id_novo = {**original, "id": "tx_dup_id_novo"}
-
-        batch = TransactionBatchResult.from_raw_batch(
-            raw_data=[original, id_novo],
-            institution_id="nubank",
-            item_id=ITEM_ID,
-            fetched_at=AGORA,
-        )
-        df, metrics = TransactionIngestor().process(batch.valid_transactions)
-
-        assert metrics.duplicates_removed == 1
-        assert df.height == 1
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "GAP 6: runner.py:238 loga profile.score, atributo que UserProfile não "
-            "tem — o Step 7 SEMPRE cai no except e o perfil calculado é descartado, "
-            "em toda sincronização de produção."
-        ),
-    )
-    def test_step7_nao_deveria_falhar_no_log_do_perfil(self, df_ingerido, caplog):
-        caplog.set_level(logging.ERROR, logger="app.forecast.etl.runner")
-
-        run_etl_pipeline(
-            transactions_df=df_ingerido,
-            user_id=USER_ID,
-            skip_steps=["save_db"],
-            db=None,
-        )
-
-        erros_step7 = [r for r in caplog.records if "Step 7" in r.getMessage()]
-        assert not erros_step7, f"Step 7 falhou: {[r.getMessage() for r in erros_step7]}"
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "GAP 7: o IncomeProfiler procura a coluna 'date', mas o DataFrame do ETL "
-            "usa 'transaction_date' (o rename só acontece em save_transactions_clean). "
-            "Resultado: renda mensal 0 e perfil sem base para todo usuário sincronizado."
-        ),
-    )
-    def test_income_profiler_deveria_enxergar_as_colunas_do_etl(self, df_ingerido, caplog):
-        caplog.set_level(logging.WARNING, logger="app.forecast.etl.income_profiler")
-
-        run_etl_pipeline(
-            transactions_df=df_ingerido,
-            user_id=USER_ID,
-            skip_steps=["save_db"],
-            db=None,
-        )
-
-        avisos = [r for r in caplog.records if "ausentes" in r.getMessage()]
-        assert not avisos, f"IncomeProfiler sem dados: {[r.getMessage() for r in avisos]}"

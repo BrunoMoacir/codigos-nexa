@@ -231,11 +231,17 @@ def run_etl_pipeline(
             from app.forecast.etl.income_profiler import IncomeProfiler
             income_profile = IncomeProfiler().build(df)
             logger.info(
-                "   ℹ️  IncomeProfiler: renda=R$ %,.0f/mês, padrão=%s, confiança=%.0f%%",
+                # %,.0f não existe em %-formatting (é f-string) e fazia o
+                # logging engolir a linha com "--- Logging error ---".
+                "   ℹ️  IncomeProfiler: renda=R$ %.0f/mês, padrão=%s, confiança=%.0f%%",
                 income_profile.monthly_net_income, income_profile.income_pattern.value, income_profile.confidence * 100
             )
             profile = UserProfileAnalyzer().analyze(df, income_profile=income_profile)
-            logger.info("   ✅ Step 7 concluído: perfil=%s, score=%s", profile.profile_type, profile.score)
+            logger.info(
+                "   ✅ Step 7 concluído: perfil=%s, score=%s",
+                profile.profile_type,
+                profile.financial_health_score,
+            )
         except Exception as e:
             logger.error("   ❌ Erro no Step 7: %s", e, exc_info=True)
             logger.warning("   Continuando sem análise de perfil")

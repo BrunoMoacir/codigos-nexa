@@ -187,6 +187,13 @@ class IncomeProfiler:
         if transactions_df is None or transactions_df.is_empty():
             return _empty()
 
+        # O DataFrame do ETL (pré-persistência) chama a coluna de
+        # transaction_date; o rename para 'date' só acontece em
+        # save_transactions_clean. Sem este alias, todo usuário sincronizado
+        # pela rota da Pluggy caía em _empty() com renda 0.
+        if "date" not in transactions_df.columns and "transaction_date" in transactions_df.columns:
+            transactions_df = transactions_df.rename({"transaction_date": "date"})
+
         required = {"date", "amount"}
         if not required.issubset(transactions_df.columns):
             logger.warning("IncomeProfiler: colunas 'date' ou 'amount' ausentes")

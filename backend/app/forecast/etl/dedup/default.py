@@ -10,7 +10,12 @@ class DefaultDedupPolicy(DedupPolicy):
     """
 
     def apply(self, df: pl.DataFrame) -> tuple[pl.DataFrame, int]:
+        if "dedup_hash" not in df.columns:
+            return df, 0
+
         before = df.height
-        df = df.unique(subset=["dedup_hash"], keep="first")
+        # maintain_order=True: sem isso o Polars pode reordenar as linhas e
+        # tornar a saída do ETL não-determinística entre execuções.
+        df = df.unique(subset=["dedup_hash"], keep="first", maintain_order=True)
         removed = before - df.height
         return df, removed

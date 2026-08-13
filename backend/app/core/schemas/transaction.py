@@ -133,10 +133,27 @@ def sanitize_text(text: str, max_length: int = MAX_DESCRIPTION_LENGTH, escape_ht
 
     return text
 
+def _enforce_amount_limits(amount: Decimal, field_name: str) -> Decimal:
+    """
+    Teto de segurança comum a TODAS as vias de parsing.
+
+    Precisa ficar aqui (e não só no fim de parse_amount_safe) porque int/float
+    e Decimal saem por short-circuit: valor numérico com erro de escala entrava
+    na base sem passar pelo limite e contaminava forecast/safe-to-spend.
+    """
+    if not amount.is_finite():
+        raise ValueError(f"{field_name} não é um número finito: {amount}")
+
+    if abs(amount) > MAX_AMOUNT:
+        raise ValueError(f"{field_name} excede o limite permitido.")
+
+    return amount
+
+
 def parse_amount_safe(v: Any, field_name: str = "amount", default_locale: str = 'BR') -> Decimal:
     """
     Parser financeiro híbrido e resiliente.
-    
+
     Estratégia:
     1. Se tem ',' e '.', a última ocorrência define a casa decimal.
     2. Se tem apenas um separador, usa o locale + regex para inferir.
@@ -144,9 +161,13 @@ def parse_amount_safe(v: Any, field_name: str = "amount", default_locale: str = 
     """
     # 1. Short-circuit para tipos já numéricos
     if isinstance(v, Decimal):
-        return v
+        return _enforce_amount_limits(v, field_name)
     if isinstance(v, (int, float)):
-        return Decimal(str(v))
+        try:
+            amount = Decimal(str(v))
+        except (InvalidOperation, ValueError):
+            raise ValueError(f"{field_name} contém valor numérico inválido: '{v}'")
+        return _enforce_amount_limits(amount, field_name)
     if not isinstance(v, str):
         raise ValueError(f"{field_name} formato inválido: deve ser string ou número.")
 
@@ -215,10 +236,7 @@ def parse_amount_safe(v: Any, field_name: str = "amount", default_locale: str = 
     if is_negative:
         amount = -amount
 
-    if abs(amount) > MAX_AMOUNT:
-        raise ValueError(f"{field_name} excede o limite permitido.")
-
-    return amount
+    return _enforce_amount_limits(amount, field_name)
 
 try:
     from zoneinfo import ZoneInfo
@@ -574,10 +592,36 @@ class TransactionWebhook(BaseModel): #TESTADO E OK!!
         """Parseia status com fallback tolerante."""
         return parse_status_safe(v)
 
+    @field_validator(
+        "description", "description_raw", "observations", "merchant", mode="before"
+    )
+    @classmethod
+    def sanitize_before_limits(cls, v: Any, info) -> Any:
+        """
+        Sanitiza (e TRUNCA) ANTES das restrições de tamanho do Field.
+
+        Em mode='after' o max_length=500 rejeitava a transação inteira por
+        causa de um texto longo — e o truncamento do sanitize_text nunca
+        chegava a rodar. Perder a transação por causa da descrição é pior do
+        que cortar a descrição.
+
+        description=None vira "" para que o fallback documentado
+        description → description_raw → observations (step 3) possa agir;
+        os campos opcionais continuam aceitando None.
+
+        Tipos não-texto (ex: merchant como objeto aninhado da Pluggy) passam
+        intactos, para a validação de tipo rejeitar apontando o campo certo.
+        """
+        if v is None:
+            return "" if info.field_name == "description" else None
+        if isinstance(v, str):
+            return sanitize_text(v)
+        return v
+
     @field_validator("description", "description_raw", "observations", "merchant")
     @classmethod
     def sanitize_texts(cls, v: str | None) -> str | None:
-        """Sanitiza textos removendo controles e limitando tamanho."""
+        """Texto vazio após sanitização vira None (habilita os fallbacks)."""
         if v is None:
             return None
         return sanitize_text(v) or None
@@ -1020,6 +1064,11 @@ class RejectedTransaction(BaseModel):
                     institution_id="nubank"
                 )
         """
+        # Payload que não é dict (None, string, lista) ainda precisa virar
+        # registro auditável — nenhum chamador pode quebrar aqui.
+        if not isinstance(data, dict):
+            data = {"_invalid_payload": repr(data)[:200]}
+
         field_errors = {}
         error_msg = str(exc)
         error_type = type(exc).__name__
@@ -1891,6 +1940,21 @@ class TransactionBatchResult(BaseModel):
         
         # 3. Processar cada transação
         for raw_txn in raw_data:
+            # Registro que nem é objeto JSON (None, string, lista) já derrubou
+            # o lote inteiro com AttributeError no .copy() — o oposto da
+            # validação tolerante. Agora vai para o DLQ como qualquer outro.
+            if not isinstance(raw_txn, dict):
+                rejected.append(
+                    RejectedTransaction.create_from_exception(
+                        data=raw_txn,
+                        exc=TypeError(
+                            f"Registro não é um objeto JSON: {type(raw_txn).__name__}"
+                        ),
+                        institution_id=institution_id,
+                    )
+                )
+                continue
+
             try:
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 # ✅ STEP A: MAPEAR CAMPOS (NOVO!)
@@ -2020,6 +2084,12 @@ class TransactionBatchResult(BaseModel):
         # date → transaction_date
         if "date" in normalized and "transaction_date" not in normalized:
             normalized["transaction_date"] = normalized.pop("date")
+
+        # descriptionRaw → description_raw
+        # Sem isso o fallback description → description_raw → observations
+        # nunca enxerga o campo que a Pluggy realmente manda (camelCase).
+        if "descriptionRaw" in normalized and "description_raw" not in normalized:
+            normalized["description_raw"] = normalized.pop("descriptionRaw")
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # ITAÚ (Campos não-padrão)
