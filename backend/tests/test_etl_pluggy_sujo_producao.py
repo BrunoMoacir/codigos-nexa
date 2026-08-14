@@ -562,10 +562,10 @@ CATALOGO: list[RegistroSujo] = [
     ),
     RegistroSujo(
         caso="banco_nao_mapeado",
-        motivo="Conector novo (C6) sem strategy própria → DefaultStrategy",
-        payload=_tx_pluggy("banco_nao_mapeado", accountId="acc_c6_5555"),
+        motivo="Conector fora do radar (cooperativa regional) → DefaultStrategy",
+        payload=_tx_pluggy("banco_nao_mapeado", accountId="acc_coop_5555"),
         esperado=VALIDA,
-        banco="c6",
+        banco="coopregional",
         tags=("mapeamento",),
     ),
 ]
@@ -579,7 +579,7 @@ def _por_caso(caso: str) -> RegistroSujo:
     return next(r for r in CATALOGO if r.caso == caso)
 
 
-BANCOS = ("nubank", "itau", "inter", "c6")
+BANCOS = ("nubank", "itau", "inter", "coopregional")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1023,26 +1023,132 @@ class TestCamada3IngestorMultiBanco:
 
         assert "TRUSTED" in status["nubank"], "TIER_1 pode chegar a TRUSTED"
         assert status["itau"] == {"DEGRADED"}
-        assert status["inter"] == {"DEGRADED"}, "Inter sem balance no payload → degradado"
-        assert status["c6"] == {"DEGRADED"}, "banco sem strategy cai no fallback conservador"
+        assert status["inter"] == {"DEGRADED"}, (
+            "única transação da conta, sem saldo e sem âncora → rebaixada"
+        )
+        assert status["coopregional"] == {"DEGRADED"}, (
+            "banco fora do radar cai no fallback conservador"
+        )
+
+    def test_bancos_reconhecidos_ganham_strategy_por_tier(self):
+        """
+        Bradesco/Santander/C6 eram identificados e mesmo assim caíam na
+        DefaultStrategy (a porta abria para uma sala vazia). Agora recebem
+        TieredStrategy com o teto do tier real do banco.
+        """
+        from app.core.schemas.enums import BankTier
+        from app.forecast.etl.bank_strategy import get_bank_strategy
+        from app.forecast.etl.bank_strategy.strategies.default import DefaultStrategy
+        from app.forecast.etl.bank_strategy.strategies.tiered import TieredStrategy
+
+        casos = {
+            "c6": BankTier.TIER_1,
+            "btg": BankTier.TIER_1,
+            "bradesco": BankTier.TIER_3,
+            "santander": BankTier.TIER_3,
+            "picpay": BankTier.TIER_4,
+        }
+        for banco, tier in casos.items():
+            strategy = get_bank_strategy(banco)
+            assert isinstance(strategy, TieredStrategy), f"{banco} ainda cai no fallback"
+            assert strategy.tier == tier
+
+        assert isinstance(get_bank_strategy("coopregional"), DefaultStrategy)
+
+    def test_teto_por_tier_no_lote_real(self):
+        """C6 (TIER_1) com dados completos chega a TRUSTED; Bradesco (TIER_3), não."""
+        rows_por_banco = {
+            banco: [
+                _tx_pluggy(f"{banco}_tier_{i}", dias_atras=i + 1, accountId=f"acc_{banco}")
+                for i in range(3)
+            ]
+            for banco in ("c6", "bradesco")
+        }
+
+        status = {}
+        for banco, rows in rows_por_banco.items():
+            batch = TransactionBatchResult.from_raw_batch(
+                raw_data=rows, institution_id=banco, item_id=ITEM_ID, fetched_at=AGORA
+            )
+            df, _ = TransactionIngestor().process(batch.valid_transactions)
+            status[banco] = set(df["data_status"].to_list())
+
+        assert status["c6"] == {"TRUSTED"}
+        assert status["bradesco"] == {"DEGRADED"}, "TIER_3 nunca passa de DEGRADED"
 
     def test_lacuna_de_uma_linha_nao_contamina_o_lote(self, df_ingerido):
         """
         Antes o veredito era por LOTE: um saldo nulo em 50 transações marcava
-        as 50 como DEGRADED. Agora só a linha incompleta é rebaixada.
+        as 50 como DEGRADED. Agora a lacuna é da linha — e quando a conta tem
+        âncora de saldo, o cumsum preenche e a linha nem é rebaixada.
         """
         nubank = df_ingerido.filter(pl.col("institution_id") == "nubank")
 
         sem_saldo = nubank.filter(pl.col("transaction_id") == "tx_saldo_vazio")
-        assert sem_saldo["data_status"].to_list() == ["DEGRADED"], (
-            "cartão sem saldo é dado incompleto — a linha tem que ser rebaixada"
+        assert sem_saldo["balance"].null_count() == 0, (
+            "a conta tem saldos reais nas vizinhas — o cumsum tinha que preencher"
+        )
+        assert sem_saldo["balance_estimated"].to_list() == [True], (
+            "saldo derivado tem que ficar marcado como estimativa"
+        )
+        assert sem_saldo["data_status"].to_list() == ["TRUSTED"], (
+            "lacuna preenchida por estimativa não rebaixa a linha"
         )
 
-        vizinhas = nubank.filter(
-            (pl.col("transaction_id") != "tx_saldo_vazio") & pl.col("balance").is_not_null()
-        )
+        vizinhas = nubank.filter(~pl.col("balance_estimated"))
         assert set(vizinhas["data_status"].to_list()) == {"TRUSTED"}, (
             "as linhas completas do mesmo lote continuam confiáveis"
+        )
+
+    def test_conta_sem_nenhuma_ancora_de_saldo_nao_inventa_dinheiro(self):
+        """
+        Cartão que nunca manda saldo: sem âncora, estimar seria inventar.
+        O saldo fica nulo e a linha é rebaixada — comportamento honesto.
+        """
+        rows = [
+            _tx_pluggy(
+                f"cartao_sem_saldo_{i}",
+                dias_atras=i + 1,
+                accountId="acc_cartao_orfa",
+                balance=None,
+            )
+            for i in range(4)
+        ]
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=rows, institution_id="nubank", item_id=ITEM_ID, fetched_at=AGORA
+        )
+        df, _ = TransactionIngestor().process(batch.valid_transactions)
+
+        assert df["balance"].null_count() == df.height, "não pode chutar saldo do nada"
+        assert not df["balance_estimated"].any()
+        assert set(df["data_status"].to_list()) == {"DEGRADED"}
+
+    def test_cumsum_reconstroi_o_saldo_na_ordem_cronologica(self):
+        """
+        Âncora no meio da série: as linhas ANTES dela também são
+        reconstruídas (saldo_anterior = âncora − movimentos entre elas).
+        """
+        rows = [
+            _tx_pluggy("extrato_1", dias_atras=3, accountId="acc_cumsum",
+                       amount=-100.0, balance=None),
+            _tx_pluggy("extrato_2", dias_atras=2, accountId="acc_cumsum",
+                       amount=-50.0, balance=850.0),   # única âncora real
+            _tx_pluggy("extrato_3", dias_atras=1, accountId="acc_cumsum",
+                       amount=200.0, balance=None, type="CREDIT"),
+        ]
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=rows, institution_id="nubank", item_id=ITEM_ID, fetched_at=AGORA
+        )
+        df, _ = TransactionIngestor().process(batch.valid_transactions)
+
+        por_id = {r["transaction_id"]: r for r in df.to_dicts()}
+        assert por_id["tx_extrato_1"]["balance"] == pytest.approx(900.0), (
+            "antes da âncora: 850 + 50 (desfaz o débito seguinte)"
+        )
+        assert por_id["tx_extrato_2"]["balance"] == pytest.approx(850.0)
+        assert por_id["tx_extrato_2"]["balance_estimated"] is False
+        assert por_id["tx_extrato_3"]["balance"] == pytest.approx(1050.0), (
+            "depois da âncora: 850 + 200 (crédito)"
         )
 
     def test_normalizacao_e_colunas_derivadas(self, df_ingerido):
@@ -1310,6 +1416,72 @@ class TestCamada4PipelineCompleto:
         assert processado["merchant_key"].n_unique() == 1, "as parcelas são o mesmo bem"
         assert processado["is_installment"].any(), "tem que ser reconhecido como parcelamento"
         assert not processado["is_recurring"].any(), "parcelamento não é assinatura"
+
+    def test_despesa_fixa_nao_vira_parcelamento(self):
+        """
+        Aluguel/condomínio: série mensal de valor fixo SEM marcador de
+        parcela. O chute por padrão do InstallmentDetector marcava como
+        parcelamento — e o Shadow Invoice projetava um "plano" com fim para
+        uma despesa que não acaba nunca.
+        """
+        despesas = {
+            "aluguel": ("TED ENVIADA - ALUGUEL APARTAMENTO SAO PAULO", -2200.0),
+            "condominio": ("PAGAMENTO BOLETO - CONDOMINIO ED PRIMAVERA", -680.0),
+        }
+        for nome, (descricao, valor) in despesas.items():
+            rows = [
+                _tx_pluggy(f"{nome}_{m}", dias_atras=30 * m + 5,
+                           amount=valor, description=descricao)
+                for m in range(6)
+            ]
+            batch = TransactionBatchResult.from_raw_batch(
+                raw_data=rows, institution_id="nubank", item_id=ITEM_ID, fetched_at=AGORA
+            )
+            df, _ = TransactionIngestor().process(batch.valid_transactions)
+            out = run_etl_pipeline(
+                transactions_df=df, user_id=USER_ID, skip_steps=["save_db"], db=None
+            )
+            assert not out["is_installment"].any(), f"{nome} não é parcelamento"
+
+        # E o marcador explícito continua valendo — inclusive acima de 12x
+        rows = [
+            _tx_pluggy(f"moto_{m}", dias_atras=30 * m + 5, amount=-450.0,
+                       description=f"FINANCIAMENTO MOTO {m + 13}/24")
+            for m in range(4)
+        ]
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=rows, institution_id="nubank", item_id=ITEM_ID, fetched_at=AGORA
+        )
+        df, _ = TransactionIngestor().process(batch.valid_transactions)
+        out = run_etl_pipeline(
+            transactions_df=df, user_id=USER_ID, skip_steps=["save_db"], db=None
+        )
+        assert out["is_installment"].any(), "15/24 tem numerador > 12 — é parcela, não mês"
+
+    def test_classificacao_pf_pj_vem_com_confianca(self, df_pipeline):
+        """
+        context_confidence alimentará o badge da UI e o filtro do agente —
+        ficava sempre nulo porque nenhuma via o produzia.
+        """
+        assert "pf_pj_confidence" in df_pipeline.columns
+        assert df_pipeline["pf_pj_confidence"].null_count() == 0
+
+        conf = df_pipeline.select(
+            pl.col("pf_pj_confidence").min().alias("min"),
+            pl.col("pf_pj_confidence").max().alias("max"),
+        ).to_dicts()[0]
+        assert 0.0 < conf["min"] <= conf["max"] <= 1.0
+
+        # UNCERTAIN tem que valer menos que uma classificação decidida
+        por_label = {
+            r["pf_pj_label"]: r["conf"]
+            for r in df_pipeline.group_by("pf_pj_label")
+            .agg(pl.col("pf_pj_confidence").mean().alias("conf"))
+            .to_dicts()
+        }
+        if "UNCERTAIN" in por_label and {"PF", "PJ"} & set(por_label):
+            decididas = [v for k, v in por_label.items() if k != "UNCERTAIN"]
+            assert por_label["UNCERTAIN"] < min(decididas)
 
     def test_assinatura_nao_vira_parcelamento_pelo_chute_do_detector(self):
         """

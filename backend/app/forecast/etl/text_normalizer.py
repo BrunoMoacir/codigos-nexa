@@ -68,6 +68,10 @@ STOPWORDS: frozenset[str] = frozenset({
     "de", "do", "da", "dos", "das", "no", "na", "nos", "nas", "em", "e", "a", "o",
     # genéricos de estabelecimento
     "loja", "lj", "estab", "estabelecimento", "ref", "nr", "num", "numero",
+    # códigos de adquirente/plataforma que prefixam o nome real
+    # ("IFD*IFOOD", "EC *PADARIA", "MP*LOJINHA", "APL*APPLE", "DL*GOOGLE")
+    "ifd", "ec", "dl", "apl", "mp", "pp", "py", "sq", "sumup", "cielo",
+    "rede", "getnet", "stone", "pagarme",
 })
 
 # Praça anexada pelo adquirente no FIM da descrição. Removida só como sufixo

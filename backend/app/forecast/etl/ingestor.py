@@ -89,14 +89,19 @@ class TransactionIngestor:
         df = self._apply_bank_strategies(df)
 
         # 5. Chave canônica de estabelecimento (une o que cada banco escreve
-        #    do seu jeito) + downgrade de qualidade POR LINHA
+        #    do seu jeito)
         df = self._canonicalize_merchant(df)
-        df = self._apply_row_quality(df)
 
-        # 6. Conversão de tipos
+        # 6. Conversão de tipos (antes da estimativa: cumsum precisa de Float64)
         df = self._convert_types(df)
 
-        # 7. Enriquecimento
+        # 7. Saldo estimado por cumsum onde o banco não mandou, e só então o
+        #    downgrade de qualidade POR LINHA — lacuna preenchida por
+        #    estimativa deixa de contar como lacuna
+        df = self._estimate_balances(df)
+        df = self._apply_row_quality(df)
+
+        # 8. Enriquecimento
         df = self._enrich_columns(df)
 
         processing_time = (datetime.now() - start_time).total_seconds() * 1000
@@ -204,7 +209,66 @@ class TransactionIngestor:
         return df
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # PASSO 5b — QUALIDADE POR LINHA
+    # PASSO 7a — SALDO ESTIMADO (cumsum)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _estimate_balances(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Preenche saldo faltante por soma acumulada, ancorada em qualquer
+        saldo real da mesma conta.
+
+        Invariante: saldo_i = saldo_j + (soma dos amounts entre j e i). Com
+        S = cumsum(amount) na ordem cronológica da conta, (balance - S) é
+        constante entre âncoras — forward/backward fill dessa constante
+        reconstrói o saldo de todas as linhas, antes e depois da âncora.
+
+        `balance_estimated` marca o que é derivado: o consumidor decide se
+        confia. Conta SEM nenhuma âncora fica com saldo nulo mesmo — estimar
+        do nada seria inventar dinheiro.
+        """
+        if "balance" not in df.columns:
+            df = df.with_columns(pl.lit(None).cast(pl.Float64).alias("balance"))
+
+        faltantes = df.filter(pl.col("balance").is_null()).height
+        if faltantes == 0:
+            return df.with_columns(pl.lit(False).alias("balance_estimated"))
+
+        df = (
+            df.with_row_index("_ordem_original")
+            .sort(["account_id", "transaction_date", "_ordem_original"])
+            .with_columns(
+                pl.col("amount").cum_sum().over("account_id").alias("_soma_acum")
+            )
+            .with_columns(
+                (pl.col("balance") - pl.col("_soma_acum"))
+                .forward_fill()
+                .backward_fill()
+                .over("account_id")
+                .alias("_base_conta")
+            )
+            .with_columns(
+                pl.col("balance").is_null()
+                .and_(pl.col("_base_conta").is_not_null())
+                .alias("balance_estimated"),
+                pl.coalesce([
+                    pl.col("balance"),
+                    pl.col("_base_conta") + pl.col("_soma_acum"),
+                ]).alias("balance"),
+            )
+            .sort("_ordem_original")
+            .drop("_ordem_original", "_soma_acum", "_base_conta")
+        )
+
+        estimados = df.filter(pl.col("balance_estimated")).height
+        if estimados:
+            self.logger.info(
+                "Ingestor: %s de %s saldos faltantes estimados por cumsum",
+                estimados, faltantes,
+            )
+        return df
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # PASSO 7b — QUALIDADE POR LINHA
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def _apply_row_quality(self, df: pl.DataFrame) -> pl.DataFrame:
@@ -215,6 +279,11 @@ class TransactionIngestor:
         Antes o veredito era só do lote: um saldo nulo em 50 transações
         marcava as 50 como DEGRADED, e o Nubank saía TRUSTED mesmo com a
         descrição inteira vazia. Só rebaixa — nunca promove acima do teto.
+
+        Roda DEPOIS da estimativa de saldo: lacuna preenchida por cumsum não
+        é mais lacuna (a linha carrega balance_estimated=True para quem
+        precisar distinguir). Saldo nulo aqui significa conta sem âncora
+        nenhuma — aí sim, DEGRADED.
         """
         if "data_status" not in df.columns:
             return df

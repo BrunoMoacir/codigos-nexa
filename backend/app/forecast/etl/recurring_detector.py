@@ -82,9 +82,9 @@ logger = logging.getLogger(__name__)
 # Distinguir "3/12" (parcela) de "08/26" (competência) é o problema: as
 # duas formas são idênticas. O desempate:
 #   • palavra de parcelamento presente → parcela, sem discussão;
-#   • fração isolada só conta como parcela quando o total é plausível de
-#     plano (≤ 19) — de 20 em diante entra na faixa de ano ("08/26"), e aí
-#     exigimos a palavra.
+#   • fração isolada conta como parcela quando o total é plausível de
+#     plano (≤ 19) — de 20 em diante entra na faixa de ano ("08/26") — ou
+#     quando o primeiro número passa de 12 ("15/24"), que mês não é.
 _RE_PALAVRA_PARCELA = r"(?i)\b(parcela|parc|parcelad[ao]|parcelamento|installment)\b|\b\d{1,2}\s*x\b"
 _RE_FRACAO = r"\b(\d{1,2})\s*/\s*(\d{1,3})\b"
 _MAX_FRACAO_PARCELA = 19
@@ -374,28 +374,37 @@ class RecurringDetector:
         # valor fixo, indistinguível de assinatura. Se QUALQUER lançamento da
         # chave carrega contador de parcela, a chave inteira é parcelamento.
 
-        # Só marcador EXPLÍCITO de parcela derruba assinatura. O
-        # InstallmentDetector, quando não acha keyword, chuta parcelamento
-        # por PADRÃO (série mensal de valor fixo) — que é exatamente o
-        # formato de uma assinatura. Deixar esse palpite mandar apagaria
-        # Netflix e Spotify de todo mundo.
+        # is_installment EXIGE marcador explícito. O InstallmentDetector,
+        # quando não acha keyword, chuta parcelamento por PADRÃO (série
+        # mensal de valor fixo) — que é também o formato de assinatura E de
+        # despesa fixa: aluguel, condomínio e mensalidade escolar saíam
+        # marcados como parcelamento. Sem marcador não há total de parcelas,
+        # então o installment_info sairia nulo de qualquer forma — a flag
+        # sem marcador é só ruído com cara de dado.
+        fracao_total = (
+            pl.col("description_norm").str.extract(_RE_FRACAO, 2).cast(pl.Int32, strict=False)
+        )
+        fracao_numero = (
+            pl.col("description_norm").str.extract(_RE_FRACAO, 1).cast(pl.Int32, strict=False)
+        )
         df = df.with_columns(
             (
                 pl.col("description_norm").str.contains(_RE_PALAVRA_PARCELA)
-                | (
-                    pl.col("description_norm")
-                    .str.extract(_RE_FRACAO, 2)
-                    .cast(pl.Int32, strict=False)
-                    .is_between(1, _MAX_FRACAO_PARCELA)
-                )
+                | fracao_total.is_between(1, _MAX_FRACAO_PARCELA)
+                # "15/24" só pode ser parcela: mês não passa de 12
+                | (fracao_numero > 12) & fracao_total.is_not_null()
             ).alias("_parcela_explicita")
         )
 
+        df = df.with_columns(
+            (pl.col("is_installment") & pl.col("_parcela_explicita")).alias("is_installment")
+        )
+
+        # Parcelamento confirmado vence assinatura na MESMA chave: a chave
+        # canônica remove o contador da descrição, então "parcela 4/10 -
+        # notebook" também forma série mensal de valor fixo.
         chaves_parceladas = (
-            df.filter(pl.col("is_installment") & pl.col("_parcela_explicita"))
-            ["_chave_assinatura"]
-            .unique()
-            .to_list()
+            df.filter(pl.col("is_installment"))["_chave_assinatura"].unique().to_list()
         )
         if chaves_parceladas:
             df = df.with_columns(
@@ -404,17 +413,6 @@ class RecurringDetector:
                     & ~pl.col("_chave_assinatura").is_in(chaves_parceladas)
                 ).alias("is_recurring")
             )
-
-        # E o espelho: assinatura confirmada sem marcador de parcela não pode
-        # sair marcada como parcelamento pelo chute por padrão. As duas flags
-        # são excludentes — o Shadow Invoice projeta cobrança contínua OU
-        # plano finito, nunca os dois para o mesmo lançamento.
-        df = df.with_columns(
-            (
-                pl.col("is_installment")
-                & (~pl.col("is_recurring") | pl.col("_parcela_explicita"))
-            ).alias("is_installment")
-        )
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # ADICIONAR CONFIDENCE (segue a flag que sobreviveu)

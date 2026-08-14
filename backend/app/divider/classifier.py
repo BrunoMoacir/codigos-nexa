@@ -91,6 +91,29 @@ class PFPJClassifier:
             .otherwise(pl.lit("UNCERTAIN"))
         )
 
+        # Confiança da REGRA que decidiu, na mesma ordem do label_expr.
+        # Escala do contrato TransactionOut.context_confidence:
+        #   0.70-0.89 = regra determinística forte, 0.50-0.69 = heurística
+        #   ambígua, < 0.50 = UNCERTAIN. Este campo alimenta o badge da UI e
+        #   o filtro de confiança do agente — ficava sempre nulo porque
+        #   nenhuma via o produzia.
+        confidence_expr = (
+            pl.when(pl.col("category").fill_null("").is_in(fb.pj_categories))
+            .then(pl.lit(0.85))   # categoria estruturada do banco
+            .when(desc_col.str.contains(pj_kw))
+            .then(pl.lit(0.80))   # keyword inequívoca na descrição
+            .when(amount_abs > 2000)
+            .then(pl.lit(0.60))   # só o valor: heurística fraca
+            .when(desc_col.str.contains(pf_kw))
+            .then(pl.lit(0.80))
+            .when(merch_col.str.contains(pj_mch))
+            .then(pl.lit(0.70))   # merchant conhecido, lista curta
+            .when(merch_col.str.contains(pf_mch))
+            .then(pl.lit(0.70))
+            .otherwise(pl.lit(0.40))  # UNCERTAIN
+            .cast(pl.Float64)
+        )
+
         classifications = (
             transactions_df
             .with_columns(label_expr.alias("pf_pj_label"))
@@ -109,6 +132,7 @@ class PFPJClassifier:
         result_df = transactions_df.with_columns([
             pl.Series("pf_pj_label", classifications),
             pl.Series("pj_subcategory", subcategories),
+            confidence_expr.alias("pf_pj_confidence"),
         ])
 
         pf_count = classifications.count("PF")
