@@ -1690,6 +1690,95 @@ class TestCamada4PipelineCompleto:
             f"esperava categorias do classificador, veio {valores}"
         )
 
+    def test_correcao_manual_do_usuario_e_aplicada(self):
+        """
+        `map_dict` foi removido no Polars 1.0: a linha levantava
+        AttributeError, o except engolia e a correção do usuário ("isso é
+        pessoal, não empresarial") NUNCA era aplicada. O feedback loop do F4
+        estava morto em silêncio — e continuaria morto, porque o except
+        devolve o DataFrame original sem reclamar.
+        """
+        from app.forecast.etl.runner import apply_user_overrides
+
+        class _Override:
+            transaction_id = "tx_corrigida"
+            original_context = "PJ"
+            corrected_context = "PF"
+            reason = "gasto pessoal no cartão da empresa"
+            created_at = None
+
+        class _Query:
+            def filter(self, *a, **k):
+                return self
+
+            def order_by(self, *a, **k):
+                return self
+
+            def all(self):
+                return [_Override()]
+
+        class _Db:
+            def query(self, *a, **k):
+                return _Query()
+
+        df = pl.DataFrame({
+            "transaction_id": ["tx_corrigida", "tx_intocada"],
+            "pf_pj_label": ["PJ", "PJ"],
+            "pf_pj_confidence": [0.6, 0.6],
+        })
+
+        out = apply_user_overrides(_Db(), df, USER_ID)
+        por_id = {r["transaction_id"]: r for r in out.to_dicts()}
+
+        assert por_id["tx_corrigida"]["pf_pj_label"] == "PF", "override não foi aplicado"
+        assert por_id["tx_corrigida"]["context_override_by_user"] is True
+        assert por_id["tx_corrigida"]["pf_pj_confidence"] == 1.0, "correção humana é certeza"
+
+        assert por_id["tx_intocada"]["pf_pj_label"] == "PJ", "sem override, nada muda"
+        assert por_id["tx_intocada"]["context_override_by_user"] is False
+
+    def test_shadow_invoices_sao_persistidas(self, monkeypatch, tmp_path):
+        """
+        O Step 5 detectava obrigações futuras e jogava fora (TODO no runner):
+        cada consulta reprocessava o histórico para redescobrir o mesmo, e
+        nada podia comparar o previsto com o que de fato caiu.
+        """
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        from app.core.db.shadow_invoices import get_shadow_invoices, save_shadow_invoices
+        from app.core.models.shadow_invoice import ShadowInvoice
+
+        engine = create_engine(f"sqlite:///{tmp_path}/shadow.db")
+        ShadowInvoice.__table__.create(engine)
+        Session = sessionmaker(bind=engine)
+        monkeypatch.setattr("app.core.database.SessionLocal", Session, raising=False)
+
+        shadow_df = pl.DataFrame({
+            "type": ["SUBSCRIPTION", "INSTALLMENT"],
+            "amount": [-49.90, -389.90],
+            "next_due_date": [AGORA + timedelta(days=12), AGORA + timedelta(days=20)],
+            "metadata": [
+                {"description": "netflix.com", "occurrences": 6},
+                {"description": "parcela 4/10 - notebook dell", "occurrences": 4},
+            ],
+            "confidence": [0.9, 0.85],
+        })
+
+        assert save_shadow_invoices(USER_ID, shadow_df, account_id=ACC_CORRENTE) == 2
+
+        salvas = get_shadow_invoices(USER_ID)
+        assert {s["type"] for s in salvas} == {"SUBSCRIPTION", "INSTALLMENT"}
+
+        netflix = next(s for s in salvas if s["type"] == "SUBSCRIPTION")
+        assert netflix["merchant_key"] == "netflix", "indexada pela chave canônica"
+        assert netflix["amount"] == pytest.approx(-49.90)
+        assert netflix["occurrences"] == 6
+
+        # Re-sync do mesmo período não pode empilhar duplicata
+        save_shadow_invoices(USER_ID, shadow_df, account_id=ACC_CORRENTE)
+        assert len(get_shadow_invoices(USER_ID)) == 2, "upsert por (user, chave, tipo)"
+
     def test_pipeline_e_resiliente_a_step_quebrado(self, df_ingerido, monkeypatch):
         """
         Contrato do runner: se um step explode (modelo indisponível, bug novo),
@@ -2015,6 +2104,49 @@ class TestCamada5RotaDeProducao:
         stats = dlq.rejection_stats(institution_id="bradesco", hours=24)
         assert stats.total == 3
         assert stats.por_campo, "estatística por campo é o que denuncia conector quebrado"
+
+    @pytest.mark.asyncio
+    async def test_endpoint_de_qualidade_traduz_a_dlq(self, monkeypatch):
+        """
+        DLQ gravada que ninguém lê continua sendo invisibilidade. O endpoint
+        responde à pergunta do usuário ("cadê meus lançamentos?") e à nossa
+        ("o conector quebrou?") — esta última é o campo dominante.
+        """
+        import app.forecast.router_data_quality as rota
+        from app.core.db.rejections import RejectionStats
+
+        stats = RejectionStats(
+            institution_id="bradesco",
+            total=5,
+            por_erro={"ValidationError": 5},
+            por_campo={"transaction_date": 4, "amount": 1},
+            janela_horas=168,
+        )
+        monkeypatch.setattr(rota, "rejection_stats", lambda **kwargs: stats)
+
+        resposta = await rota.get_data_quality(user_id=USER_ID, hours=168, institution_id=None)
+
+        assert resposta["total_rejeitadas"] == 5
+        assert resposta["por_campo"]["transaction_date"] == 4
+        assert "transaction_date" in resposta["diagnostico"]
+        assert "ATENCAO" in resposta["diagnostico"], (
+            "campo dominante é assinatura de conector quebrado — tem que gritar"
+        )
+
+    @pytest.mark.asyncio
+    async def test_endpoint_de_qualidade_silencioso_quando_esta_tudo_bem(self, monkeypatch):
+        import app.forecast.router_data_quality as rota
+        from app.core.db.rejections import RejectionStats
+
+        monkeypatch.setattr(
+            rota,
+            "rejection_stats",
+            lambda **kwargs: RejectionStats(institution_id=None, total=0),
+        )
+        resposta = await rota.get_data_quality(user_id=USER_ID, hours=24, institution_id=None)
+
+        assert resposta["total_rejeitadas"] == 0
+        assert resposta["diagnostico"].startswith("OK")
 
     def test_lote_saudavel_nao_gera_alerta(self, monkeypatch):
         import app.core.db.rejections as dlq

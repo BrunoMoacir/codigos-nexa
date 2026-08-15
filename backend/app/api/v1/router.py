@@ -27,6 +27,7 @@ from app.forecast.router_transactions import router as transactions_router
 from app.forecast.router_shadow_invoice import router as shadow_invoice_router
 from app.forecast.router_alerts import router as alerts_router
 from app.forecast.router_safe_to_spend import router as safe_to_spend_router
+from app.forecast.router_data_quality import router as data_quality_router
 
 # F2 - Optimizer
 from app.optimizer.router import router as optimizer_router
@@ -124,6 +125,8 @@ router.include_router(forecast_router)
 router.include_router(shadow_invoice_router)
 router.include_router(alerts_router)
 router.include_router(safe_to_spend_router)
+# Transparência da ingestão: o que foi descartado e por quê
+router.include_router(data_quality_router)
 
 # F2 - Optimizer
 router.include_router(optimizer_router)

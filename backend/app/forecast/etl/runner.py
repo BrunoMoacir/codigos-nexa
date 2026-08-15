@@ -194,9 +194,16 @@ def run_etl_pipeline(
             
             if not shadow_df.is_empty():
                 logger.info("   ✅ Detectadas %s shadow invoices", len(shadow_df))
-                
-                # TODO: Salvar shadow invoices em tabela separada
-                # await save_shadow_invoices(shadow_df, user_id)
+
+                # Persistir: sem isto, cada consulta reprocessava o histórico
+                # inteiro para redescobrir as mesmas obrigações, e não havia
+                # como comparar o previsto com o que de fato caiu depois.
+                from app.core.db.shadow_invoices import save_shadow_invoices
+
+                salvas = save_shadow_invoices(
+                    user_id=user_id, shadow_df=shadow_df, account_id=account_id
+                )
+                logger.info("   💾 %s shadow invoices persistidas", salvas)
             else:
                 logger.info("   ℹ️  Nenhuma shadow invoice detectada")
         
@@ -368,8 +375,17 @@ def apply_user_overrides(db: Session, df: pl.DataFrame, user_id: str) -> pl.Data
         # Lógica de aplicação
         df = df.with_columns([
             # Substituir pf_pj_label com override, manter original se não houver
+            #
+            # replace_strict e não map_dict: map_dict foi REMOVIDO no Polars
+            # 1.0, então esta linha levantava AttributeError, era engolida
+            # pelo except abaixo e a correção do usuário nunca era aplicada —
+            # o feedback loop do F4 estava morto em silêncio.
             pl.when(pl.col('transaction_id').is_in(override_map.keys()))
-            .then(pl.col('transaction_id').map_dict(override_map))
+            .then(
+                pl.col('transaction_id').replace_strict(
+                    override_map, default=None, return_dtype=pl.Utf8
+                )
+            )
             .otherwise(pl.col('pf_pj_label'))
             .alias('pf_pj_label'),
             
