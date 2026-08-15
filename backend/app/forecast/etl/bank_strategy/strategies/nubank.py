@@ -44,11 +44,16 @@ class NubankStrategy(BankStrategy):
         # Só preenche vazio: antes sobrescrevia sempre e jogava fora o
         # merchant.businessName que a Pluggy entrega no cartão — dado melhor
         # do que qualquer split de descrição.
+        # `\*\d+` e não `\*.*`: o alvo é o sufixo de cartão ("UBER *1234"),
+        # não tudo que vem depois do asterisco. Cortando geral, "PAG*IFOOD
+        # DELIVERY" — o formato de cartão mais comum — virava merchant "pag",
+        # e a chave canônica saía VAZIA (pag é ruído bancário), matando
+        # agrupamento de recorrência e sinal de categoria.
         derivado = (
             pl.col("description")
             .str.split("-")
             .list.get(-1)
-            .str.replace(r"\*.*", "")
+            .str.replace(r"\*\d+.*", "")
             .str.strip_chars()
         )
 

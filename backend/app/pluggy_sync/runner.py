@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.core.integrations.pluggy import PluggyClient
 from app.core.schemas.transaction import TransactionBatchResult
 from app.forecast.etl import TransactionIngestor
+from app.core.db.rejections import alert_on_batch, save_rejected_transactions
 from app.forecast.etl.bank_strategy.institutions import (
     DESCONHECIDO,
     extract_connector,
@@ -279,8 +280,11 @@ def sync_item_transactions(
     total_received = 0
     total_valid = 0
     total_saved = 0
+    total_rejected = 0
+    dlq_saved = 0
     incremental_accounts = 0
     errors: list[str] = []
+    alerts: list[str] = []
 
     for index, account in enumerate(accounts):
         account_id = account.get("id")
@@ -336,6 +340,21 @@ def sync_item_transactions(
             )
             total_valid += batch_result.total_valid
 
+            # DLQ: rejeitada não some mais no fim do request. Sem isto,
+            # conector degradando em produção é invisível — o usuário só vê
+            # extrato faltando. Sessão própria, falha silenciosa: registrar
+            # rejeição nunca derruba a ingestão do que passou.
+            total_rejected += batch_result.total_rejected
+            dlq_saved += save_rejected_transactions(
+                user_id=str(user_id),
+                item_id=item_id,
+                institution_id=institution_id,
+                batch_result=batch_result,
+            )
+            alerta = alert_on_batch(batch_result, institution_id, str(user_id))
+            if alerta:
+                alerts.append(alerta)
+
             if not batch_result.valid_transactions:
                 continue
 
@@ -358,6 +377,12 @@ def sync_item_transactions(
         "valid": total_valid,
         "saved": total_saved,
         "balances_saved": balances_saved,
+        # Rejeitadas na validação: o que o banco mandou e não deu para usar.
+        # `dlq_saved` < `rejected` significa que a gravação da DLQ falhou.
+        "rejected": total_rejected,
+        "dlq_saved": dlq_saved,
+        # Lotes com rejeição acima do limiar — conector possivelmente quebrado.
+        "alerts": alerts,
         # Quantas contas puxaram só a janela nova (o resto foi extrato inteiro).
         "incremental_accounts": incremental_accounts,
         "errors": errors,

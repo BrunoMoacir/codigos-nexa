@@ -45,6 +45,7 @@ Como executar:
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from dataclasses import dataclass, field
@@ -1256,6 +1257,34 @@ class TestCamada3IngestorMultiBanco:
 
         assert chaves == {"netflix"}, f"cada banco gerou uma chave diferente: {chaves}"
 
+    @pytest.mark.parametrize(
+        "descricao,chave",
+        [
+            ("PAG*IFOOD DELIVERY", "ifood"),      # prefixo de adquirente
+            ("IFD*IFOOD 08/2026", "ifood"),
+            ("COMPRA NO DEBITO - UBER *1234", "uber"),  # sufixo de cartão
+            ("EC *PADARIA CENTRAL SP", "padaria central"),
+            ("NETFLIX.COM", "netflix"),
+        ],
+    )
+    def test_chave_sobrevive_ao_asterisco_dos_extratos(self, descricao, chave):
+        """
+        O asterisco separa coisas diferentes conforme o banco: adquirente à
+        esquerda ("PAG*IFOOD") ou dígitos do cartão à direita ("UBER *1234").
+        Cortar tudo depois dele deixava merchant "pag" e chave VAZIA — sem
+        chave não há agrupamento de recorrência nem sinal de categoria.
+        """
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=[_tx_pluggy("asterisco", description=descricao)],
+            institution_id="nubank",
+            item_id=ITEM_ID,
+            fetched_at=AGORA,
+        )
+        df, _ = TransactionIngestor().process(batch.valid_transactions)
+
+        assert df["merchant_key"][0] == chave
+        assert df["merchant_key"][0] != "", "chave vazia mata recorrência e categoria"
+
     def test_chave_canonica_preserva_a_descricao_original(self, df_ingerido):
         """A chave é coluna nova — extrato e auditoria continuam com o texto cru."""
         assert "merchant_key" in df_ingerido.columns
@@ -1265,6 +1294,95 @@ class TestCamada3IngestorMultiBanco:
             "a descrição original não pode ser sobrescrita pela chave"
         )
         assert itau["merchant_key"][0] == "supermercado"
+
+    def test_moeda_estrangeira_e_convertida_para_brl(self):
+        """
+        Compra em dólar entrava na soma como se fossem reais — subestimando
+        o gasto em ~5x. Converte na ingestão, congelando a taxa do dia, e
+        preserva o valor original para o extrato mostrar "US$ 120 (R$ 648)".
+        """
+        from app.forecast.etl.currency import CurrencyConverter
+
+        rows = [
+            _tx_pluggy("compra_brl", dias_atras=5, amount=-100.0,
+                       description="MERCADO", balance=1000.0),
+            _tx_pluggy("compra_usd", dias_atras=2, amount=-120.0, currencyCode="USD",
+                       description="AMAZON US", balance=None),
+        ]
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=rows, institution_id="nubank", item_id=ITEM_ID, fetched_at=AGORA
+        )
+        # Conversor com taxa fixa: teste não pode depender de cotação viva
+        converter = CurrencyConverter(live=False)
+        df, _ = TransactionIngestor().process(batch.valid_transactions)
+
+        por_id = {r["transaction_id"]: r for r in df.to_dicts()}
+        usd = por_id["tx_compra_usd"]
+        brl = por_id["tx_compra_brl"]
+
+        assert usd["original_currency"] == "USD"
+        assert usd["original_amount"] == pytest.approx(-120.0), "original preservado"
+        assert usd["fx_rate"] > 1.0
+        assert usd["amount"] == pytest.approx(-120.0 * usd["fx_rate"]), "convertido"
+        assert usd["amount"] < -500, "dólar não pode virar real 1:1"
+
+        assert brl["fx_rate"] == 1.0
+        assert brl["amount"] == pytest.approx(-100.0), "real não é convertido"
+
+        # o cumsum roda depois da conversão: saldo estimado sai em BRL
+        assert usd["balance"] == pytest.approx(1000.0 + usd["amount"])
+        assert converter.rate_to_brl("BRL") == 1.0
+
+    def test_moeda_sem_cotacao_nao_inventa_taxa(self):
+        """Moeda fora da tabela mantém o valor original em vez de chutar."""
+        from app.forecast.etl.currency import CurrencyConverter
+
+        converter = CurrencyConverter(live=False)
+        assert converter.rate_to_brl("JPY") == 1.0, "sem cotação → não converte"
+        assert converter.rate_to_brl("USD") > 1.0
+
+    def test_quality_score_mede_o_lote_de_verdade(self):
+        """Era fixo em 1.0 — dizia '100% de qualidade' para qualquer lixo."""
+        completo = [
+            _tx_pluggy(f"completo_{i}", dias_atras=i + 1, accountId="acc_bom", balance=500.0 - i)
+            for i in range(4)
+        ]
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=completo, institution_id="nubank", item_id=ITEM_ID, fetched_at=AGORA
+        )
+        _, met_bom = TransactionIngestor().process(batch.valid_transactions)
+
+        ruim = [
+            _tx_pluggy(f"ruim_{i}", dias_atras=i + 1, accountId="acc_ruim",
+                       description="", descriptionRaw=None, observations=f"x{i}",
+                       balance=500.0 if i == 0 else None)
+            for i in range(4)
+        ]
+        batch_ruim = TransactionBatchResult.from_raw_batch(
+            raw_data=ruim, institution_id="nubank", item_id=ITEM_ID, fetched_at=AGORA
+        )
+        _, met_ruim = TransactionIngestor().process(batch_ruim.valid_transactions)
+
+        assert met_bom.quality_score == pytest.approx(1.0), "lote completo = 1.0"
+        assert met_ruim.quality_score < met_bom.quality_score, (
+            "lote com lacunas tem que pontuar menos"
+        )
+
+    def test_quality_score_nao_pune_conta_que_nunca_manda_saldo(self):
+        """
+        Cartão de crédito não tem saldo em transação — uma fatura perfeita
+        não pode ficar eternamente em 0.70 por isso.
+        """
+        rows = [
+            _tx_pluggy(f"fatura_{i}", dias_atras=i + 1, accountId="acc_cartao", balance=None)
+            for i in range(5)
+        ]
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=rows, institution_id="nubank", item_id=ITEM_ID, fetched_at=AGORA
+        )
+        _, met = TransactionIngestor().process(batch.valid_transactions)
+
+        assert met.quality_score == pytest.approx(1.0)
 
     def test_lote_vazio_e_erro_explicito(self):
         """Chamar o ingestor sem transação é bug do chamador — tem que estourar."""
@@ -1838,6 +1956,96 @@ class TestCamada5RotaDeProducao:
         )
         assert relatorio["errors"] == []
         assert relatorio["saved"] == 4, "seguiu com DefaultStrategy"
+
+    def test_rejeicoes_sao_persistidas_na_dlq(self, monkeypatch, tmp_path):
+        """
+        Rejeitada morria no fim do request: conector degradando em produção
+        era invisível. Agora fica com payload cru + erro por campo, e o lote
+        podre gera alerta.
+        """
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        import app.core.db.rejections as dlq
+        from app.core.database import Base
+        from app.core.models.rejected_transaction import RejectedTransactionRecord
+
+        engine = create_engine(f"sqlite:///{tmp_path}/dlq.db")
+        RejectedTransactionRecord.__table__.create(engine)
+        Session = sessionmaker(bind=engine)
+        monkeypatch.setattr("app.core.database.SessionLocal", Session, raising=False)
+
+        # 1 boa + 3 podres → 75% de rejeição, muito acima do limiar
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=[
+                _tx_pluggy("dlq_boa"),
+                _tx_pluggy("dlq_sem_data", date=None),
+                _tx_pluggy("dlq_sem_valor", amount=None),
+                _tx_pluggy("dlq_parcela", installment_number=13, installment_total=12),
+            ],
+            institution_id="bradesco",
+            item_id=ITEM_ID,
+            fetched_at=AGORA,
+        )
+
+        gravadas = dlq.save_rejected_transactions(
+            user_id=USER_ID, item_id=ITEM_ID, institution_id="bradesco", batch_result=batch
+        )
+        assert gravadas == 3
+
+        with Session() as db:
+            linhas = db.query(RejectedTransactionRecord).all()
+            assert len(linhas) == 3
+            assert {l.institution_id for l in linhas} == {"bradesco"}
+            assert all(l.user_id == USER_ID for l in linhas)
+            assert all(l.batch_id == batch.batch_id for l in linhas), (
+                "amarra a rejeição ao lote que a produziu"
+            )
+            assert all(l.raw_data for l in linhas), "payload cru p/ reprocessar"
+
+            campos = set()
+            for linha in linhas:
+                campos.update(json.loads(linha.field_errors or "{}"))
+            assert {"transaction_date", "amount"} <= campos
+
+        # o alerta que só existia em memória agora é emitido
+        alerta = dlq.alert_on_batch(batch, "bradesco", USER_ID)
+        assert alerta and "75.0%" in alerta
+
+        stats = dlq.rejection_stats(institution_id="bradesco", hours=24)
+        assert stats.total == 3
+        assert stats.por_campo, "estatística por campo é o que denuncia conector quebrado"
+
+    def test_lote_saudavel_nao_gera_alerta(self, monkeypatch):
+        import app.core.db.rejections as dlq
+
+        batch = TransactionBatchResult.from_raw_batch(
+            raw_data=[_tx_pluggy(f"ok_alerta_{i}", dias_atras=i + 1) for i in range(10)],
+            institution_id="nubank",
+            item_id=ITEM_ID,
+            fetched_at=AGORA,
+        )
+        assert dlq.alert_on_batch(batch, "nubank", USER_ID) is None
+
+    def test_sync_reporta_rejeicoes_e_alertas(self, sync_com_pluggy_fake, monkeypatch):
+        """O relatório do sync passa a carregar o que foi descartado."""
+        import app.pluggy_sync.runner as runner_sync
+
+        gravadas: list = []
+        monkeypatch.setattr(
+            runner_sync,
+            "save_rejected_transactions",
+            lambda **kwargs: gravadas.append(kwargs) or kwargs["batch_result"].total_rejected,
+        )
+
+        db = _FakeSession()
+        relatorio = sync_com_pluggy_fake.sync_item_transactions(
+            db=db, user_id=USER_ID, item_id=ITEM_ID
+        )
+
+        assert relatorio["rejected"] == 1, "só 'rota_sem_data' é irrecuperável"
+        assert relatorio["dlq_saved"] == 1, "e ela foi para a DLQ"
+        assert gravadas and gravadas[0]["institution_id"] == "nubank"
 
     @pytest.mark.parametrize(
         "nome,esperado",

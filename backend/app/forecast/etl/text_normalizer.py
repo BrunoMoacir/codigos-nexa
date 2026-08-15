@@ -179,6 +179,21 @@ _ACENTUADOS = "áàâãäéèêëíìîïóòôõöúùûüçñ"
 _SEM_ACENTO = "aaaaaeeeeiiiiooooouuuucn"
 
 
+def normalize_expr(coluna: str | pl.Expr) -> pl.Expr:
+    """
+    lowercase + sem acentos, vetorizado — equivalente Polars do
+    classifier.normalize_text(). Fica aqui para existir UMA tabela de
+    acentos no ETL.
+    """
+    col = pl.col(coluna) if isinstance(coluna, str) else coluna
+    return (
+        col.cast(pl.String)
+        .fill_null("")
+        .str.to_lowercase()
+        .str.replace_many(list(_ACENTUADOS), list(_SEM_ACENTO))
+    )
+
+
 def canonical_key_expr(coluna: str | pl.Expr) -> pl.Expr:
     """
     Mesma lógica de canonical_key(), vetorizada.

@@ -10,6 +10,7 @@ import polars as pl
 from app.core.schemas.enums import DataStatus
 from app.core.schemas.transaction import TransactionWebhook
 from app.forecast.etl.bank_strategy import get_bank_strategy
+from app.forecast.etl.currency import convert_to_brl
 from app.forecast.etl.dedup.base import DedupPolicy
 from app.forecast.etl.dedup.default import DefaultDedupPolicy
 from app.forecast.etl.text_normalizer import canonical_key_expr
@@ -95,13 +96,17 @@ class TransactionIngestor:
         # 6. Conversão de tipos (antes da estimativa: cumsum precisa de Float64)
         df = self._convert_types(df)
 
-        # 7. Saldo estimado por cumsum onde o banco não mandou, e só então o
+        # 7. Moeda estrangeira → BRL. Antes do cumsum, senão a soma acumulada
+        #    misturaria dólar com real na mesma conta.
+        df = convert_to_brl(df)
+
+        # 8. Saldo estimado por cumsum onde o banco não mandou, e só então o
         #    downgrade de qualidade POR LINHA — lacuna preenchida por
         #    estimativa deixa de contar como lacuna
         df = self._estimate_balances(df)
         df = self._apply_row_quality(df)
 
-        # 8. Enriquecimento
+        # 9. Enriquecimento
         df = self._enrich_columns(df)
 
         processing_time = (datetime.now() - start_time).total_seconds() * 1000
@@ -110,7 +115,7 @@ class TransactionIngestor:
             total_records=len(transactions),
             duplicates_removed=duplicates_removed,
             records_after_dedup=len(df),
-            quality_score=1.0, # Assumindo 100% de qualidade pré-validação
+            quality_score=self._quality_score(df),
             processing_time_ms=processing_time,
             trusted_count=df.filter(pl.col("data_status") == "TRUSTED").height if "data_status" in df.columns else len(df),
             degraded_count=df.filter(pl.col("data_status") == "DEGRADED").height if "data_status" in df.columns else 0,
@@ -187,15 +192,22 @@ class TransactionIngestor:
         descrição, que muda de mês em mês em Bradesco/Itaú) e
         TransactionClassifier (classifica texto limpo, não ruído de adquirente).
         """
-        base = pl.col("description")
+        # Deriva do merchant e da descrição, e fica com a melhor: o merchant
+        # do banco costuma ser mais limpo, mas pode vir só com ruído
+        # (a NubankStrategy já entregou "pag" para "PAG*IFOOD DELIVERY").
+        # Chave vazia não vale nada — nesse caso a descrição manda.
+        chave_descricao = canonical_key_expr("description")
         if "merchant" in df.columns:
-            base = (
-                pl.when(pl.col("merchant").cast(pl.String).fill_null("").str.len_chars() > 0)
-                .then(pl.col("merchant"))
-                .otherwise(pl.col("description"))
+            chave_merchant = canonical_key_expr("merchant")
+            chave = (
+                pl.when(chave_merchant.str.len_chars() > 0)
+                .then(chave_merchant)
+                .otherwise(chave_descricao)
             )
+        else:
+            chave = chave_descricao
 
-        df = df.with_columns(canonical_key_expr(base).alias("merchant_key"))
+        df = df.with_columns(chave.alias("merchant_key"))
 
         # merchant vazio herda a chave — melhor "netflix" do que nada
         if "merchant" in df.columns:
@@ -209,7 +221,77 @@ class TransactionIngestor:
         return df
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # PASSO 7a — SALDO ESTIMADO (cumsum)
+    # MÉTRICA DE QUALIDADE
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _quality_score(self, df: pl.DataFrame) -> float:
+        """
+        Completude média do lote processado (0.0–1.0).
+
+        Era fixo em 1.0 — um número decorativo que dizia "100% de qualidade"
+        para qualquer lixo que entrasse. Agora mede o que o ETL de fato
+        conseguiu produzir, campo a campo:
+
+            descrição não-vazia    0.40  (sem ela não há classificação)
+            merchant_key não-vazia 0.30  (sem ela não há recorrência)
+            saldo                  0.30  (metade quando estimado por cumsum)
+
+        Duas coisas que a métrica DELIBERADAMENTE não faz:
+
+        1. Não usa data_status — o tier do banco já vive lá, e misturar os
+           dois faria um lote impecável do Itaú parecer ruim só por ser
+           TIER_3.
+        2. Não cobra saldo de quem nunca manda saldo. Cartão de crédito não
+           tem saldo em transação: uma fatura perfeita ficaria eternamente
+           em 0.70. O peso do saldo só entra nas contas que provaram saber
+           mandá-lo (≥1 saldo real no lote); nas demais ele é redistribuído.
+        """
+        if df.is_empty():
+            return 0.0
+
+        def _preenchida(coluna: str) -> pl.Expr:
+            if coluna not in df.columns:
+                return pl.lit(0.0)
+            return (
+                pl.col(coluna).cast(pl.String).fill_null("").str.strip_chars().str.len_chars() > 0
+            ).cast(pl.Float64)
+
+        texto = 0.40 * _preenchida("description") + 0.30 * _preenchida("merchant_key")
+
+        if "balance" not in df.columns:
+            return round(float(df.select((texto / 0.70).mean()).item() or 0.0), 4)
+
+        estimado = (
+            pl.col("balance_estimated").fill_null(False)
+            if "balance_estimated" in df.columns
+            else pl.lit(False)
+        )
+        # A conta "sabe" mandar saldo se algum lançamento dela veio com um
+        # saldo real (não estimado).
+        conta_tem_saldo = (
+            (pl.col("balance").is_not_null() & ~estimado)
+            .any()
+            .over("account_id" if "account_id" in df.columns else pl.lit(1))
+        )
+        saldo = (
+            pl.when(pl.col("balance").is_null())
+            .then(pl.lit(0.0))
+            .when(estimado)
+            .then(pl.lit(0.5))
+            .otherwise(pl.lit(1.0))
+        )
+
+        score = df.select(
+            pl.when(conta_tem_saldo)
+            .then(texto + 0.30 * saldo)
+            .otherwise(texto / 0.70)  # sem saldo na conta: peso redistribuído
+            .mean()
+        ).item()
+
+        return round(float(score or 0.0), 4)
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # PASSO 8a — SALDO ESTIMADO (cumsum)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def _estimate_balances(self, df: pl.DataFrame) -> pl.DataFrame:
