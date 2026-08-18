@@ -101,7 +101,22 @@ def _detect_days_to_close(transactions_df: pl.DataFrame, today: date) -> int:
         return _DEFAULT_DAYS_TO_CLOSE
 
     credit_cols = {"date", "amount", "payment_method"}
-    if not credit_cols.issubset(transactions_df.columns):
+    ausentes = credit_cols - set(transactions_df.columns)
+    if ausentes:
+        # `payment_method` NUNCA existe no pipeline: não está no schema
+        # Pluggy, nem no ETL, nem em transactions_clean. Ou seja, este
+        # detector jamais inferiu nada — a classificação de pressão de
+        # fatura roda 100% sobre a constante de fallback.
+        #
+        # O silêncio era o problema: o número parecia calculado. Enquanto
+        # não houver fonte de meio de pagamento (o caminho natural é o tipo
+        # da conta, que o snapshot de saldos já conhece), o aviso deixa
+        # explícito que o valor é suposição, não medição.
+        logger.warning(
+            "[InvoiceHorizon] Sem %s — dia de fechamento NÃO inferido, "
+            "usando fallback de %s dias",
+            sorted(ausentes), _DEFAULT_DAYS_TO_CLOSE,
+        )
         return _DEFAULT_DAYS_TO_CLOSE
 
     try:

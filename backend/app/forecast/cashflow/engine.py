@@ -104,13 +104,19 @@ class CashflowEngine:
         # 1️⃣ PROJEÇÃO DE SALDO FUTURO (30 dias)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+        # reference_date propagado: sem ele a projeção ancorava na última
+        # transação e o burn rate em hoje — dois calculadores olhando para
+        # datas diferentes no mesmo relatório.
+        # Saldo resolvido ANTES e repassado: projector e resumo precisam
+        # partir do mesmo número, senão a projeção diz uma coisa e o
+        # cabeçalho do relatório outra.
+        starting_balance = self._starting_balance(transactions_df)
+
         projection_df = self.projector.project(
             transactions_df=transactions_df,
-            shadow_invoices_df=shadow_invoices_df
-        )
-
-        starting_balance = float(
-            transactions_df.sort("transaction_date").tail(1)["balance"][0]
+            shadow_invoices_df=shadow_invoices_df,
+            current_balance=starting_balance,
+            reference_date=reference_date,
         )
 
         projection_summary = self.projector.get_summary(
@@ -175,3 +181,28 @@ class CashflowEngine:
                 )
 
         return result
+
+    @staticmethod
+    def _starting_balance(transactions_df) -> float:
+        """
+        Saldo da última transação, tolerante a lacuna.
+
+        `float(tail(1)["balance"][0])` estourava TypeError quando a última
+        linha vinha sem saldo — o que acontece em conta de cartão, onde a
+        Pluggy não manda balance. Procura para trás o último saldo conhecido
+        antes de desistir.
+        """
+        if "balance" not in transactions_df.columns:
+            raise ValueError(
+                "transactions_df não possui coluna 'balance' — impossível ancorar a projeção."
+            )
+
+        saldos = transactions_df.sort("transaction_date")["balance"].to_list()
+        for saldo in reversed(saldos):
+            if saldo is not None:
+                return float(saldo)
+
+        raise ValueError(
+            "Nenhuma transação com saldo conhecido — informe current_balance "
+            "ou sincronize uma conta que exponha saldo."
+        )
