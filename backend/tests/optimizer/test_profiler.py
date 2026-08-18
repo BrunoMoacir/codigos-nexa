@@ -12,6 +12,14 @@ from app.optimizer.feature_store import TransactionFeatureEnricher
 
 # ─── Helpers ────────────────────────────────────────────────────────────────────
 
+# Semântica da janela (corrigida em 2026-08): o perfil agrega em BUCKETS DE
+# 30 DIAS contados a partir de reference_date, não em meses-calendário, e
+# mensaliza dividindo pelo tamanho REAL da janela coberta.
+#
+# Antes, os meses das pontas entravam pela metade na média: gasto constante
+# de R$100/dia era lido como R$2.275/mês (−26%), variando conforme o dia da
+# consulta. Os valores esperados abaixo refletem a divisão correta — ex.:
+# R$600 gastos numa janela de 31 dias = R$589,16/mês, não R$600.
 TODAY = date(2026, 2, 26)
 RECENT = TODAY - timedelta(days=30)      # dentro da janela
 OLD = TODAY - timedelta(days=120)        # fora da janela de 90 dias
@@ -177,7 +185,7 @@ class TestMonthlyAvgSpend:
             _txn(-250.0, txn_date=month, txn_id="c"),
         ])
         result = profiler.build(df, reference_date=TODAY)
-        assert result.monthly_avg_spend == pytest.approx(600.0, abs=0.01)
+        assert result.monthly_avg_spend == pytest.approx(702.46, abs=0.01)
 
     def test_two_months_averaged(self):
         profiler = ConsumptionProfiler()
@@ -187,7 +195,7 @@ class TestMonthlyAvgSpend:
             _txn(-2000.0, txn_date=date(2026, 2, 10), txn_id="feb"),
         ])
         result = profiler.build(df, reference_date=TODAY)
-        assert result.monthly_avg_spend == pytest.approx(1500.0, abs=0.01)
+        assert result.monthly_avg_spend == pytest.approx(2000.0, abs=0.01)
 
     def test_ignores_positive_amounts_in_avg_spend(self):
         """Renda (amount > 0) não entra na média de gastos."""
@@ -197,26 +205,31 @@ class TestMonthlyAvgSpend:
             _txn(3000.0, txn_id="salary"),   # salário — não é gasto
         ])
         result = profiler.build(df, reference_date=TODAY)
-        assert result.monthly_avg_spend == pytest.approx(500.0, abs=0.01)
+        assert result.monthly_avg_spend == pytest.approx(490.97, abs=0.01)
 
 
 class TestSpendingStability:
     def test_stable_spending(self):
-        """Gastos idênticos em meses diferentes → stability = 1.0."""
+        """Gastos idênticos em períodos iguais → stability = 1.0.
+
+        Datas escolhidas para cobrir DOIS buckets completos de 30 dias
+        (a janela precisa de 60 dias de histórico para comparar dois
+        períodos de mesmo tamanho).
+        """
         profiler = ConsumptionProfiler()
         df = _make_df([
-            _txn(-1000.0, txn_date=date(2026, 1, 15), txn_id="jan"),
-            _txn(-1000.0, txn_date=date(2026, 2, 15), txn_id="feb"),
+            _txn(-1000.0, txn_date=TODAY - timedelta(days=59), txn_id="p1"),
+            _txn(-1000.0, txn_date=TODAY - timedelta(days=15), txn_id="p2"),
         ])
         result = profiler.build(df, reference_date=TODAY)
         assert result.spending_stability == pytest.approx(1.0, abs=0.01)
 
     def test_unstable_spending(self):
-        """Gastos muito díspares → stability baixa."""
+        """Gastos muito díspares entre períodos → stability baixa."""
         profiler = ConsumptionProfiler()
         df = _make_df([
-            _txn(-100.0, txn_date=date(2026, 1, 15), txn_id="jan"),
-            _txn(-10000.0, txn_date=date(2026, 2, 15), txn_id="feb"),
+            _txn(-100.0, txn_date=TODAY - timedelta(days=59), txn_id="p1"),
+            _txn(-10000.0, txn_date=TODAY - timedelta(days=15), txn_id="p2"),
         ])
         result = profiler.build(df, reference_date=TODAY)
         assert result.spending_stability < 0.5
@@ -251,7 +264,7 @@ class TestSpendByCategory:
         assert "alimentacao" in result.spend_by_category
         assert "transporte" in result.spend_by_category
         # 600 total em 1 mês
-        assert result.spend_by_category["alimentacao"] == pytest.approx(600.0, abs=0.01)
+        assert result.spend_by_category["alimentacao"] == pytest.approx(589.16, abs=0.01)
 
     def test_empty_without_category_column(self):
         """Se não há coluna category, spend_by_category fica vazio."""
@@ -278,8 +291,8 @@ class TestSpendBySource:
         result = profiler.build(df, reference_date=TODAY)
         assert "debit" in result.spend_by_source
         assert "credit" in result.spend_by_source
-        assert result.spend_by_source["debit"] == pytest.approx(600.0, abs=0.01)
-        assert result.spend_by_source["credit"] == pytest.approx(400.0, abs=0.01)
+        assert result.spend_by_source["debit"] == pytest.approx(589.16, abs=0.01)
+        assert result.spend_by_source["credit"] == pytest.approx(392.77, abs=0.01)
 
     def test_all_debit(self):
         profiler = ConsumptionProfiler()
@@ -370,7 +383,7 @@ class TestInternationalSpend:
         ])
         result = profiler.build(df, reference_date=TODAY)
         # Só os R$ 300 com IOF devem contar
-        assert result.international_spend_monthly == pytest.approx(300.0, abs=0.01)
+        assert result.international_spend_monthly == pytest.approx(294.58, abs=0.01)
 
     def test_detects_usd_keyword(self):
         profiler = ConsumptionProfiler()
@@ -378,7 +391,7 @@ class TestInternationalSpend:
             _txn(-500.0, description="Netflix USD 9.99", txn_id="usd"),
         ])
         result = profiler.build(df, reference_date=TODAY)
-        assert result.international_spend_monthly == pytest.approx(500.0, abs=0.01)
+        assert result.international_spend_monthly == pytest.approx(490.97, abs=0.01)
 
     def test_no_international_if_no_keywords(self):
         profiler = ConsumptionProfiler()
@@ -398,7 +411,7 @@ class TestTravelSpend:
             _txn(-400.0, category="Alimentação", txn_id="a1"),  # não é viagem
         ])
         result = profiler.build(df, reference_date=TODAY)
-        assert result.travel_spend_monthly == pytest.approx(800.0, abs=0.01)
+        assert result.travel_spend_monthly == pytest.approx(785.55, abs=0.01)
 
     def test_zero_without_travel_categories(self):
         profiler = ConsumptionProfiler()
@@ -769,3 +782,106 @@ class TestFSSBeforeLifestyleClassifier:
 
         assert profile.fss_level == "CRITICO"
         assert profile.lifestyle_cluster == "ESTRESSE_FINANCEIRO"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# REGRESSÃO: JANELA POR BUCKETS DE 30 DIAS
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Bug corrigido em 2026-08: a janela de 90 dias era agregada por
+# mês-CALENDÁRIO. Os meses das pontas entravam pela metade e a média os
+# tratava como inteiros:
+#
+#     abr:  8 dias  R$   800   ← parcial
+#     mai: 31 dias  R$ 3.100
+#     jun: 30 dias  R$ 3.000
+#     jul: 22 dias  R$ 2.200   ← parcial
+#     média dos 4 = R$ 2.275/mês   vs   R$ 3.078/mês real
+#
+# Estrago em cascata, todo ele medido: ganho de cada cartão −25%,
+# elegibilidade de premium caindo de 0,60 para 0,39 (cruza o corte de 0,5 do
+# ranking) e confiança em 0,62 contra o gate de 0,65 dos insights — o que
+# zerava a saída acionável da feature.
+
+
+class TestJanelaPorBuckets:
+    """Gasto constante tem que ser lido igual em qualquer dia da consulta."""
+
+    @staticmethod
+    def _gasto_diario(valor: float, dias: int, ate: date) -> pl.DataFrame:
+        return _make_df([
+            _txn(-valor, txn_date=ate - timedelta(days=d), txn_id=f"d{d}")
+            for d in range(dias)
+        ])
+
+    @pytest.mark.parametrize("dia_da_consulta", [1, 8, 15, 22, 28])
+    def test_gasto_constante_nao_depende_do_dia_da_consulta(self, dia_da_consulta):
+        """
+        O sintoma mais claro do bug: o MESMO usuário, com o MESMO gasto,
+        recebia estimativas diferentes conforme o dia em que abrisse o app
+        (84% a 92% do real), porque o recorte de calendário mudava.
+        """
+        ref = date(2026, 7, dia_da_consulta)
+        df = self._gasto_diario(100.0, dias=120, ate=ref)
+
+        perfil = ConsumptionProfiler().build(df, reference_date=ref)
+
+        # 30 dias × R$100 = R$3.000 por bucket, sempre.
+        assert perfil.monthly_avg_spend == pytest.approx(3000.0, abs=1.0)
+
+    def test_gasto_constante_tem_estabilidade_maxima(self):
+        """CV acusava 0,42 num gasto que não varia — e isso derrubava a
+        elegibilidade para baixo do corte do ranking."""
+        ref = date(2026, 7, 22)
+        df = self._gasto_diario(100.0, dias=120, ate=ref)
+
+        perfil = ConsumptionProfiler().build(df, reference_date=ref)
+
+        assert perfil.spend_stability_cv == pytest.approx(0.0, abs=0.01)
+        assert perfil.spending_stability == pytest.approx(1.0, abs=0.01)
+
+    def test_categoria_mensalizada_pela_janela_real(self):
+        """O mesmo divisor inflado encolhia o gasto POR CATEGORIA, que é o
+        que alimenta a simulação de cashback por categoria (M2.5)."""
+        ref = date(2026, 7, 22)
+        df = _make_df([
+            _txn(-100.0, txn_date=ref - timedelta(days=d),
+                 category="supermercado", txn_id=f"s{d}")
+            for d in range(90)
+        ])
+
+        perfil = ConsumptionProfiler().build(df, reference_date=ref)
+
+        assert perfil.spend_by_category["supermercado"] == pytest.approx(3000.0, rel=0.05)
+
+    def test_transacao_futura_nao_entra_no_perfil(self):
+        """
+        A janela só tinha piso. Lançamento agendado (o schema aceita até um
+        ano à frente) entrava nos "últimos 90 dias" e inflava o gasto.
+        """
+        ref = date(2026, 7, 22)
+        df = _make_df([
+            _txn(-100.0, txn_date=ref - timedelta(days=d), txn_id=f"p{d}")
+            for d in range(60)
+        ] + [
+            _txn(-99999.0, txn_date=ref + timedelta(days=10), txn_id="agendada"),
+        ])
+
+        perfil = ConsumptionProfiler().build(df, reference_date=ref)
+
+        assert perfil.monthly_avg_spend == pytest.approx(3000.0, abs=1.0)
+
+    def test_cobertura_mede_historico_e_nao_a_janela(self):
+        """
+        A faixa "≥ 6 meses → confiança 1,0" do simulador era inalcançável:
+        a cobertura era contada dentro da janela de 90 dias. Ela responde
+        "há quanto tempo conhecemos o usuário", que é outra pergunta.
+        """
+        ref = date(2026, 7, 22)
+        df = self._gasto_diario(100.0, dias=400, ate=ref)
+
+        perfil = ConsumptionProfiler().build(df, reference_date=ref)
+
+        assert perfil.data_coverage_months >= 6
+        # e o gasto continua sendo o da janela recente, não a média de 400 dias
+        assert perfil.monthly_avg_spend == pytest.approx(3000.0, abs=1.0)

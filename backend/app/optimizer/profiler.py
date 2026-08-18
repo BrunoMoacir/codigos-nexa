@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 
 # Janela de análise: últimos 90 dias
 _WINDOW_DAYS = 90
+# Tamanho do bucket de agregação. 30 dias (e não mês-calendário) para que
+# todos os períodos comparados tenham a mesma duração.
+_BUCKET_DAYS = 30
+# Média de dias por mês — converte soma de janela em valor mensal.
+_DAYS_PER_MONTH = 30.44
 
 # Categorias consideradas "viagem" para travel_spend_monthly
 _TRAVEL_CATEGORIES = {"Lazer", "Transporte", "lazer", "transporte", "viagem"}
@@ -206,7 +211,7 @@ class ConsumptionProfiler:
         from app.optimizer.detectors.personal_baseline import compute_personal_baseline
         personal_baseline = compute_personal_baseline(transactions_df, reference_date=ref)
 
-        df = self._prepare_df(transactions_df, cutoff)
+        df = self._prepare_df(transactions_df, cutoff, ref)
 
         if df.is_empty():
             logger.warning("ConsumptionProfiler: sem transações nos últimos 90 dias")
@@ -216,15 +221,45 @@ class ConsumptionProfiler:
         from app.optimizer.feature_store import TransactionFeatureEnricher
         df = TransactionFeatureEnricher().enrich(df)
 
-        data_coverage_months = self._coverage_months(df)
-        monthly_totals = self._monthly_expense_totals(df)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # JANELA: buckets de 30 dias, não meses-calendário
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        #
+        # A janela de 90 dias corta os meses das pontas pela metade. Agregar
+        # por mês-calendário e tirar a média jogava dois meses PARCIAIS na
+        # conta como se fossem inteiros:
+        #
+        #   abr: 8 dias  R$   800   ← parcial
+        #   mai: 31 dias R$ 3.100
+        #   jun: 30 dias R$ 3.000
+        #   jul: 22 dias R$ 2.200   ← parcial
+        #   média dos 4 = R$ 2.275/mês  vs  R$ 3.078/mês real  (−26%)
+        #
+        # Com gasto RIGOROSAMENTE constante o erro variava de −8% a −16%
+        # conforme o DIA em que o usuário abrisse o app, e o CV acusava 0,42
+        # num gasto que não muda. O estrago era em cascata: ganho de cada
+        # cartão −25%, estabilidade corrompida → elegibilidade abaixo do
+        # corte de 0,5 (ranking ×0,4) e confiança abaixo do gate de 0,65,
+        # que zerava os insights — a saída que o usuário efetivamente vê.
+        #
+        # Buckets de 30 dias ancorados na data de referência resolvem os
+        # dois: a média fica correta e o CV volta a medir variação real.
+        window_months = self._window_months(df, ref)
+        monthly_totals = self._monthly_expense_totals(df, ref)
         monthly_avg_spend = float(monthly_totals.mean()) if len(monthly_totals) > 0 else 0.0
         spending_stability, spend_stability_cv = self._spending_stability(monthly_totals)
 
-        spend_by_category, category_source, category_confidences = self._spend_by_category(df, data_coverage_months)
-        spend_by_source = self._spend_by_source(df, data_coverage_months)
-        international_spend_monthly = self._international_spend(df, data_coverage_months)
-        travel_spend_monthly = self._travel_spend(df, data_coverage_months)
+        # Cobertura para CONFIANÇA é medida no histórico COMPLETO (antes do
+        # corte de 90 dias): a faixa "≥ 6 meses → 1.0" da tabela do simulador
+        # era inalcançável, porque a janela nunca mostra mais que 3 meses.
+        # São perguntas diferentes: "quanto o usuário gasta por mês" se mede
+        # na janela recente; "há quanto tempo conhecemos esse usuário", não.
+        data_coverage_months = self._coverage_months(transactions_df)
+
+        spend_by_category, category_source, category_confidences = self._spend_by_category(df, window_months)
+        spend_by_source = self._spend_by_source(df, window_months)
+        international_spend_monthly = self._international_spend(df, window_months)
+        travel_spend_monthly = self._travel_spend(df, window_months)
         estimated_monthly_income = self._monthly_income(df)
         committed_percentage = self._committed_percentage(shadow_invoices_df, monthly_avg_spend)
         credit_spend_ratio = self._credit_spend_ratio(spend_by_source)
@@ -240,7 +275,7 @@ class ConsumptionProfiler:
 
         # total_spend_period: gasto total no período coberto (90d, ~3m).
         # Nomeado anteriormente total_spend_12m por engano — não é anualizado.
-        total_spend_period = monthly_avg_spend * data_coverage_months
+        total_spend_period = monthly_avg_spend * window_months
 
         travel_detector = TravelDetector()
         travel_result = travel_detector.calc_travel_score(df, total_spend_period, baseline=personal_baseline)
@@ -248,7 +283,7 @@ class ConsumptionProfiler:
         investor_result = InvestorDetector().calc_investor_profile(df)
         mei_result = MEIDetector().detect_mei_pattern(df, income_profile)
         merchant_diversity = _calc_merchant_diversity(df)
-        subscription_burn = _calc_subscription_burn(df, data_coverage_months)
+        subscription_burn = _calc_subscription_burn(df, window_months)
 
         # savings_rate: LIDO de UserProfileAnalyzer — não recalcular.
         from app.forecast.etl.profiles import UserProfileAnalyzer as _UPA
@@ -363,12 +398,23 @@ class ConsumptionProfiler:
 
     # ─── Helpers privados ─────────────────────────────────────────────────────
 
-    def _prepare_df(self, df: pl.DataFrame, cutoff: date) -> pl.DataFrame:
-        """Filtra janela de 90 dias e exclui transações PJ."""
+    def _prepare_df(
+        self, df: pl.DataFrame, cutoff: date, reference: date | None = None
+    ) -> pl.DataFrame:
+        """
+        Filtra a janela de 90 dias e exclui transações PJ.
+
+        A janela fecha dos DOIS lados. Antes só tinha piso: transação com
+        data futura (agendamento — o schema aceita até 1 ano à frente, e
+        backtesting passa reference_date no passado) entrava no perfil dos
+        "últimos 90 dias" e inflava o gasto.
+        """
         if df["date"].dtype != pl.Date:
             df = df.with_columns(pl.col("date").cast(pl.Date))
 
         df = df.filter(pl.col("date") >= cutoff)
+        if reference is not None:
+            df = df.filter(pl.col("date") <= reference)
 
         if "context_type" in df.columns:
             df = df.filter(
@@ -388,23 +434,83 @@ class ConsumptionProfiler:
         )
         return months
 
-    def _monthly_expense_totals(self, df: pl.DataFrame) -> pl.Series:
-        """Soma de despesas (amount < 0) por mês. Retorna Series de valores positivos."""
+    def _window_months(self, df: pl.DataFrame, reference: date) -> float:
+        """
+        Tamanho REAL da janela analisada, em meses.
+
+        É o divisor honesto para mensalizar somas: usar a contagem de
+        meses-calendário tocados (4, numa janela de 90 dias) inflava o
+        divisor em ~33% e encolhia todo gasto mensal na mesma proporção.
+        """
+        if df.is_empty():
+            return 1.0
+
+        primeira = df["date"].min()
+        dias = (reference - primeira).days + 1
+        dias = max(1, min(dias, _WINDOW_DAYS))
+        return max(dias / _DAYS_PER_MONTH, 1.0 / _DAYS_PER_MONTH)
+
+    def _monthly_expense_totals(
+        self, df: pl.DataFrame, reference: date | None = None
+    ) -> pl.Series:
+        """
+        Despesas somadas por bucket de 30 dias contados de trás para frente
+        a partir da data de referência.
+
+        Antes agrupava por mês-calendário: os meses das pontas entravam
+        pela metade e a média saía ~25% baixa — variando conforme o dia em
+        que o usuário abrisse o app. Buckets de 30 dias têm todos o mesmo
+        tamanho, então a média é comparável e o CV mede variação de gasto,
+        não recorte de calendário.
+
+        Bucket incompleto (usuário com menos de 30 dias de histórico) é
+        descartado: entraria como "mês fraco" e puxaria média e CV.
+        """
         expenses = df.filter(pl.col("amount") < 0)
         if expenses.is_empty():
             return pl.Series("monthly", [], dtype=pl.Float64)
 
-        monthly = (
+        ref = reference or date.today()
+        primeira = expenses["date"].min()
+        dias_disponiveis = (ref - primeira).days + 1
+
+        buckets_completos = int(dias_disponiveis // _BUCKET_DAYS)
+        if buckets_completos < 1:
+            # Menos de 30 dias: um único total, mensalizado pelo que existe.
+            total = float(abs(expenses["amount"].sum()))
+            escala = _DAYS_PER_MONTH / max(dias_disponiveis, 1)
+            return pl.Series("monthly", [total * escala], dtype=pl.Float64)
+
+        # Teto pela janela: mesmo com anos de histórico, o perfil analisa 90d.
+        buckets_completos = min(buckets_completos, _WINDOW_DAYS // _BUCKET_DAYS)
+
+        totais = (
             expenses
             .with_columns(
-                (pl.col("date").dt.year() * 100 + pl.col("date").dt.month()).alias("ym")
+                (((pl.lit(ref) - pl.col("date")).dt.total_days()) // _BUCKET_DAYS)
+                .alias("bucket")
             )
-            .group_by("ym")
-            .agg(pl.col("amount").sum().alias("total"))
-            .with_columns(pl.col("total").abs())
+            # 0 <= bucket < N: exclui o passado além da janela E qualquer
+            # data futura (bucket negativo), que não é gasto realizado.
+            .filter(
+                (pl.col("bucket") >= 0) & (pl.col("bucket") < buckets_completos)
+            )
+            .group_by("bucket")
+            .agg(pl.col("amount").sum().abs().alias("total"))
+            .sort("bucket")
             .get_column("total")
         )
-        return monthly
+
+        if totais.len() == 0:
+            # Histórico curto cujo único movimento cai fora dos buckets
+            # completos (ex.: 31 dias de dados com o gasto no dia 30).
+            # Descartar tudo devolveria gasto ZERO para quem gastou —
+            # melhor mensalizar pelo período coberto.
+            total = float(abs(expenses["amount"].sum()))
+            escala = _DAYS_PER_MONTH / max(dias_disponiveis, 1)
+            return pl.Series("monthly", [total * escala], dtype=pl.Float64)
+
+        return totais
 
     def _spending_stability(self, monthly_totals: pl.Series) -> tuple[float, float]:
         """

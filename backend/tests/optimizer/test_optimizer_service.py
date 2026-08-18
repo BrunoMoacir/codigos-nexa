@@ -292,8 +292,18 @@ class TestCardSimulatorBenefitValue:
         sim = CardSimulator()
         card = _card_cashback_flat(cashback_pct=0.01)  # 1% no gasto
         # Gasto de R$ 1.000/mês → cashback esperado = R$ 1.000 * 12 * 0.01 = R$ 120
+        #
+        # Dois lançamentos em buckets de 30 dias consecutivos: é assim que o
+        # perfil enxerga "R$ 1.000 por mês". Com um lançamento só, a média
+        # mensal passa a depender de quantos dias a janela cobre — o teste
+        # mediria a aritmética da janela, não a fórmula do cashback.
         profile = ConsumptionProfiler().build(
-            _df(_make_txn(-1000.0, txn_date=date(2026, 2, 5), transaction_type="CREDIT")),
+            _df(
+                _make_txn(-1000.0, txn_date=TODAY - timedelta(days=15),
+                          transaction_type="CREDIT", txn_id="c1"),
+                _make_txn(-1000.0, txn_date=TODAY - timedelta(days=45),
+                          transaction_type="CREDIT", txn_id="c2"),
+            ),
             reference_date=TODAY,
         )
         result = sim.simulate(card, profile, safe_to_spend=2000.0)
