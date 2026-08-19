@@ -38,42 +38,61 @@ _MU = np.array([
 # Persistência VAR(1) com efeitos cruzados calibrados (BCB 2015-2025):
 #   Selic é exógena (política monetária); IPCA responde à Selic defasada (+8%);
 #   apreciação responde negativamente à Selic (-10%) e positivamente ao IPCA (+15%).
+# Matriz de persistência do VAR(1), estimada por MQO nas séries reais do BCB
+# (fev/2016 a jun/2026, 125 meses):
+#
+#   linha \ regressor defasado      Selic            IPCA          valorização
+#   Selic                        0,9166 [t=26,0]*  0,0348 [1,5]    0,0460 [2,0]*
+#   IPCA                        −0,2880 [t=−2,4]*  0,4199 [5,2]*   0,1401 [1,8]
+#   valorização                     −0,10             0,15            0,72        ← NÃO calibrada
+#
+# O que o dado mudou: o IPCA era 0,85 de persistência e virou 0,42 — o modelo
+# guardava choque de inflação o dobro do tempo que a série mostra. E o efeito da
+# Selic sobre o IPCA do mês seguinte é NEGATIVO (−0,29), não positivo: política
+# monetária apertada derruba inflação futura. A persistência da Selic (0,92 no
+# chute original) praticamente se confirmou em 0,9166.
+#
+# Por que a terceira linha continua sem calibração: o MQO estima 1,0148 para a
+# própria defasagem da valorização (t = 135), ou seja, raiz unitária — o processo
+# deixaria de reverter à média e o simulador inteiro depende disso. Não é
+# economia, é construção do índice: o IVG-R é apurado sobre janela móvel de
+# imóveis financiados, o que autocorrelaciona as variações mensais por desenho.
+# Calibrar essa linha exige um índice de preço não alisado (FipeZAP de venda,
+# por exemplo) — está registrado nos gaps da doc.
 _A = np.array([
-    [ 0.92,  0.00,  0.00],
-    [ 0.08,  0.85,  0.00],
-    [-0.10,  0.15,  0.72],
+    [ 0.9166,  0.0348,  0.0460],   # Selic       (calibrada)
+    [-0.2880,  0.4199,  0.1401],   # IPCA        (calibrada)
+    [-0.10,    0.15,    0.72  ],   # valorização (premissa de modelo)
 ])
 
-# Covariância dos resíduos (mensal).
-# Sinais: Selic ↑ → IPCA acompanha (+), Selic ↑ → apreciação cai (−).
+# Covariância dos choques (mensal), do resíduo do mesmo VAR estimado acima,
+# reescalada para que os desvios ESTACIONÁRIOS batam com as séries reais:
 #
-# As três variâncias eram chutadas, e todas grandes demais. Num AR(1) o desvio
-# ESTACIONÁRIO é σ_choque / √(1 − φ²), então um choque exagerado vira dispersão
-# muito exagerada. Medido contra as séries reais, 2016–2026:
+#   variável       σ mensal real   fonte
+#   Selic             0,3298 p.p.  SGS 4390
+#   IPCA              0,3830 p.p.  SGS 433
+#   valorização       0,5079 p.p.  IVG-R (SGS 21340)
 #
-#   variável       σ real (p.p./mês)          modelo antigo   fator
-#   Selic          0,3298  (SGS 4390)              0,99        0,334
-#   IPCA           0,3830  (SGS 433)               0,5467      0,701
-#   valorização    0,5079  (IVG-R, SGS 21340)      0,7041      0,721
+# As três variâncias eram chutadas e grandes demais (3,0x, 1,4x e 1,4x). Num
+# AR(1) o desvio estacionário é σ_choque/√(1−φ²), então choque exagerado vira
+# dispersão muito exagerada: 16% dos sorteios de Selic caíam abaixo de zero e
+# eram truncados, empurrando a média de 12% para 15% a.a.; o IPCA dava 22,8% de
+# meses em deflação contra 9,4% observados.
 #
-# O custo disso não era só ruído: com a dispersão inflada, 16% dos sorteios de
-# Selic caíam abaixo de zero e eram truncados, empurrando a média simulada de
-# 12% para 15% a.a.; e o IPCA dava 22,8% de meses em deflação contra os 9,4%
-# observados — o modelo cobria a deflação, mas com o dobro da frequência.
+# As CORRELAÇÕES agora são as medidas, não as supostas. O código assumia
+# Selic↑ → IPCA+ e Selic↑ → valorização−; nos resíduos elas são praticamente
+# ortogonais (0,02, 0,12 e 0,07). O sinal econômico não sumiu — ele está em _A,
+# onde Selic→IPCA é −0,29. Confundir os dois é o erro comum: a covariância dos
+# choques mede o que acontece no MESMO mês, não a transmissão.
 #
-# Cada linha/coluna é escalada pelo seu próprio fator, o que PRESERVA as
-# correlações: Σ' = D·Σ·D. A forma também mantém a matriz positiva-definida,
-# exigência do Cholesky (verificado).
-#
-# O fator NÃO é o quociente direto σ_real/σ_modelo: como _A tem termos
-# cruzados, a variância estacionária de cada variável depende da matriz
-# inteira (equação de Lyapunov), então um passo só erra ~5% no IPCA. Os
-# valores abaixo vêm de iterar Σ' = D·Σ·D até os três desvios convergirem —
-# 3 passos para erro < 0,3%. Refazer assim se _A mudar.
+# O reescalonamento é Σ' = D·Σ·D, que preserva as correlações e a positividade
+# exigida pelo Cholesky. Os valores vêm de iterar até os três desvios
+# convergirem (5 passos, erro < 1%) — a variância estacionária resolve Lyapunov
+# e não é separável por componente. REFAZER a iteração se _A mudar.
 _SIGMA_E = np.array([
-    [ 1.7056e-6,  8.8878e-7, -3.6888e-7],
-    [ 8.8878e-7,  3.0152e-6,  1.4346e-6],
-    [-3.6888e-7,  1.4346e-6,  1.0617e-5],
+    [ 1.8663e-6,  7.5965e-8,  5.0596e-7],
+    [ 7.5965e-8,  8.9356e-6,  6.8077e-7],
+    [ 5.0596e-7,  6.8077e-7,  1.0328e-5],
 ])
 
 # Piso da Selic: taxa nominal de política monetária não é negativa.

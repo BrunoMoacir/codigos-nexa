@@ -85,37 +85,93 @@ class TestIPCASerieCorreta:
 
 
 class TestConsorcioRitmoDeContemplacao:
+    """
+    Duas afirmações distintas, que a primeira versão deste teste confundia:
 
-    def _simular(self, group_size: int, months: int):
+    (a) o GRUPO contempla todas as cotas ao longo do prazo — ritmo total
+        group_size/months, invariante do produto;
+    (b) o USUÁRIO específico espera mais ou menos que a mediana do grupo
+        conforme dê ou não lance.
+
+    Com ritmo fixo de 2/mês, (a) quebrava: 150 cotas acabavam no mês 75 de um
+    plano de 180. Ao corrigir (a) eu quebrei (b) sem perceber, porque as vagas
+    de lance eram `contemplacoes_do_mes - 1` — sempre zero abaixo de 2/mês, que
+    é o caso de todo consórcio de imóvel. O lance virou decoração.
+    """
+
+    def _simular(self, group_size: int, months: int, lance: float = 0.0):
         return calculate_consortium_metrics(
             letter_value=300_000.0, months=months, admin_rate=0.19,
-            reserve_fund_rate=0.02, bid_strategy="none", asset_type="property",
-            group_size=group_size, seed=5,
+            reserve_fund_rate=0.02, bid_strategy="none", bid_amount=lance,
+            asset_type="property", group_size=group_size, seed=5,
         ).to_dict()
 
-    def test_grupo_dura_o_prazo_inteiro(self):
-        """
-        Invariante do consórcio: as contemplações se espalham pelo prazo. Com
-        ritmo fixo de 2/mês, 150 cotas acabavam no mês 75 de um plano de 180 —
-        e o modelo prometia contemplação na primeira metade para todo mundo.
-        """
-        d = self._simular(group_size=150, months=180)
-        p = d["contemplation_percentiles"]
+    # ── (a) invariante do grupo ──────────────────────────────────────────────
 
-        assert p["p90"] > 90, "o grupo não pode esvaziar na metade do prazo"
-        assert 60 <= p["p50"] <= 120, f"mediana fora do plausível: {p['p50']}"
+    def test_ritmo_total_esgota_o_grupo_exatamente_no_prazo(self):
+        """
+        Contemplações acumuladas ao longo do prazo == tamanho do grupo. Nem
+        antes (o grupo esvaziava na metade) nem depois (cota sem contemplação).
+        """
+        for group_size, months in ((150, 180), (200, 72), (80, 100)):
+            taxa = group_size / months
+            assert round(taxa * months) == group_size
+
+    def test_grupo_nao_esvazia_na_metade_do_prazo(self):
+        d = self._simular(group_size=150, months=180)
+        assert d["contemplation_percentiles"]["p90"] > 90
         assert d["contemplation_probability"]["half_term"] < 0.95
+
+    def test_ninguem_passa_do_prazo(self):
+        d = self._simular(group_size=150, months=180)
+        assert d["contemplation_percentiles"]["p90"] <= 180
 
     def test_grupo_grande_em_prazo_curto_contempla_mais_rapido(self):
         """Ritmo derivado: 200 cotas em 72 meses = 2,78/mês."""
         curto = self._simular(group_size=200, months=72)
         longo = self._simular(group_size=150, months=180)
+        assert (curto["contemplation_percentiles"]["p50"]
+                < longo["contemplation_percentiles"]["p50"])
 
-        assert curto["contemplation_percentiles"]["p50"] < longo["contemplation_percentiles"]["p50"]
+    # ── (b) o lance tem que mover a agulha ───────────────────────────────────
 
-    def test_todos_contemplados_ate_o_fim(self):
-        d = self._simular(group_size=150, months=180)
-        assert d["contemplation_percentiles"]["p90"] <= 180
+    @pytest.mark.parametrize("lance_pct", [0.20, 0.30, 0.50])
+    def test_lance_competitivo_antecipa_a_contemplacao(self, lance_pct):
+        """
+        A data de contemplação é a única alavanca que o consorciado controla.
+        Sem repartir o ritmo entre sorteio e lance, ela ficava constante em
+        137 meses para qualquer lance, de zero a 50% da carta.
+        """
+        sem = self._simular(150, 180)["contemplation_percentiles"]["p50"]
+        com = self._simular(150, 180, lance=300_000.0 * lance_pct)
+        assert com["contemplation_percentiles"]["p50"] < sem, (
+            f"lance de {lance_pct:.0%} não antecipou nada (ambos no mês {sem})"
+        )
+
+    @pytest.mark.parametrize("lance_pct", [0.05, 0.10])
+    def test_lance_baixo_nao_vence(self, lance_pct):
+        """
+        Verdade de produto, não bug: os concorrentes ofertam ~35% da carta no
+        início do grupo (bid_mean_initial), então lance de 5–10% perde. Vale
+        travar para que ninguém "conserte" isso achando que é insensibilidade.
+        """
+        sem = self._simular(150, 180)["contemplation_percentiles"]["p50"]
+        com = self._simular(150, 180, lance=300_000.0 * lance_pct)
+        assert com["contemplation_percentiles"]["p50"] == sem
+
+    def test_lance_maior_antecipa_mais(self):
+        p50 = [self._simular(150, 180, lance=300_000.0 * pct)
+               ["contemplation_percentiles"]["p50"]
+               for pct in (0.10, 0.30, 0.50)]
+        assert p50 == sorted(p50, reverse=True), f"não é monotônico: {p50}"
+
+    def test_quem_nao_da_lance_espera_mais_que_a_mediana_do_grupo(self):
+        """
+        Metade das vagas vai para lance; quem não disputa fica atrás de quem
+        disputa. A mediana do NÃO-ofertante tem que ficar acima dos 90 meses
+        que é a mediana do grupo (150 cotas / 180 meses).
+        """
+        assert self._simular(150, 180)["contemplation_percentiles"]["p50"] > 90
 
 
 class TestMacroRevertePraMediaDeclarada:
@@ -165,6 +221,28 @@ class TestMacroRevertePraMediaDeclarada:
         assert sigma == pytest.approx(alvo, rel=0.10), (
             f"{variavel}: σ={sigma:.5f} contra {alvo:.5f} da série real"
         )
+
+    def test_persistencia_calibrada_e_estacionaria(self):
+        """
+        _A foi estimada por MQO nas séries reais (125 meses). A trava aqui é a
+        ESTACIONARIEDADE: o MQO devolve 1,0148 para a própria defasagem da
+        valorização — raiz unitária vinda do alisamento do IVG-R, não de
+        economia. Adotar aquela linha faria o processo parar de reverter à
+        média, e o simulador inteiro depende disso.
+        """
+        from app.architect.simulators.macro_scenario import _A
+
+        raio = max(abs(np.linalg.eigvals(_A)))
+        assert raio < 0.95, f"raio espectral {raio:.4f} — processo não reverte"
+
+    def test_ipca_nao_e_mais_persistente_que_a_serie_real(self):
+        """
+        O modelo guardava choque de inflação com persistência 0,85; a série
+        mostra 0,42 (ρ₁ = 0,466 no univariado). Guardava o dobro do tempo.
+        """
+        from app.architect.simulators.macro_scenario import _A
+
+        assert _A[1][1] == pytest.approx(0.42, abs=0.05)
 
     def test_deflacao_na_frequencia_certa(self, paths):
         """

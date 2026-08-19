@@ -52,6 +52,7 @@ from app.architect.simulators.strategy_engine import StrategyEngine
 from app.architect.utils.cache import make_simulation_key, simulation_cache
 from app.architect.validators.input_validator import InputValidator
 from app.architect.validators.liquidity_validator import LiquidityValidator, RiskLevel
+from app.architect.rate_defaults import rate
 
 logger = logging.getLogger(__name__)
 
@@ -570,7 +571,7 @@ class ArchitectService:
                 # SAC: primeira parcela (mais alta) = amortização + juros sobre principal inteiro.
                 # Conservador para o LiquidityValidator — garante que mês 1 é coberto.
                 principal    = max(request.target_amount - request.down_payment, 0.0)
-                cet_annual   = market_rates.get("best_cet_annual", 0.20)
+                cet_annual   = rate(market_rates, "best_cet_annual")
                 monthly_rate = (1 + cet_annual) ** (1 / 12) - 1
                 n            = max(request.financing_months, 1)
                 first_payment = principal / n + principal * monthly_rate

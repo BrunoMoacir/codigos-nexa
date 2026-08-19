@@ -39,10 +39,11 @@ from typing import Dict, List, Optional, Any
 
 from app.architect.models import SimulationRequest, SimulationResponse, StrategyType, RiskProfile
 from app.architect.calculators import financing as fin_calc
-
 from app.architect.calculators import investment as inv_calc
 from app.architect.calculators import npv as npv_calc
 from app.architect.calculators import consortium as cons_calc
+from app.architect.rate_defaults import rate, rate_int
+from app.architect.simulators import cost_basis
 from app.architect.simulators.strategy_engine import (
     _CALC_ASSET_MAP,
     _IOF_RATE_BY_ASSET,
@@ -51,34 +52,21 @@ from app.architect.simulators.strategy_engine import (
 
 logger = logging.getLogger(__name__)
 
-
-# ── Paridade com o StrategyEngine ────────────────────────────────────────────
-# A curva de sensibilidade tem que sair da MESMA base de custo do número que
-# ela explica. Estava divergindo em dois pontos: chamava calculate_price/sac
-# sem asset_type (zerando o seguro obrigatório, cuja tabela é indexada por
-# "property"/"vehicle") e montava o fluxo sem o seguro e sem o IOF de entrada
-# — R$ 2.376 a menos num veículo de R$ 64 mil.
-# Estes dois helpers espelham StrategyEngine._simulate_financing; o teste em
-# tests/architect/test_correcoes_dados_2026_08.py compara contra o motor de
-# verdade, para que mudança lá quebre aqui.
+# Base de custo compartilhada com o StrategyEngine — ver cost_basis.py para o
+# histórico das divergências que motivaram extrair isto. Os aliases mantêm os
+# nomes usados pelos testes de paridade.
+_simular_financiamento = cost_basis.simular_financiamento
+_fluxo_financiamento   = cost_basis.fluxo_financiamento
+_fluxo_consorcio       = cost_basis.fluxo_consorcio
 
 
-def _simular_financiamento(request, principal: float, cet_annual: float, months: int):
-    """calculate_price/sac com o mesmo asset_type e o mesmo iof_rate do motor."""
-    asset    = _CALC_ASSET_MAP.get(request.asset_type, "other")
-    iof_rate = _IOF_RATE_BY_ASSET.get(request.asset_type, fin_calc.IOF_FIXO_RATE)
-
-    calc = (fin_calc.calculate_sac
-            if request.amortization_method.value == "SAC"
-            else fin_calc.calculate_price)
-    return calc(principal, cet_annual, months, iof_rate=iof_rate, asset_type=asset)
-
-
-def _fluxo_financiamento(down_payment: float, sim) -> list:
-    """Entrada + IOF em t=0, depois parcela + seguro — igual ao motor."""
-    return [-(down_payment + sim.total_iof)] + [
-        -(row["payment"] + row.get("insurance", 0.0)) for row in sim.schedule
-    ]
+def _simular_consorcio(request, market_rates, bid_amount):
+    """Monte Carlo determinístico e barato — ver cost_basis.SIMS_SENSIBILIDADE."""
+    return cost_basis.simular_consorcio(
+        request, market_rates, bid_amount,
+        num_simulations=cost_basis.SIMS_SENSIBILIDADE,
+        seed=cost_basis.SEED_SENSIBILIDADE,
+    )
 
 
 def _safe_float(value: Any) -> float:
@@ -335,7 +323,7 @@ class SensitivityAnalyzer:
             request.target_amount,
         )
 
-        selic_annual  = market_rates.get("selic_annual", 0.1475)
+        selic_annual  = rate(market_rates, "selic_annual")
         selic_monthly = (1 + selic_annual) ** (1 / 12) - 1
         disc_monthly  = market_rates.get("disc_rate_monthly", selic_monthly)
         baseline_strategy = baseline_response.recommended_strategy.value
@@ -394,7 +382,7 @@ class SensitivityAnalyzer:
         disc_monthly: float,
     ) -> VariableSensitivity:
         """Varia o CET do financiamento em ±2 p.p. e mede impacto no NPV."""
-        base_cet = market_rates.get("best_cet_annual", 0.15)
+        base_cet = rate(market_rates, "best_cet_annual")
         d_min, d_max, n = self._RANGES["interest_rate"]
         points = []
 
@@ -426,7 +414,7 @@ class SensitivityAnalyzer:
     ) -> VariableSensitivity:
         """Varia o prazo do financiamento em ±6 meses."""
         base_months = request.financing_months
-        cet = market_rates.get("best_cet_annual", 0.15)
+        cet = rate(market_rates, "best_cet_annual")
         d_min, d_max, n = self._RANGES["months"]
         points = []
 
@@ -509,8 +497,8 @@ class SensitivityAnalyzer:
         Quando disc_monthly veio de rendimento_real_atual do Open Finance, esse valor
         é independente do CDI de mercado e permanece fixo.
         """
-        base_cdi = market_rates.get("cdi_annual", 0.1465)
-        cet = market_rates.get("best_cet_annual", 0.15)
+        base_cdi = rate(market_rates, "cdi_annual")
+        cet = rate(market_rates, "best_cet_annual")
         d_min, d_max, n = self._RANGES["cdi_rate"]
 
         # Taxa de desconto fixada pelo OF (independente do CDI de mercado)?
@@ -579,7 +567,7 @@ class SensitivityAnalyzer:
         down_payment: float,
         principal: float,
     ) -> float:
-        cet = market_rates.get("best_cet_annual", 0.15)
+        cet = rate(market_rates, "best_cet_annual")
         try:
             sim = _simular_financiamento(request, principal, cet, request.financing_months)
             cashflows = _fluxo_financiamento(down_payment, sim)
@@ -604,7 +592,7 @@ class SensitivityAnalyzer:
         down_payment: float,
     ) -> float:
         try:
-            raw_cdi    = market_rates.get("cdi_annual", 0.1465)
+            raw_cdi    = rate(market_rates, "cdi_annual")
             cdi_annual = _get_investment_rate(
                 raw_cdi, request.risk_profile, request.risk_score
             )
@@ -641,28 +629,12 @@ class SensitivityAnalyzer:
         bid_amount: float,
     ) -> Optional[float]:
         try:
-            admin_rate = market_rates.get("consortium_admin_rate", 0.17)
-            cons_months = int(market_rates.get("consortium_months", 72))
-            reserve_fund_rate = market_rates.get("consortium_reserve_fund_rate", 0.02)
-
-            # num_simulations=1 + seed fixo: estimativa pontual determinística.
-            # Análise de sensibilidade não precisa de precisão estatística do Monte Carlo.
-            sim = cons_calc.calculate_consortium_metrics(
-                letter_value=request.target_amount,
-                months=cons_months,
-                admin_rate=admin_rate,
-                reserve_fund_rate=reserve_fund_rate,
-                bid_amount=bid_amount,
-                num_simulations=1,
-                seed=42,
-            )
-            cashflows = [-sim.monthly_payment] * cons_months
-            expected_month = sim.contemplation_month_expected
-            if expected_month < len(cashflows) and bid_amount > 0:
-                cashflows[expected_month] -= bid_amount
-
+            cons_months = rate_int(market_rates, "consortium_months")
+            sim = _simular_consorcio(request, market_rates, bid_amount)
+            cashflows = _fluxo_consorcio(sim, bid_amount, cons_months)
             return _safe_float(npv_calc.calculate_npv(cashflows, disc_monthly))
-        except Exception:
+        except Exception as exc:
+            logger.warning("Sensibilidade: VPL de consórcio falhou (%s)", exc)
             return None
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -721,9 +693,9 @@ class SensitivityAnalyzer:
             logger.warning("SALib não instalado — índices de Sobol não calculados")
             return None
 
-        base_cet    = market_rates.get("best_cet_annual", 0.15)
-        base_cdi    = market_rates.get("cdi_annual", 0.1465)
-        base_ipca   = market_rates.get("ipca_annual", 0.045)
+        base_cet    = rate(market_rates, "best_cet_annual")
+        base_cdi    = rate(market_rates, "cdi_annual")
+        base_ipca   = rate(market_rates, "ipca_annual")
         base_months = float(request.financing_months)
         base_dp     = float(request.down_payment)
 

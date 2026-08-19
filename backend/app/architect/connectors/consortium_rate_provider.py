@@ -163,10 +163,9 @@ class ConsortiumRateProvider:
         params = self._consortium_provider.get_params(asset_type)
         rates.update(params.to_rates_dict())
 
-        # StrategyEngine._simulate_consortium():
-        group_size = int(rates.get("consortium_group_size", 100))
-        calc_asset_type = ConsortiumRateProvider.map_asset_type(req.asset_type.value)
-        sim = calculate_consortium_metrics(..., asset_type=calc_asset_type, ...)
+        # StrategyEngine._simulate_consortium() — via cost_basis, que lê as
+        # taxas por rate()/rate_int() e não por .get() com default literal:
+        sim = cost_basis.simular_consorcio(req, rates, req.down_payment)
     """
 
     def __init__(

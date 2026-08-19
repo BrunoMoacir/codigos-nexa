@@ -53,6 +53,8 @@ from app.architect.simulators.strategy_selector import (
     pick_efficient_strategy,
 )
 from app.architect.utils.formatters import format_currency
+from app.architect.rate_defaults import rate, rate_int
+from app.architect.simulators import cost_basis
 
 logger = logging.getLogger(__name__)
 
@@ -181,9 +183,9 @@ class StrategyEngine:
             request.target_amount,
         )
 
-        selic_annual  = market_rates.get("selic_annual", 0.1475)
+        selic_annual  = rate(market_rates, "selic_annual")
         selic_monthly = (1 + selic_annual) ** (1 / 12) - 1
-        cdi_annual    = market_rates.get("cdi_annual", 0.1465)
+        cdi_annual    = rate(market_rates, "cdi_annual")
 
         # Custo de oportunidade: prioridade → rendimento_real_atual do Open Finance
         # (retorno que o usuário JÁ consegue, dado real) → fallback: taxa estimada
@@ -462,8 +464,8 @@ class StrategyEngine:
         if has_rental:
             try:
                 from app.architect.calculators.leverage_optimizer import LeverageOptimizer
-                selic_annual = market_rates.get("selic_annual", 0.1475)
-                admin_rate = market_rates.get("consortium_admin_rate", 0.18)
+                selic_annual = rate(market_rates, "selic_annual")
+                admin_rate = rate(market_rates, "consortium_admin_rate")
                 lev_result = LeverageOptimizer().find_optimal(
                     asset_value=request.target_amount,
                     monthly_rent=request.expected_rental_income,
@@ -591,30 +593,19 @@ class StrategyEngine:
         self, req: SimulationRequest, rates: Dict[str, float]
     ) -> Dict[str, Any]:
         """Simula cenário de financiamento (PRICE ou SAC)."""
-        cet_annual = rates.get("best_cet_annual", 0.15)
-        selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
+        cet_annual = rate(rates, "best_cet_annual")
+        selic_monthly = (1 + rate(rates, "selic_annual")) ** (1 / 12) - 1
         disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
 
         calc_asset = _CALC_ASSET_MAP.get(req.asset_type, "other")
-        iof_rate   = _IOF_RATE_BY_ASSET.get(req.asset_type, fin_calc.IOF_FIXO_RATE)
 
-        if req.amortization_method.value == "SAC":
-            sim = fin_calc.calculate_sac(
-                req.principal, cet_annual, req.financing_months,
-                iof_rate=iof_rate, asset_type=calc_asset,
-            )
-        else:
-            sim = fin_calc.calculate_price(
-                req.principal, cet_annual, req.financing_months,
-                iof_rate=iof_rate, asset_type=calc_asset,
-            )
-
-        # IOF pago no ato do contrato (t=0); para IMOVEL SFH é 0.
-        # Seguro mensal (MIP/DFI para imóvel, auto para veículo) entra no fluxo
-        # descontado — é custo obrigatório e afeta a comparação NPV com SAVE_INVEST.
-        cashflows = [-(req.down_payment + sim.total_iof)]
-        for row in sim.schedule:
-            cashflows.append(-(row["payment"] + row.get("insurance", 0.0)))
+        # Base de custo compartilhada com o SensitivityAnalyzer: o IOF de entrada
+        # em t=0 (IMOVEL no SFH é 0) e o seguro obrigatório mensal (MIP/DFI para
+        # imóvel, auto para veículo) entram no fluxo descontado. Ver cost_basis.py.
+        sim = cost_basis.simular_financiamento(
+            req, req.principal, cet_annual, req.financing_months
+        )
+        cashflows = cost_basis.fluxo_financiamento(req.down_payment, sim)
 
         npv_val = npv_calc.calculate_npv(cashflows, disc_monthly)
 
@@ -712,10 +703,10 @@ class StrategyEngine:
         dp  = float(request.down_payment)
         tgt = float(request.target_amount)
 
-        current_selic = float(market_rates.get("selic_annual", 0.1475))
-        current_cdi   = float(market_rates.get("cdi_annual",   0.1465))
-        current_cet   = float(market_rates.get("best_cet_annual", 0.15))
-        current_ipca  = float(market_rates.get("ipca_annual", 0.045))
+        current_selic = float(rate(market_rates, "selic_annual"))
+        current_cdi   = float(rate(market_rates, "cdi_annual"))
+        current_cet   = float(rate(market_rates, "best_cet_annual"))
+        current_ipca  = float(rate(market_rates, "ipca_annual"))
 
         # ── 1. Amostrar cenários (selic, ipca) com correlação histórica ─────
         # σ_selic=2.5 p.p., σ_ipca=2.0 p.p., corr=0.40 (BCB 2015-2025)
@@ -813,8 +804,8 @@ class StrategyEngine:
         self, req: SimulationRequest, rates: Dict[str, float]
     ) -> Dict[str, Any]:
         """Simula cenário de poupar/investir — M3.1: inclui FV real e benchmark por perfil."""
-        cdi_annual    = rates.get("cdi_annual",    0.1465)
-        ipca_annual   = rates.get("ipca_annual",   0.045)   # M3.1
+        cdi_annual    = rate(rates, "cdi_annual")
+        ipca_annual   = rate(rates, "ipca_annual")   # M3.1
 
         # Benchmark: prioridade → rendimento real do Open Finance (taxa real do usuário)
         # → fallback: estimativa por perfil sobre CDI de mercado.
@@ -825,7 +816,7 @@ class StrategyEngine:
             investment_rate = _get_investment_rate(
                 cdi_annual, req.risk_profile, req.risk_score
             )
-        selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
+        selic_monthly = (1 + rate(rates, "selic_annual")) ** (1 / 12) - 1
         disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
 
         if req.max_monthly_budget:
@@ -892,44 +883,30 @@ class StrategyEngine:
         garantindo retrocompatibilidade com fixtures de teste que não incluem
         as chaves novas.
         """
-        selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
+        selic_monthly = (1 + rate(rates, "selic_annual")) ** (1 / 12) - 1
         disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
 
         # Parâmetros do grupo — injetados pelo ConsortiumRateProvider via ArchitectService
-        admin_rate            = rates.get("consortium_admin_rate",             0.17)
-        cons_months           = int(rates.get("consortium_months",             72))
-        reserve_fund_rate     = rates.get("consortium_reserve_fund_rate",      0.02)
-        group_size            = int(rates.get("consortium_group_size",         100))
-        contemplated_per_m    = int(rates.get("consortium_contemplated_per_month", 2))
-        annual_adj_rate       = rates.get("consortium_annual_adjustment_rate", 0.045)
+        admin_rate            = rate(rates, "consortium_admin_rate")
+        cons_months           = rate_int(rates, "consortium_months")
+        reserve_fund_rate     = rate(rates, "consortium_reserve_fund_rate")
+        group_size            = rate_int(rates, "consortium_group_size")
+        contemplated_per_m    = rate_int(rates, "consortium_contemplated_per_month")
+        annual_adj_rate       = rate(rates, "consortium_annual_adjustment_rate")
         # Parâmetros do MC de consórcio — injetados pelo CalibrationPipeline quando disponíveis
-        bid_mean_initial      = rates.get("bid_mean_initial", 0.35)
-        bid_std               = rates.get("bid_std",          0.12)
+        bid_mean_initial      = rate(rates, "bid_mean_initial")
+        bid_std               = rate(rates, "bid_std")
 
         # Mapeamento de tipo de bem: AssetType enum → formato consortium.py
         calc_asset_type = ConsortiumRateProvider.map_asset_type(req.asset_type.value)
 
-        sim = cons_calc.calculate_consortium_metrics(
-            letter_value=req.target_amount,
-            months=cons_months,
-            admin_rate=admin_rate,
-            reserve_fund_rate=reserve_fund_rate,
-            bid_amount=req.down_payment,
-            asset_type=calc_asset_type,
-            annual_adjustment_rate=annual_adj_rate,
-            group_size=group_size,
-            contemplated_per_month=contemplated_per_m,
-            bid_mean_initial=bid_mean_initial,
-            bid_std=bid_std,
+        # Mesmos parâmetros de grupo que a curva de sensibilidade — ver
+        # cost_basis.py. A única divergência legítima é num_simulations.
+        sim = cost_basis.simular_consorcio(
+            req, rates, req.down_payment, num_simulations=cost_basis.SIMS_MOTOR
         )
-
-        # Fluxo: -Parcelas por N meses
-        cashflows = [-sim.monthly_payment] * cons_months
+        cashflows = cost_basis.fluxo_consorcio(sim, req.down_payment, cons_months)
         expected_month = sim.contemplation_month_expected
-
-        # Lance no mês esperado de contemplação
-        if expected_month < len(cashflows) and req.down_payment > 0:
-            cashflows[expected_month] -= req.down_payment
 
         npv_val = npv_calc.calculate_npv(cashflows, disc_monthly)
 
@@ -968,7 +945,7 @@ class StrategyEngine:
         is_self_sustaining = True quando aluguel >= parcela bruta.
         """
         rental = req.expected_rental_income  # já garantido > 0 pelo gate has_rental
-        selic_monthly = (1 + rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
+        selic_monthly = (1 + rate(rates, "selic_annual")) ** (1 / 12) - 1
         disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
         gross_cashflows = fin_result["cashflows"]  # [-entrada, -p1, -p2, ...]
         months = req.financing_months
@@ -1037,14 +1014,14 @@ class StrategyEngine:
         is_self_sustaining = True se o saldo nunca fica negativo.
         """
         rental = req.expected_rental_income
-        selic_annual = rates.get("selic_annual", 0.1475)
+        selic_annual = rate(rates, "selic_annual")
         selic_monthly = (1 + selic_annual) ** (1 / 12) - 1
         disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
 
-        cons_months = int(rates.get("consortium_months", 72))
-        admin_rate = rates.get("consortium_admin_rate", 0.17)
-        reserve_fund_rate = rates.get("consortium_reserve_fund_rate", 0.02)
-        annual_adj_rate = rates.get("consortium_annual_adjustment_rate", 0.045)
+        cons_months = rate_int(rates, "consortium_months")
+        admin_rate = rate(rates, "consortium_admin_rate")
+        reserve_fund_rate = rate(rates, "consortium_reserve_fund_rate")
+        annual_adj_rate = rate(rates, "consortium_annual_adjustment_rate")
         adj_monthly = (1 + annual_adj_rate) ** (1 / 12) - 1
         total_rate = admin_rate + reserve_fund_rate
 
@@ -1251,8 +1228,8 @@ class StrategyEngine:
         try:
             from app.architect.simulators.macro_scenario import run_macro_simulation
 
-            selic_annual = market_rates.get("selic_annual", 0.1475)
-            cdi_annual   = market_rates.get("cdi_annual", 0.1465)
+            selic_annual = rate(market_rates, "selic_annual")
+            cdi_annual   = rate(market_rates, "cdi_annual")
 
             # invest_factor: razão entre retorno real do usuário e Selic — garante
             # consistência entre a simulação macro e _simulate_investment.
@@ -1265,9 +1242,9 @@ class StrategyEngine:
             consortium_admin_reserve: float  = 0.19
             consortium_expected: Optional[int] = None
             if cons_result is not None:
-                consortium_months  = int(market_rates.get("consortium_months", 72))
-                admin_rate         = market_rates.get("consortium_admin_rate", 0.17)
-                reserve_rate       = market_rates.get("consortium_reserve_fund_rate", 0.02)
+                consortium_months  = rate_int(market_rates, "consortium_months")
+                admin_rate         = rate(market_rates, "consortium_admin_rate")
+                reserve_rate       = rate(market_rates, "consortium_reserve_fund_rate")
                 consortium_admin_reserve = admin_rate + reserve_rate
                 prob = cons_result.get("probability")
                 if prob is not None:
@@ -1341,10 +1318,10 @@ class StrategyEngine:
         if scenarios is None:
             scenarios = [0, 3, 6, 12]
 
-        selic_monthly = (1 + market_rates.get("selic_annual", 0.1475)) ** (1 / 12) - 1
+        selic_monthly = (1 + rate(market_rates, "selic_annual")) ** (1 / 12) - 1
         disc_monthly  = market_rates.get("disc_rate_monthly", selic_monthly)
-        cet_annual    = market_rates.get("best_cet_annual", 0.20)
-        ipca_annual   = market_rates.get("ipca_annual", 0.045)
+        cet_annual    = rate(market_rates, "best_cet_annual")
+        ipca_annual   = rate(market_rates, "ipca_annual")
 
         results = []
         base_npv: float | None = None

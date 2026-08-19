@@ -44,6 +44,7 @@ from fastapi import APIRouter, HTTPException, Query, status, Depends
 from app.core.security import get_current_user, require_owner
 from pydantic import BaseModel, Field
 
+from app.architect.rate_defaults import fallback_market_rates
 from app.architect.models import (
     FeedbackRequest,
     FeedbackResponse,
@@ -882,16 +883,14 @@ async def get_sensitivity(
             simulation_id,
             exc,
         )
-        # Fallback com taxas de referência para não bloquear a resposta
-        # Referência: SELIC 14.75% a.a. (COPOM mar/2026)
-        market_rates = {
-            "selic_annual":                0.1475,
-            "cdi_annual":                  0.1465,
-            "best_cet_annual":             0.1950,
-            "consortium_admin_rate":        0.17,
-            "consortium_months":            72.0,
-            "consortium_reserve_fund_rate": 0.02,
-        }
+        # Fallback COMPLETO e único — ver app/architect/rate_defaults.py.
+        # Este dicionário era montado à mão aqui, com um CET próprio (0,1950) e
+        # sem as chaves de consórcio nem o IPCA; os consumidores lá embaixo
+        # preenchiam o que faltava com um terceiro conjunto de defaults.
+        market_rates = fallback_market_rates(request.asset_type.value)
+        usou_fallback = True
+    else:
+        usou_fallback = False
 
     # ── 4. Executar análise de sensibilidade ──────────────────────────────
     try:
@@ -916,7 +915,16 @@ async def get_sensitivity(
         report.strategy_stability,
     )
 
-    return report.to_dict()
+    resposta = report.to_dict()
+    if usou_fallback:
+        # Transparência: sem isto, uma taxa de referência de meses atrás fica
+        # visualmente idêntica à taxa de hoje na tela do usuário.
+        resposta.setdefault("warnings", []).append(
+            "Taxas de mercado indisponíveis — análise calculada sobre dados de "
+            "referência. Os valores podem estar defasados."
+        )
+        resposta["rates_from_fallback"] = True
+    return resposta
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1097,12 +1105,7 @@ async def timing_scenarios(
         market_rates = _service.fetch_market_rates(request)
     except Exception as exc:
         logger.warning("timing-scenarios | taxas indisponíveis: %s — usando fallback", exc)
-        market_rates = {
-            "selic_annual":    0.1475,
-            "cdi_annual":      0.1465,
-            "best_cet_annual": 0.20,
-            "ipca_annual":     0.045,
-        }
+        market_rates = fallback_market_rates(request.asset_type.value)
 
     # Executar simulações de timing
     try:

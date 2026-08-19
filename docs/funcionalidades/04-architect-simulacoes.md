@@ -321,9 +321,22 @@ API viva → tabela fixa versionada em `data/architect/`.
 - **Os parâmetros macro são constantes hardcoded** (Selic 12%, IPCA 5%,
   valorização 6%, matriz VAR calibrada em 2015–2025). Não há recalibração
   automática do VAR com dados novos — mudança de regime macroeconômico exige
-  editar o módulo. **A matriz de persistência `_A` continua sem calibração
-  contra dado** — só as variâncias foram, em 2026-08, contra as séries reais
-  do mesmo período (σ mensal, p.p.):
+  editar o módulo. `_A` e `_SIGMA_E` foram calibradas em 2026-08 por MQO nas
+  séries reais (fev/2016–jun/2026, 125 meses); as médias (12%/5%/6%) continuam
+  sendo premissa. Persistências estimadas: Selic 0,9166 (o chute de 0,92 se
+  confirmou), IPCA 0,4199 (o chute era 0,85 — o modelo guardava choque de
+  inflação o dobro do tempo). O efeito da Selic sobre o IPCA seguinte é
+  **negativo** (−0,29), não positivo: política apertada derruba inflação
+  futura. As correlações contemporâneas dos choques, que o código supunha
+  fortes, são praticamente nulas nos resíduos (0,02, 0,12, 0,07) — o sinal
+  econômico está em `_A`, não em `_SIGMA_E`.
+- **A linha da valorização em `_A` NÃO é calibrada.** O MQO estima 1,0148 para
+  a própria defasagem (t = 135): raiz unitária, que faria o processo deixar de
+  reverter à média. Não é economia — é o alisamento do IVG-R, apurado sobre
+  janela móvel de imóveis financiados, o que autocorrelaciona as variações
+  mensais por construção. Calibrar essa linha exige um índice de preço não
+  alisado (FipeZAP de venda). Há teste travando o raio espectral em < 0,95.
+- Variâncias, contra as séries reais do mesmo período (σ mensal, p.p.):
 
   | variável | modelo antigo | série real | fonte |
   |---|---|---|---|
@@ -346,12 +359,42 @@ API viva → tabela fixa versionada em `data/architect/`.
   deflação e desvalorização existem.
 - **Seguros usam taxas representativas**, não a tabela do segurador
   contratado — o próprio código diz que produção deveria usar a tabela real.
-- **A curva de sensibilidade compartilha a base de custo do motor** desde
-  2026-08, via `_simular_financiamento` / `_fluxo_financiamento`: mesmo
-  `asset_type` (sem ele o seguro obrigatório é zerado) e mesmo `iof_rate`,
-  com o IOF de entrada em t=0. Antes divergia em R$ 2.376 num veículo de
-  R$ 64 mil — o gráfico contradizia o número que ele explicava. A paridade é
-  testada contra o `StrategyEngine`, não contra uma réplica.
+- **O motor e a curva de sensibilidade compartilham UMA base de custo**
+  (`app/architect/simulators/cost_basis.py`) desde 2026-08. Antes cada um
+  montava o fluxo por conta própria e divergiam: financiamento sem
+  `asset_type` (zera o seguro obrigatório) e sem o IOF de entrada
+  (R$ 2.376 num veículo de R$ 64 mil); consórcio sem seis parâmetros de
+  grupo, entre eles o reajuste da carta (R$ 8.568, 4,6% do VPL, e
+  contemplação 31 meses diferente). A única divergência que permanece é
+  `num_simulations`, explícita e parametrizada. A paridade é testada contra o
+  `StrategyEngine` de verdade — uma réplica escrita no teste foi justamente o
+  que deixou o IOF passar na primeira correção.
+- **Um default por taxa** (`app/architect/rate_defaults.py`). Cada consumidor
+  tinha o seu embutido no `.get(chave, literal)`: `best_cet_annual` aparecia
+  como 0,15, 0,1950 e 0,20, `consortium_admin_rate` como 0,17 e 0,18 — a mesma
+  queda de conector produzia números diferentes conforme o caminho do código.
+  Leitura passa por `rate()`, que registra em log quando cai no default, e as
+  rotas respondem `rates_from_fallback: true` em vez de deixar dado de
+  referência visualmente idêntico a dado de hoje.
+- **O lance do usuário afeta a contemplação** desde 2026-08. `bid_strategy`
+  caía no default `"fixed"`, que DESCARTAVA o `bid_amount` e usava 25% fixos
+  da carta; como nenhum caller passava a estratégia, todo usuário era simulado
+  com o mesmo lance — com R$ 0 ou R$ 120 mil de entrada — enquanto o fluxo de
+  caixa abatia a entrada real. Agora o embutido e o lance próprio se somam
+  (limitados à carta), e a entrada move a mediana de 116 para 15 meses no
+  intervalo testado.
+- **O ritmo de contemplação é repartido entre sorteio e lance** (`sorteio_share`,
+  50/50 — a mesma proporção que o modelo sempre teve implicitamente, quando
+  `contemplated_per_month=2` dava 1 vaga de cada). Sem repartir, as vagas de
+  lance eram `contemplacoes_do_mes − 1`, sempre zero abaixo de 2 contemplações
+  por mês — que é o caso de TODO consórcio de imóvel. A divisão em si não é
+  medida: a ABAC não a publica.
+- **A contemplação não é mais Monte Carlo.** O número de vagas por assembleia e
+  o grupo restante não dependem de nenhum sorteio, então o risco por mês é
+  determinístico e o laço estava re-caminhando 2000 vezes o mesmo caminho.
+  `_hazard_por_assembleia` calcula o risco uma vez e amostra dele: mesma
+  distribuição (Kolmogorov–Smirnov em 7 configurações, p entre 0,13 e 0,97),
+  ~600x mais rápido e sem ruído nos percentis.
 - **Consórcio: o grupo é sintético** (lance médio inicial 35% com
   decaimento). Administradoras variam muito; o intervalo P10–P90 é honesto,
   mas largo. O ritmo de contemplação NÃO é mais fixo: deriva de
