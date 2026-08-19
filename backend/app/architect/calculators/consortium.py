@@ -351,9 +351,33 @@ def _simulate_single_run(
     half_life_fraction = 0.30
     decay_lambda = np.log(2) / (half_life_fraction * months)
 
+    # ── Ritmo de contemplação ────────────────────────────────────────────────
+    # Invariante do consórcio: TODA cota é contemplada exatamente uma vez, e as
+    # contemplações se espalham pelo prazo inteiro. Ou seja, o ritmo é
+    # group_size / months — não um número fixo.
+    #
+    # Com ritmo fixo de 2/mês, um grupo de 150 cotas em 180 meses esvaziava no
+    # mês 75: o modelo contemplava todo mundo na primeira metade do plano e a
+    # mediana caía de 90 para 37 meses. O erro cresce com o prazo, ou seja, é
+    # pior justamente no imóvel.
+    #
+    # O acumulador abaixo permite ritmo fracionário (0,83/mês = 5 contemplações
+    # a cada 6 assembleias) preservando a média exata.
+    taxa_mensal = group_size / months if months > 0 else float(contemplated_per_month)
+    credito = 0.0
+
     for month in range(1, months + 1):
         if remaining <= 0:
             return month
+
+        credito += taxa_mensal
+        contemplacoes_do_mes = int(credito)
+        credito -= contemplacoes_do_mes
+
+        if contemplacoes_do_mes <= 0:
+            # Assembleia sem contemplação (grupo pequeno para prazo longo):
+            # o usuário não é sorteado nem consegue vaga de lance.
+            continue
 
         # ── Sorteio ──────────────────────────────────────────────────────────
         if rng.random() < (1.0 / remaining):
@@ -364,7 +388,7 @@ def _simulate_single_run(
             return month
 
         # ── Lances ───────────────────────────────────────────────────────────
-        lance_slots = min(contemplated_per_month - 1, remaining)
+        lance_slots = min(contemplacoes_do_mes - 1, remaining)
 
         if lance_slots > 0 and user_bid_ratio > 0:
             current_mean = bid_mean_initial * np.exp(-decay_lambda * month)

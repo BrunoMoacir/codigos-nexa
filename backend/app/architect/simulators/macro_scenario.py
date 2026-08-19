@@ -46,10 +46,24 @@ _A = np.array([
 
 # Covariância dos resíduos (mensal).
 # Sinais: Selic ↑ → IPCA acompanha (+), Selic ↑ → apreciação cai (−).
+#
+# A variância da Selic era 1.5e-5 (σ = 0,387 p.p./mês), que num AR(1) com
+# persistência 0,92 implica desvio ESTACIONÁRIO de 0,99 p.p./mês — três vezes
+# o que a série real mostra. Consequência: 16% dos sorteios caíam abaixo de
+# zero e eram truncados, empurrando a média simulada de 12% para 15% a.a.
+#
+# Recalibrado com a própria série do BCB (SGS 4390, Selic over mensal,
+# 127 meses de 2016 a 2026): desvio estacionário observado de 0,3298 p.p./mês
+# → σ do choque = 0,3298 × √(1 − 0,92²) = 0,1293 p.p./mês → variância 1,67e-6.
+#
+# A linha/coluna da Selic é escalada pelo mesmo fator (d = 0,334) para
+# PRESERVAR as correlações com IPCA e apreciação — é Σ' = D·Σ·D com
+# D = diag(d, 1, 1), o que também mantém a matriz positiva-definida para o
+# Cholesky.
 _SIGMA_E = np.array([
-    [ 1.5e-5,  4.0e-6, -1.5e-6],
-    [ 4.0e-6,  7.0e-6,  3.0e-6],
-    [-1.5e-6,  3.0e-6,  2.0e-5],
+    [ 1.67e-6,  1.34e-6, -5.01e-7],
+    [ 1.34e-6,  7.0e-6,   3.0e-6 ],
+    [-5.01e-7,  3.0e-6,   2.0e-5 ],
 ])
 
 _RATE_MIN = 0.0
@@ -72,6 +86,11 @@ class MacroPaths:
         self.selic        = selic
         self.ipca         = ipca
         self.appreciation = appreciation
+
+
+# Piso para variáveis que PODEM ser negativas (deflação, desvalorização).
+# −5% a.m. é folgado: o pior mês de deflação da série é −0,68% (ago/1998).
+_RATE_MIN_SIGNED = -0.05
 
 
 def generate_macro_paths(
@@ -106,14 +125,37 @@ def generate_macro_paths(
 
     for t in range(n_months):
         y_t = _MU + (y_prev - _MU) @ _A.T + shocks[t]
-        y_t = np.clip(y_t, _RATE_MIN, _RATE_MAX)
         paths[t] = y_t
-        y_prev   = y_t
+        # O ESTADO segue sem clamp de propósito.
+        #
+        # Clampando dentro da recursão, o valor truncado realimentava o passo
+        # seguinte e o viés COMPUNHA: o piso em 0 prendia 7% da Selic, 11,6%
+        # do IPCA e 14,9% da valorização, enquanto o teto de 5% a.m. nunca era
+        # tocado. O processo "com reversão à média de 12%" derivava para 15%
+        # (ano 1: 12,9% → ano 10: 15,2%), e o IPCA de 5% para 8,2%.
+        #
+        # Sem clamp no estado, a reversão à média funciona: E[y_t] → μ.
+        y_prev = y_t
+
+    selic = paths[:, :, 0].T
+    ipca  = paths[:, :, 1].T
+    appr  = paths[:, :, 2].T
+
+    # Saneamento aplicado só na SAÍDA, e por variável — cada uma tem domínio
+    # econômico próprio:
+    #   • Selic: taxa nominal de política monetária não é negativa;
+    #   • IPCA: deflação existe (2017 teve meses negativos) — piso livre;
+    #   • valorização: imóvel e veículo caem de preço — piso livre.
+    # Antes as três eram truncadas em 0, o que além do viés proibia deflação
+    # e desvalorização, dois fenômenos reais que a simulação precisa cobrir.
+    selic = np.clip(selic, 0.0, _RATE_MAX)
+    ipca  = np.clip(ipca,  _RATE_MIN_SIGNED, _RATE_MAX)
+    appr  = np.clip(appr,  _RATE_MIN_SIGNED, _RATE_MAX)
 
     return MacroPaths(
-        selic        = paths[:, :, 0].T,  # → (n_sims, n_months)
-        ipca         = paths[:, :, 1].T,
-        appreciation = paths[:, :, 2].T,
+        selic        = selic,  # → (n_sims, n_months)
+        ipca         = ipca,
+        appreciation = appr,
     )
 
 

@@ -39,6 +39,31 @@ from typing import Dict, List, Optional, Any
 
 from app.architect.models import SimulationRequest, SimulationResponse, StrategyType, RiskProfile
 from app.architect.calculators import financing as fin_calc
+
+
+def _simular_financiamento(request, principal: float, cet_annual: float, months: int):
+    """
+    Simula o financiamento do MESMO jeito que o StrategyEngine.
+
+    A curva de sensibilidade chamava calculate_price/sac SEM asset_type, o que
+    zera o seguro obrigatório (a tabela é indexada por "property"/"vehicle" e
+    o default é "other"). O gráfico que explica o número saía sobre outra base
+    de custo que o próprio número: R$ 8,4 mil de diferença num financiamento
+    imobiliário de R$ 300 mil.
+    """
+    from app.architect.simulators.strategy_engine import _CALC_ASSET_MAP
+
+    asset = _CALC_ASSET_MAP.get(request.asset_type, "other")
+    if request.amortization_method.value == "SAC":
+        return fin_calc.calculate_sac(principal, cet_annual, months, asset_type=asset)
+    return fin_calc.calculate_price(principal, cet_annual, months, asset_type=asset)
+
+
+def _fluxo_financiamento(down_payment: float, sim) -> list:
+    """Fluxo com parcela + seguro — igual ao StrategyEngine (linha 617)."""
+    return [-down_payment] + [
+        -(row["payment"] + row.get("insurance", 0.0)) for row in sim.schedule
+    ]
 from app.architect.calculators import investment as inv_calc
 from app.architect.calculators import npv as npv_calc
 from app.architect.calculators import consortium as cons_calc
@@ -527,13 +552,14 @@ class SensitivityAnalyzer:
         disc_monthly: float,
     ) -> float:
         try:
-            if request.amortization_method.value == "SAC":
-                sim = fin_calc.calculate_sac(request.principal, cet_annual, months)
-            else:
-                sim = fin_calc.calculate_price(request.principal, cet_annual, months)
-            cashflows = [-request.down_payment] + [-row["payment"] for row in sim.schedule]
+            sim = _simular_financiamento(request, request.principal, cet_annual, months)
+            cashflows = _fluxo_financiamento(request.down_payment, sim)
             return _safe_float(npv_calc.calculate_npv(cashflows, disc_monthly))
-        except Exception:
+        except Exception as exc:
+            # Zero silencioso vira ponto legítimo na curva do tornado — o
+            # usuário lê "aqui seu VPL é zero" quando na verdade o cálculo
+            # falhou. Registrar é o mínimo.
+            logger.warning("Sensibilidade: VPL de financiamento falhou (%s)", exc)
             return 0.0
 
     def _npv_financing_custom(
@@ -546,13 +572,11 @@ class SensitivityAnalyzer:
     ) -> float:
         cet = market_rates.get("best_cet_annual", 0.15)
         try:
-            if request.amortization_method.value == "SAC":
-                sim = fin_calc.calculate_sac(principal, cet, request.financing_months)
-            else:
-                sim = fin_calc.calculate_price(principal, cet, request.financing_months)
-            cashflows = [-down_payment] + [-row["payment"] for row in sim.schedule]
+            sim = _simular_financiamento(request, principal, cet, request.financing_months)
+            cashflows = _fluxo_financiamento(down_payment, sim)
             return _safe_float(npv_calc.calculate_npv(cashflows, disc_monthly))
-        except Exception:
+        except Exception as exc:
+            logger.warning("Sensibilidade: VPL de financiamento custom falhou (%s)", exc)
             return 0.0
 
     def _npv_investment(

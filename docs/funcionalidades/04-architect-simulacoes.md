@@ -317,14 +317,26 @@ API viva → tabela fixa versionada em `data/architect/`.
 ## Gaps e limitações
 
 - **Os parâmetros macro são constantes hardcoded** (Selic 12%, IPCA 5%,
-  valorização 6%, matriz VAR e covariância calibradas em 2015–2025). Não há
-  recalibração automática do VAR com dados novos — mudança de regime
-  macroeconômico exige editar o módulo.
+  valorização 6%, matriz VAR calibrada em 2015–2025). Não há recalibração
+  automática do VAR com dados novos — mudança de regime macroeconômico exige
+  editar o módulo. A variância do choque da Selic foi recalibrada em 2026-08
+  contra a série SGS 4390 (127 meses): o valor anterior implicava desvio
+  estacionário de 0,99 p.p./mês contra 0,33 observado, o que jogava 16% dos
+  sorteios abaixo de zero.
+- **O clamp é aplicado na SAÍDA, não dentro da recursão.** Truncar o estado
+  realimentava o passo seguinte e o viés compunha: a Selic revertia para 15%
+  em vez de 12% e o IPCA para 8,2% em vez de 5%. Selic mantém piso zero (taxa
+  nominal de política); IPCA e valorização aceitam valores negativos, porque
+  deflação e desvalorização existem.
 - **Seguros usam taxas representativas**, não a tabela do segurador
   contratado — o próprio código diz que produção deveria usar a tabela real.
-- **Consórcio: o grupo é sintético** (100 participantes, 2 contemplados/mês,
-  lance médio inicial 35% com decaimento). Administradoras variam muito; o
-  intervalo P10–P90 é honesto, mas largo.
+- **Consórcio: o grupo é sintético** (lance médio inicial 35% com
+  decaimento). Administradoras variam muito; o intervalo P10–P90 é honesto,
+  mas largo. O ritmo de contemplação NÃO é mais fixo: deriva de
+  `group_size / months`, que é a invariante do produto (toda cota é
+  contemplada uma vez, espalhada pelo prazo). Com o ritmo fixo de 2/mês
+  anterior, um grupo de 150 cotas em 180 meses esvaziava no mês 75 e a
+  mediana de contemplação caía de 90 para 37 meses.
 - **Lance embutido fixo em 25%** da carta — não é parametrizado pelo produto
   específico do usuário.
 - **Monte Carlo em stdlib** (motor genérico) é adequado até ~10k iterações por

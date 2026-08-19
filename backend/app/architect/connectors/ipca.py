@@ -64,10 +64,30 @@ class IPCAConnector(BaseConnector):
         "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{series}"
         "/dados/ultimos/1?formato=json"
     )
-    _IPCA_SERIES = 433           # IPCA — variação MENSAL (%, ex: 0.58 = 0.58% a.m.)
-    # NOTA (PDF V2 seção 4.1): série 433 retorna variação MENSAL, não acumulado 12 meses.
-    # Para acumular no período, usar evidence_builder._fetch_monthly_rates(433, start, end).
+    # Série 13522: IPCA — variação ACUMULADA EM 12 MESES (%), que é o que
+    # este conector promete devolver e o que todo consumidor assume.
+    #
+    # Estava usando a série 433, que é a variação MENSAL — e o próprio código
+    # tinha a nota dizendo isso. O valor cru era devolvido como `ipca_annual`:
+    # em 01/07/2026 a 433 dava 0,07 e a 13522 dava 4,44. Ou seja, a inflação
+    # anual entrava no sistema como 0,07% em vez de 4,44%, ~60x menor.
+    #
+    # O maior estrago era no consórcio: o reajuste da carta (INCC ≈ IPCA×1,5)
+    # virava 0,105% a.a. em vez de ~7%, e uma carta de R$300k em 180 meses
+    # saía por R$ 365k em vez de R$ 627k — 71% de custo a menos numa decisão
+    # de 15 anos.
+    _IPCA_SERIES = 13522
+    # Série mensal, mantida para quem precisa da variação do mês (não é o
+    # que get_ipca() devolve).
+    _IPCA_MONTHLY_SERIES = 433
     _CACHE_TTL   = 6 * 3600     # 6 horas (divulgação mensal)
+
+    # Guarda de plausibilidade: IPCA anual fora desta faixa é sinal de erro de
+    # unidade ou de série trocada, não de economia brasileira exótica. O
+    # menor IPCA 12m da série histórica foi ~1,9% (2017) e o maior no período
+    # pós-Real ~12,5% (2002/2021) — a faixa abaixo é folgada nos dois lados.
+    _IPCA_MIN_PLAUSIVEL = 0.005   # 0,5% a.a.
+    _IPCA_MAX_PLAUSIVEL = 0.40    # 40% a.a.
 
     def __init__(self, **kwargs):
         kwargs.setdefault("cache_ttl_seconds", self._CACHE_TTL)
@@ -102,6 +122,16 @@ class IPCAConnector(BaseConnector):
 
         ipca_pct    = float(data[0]["valor"])   # ex: 4.87 (percentual)
         ipca_annual = ipca_pct / 100            # ex: 0.0487 (decimal)
+
+        # Rejeitar valor implausível em vez de propagar: é exatamente assim
+        # que a variação mensal passava por anual sem ninguém perceber. Com a
+        # exceção, o multi-layer fallback cai na fonte secundária (IBGE) ou
+        # na taxa fixa versionada — as duas corretas.
+        if not (self._IPCA_MIN_PLAUSIVEL <= ipca_annual <= self._IPCA_MAX_PLAUSIVEL):
+            raise ConnectorError(
+                f"IPCA anual implausível ({ipca_pct}%) na série "
+                f"{self._IPCA_SERIES} — provável troca de série ou de unidade"
+            )
 
         logger.info("[IPCAConnector] IPCA 12m: %.2f%%", ipca_pct)
         return {"ipca_annual": ipca_annual}
