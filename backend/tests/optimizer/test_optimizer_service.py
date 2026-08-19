@@ -26,6 +26,11 @@ from app.optimizer.ranking import CardRanking
 from app.optimizer.card_loader import CardKnowledgeBase
 from app.optimizer.services.optimizer_service import OptimizerService
 
+# Curadoria FRESCA por padrão: data fixa no passado faria estes fixtures
+# medirem o decaimento por idade (curation_freshness_factor) sem querer.
+# Teste que queira envelhecimento define last_updated explicitamente.
+_CURADORIA_FRESCA = date.today().isoformat()
+
 
 # ─── Constantes de data ──────────────────────────────────────────────────────
 
@@ -163,7 +168,7 @@ def _card_cashback_flat(
         waiver_rules=WaiverRules(type=waiver_type, description="Sempre grátis"),
         cashback_pct=cashback_pct,
         data_trust_score=0.9,
-        last_updated="2026-01-01",
+        last_updated=_CURADORIA_FRESCA,
     )
 
 
@@ -188,7 +193,7 @@ def _card_cashback_com_anuidade(annuity: float = 600.0, threshold: float = 12000
         ),
         cashback_pct=0.015,
         data_trust_score=0.85,
-        last_updated="2026-01-01",
+        last_updated=_CURADORIA_FRESCA,
     )
 
 
@@ -216,7 +221,7 @@ def _card_pontos(
         points_conversion_rate=conversion_rate,
         benefit_tags=[BenefitTag.TRAVEL, BenefitTag.LOUNGE],
         data_trust_score=0.8,
-        last_updated="2026-01-01",
+        last_updated=_CURADORIA_FRESCA,
     )
 
 
@@ -243,7 +248,7 @@ def _card_cashback_por_categoria() -> CardRecord:
             CashbackCategoryRule(category="farmacia", pct=0.05, cap_monthly=30.0),
         ],
         data_trust_score=0.9,
-        last_updated="2026-01-01",
+        last_updated=_CURADORIA_FRESCA,
     )
 
 
@@ -435,7 +440,7 @@ class TestCardSimulatorROI:
             cashback_pct=0.01,
             benefit_tags=[BenefitTag.INTERNACIONAL, BenefitTag.LOUNGE],
             data_trust_score=0.9,
-            last_updated="2026-01-01",
+            last_updated=_CURADORIA_FRESCA,
         )
         profile = ConsumptionProfiler().build(
             _df(

@@ -118,6 +118,31 @@ class CardSimulator:
         net_gain_expected = values["expected"] - annuity_effective
         net_gain_max = values["max"] - annuity_effective
 
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # GANHO CONSERVADOR — o número que o RANKING usa
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        #
+        # Princípio 1 da arquitetura ("point values usam P25 do mercado, não
+        # média") estava declarado no docstring de get_conservative_rate() e
+        # NÃO implementado: o ranking ordenava por net_gain_expected, que usa
+        # P50. get_conservative_rate() e get_interval() eram código morto.
+        #
+        # Por que o ranking precisa do P25 e a exibição não: cashback é
+        # certo (R$1 = R$1), milha é estimativa com banda que chega a 3x
+        # entre P25 e P75. Ordenar os dois pelo ponto médio da milha
+        # favorece sistematicamente cartão de pontos sobre cashback — e o
+        # usuário TROCA DE CARTÃO por causa dessa ordem. Errar para cima num
+        # benefício incerto é o lado perigoso de errar.
+        #
+        # Difere de net_gain_min: aquele compõe DUAS pessimizações (P25 E
+        # gasto −20%), servindo de piso do intervalo exibido. Aqui é o gasto
+        # esperado valorizado de forma conservadora — comparável entre
+        # cartões, que é o que ordenação exige.
+        conservative_value = self._compute_benefit_value(
+            card, spend_annual, profile, "conservative"
+        )
+        net_gain_conservative = conservative_value - annuity_effective
+
         liquidity_impact = self._compute_liquidity_impact(annuity_effective, safe_to_spend)
         liquidity_risk = _liquidity_checker.check(liquidity_impact)
 
@@ -163,6 +188,7 @@ class CardSimulator:
             points_value_expected=round(values["expected"], 2),
             points_value_max=round(values["max"], 2),
             net_gain_min=round(net_gain_min, 2),
+            net_gain_conservative=round(net_gain_conservative, 2),
             net_gain_expected=round(net_gain_expected, 2),
             net_gain_max=round(net_gain_max, 2),
             liquidity_impact=round(liquidity_impact, 4),
@@ -481,7 +507,15 @@ class CardSimulator:
             0.35–0.60: × 0.75
             > 0.60:    × 0.60
         """
-        score = card.data_trust_score
+        # A curadoria envelhece: benefício de cartão muda e a base é manual.
+        # O fator de frescor puxa a confiança para baixo conforme o registro
+        # passa do prazo de revisão, em vez de afirmar hoje, com a mesma
+        # segurança de sempre, uma condição conferida há um ano.
+        from app.optimizer.card_loader import curation_freshness_factor
+
+        score = card.data_trust_score * curation_freshness_factor(
+            getattr(card, "last_updated", None)
+        )
 
         # Coverage penalty (por faixa de meses)
         months = profile.data_coverage_months

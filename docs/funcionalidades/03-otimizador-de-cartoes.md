@@ -137,16 +137,21 @@ fator de gasto. O `min` não é "o mesmo gasto valorizado conservadoramente" —
 gasto 20% menor valorizado a P25. O intervalo resultante é, portanto, mais
 largo do que a dispersão só das milhas.
 
-> ⚠️ **O ranking usa P50, não P25.** O score parte de `net_gain_expected`, que
-> vem de `values["expected"]` — P50. Os métodos `get_conservative_rate()` (P25)
-> e `get_interval()` (banda P25–P75 quando `P75/P25 ≥ 1,5`) existem, mas
-> **nenhum dos dois é chamado em lugar algum do código** — só aparecem na
-> própria definição e no exemplo do docstring do módulo. A docstring de
-> `get_conservative_rate` afirma *"Usado pelo scoring de ranking — princípio 1
-> da arquitetura: 'Point values usam P25 do mercado, não média'"*, e essa
-> afirmação está **desatualizada em relação ao código**. O princípio
-> conservador está declarado, mas não implementado no caminho de ranking; o
-> P25 só aparece através de `net_gain_min`, que é exibido, não ranqueado.
+> **O ranking ordena pelo P25; a exibição continua no P50.** O simulador
+> calcula um quarto valor, `net_gain_conservative` — gasto **esperado**
+> valorizado pelo cenário `conservative` (P25) — e é dele que
+> `CardRanking._compute_financial_score` parte. O usuário continua vendo
+> `net_gain_expected` (P50) e a banda `net_gain_min`/`max`.
+>
+> Por que separar: cashback é valor certo (R$1 = R$1), milha é estimativa
+> com banda que chega a 3x entre P25 e P75. Ordenar os dois pelo ponto médio
+> da milha inclinaria o ranking para cartão de pontos — e é a ORDEM que faz
+> o usuário trocar de cartão. Cartão de cashback tem
+> `conservative == expected`, então nada muda para ele.
+>
+> `net_gain_conservative` difere de `net_gain_min`: aquele compõe duas
+> pessimizações (P25 **e** gasto −20%) e serve de piso do intervalo exibido;
+> este usa o gasto esperado, o que o torna comparável entre cartões.
 
 ### 5. Ganho líquido e risco de liquidez
 
@@ -363,19 +368,23 @@ mensal ≥ R$ 10 (`_INSIGHT_MIN_MONTHLY_GAIN`). O card `WAIVER_ALERT` calcula o
 
 ## Gaps e limitações
 
-- **Base curada manualmente**: benefícios de cartão mudam com frequência;
-  cada registro tem `last_updated` e `data_trust_score`, mas não há job de
-  revisão automática (recomendado: revisão trimestral; não existe API pública
-  de metadados de cartões no Brasil).
+- **Base curada manualmente**: benefícios de cartão mudam com frequência e
+  não existe API pública de metadados de cartões no Brasil, então não há como
+  atualizar sozinho. O que existe é **decaimento de confiança por idade**
+  (`card_loader.curation_freshness_factor`): registro dentro do prazo de
+  revisão (90 dias) vale 1,0 e decai linearmente até 0,6 em 365 dias,
+  multiplicando direto na confiança da simulação. Data ausente ou ilegível é
+  tratada como obsoleta. O job semanal `cards_curation_audit` (seg 03h30)
+  lista o que venceu, ordenado por idade, sem alterar a base — curadoria de
+  dado de produto é decisão humana. Na primeira execução ele acusou **25 dos
+  81 registros parados desde março/2025**.
 - **Valores de milhas são tabela estática** — `POINT_VALUE_DISTRIBUTIONS` tem
   parte sincronizada com `miles_valuation.json` (Mar/2026) e parte como
   "estimativa de mercado" hardcoded (latam_pass, itau_multiplus, xp_pontos,
   amex, esfera, stix). Não há coleta automática de cotação de milhas.
-- **⚠️ O princípio "ranking usa P25" está declarado mas não implementado.**
-  `get_conservative_rate()` e `get_interval()` são código morto (nenhuma
-  chamada no repositório); o ranking usa P50 via `net_gain_expected`. Ou o
-  ranking passa a usar o P25 como a docstring promete, ou a docstring precisa
-  ser corrigida — hoje o código e a documentação interna se contradizem.
+- `get_interval()` (banda P25–P75 para exibição) continua sem chamador — o
+  intervalo mostrado ao usuário vem de `net_gain_min`/`max`, que compõem
+  percentil e variação de gasto.
 - **A taxa de 2% do bônus de tendência é genérica**, não a taxa real do cartão
   na categoria — assumido como bônus de ordenação.
 - **Sem `safe_to_spend`, todo cartão com anuidade vira CRITICAL** no cálculo

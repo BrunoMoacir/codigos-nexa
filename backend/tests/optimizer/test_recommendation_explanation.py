@@ -1,3 +1,4 @@
+from datetime import date
 # tests/optimizer/test_recommendation_explanation.py
 # Testes para RecommendationExplanation, CategoryCashbackBreakdown e to_text()
 
@@ -8,6 +9,11 @@ from app.optimizer.models import (
     CashbackCategoryRule, RecommendationExplanation,
 )
 from app.optimizer.profiler import UserProfile
+
+# Curadoria FRESCA por padrão: data fixa no passado faria estes fixtures
+# medirem o decaimento por idade (curation_freshness_factor) sem querer.
+# Teste que queira envelhecimento define last_updated explicitamente.
+_CURADORIA_FRESCA = date.today().isoformat()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -33,7 +39,7 @@ def _cashback_cat_card(cap_monthly: float | None = None) -> CardRecord:
             CashbackCategoryRule(category="supermercado", pct=0.02, cap_monthly=cap_monthly),
             CashbackCategoryRule(category="farmacia", pct=0.015, cap_monthly=None),
         ],
-        last_updated="2026-01-01",
+        last_updated=_CURADORIA_FRESCA,
     )
 
 
@@ -54,7 +60,7 @@ def _flat_card() -> CardRecord:
         waiver_rules=WaiverRules(type="always_free", description="Sem anuidade"),
         cashback_pct=0.01,
         cashback_categories=[],
-        last_updated="2026-01-01",
+        last_updated=_CURADORIA_FRESCA,
     )
 
 

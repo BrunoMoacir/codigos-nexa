@@ -183,6 +183,11 @@ class CardSimulationResult(BaseModel):
     net_gain_min: float
     net_gain_expected: float
     net_gain_max: float
+    # Ganho no gasto ESPERADO valorizado de forma conservadora (P25 para
+    # milhas; idêntico ao expected para cashback, que não tem incerteza de
+    # valoração). É por este campo que o ranking ordena — ver
+    # CardSimulator.simulate e MilesValuator.get_conservative_rate.
+    net_gain_conservative: float = 0.0
     liquidity_impact: float
     liquidity_risk: LiquidityRisk
     confidence_score: float

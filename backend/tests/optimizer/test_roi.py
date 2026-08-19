@@ -1,3 +1,4 @@
+from datetime import date
 # tests/optimizer/test_roi.py
 # Testes para M2.4 — ROI do Cartão Atual ("Sua anuidade está se pagando?")
 
@@ -8,6 +9,11 @@ from app.optimizer.models import (
     CardROIVerdict, CurrentCardROI,
 )
 from app.optimizer.profiler import UserProfile
+
+# Curadoria FRESCA por padrão: data fixa no passado faria estes fixtures
+# medirem o decaimento por idade (curation_freshness_factor) sem querer.
+# Teste que queira envelhecimento define last_updated explicitamente.
+_CURADORIA_FRESCA = date.today().isoformat()
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -39,7 +45,7 @@ def _cashback_card(
         ),
         cashback_pct=0.01,
         benefit_tags=[BenefitTag.CASHBACK],
-        last_updated="2026-01-01",
+        last_updated=_CURADORIA_FRESCA,
     )
 
 

@@ -1,3 +1,4 @@
+from datetime import date
 # tests/optimizer/test_m2_5_category_cashback.py
 # Testes para M2.5 — Cashback por Categoria Detalhado
 
@@ -8,6 +9,11 @@ from app.optimizer.models import (
     CashbackCategoryRule,
 )
 from app.optimizer.profiler import UserProfile
+
+# Curadoria FRESCA por padrão: data fixa no passado faria estes fixtures
+# medirem o decaimento por idade (curation_freshness_factor) sem querer.
+# Teste que queira envelhecimento define last_updated explicitamente.
+_CURADORIA_FRESCA = date.today().isoformat()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -35,7 +41,7 @@ def _cashback_card_with_categories() -> CardRecord:
             CashbackCategoryRule(category="farmacia",    pct=0.020, cap_monthly=40.0),
             CashbackCategoryRule(category="transporte",  pct=0.010, cap_monthly=None),
         ],
-        last_updated="2026-01-01",
+        last_updated=_CURADORIA_FRESCA,
     )
 
 
@@ -57,7 +63,7 @@ def _flat_cashback_card() -> CardRecord:
         waiver_rules=WaiverRules(type="always_free", description="Sem anuidade"),
         cashback_pct=0.005,
         cashback_categories=[],        # sem regras → usa cashback_pct flat
-        last_updated="2026-01-01",
+        last_updated=_CURADORIA_FRESCA,
     )
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -19,6 +20,54 @@ _PJ_INSTABILITY_THRESHOLD: float = 0.5
 _PJ_INSTABILITY_PENALTY: float = 0.85
 
 logger = logging.getLogger(__name__)
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ENVELHECIMENTO DA CURADORIA
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# A base é curada à mão e benefício de cartão muda o tempo todo. Não existe
+# API pública de metadados de cartão no Brasil, então não há como atualizar
+# sozinho — mas dá para PARAR DE CONFIAR sozinho.
+#
+# Cada registro tem last_updated; a confiança decai a partir do prazo de
+# revisão. Como data_trust_score multiplica direto na confiança da simulação
+# (simulator._compute_confidence), dado velho passa a produzir recomendação
+# com menos peso e, se envelhecer muito, para de gerar insight — em vez de
+# afirmar com a mesma segurança de sempre uma condição que pode ter mudado.
+
+# Prazo de revisão da curadoria: um trimestre.
+_CURATION_FRESH_DAYS = 90
+# A partir daqui o registro é considerado obsoleto (piso de confiança).
+_CURATION_STALE_DAYS = 365
+# Piso: mesmo obsoleto o registro não vale zero — os campos estruturais
+# (bandeira, tipo, emissor) não mudam; o que muda é taxa e benefício.
+_CURATION_MIN_FACTOR = 0.6
+
+
+def curation_freshness_factor(last_updated: str | None, today: date | None = None) -> float:
+    """
+    Multiplicador de confiança pela idade da curadoria (1.0 → 0.6).
+
+    Decai linearmente entre 90 e 365 dias desde last_updated. Data ausente
+    ou ilegível é tratada como obsoleta: não saber quando o dado foi
+    conferido é pior do que saber que ele é velho.
+    """
+    if not last_updated:
+        return _CURATION_MIN_FACTOR
+
+    try:
+        conferido = date.fromisoformat(str(last_updated)[:10])
+    except (TypeError, ValueError):
+        logger.warning("last_updated ilegível (%r) — tratando como obsoleto", last_updated)
+        return _CURATION_MIN_FACTOR
+
+    dias = ((today or date.today()) - conferido).days
+    if dias <= _CURATION_FRESH_DAYS:
+        return 1.0
+    if dias >= _CURATION_STALE_DAYS:
+        return _CURATION_MIN_FACTOR
+
+    proporcao = (dias - _CURATION_FRESH_DAYS) / (_CURATION_STALE_DAYS - _CURATION_FRESH_DAYS)
+    return 1.0 - proporcao * (1.0 - _CURATION_MIN_FACTOR)
 
 # Caminho para data/cards/knowledge_cards.json (relativo ao repo)
 _CARDS_PATH = Path(__file__).parent.parent.parent / "data" / "cards" / "knowledge_cards.json"

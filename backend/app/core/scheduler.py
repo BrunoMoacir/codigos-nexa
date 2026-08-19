@@ -8,6 +8,7 @@ Jobs registrados:
   04h00  health_score_snapshot MX.1  — persiste score diário para histórico
   */6h   notification_scheduler MX.3 — gera notificações proativas sem o usuário abrir o app
   07h00  daily_digest          R1.c  — compila eventos do dia e envia por email
+  seg 03h30 cards_curation_audit F2 — avisa quais cartões passaram do prazo de revisão
 
 Controle:
   SCHEDULER_ENABLED=true  em produção ativa os jobs.
@@ -37,7 +38,20 @@ def register_jobs() -> None:
     from app.jobs.notification_scheduler import run_notification_scheduler
     from app.jobs.daily_digest import run_daily_digest
     from app.jobs.intelligence_metrics import run_intelligence_metrics
+    from app.jobs.cards_curation_audit import run_cards_curation_audit
 
+    # Semanal: a base de cartões é curada à mão e envelhece. O job não
+    # corrige nada (não há fonte automática de metadados de cartão no
+    # Brasil) — ele avisa o que vencer, enquanto a confiança já decai
+    # sozinha via curation_freshness_factor.
+    scheduler.add_job(
+        run_cards_curation_audit,
+        CronTrigger(day_of_week="mon", hour=3, minute=30),
+        id="cards_curation_audit",
+        name="Auditoria da Curadoria de Cartões (F2)",
+        replace_existing=True,
+        misfire_grace_time=6 * 3600,
+    )
     scheduler.add_job(
         run_fee_snapshot,
         CronTrigger(hour=2, minute=0),

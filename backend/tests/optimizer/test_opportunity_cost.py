@@ -1,3 +1,4 @@
+from datetime import date
 # tests/optimizer/test_opportunity_cost.py
 # Testes completos para Custo de Oportunidade (OpportunityCostCalculator)
 
@@ -38,6 +39,11 @@ from app.optimizer.models import (
 )
 from app.optimizer.profiler import UserProfile
 
+# Curadoria FRESCA por padrão: data fixa no passado faria estes fixtures
+# medirem o decaimento por idade (curation_freshness_factor) sem querer.
+# Teste que queira envelhecimento define last_updated explicitamente.
+_CURADORIA_FRESCA = date.today().isoformat()
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # FACTORIES
@@ -71,7 +77,7 @@ def _cashback_card(
         cashback_pct=pct,
         cashback_cap=cap,
         cashback_categories=categories or [],
-        last_updated="2026-01-01",
+        last_updated=_CURADORIA_FRESCA,
     )
 
 
@@ -97,7 +103,7 @@ def _points_card(
         waiver_rules=_free_waiver(),
         points_per_brl=pts_per_brl,
         points_conversion_rate=conversion_rate,
-        last_updated="2026-01-01",
+        last_updated=_CURADORIA_FRESCA,
     )
 
 
@@ -118,7 +124,7 @@ def _investback_card(card_id: str, name: str, pct: float) -> CardRecord:
         waiver_rules=_free_waiver(),
         cashback_pct=pct,
         cashback_categories=[],
-        last_updated="2026-01-01",
+        last_updated=_CURADORIA_FRESCA,
     )
 
 

@@ -36,6 +36,7 @@ _VALUATION_FILE = (
 
 # Mapeia os nomes de cenário usados no simulador para as chaves do JSON
 _SCENARIO_KEY: dict[str, str] = {
+    "conservative": "pessimistic_per_1000",
     "min": "pessimistic_per_1000",
     "pessimistic": "pessimistic_per_1000",
     "expected": "expected_per_1000",
@@ -111,7 +112,11 @@ class MilesValuator:
         key = program.lower()
         dist = POINT_VALUE_DISTRIBUTIONS.get(key)
         if dist is not None:
-            if scenario in ("min", "pessimistic"):
+            # "conservative" compartilha o P25 com "min", mas os dois NÃO são
+            # a mesma coisa a jusante: "min" é o piso do intervalo exibido
+            # (P25 + gasto −20%), "conservative" é o gasto ESPERADO valorizado
+            # a P25 — o número que o ranking ordena.
+            if scenario in ("min", "pessimistic", "conservative"):
                 return dist[0] * 1000  # P25 em R$/1.000 pts
             elif scenario in ("max", "optimistic"):
                 return dist[2] * 1000  # P75
@@ -131,8 +136,15 @@ class MilesValuator:
         """
         Retorna a taxa P25 (conservadora) para o programa em R$/1.000 pts.
 
-        Usado pelo scoring de ranking — princípio 1 da arquitetura:
-        'Point values usam P25 do mercado, não média.'
+        É o princípio 1 da arquitetura — 'point values usam P25 do mercado,
+        não média' — e vale para ORDENAR, não para exibir: o usuário vê o
+        P50 em net_gain_expected e a banda em net_gain_min/max, enquanto o
+        ranking compara cartões pelo net_gain_conservative do simulador,
+        que chega aqui pelo cenário "conservative".
+
+        Cashback não passa por esta função (R$1 vale R$1); milha passa,
+        porque a banda P25–P75 chega a 3x. Ordenar os dois pelo ponto médio
+        da milha inclinaria o ranking para cartão de pontos.
         """
         key = program.lower()
         dist = POINT_VALUE_DISTRIBUTIONS.get(key)

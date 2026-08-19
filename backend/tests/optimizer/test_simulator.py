@@ -1,3 +1,4 @@
+from datetime import date
 # tests/optimizer/test_simulator.py
 # Testes unitários para CardSimulator
 # Passo 2.3 — Funcionalidade 2: Nexa Optimizer
@@ -6,11 +7,18 @@ import pytest
 from app.optimizer.simulator import CardSimulator
 from app.optimizer.profiler import UserProfile
 from app.optimizer.models import (
+
     CardRecord, CardFlag, CardType, LiquidityRisk, WaiverRules, BenefitTag
 )
 
 
 # ─── Fixtures ──────────────────────────────────────────────────────────────────
+
+# Curadoria FRESCA por padrão: data fixa no passado faria estes fixtures
+# medirem o decaimento por idade (curation_freshness_factor) sem querer.
+# Teste que queira envelhecimento define last_updated explicitamente.
+_CURADORIA_FRESCA = date.today().isoformat()
+
 
 def _make_profile(
     monthly_avg_spend: float = 2000.0,
@@ -72,7 +80,7 @@ def _make_card(
         benefit_tags=benefit_tags or [],
         benefits_detail=["Benefício 1", "Benefício 2", "Benefício 3", "Benefício 4"],
         data_trust_score=data_trust_score,
-        last_updated="2026-01-01",
+        last_updated=_CURADORIA_FRESCA,
     )
 
 

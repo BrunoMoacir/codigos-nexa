@@ -331,7 +331,20 @@ class CardRanking:
     ) -> tuple[float, float]:
         """Retorna (score_com_benefícios, benefits_bonus): liquidez + regra 40%, sem cluster nem penalidades."""
         multiplier = _LIQUIDITY_MULTIPLIER.get(result.liquidity_risk, 1.0)
-        score = result.net_gain_expected * multiplier
+
+        # Ordena pelo ganho CONSERVADOR (P25 para milhas), não pelo esperado.
+        # O usuário continua vendo net_gain_expected — mas a decisão de qual
+        # cartão fica em primeiro lugar não pode ser inclinada por uma
+        # estimativa de milha no ponto médio de uma banda que chega a 3x,
+        # concorrendo com cashback, que é valor certo.
+        #
+        # Cartão de cashback tem conservative == expected, então nada muda
+        # para ele. Fallback para expected mantém compatibilidade com
+        # simulações antigas/serializadas sem o campo novo.
+        base_gain = getattr(result, "net_gain_conservative", None)
+        if not base_gain:
+            base_gain = result.net_gain_expected
+        score = base_gain * multiplier
 
         benefits_bonus = 0.0
         if (
