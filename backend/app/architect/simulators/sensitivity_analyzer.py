@@ -40,36 +40,45 @@ from typing import Dict, List, Optional, Any
 from app.architect.models import SimulationRequest, SimulationResponse, StrategyType, RiskProfile
 from app.architect.calculators import financing as fin_calc
 
-
-def _simular_financiamento(request, principal: float, cet_annual: float, months: int):
-    """
-    Simula o financiamento do MESMO jeito que o StrategyEngine.
-
-    A curva de sensibilidade chamava calculate_price/sac SEM asset_type, o que
-    zera o seguro obrigatório (a tabela é indexada por "property"/"vehicle" e
-    o default é "other"). O gráfico que explica o número saía sobre outra base
-    de custo que o próprio número: R$ 8,4 mil de diferença num financiamento
-    imobiliário de R$ 300 mil.
-    """
-    from app.architect.simulators.strategy_engine import _CALC_ASSET_MAP
-
-    asset = _CALC_ASSET_MAP.get(request.asset_type, "other")
-    if request.amortization_method.value == "SAC":
-        return fin_calc.calculate_sac(principal, cet_annual, months, asset_type=asset)
-    return fin_calc.calculate_price(principal, cet_annual, months, asset_type=asset)
-
-
-def _fluxo_financiamento(down_payment: float, sim) -> list:
-    """Fluxo com parcela + seguro — igual ao StrategyEngine (linha 617)."""
-    return [-down_payment] + [
-        -(row["payment"] + row.get("insurance", 0.0)) for row in sim.schedule
-    ]
 from app.architect.calculators import investment as inv_calc
 from app.architect.calculators import npv as npv_calc
 from app.architect.calculators import consortium as cons_calc
-from app.architect.simulators.strategy_engine import _get_investment_rate
+from app.architect.simulators.strategy_engine import (
+    _CALC_ASSET_MAP,
+    _IOF_RATE_BY_ASSET,
+    _get_investment_rate,
+)
 
 logger = logging.getLogger(__name__)
+
+
+# ── Paridade com o StrategyEngine ────────────────────────────────────────────
+# A curva de sensibilidade tem que sair da MESMA base de custo do número que
+# ela explica. Estava divergindo em dois pontos: chamava calculate_price/sac
+# sem asset_type (zerando o seguro obrigatório, cuja tabela é indexada por
+# "property"/"vehicle") e montava o fluxo sem o seguro e sem o IOF de entrada
+# — R$ 2.376 a menos num veículo de R$ 64 mil.
+# Estes dois helpers espelham StrategyEngine._simulate_financing; o teste em
+# tests/architect/test_correcoes_dados_2026_08.py compara contra o motor de
+# verdade, para que mudança lá quebre aqui.
+
+
+def _simular_financiamento(request, principal: float, cet_annual: float, months: int):
+    """calculate_price/sac com o mesmo asset_type e o mesmo iof_rate do motor."""
+    asset    = _CALC_ASSET_MAP.get(request.asset_type, "other")
+    iof_rate = _IOF_RATE_BY_ASSET.get(request.asset_type, fin_calc.IOF_FIXO_RATE)
+
+    calc = (fin_calc.calculate_sac
+            if request.amortization_method.value == "SAC"
+            else fin_calc.calculate_price)
+    return calc(principal, cet_annual, months, iof_rate=iof_rate, asset_type=asset)
+
+
+def _fluxo_financiamento(down_payment: float, sim) -> list:
+    """Entrada + IOF em t=0, depois parcela + seguro — igual ao motor."""
+    return [-(down_payment + sim.total_iof)] + [
+        -(row["payment"] + row.get("insurance", 0.0)) for row in sim.schedule
+    ]
 
 
 def _safe_float(value: Any) -> float:

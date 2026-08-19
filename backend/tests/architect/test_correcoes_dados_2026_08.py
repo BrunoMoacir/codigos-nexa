@@ -148,13 +148,31 @@ class TestMacroRevertePraMediaDeclarada:
 
         assert abs(ano30 - ano1) < 0.015, f"deriva de {(ano30-ano1)*100:.2f} p.p."
 
-    def test_dispersao_da_selic_bate_com_a_historica(self, paths):
+    # σ mensal medido nas séries reais do BCB, 2016–2026 (127 meses):
+    #   Selic → SGS 4390 | IPCA → SGS 433 | valorização → IVG-R, SGS 21340
+    SIGMA_REAL = {"selic": 0.003298, "ipca": 0.003830, "appreciation": 0.005079}
+
+    @pytest.mark.parametrize("variavel", ["selic", "ipca", "appreciation"])
+    def test_dispersao_bate_com_a_historica(self, paths, variavel):
         """
-        Recalibrado com SGS 4390 (127 meses, 2016–2026): desvio estacionário
-        observado de 0,3298 p.p./mês. O modelo implicava 0,99 — 3x demais, e
-        era por isso que 16% dos sorteios caíam abaixo de zero.
+        As três variâncias eram chutadas e grandes demais (Selic 3,0x, IPCA
+        1,4x, valorização 1,4x). Tolerância de 10% porque _SIGMA_E foi
+        calibrada por iteração numérica, não em forma fechada.
         """
-        assert float(np.std(paths.selic)) == pytest.approx(0.0033, abs=0.0012)
+        alvo = self.SIGMA_REAL[variavel]
+        sigma = float(np.std(getattr(paths, variavel)))
+
+        assert sigma == pytest.approx(alvo, rel=0.10), (
+            f"{variavel}: σ={sigma:.5f} contra {alvo:.5f} da série real"
+        )
+
+    def test_deflacao_na_frequencia_certa(self, paths):
+        """
+        Com a variância inflada o modelo dava 22,8% de meses em deflação
+        contra 9,4% observados — cobria o fenômeno com o dobro da frequência.
+        """
+        pct_neg = float((paths.ipca < 0).mean())
+        assert 0.08 <= pct_neg <= 0.20, f"{pct_neg:.1%} de meses em deflação"
 
     def test_selic_nunca_negativa_mas_ipca_pode_ser(self, paths):
         """Taxa nominal de política não é negativa; deflação e desvalorização
@@ -165,53 +183,106 @@ class TestMacroRevertePraMediaDeclarada:
 
 
 class TestSensibilidadeMesmaBaseDoMotor:
+    """
+    A curva de sensibilidade explica um número; se ela sair de outra base de
+    custo, o gráfico contradiz o resultado. Estes testes comparam contra o
+    StrategyEngine DE VERDADE — comparar contra uma réplica escrita no teste
+    deixa passar exatamente o que aconteceu com o IOF: o helper foi corrigido
+    para o seguro, a réplica também, e a divergência de R$ 2.376 num veículo
+    sobreviveu às duas.
+    """
 
-    def test_fluxo_inclui_seguro_como_no_strategy_engine(self):
-        """
-        O gráfico que explica o número precisa sair do mesmo custo do número.
-        Sem asset_type o seguro some (a tabela é indexada por "property");
-        sem somá-lo ao fluxo, some de novo.
-        """
-        from app.architect.models import AssetType
-        from app.architect.simulators.sensitivity_analyzer import (
-            _fluxo_financiamento,
-            _simular_financiamento,
+    def _request(self, asset_type, metodo="PRICE", **kw):
+        from app.architect.models import AmortizationMethod, SimulationRequest
+
+        return SimulationRequest(
+            user_id="t", target_amount=kw.get("target", 300_000.0),
+            down_payment=kw.get("down", 60_000.0),
+            asset_type=asset_type, financing_months=kw.get("months", 240),
+            amortization_method=AmortizationMethod(metodo),
         )
 
-        class _Req:
-            asset_type = AssetType.IMOVEL
+    def _fluxo_do_motor(self, req, cet):
+        """Reconstrói o fluxo do motor a partir do próprio código do motor."""
+        from app.architect.simulators.strategy_engine import (
+            _CALC_ASSET_MAP, _IOF_RATE_BY_ASSET,
+        )
 
-            class amortization_method:
-                value = "PRICE"
+        calc = (fin_calc.calculate_sac
+                if req.amortization_method.value == "SAC"
+                else fin_calc.calculate_price)
+        sim = calc(
+            req.target_amount - req.down_payment, cet, req.financing_months,
+            iof_rate=_IOF_RATE_BY_ASSET.get(req.asset_type, fin_calc.IOF_FIXO_RATE),
+            asset_type=_CALC_ASSET_MAP.get(req.asset_type, "other"),
+        )
+        return [-(req.down_payment + sim.total_iof)] + [
+            -(r["payment"] + r.get("insurance", 0.0)) for r in sim.schedule
+        ], sim
 
-        sim = _simular_financiamento(_Req(), 300_000.0, 0.13, 240)
-        assert sim.total_insurance > 0, "imóvel tem seguro obrigatório"
+    @pytest.mark.parametrize(
+        "asset,metodo,target,down,months",
+        [
+            ("IMOVEL",  "PRICE", 300_000.0, 60_000.0, 240),
+            ("IMOVEL",  "SAC",   300_000.0, 60_000.0, 240),
+            ("VEICULO", "PRICE",  80_000.0, 16_000.0,  48),
+            ("REFORMA", "PRICE",  50_000.0,  5_000.0,  36),
+            ("OUTRO",   "PRICE",  40_000.0,      0.0,  24),
+        ],
+    )
+    def test_fluxo_identico_ao_do_motor(self, asset, metodo, target, down, months):
+        from app.architect.models import AssetType
+        from app.architect.simulators.sensitivity_analyzer import (
+            _fluxo_financiamento, _simular_financiamento,
+        )
 
-        fluxo = _fluxo_financiamento(60_000.0, sim)
+        req = self._request(
+            getattr(AssetType, asset), metodo,
+            target=target, down=down, months=months,
+        )
+        cet = 0.13
+        esperado, _ = self._fluxo_do_motor(req, cet)
+
+        sim = _simular_financiamento(req, target - down, cet, months)
+        assert _fluxo_financiamento(down, sim) == pytest.approx(esperado, abs=0.01)
+
+    def test_seguro_obrigatorio_entra_no_fluxo(self):
+        """Sem asset_type o seguro some — a tabela é indexada por "property"."""
+        from app.architect.models import AssetType
+        from app.architect.simulators.sensitivity_analyzer import (
+            _fluxo_financiamento, _simular_financiamento,
+        )
+
+        req = self._request(AssetType.IMOVEL)
+        sim = _simular_financiamento(req, 240_000.0, 0.13, 240)
+        assert sim.total_insurance > 0
+
         primeira = sim.schedule[0]
-        assert fluxo[1] == pytest.approx(
+        assert _fluxo_financiamento(60_000.0, sim)[1] == pytest.approx(
             -(primeira["payment"] + primeira["insurance"]), abs=0.01
         )
 
-    def test_divergencia_contra_o_motor_principal_zerada(self):
+    def test_iof_de_entrada_entra_em_t0(self):
+        """
+        Veículo paga IOF no ato (imóvel SFH é isento). Omitir esse termo
+        subestimava o custo em R$ 2.376 num financiamento de R$ 64 mil.
+        """
         from app.architect.models import AssetType
         from app.architect.simulators.sensitivity_analyzer import (
-            _fluxo_financiamento,
-            _simular_financiamento,
+            _fluxo_financiamento, _simular_financiamento,
         )
 
-        class _Req:
-            asset_type = AssetType.IMOVEL
+        req = self._request(AssetType.VEICULO, target=80_000.0, down=16_000.0, months=48)
+        sim = _simular_financiamento(req, 64_000.0, 0.24, 48)
+        assert sim.total_iof > 0
 
-            class amortization_method:
-                value = "PRICE"
-
-        motor = fin_calc.calculate_price(300_000.0, 0.13, 240, asset_type="property")
-        fluxo_motor = [-60_000.0] + [
-            -(r["payment"] + r.get("insurance", 0.0)) for r in motor.schedule
-        ]
-        fluxo_sens = _fluxo_financiamento(
-            60_000.0, _simular_financiamento(_Req(), 300_000.0, 0.13, 240)
+        assert _fluxo_financiamento(16_000.0, sim)[0] == pytest.approx(
+            -(16_000.0 + sim.total_iof), abs=0.01
         )
 
-        assert fluxo_sens == pytest.approx(fluxo_motor, abs=0.01)
+    def test_imovel_sfh_e_isento_de_iof(self):
+        from app.architect.models import AssetType
+        from app.architect.simulators.sensitivity_analyzer import _simular_financiamento
+
+        req = self._request(AssetType.IMOVEL)
+        assert _simular_financiamento(req, 240_000.0, 0.13, 240).total_iof == 0.0

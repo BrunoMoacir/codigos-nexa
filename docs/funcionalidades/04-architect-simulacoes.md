@@ -208,8 +208,10 @@ Valor. [−0,10   0,15    0,72 ]      ← cai com Selic (−10%), sobe com IPCA 
 ```
 
 A covariância dos resíduos codifica os sinais: Selic ↑ acompanha IPCA (+), e
-Selic ↑ derruba a valorização (−). Taxas são clampeadas em `[0, 5% a.m.]`
-(~80% a.a.).
+Selic ↑ derruba a valorização (−). As três variâncias foram calibradas contra
+as séries reais do BCB (2016–2026): Selic pela SGS 4390, IPCA pela SGS 433 e
+valorização pelo IVG-R (SGS 21340). O teto é 5% a.m. (~80% a.a.); o piso é 0
+para a Selic e livre para IPCA e valorização.
 
 Cada trajetória gerada é usada para calcular o VPL de **cada estratégia**,
 produzindo distribuições completas — e não um número.
@@ -319,10 +321,24 @@ API viva → tabela fixa versionada em `data/architect/`.
 - **Os parâmetros macro são constantes hardcoded** (Selic 12%, IPCA 5%,
   valorização 6%, matriz VAR calibrada em 2015–2025). Não há recalibração
   automática do VAR com dados novos — mudança de regime macroeconômico exige
-  editar o módulo. A variância do choque da Selic foi recalibrada em 2026-08
-  contra a série SGS 4390 (127 meses): o valor anterior implicava desvio
-  estacionário de 0,99 p.p./mês contra 0,33 observado, o que jogava 16% dos
-  sorteios abaixo de zero.
+  editar o módulo. **A matriz de persistência `_A` continua sem calibração
+  contra dado** — só as variâncias foram, em 2026-08, contra as séries reais
+  do mesmo período (σ mensal, p.p.):
+
+  | variável | modelo antigo | série real | fonte |
+  |---|---|---|---|
+  | Selic | 0,99 | 0,3298 | SGS 4390 |
+  | IPCA | 0,5467 | 0,3830 | SGS 433 |
+  | valorização | 0,7041 | 0,5079 | IVG-R, SGS 21340 |
+
+  A Selic inflada jogava 16% dos sorteios abaixo de zero; o IPCA inflado dava
+  22,8% de meses em deflação contra 9,4% observados. A calibração é numérica
+  (iteração de Σ' = D·Σ·D até convergir), não em forma fechada — refazer se
+  `_A` mudar.
+- **A média de valorização (6% a.a.) é premissa de produto, não medição.** O
+  IVG-R rendeu 3,52% a.a. nominais no mesmo período. Como toda comparação
+  "comprar vs. investir" depende dessa premissa, ela merece decisão explícita
+  — não foi alterada aqui.
 - **O clamp é aplicado na SAÍDA, não dentro da recursão.** Truncar o estado
   realimentava o passo seguinte e o viés compunha: a Selic revertia para 15%
   em vez de 12% e o IPCA para 8,2% em vez de 5%. Selic mantém piso zero (taxa
@@ -330,6 +346,12 @@ API viva → tabela fixa versionada em `data/architect/`.
   deflação e desvalorização existem.
 - **Seguros usam taxas representativas**, não a tabela do segurador
   contratado — o próprio código diz que produção deveria usar a tabela real.
+- **A curva de sensibilidade compartilha a base de custo do motor** desde
+  2026-08, via `_simular_financiamento` / `_fluxo_financiamento`: mesmo
+  `asset_type` (sem ele o seguro obrigatório é zerado) e mesmo `iof_rate`,
+  com o IOF de entrada em t=0. Antes divergia em R$ 2.376 num veículo de
+  R$ 64 mil — o gráfico contradizia o número que ele explicava. A paridade é
+  testada contra o `StrategyEngine`, não contra uma réplica.
 - **Consórcio: o grupo é sintético** (lance médio inicial 35% com
   decaimento). Administradoras variam muito; o intervalo P10–P90 é honesto,
   mas largo. O ritmo de contemplação NÃO é mais fixo: deriva de

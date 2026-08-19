@@ -4,13 +4,14 @@ app/architect/connectors/ipca.py — Conector IPCA (M3.1)
 Feature: F3 - Nexa Architect / M3.1 — Ajuste por Inflação
 
 Responsabilidade:
-    Busca o IPCA acumulado em 12 meses (série SGS 433 do BCB) para ajustar
+    Busca o IPCA acumulado em 12 meses (série SGS 13522 do BCB) para ajustar
     projeções de investimento ao poder de compra real.
 
 API:
     Sistema SGS - Gerenciador de Séries Temporais do BCB
-    URL: https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados/ultimos/1?formato=json
-    Série 433: IPCA — variação acumulada em 12 meses (%)
+    URL: https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1?formato=json
+    Série 13522: IPCA — variação ACUMULADA EM 12 MESES (%)
+    (a série 433 é a variação MENSAL — ver comentário em _IPCA_SERIES)
     Pública, sem autenticação.
 
 Fallback:
@@ -39,7 +40,7 @@ _FALLBACK_IPCA_ANNUAL: float = 0.045   # 4.5% a.a.
 
 class IPCAConnector(BaseConnector):
     """
-    Conector para o IPCA acumulado em 12 meses (SGS série 433).
+    Conector para o IPCA acumulado em 12 meses (SGS série 13522).
 
     Busca o valor mais recente disponível na API do Banco Central.
     O IPCA é divulgado mensalmente pelo IBGE e reflete a inflação

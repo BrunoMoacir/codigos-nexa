@@ -47,26 +47,37 @@ _A = np.array([
 # Covariância dos resíduos (mensal).
 # Sinais: Selic ↑ → IPCA acompanha (+), Selic ↑ → apreciação cai (−).
 #
-# A variância da Selic era 1.5e-5 (σ = 0,387 p.p./mês), que num AR(1) com
-# persistência 0,92 implica desvio ESTACIONÁRIO de 0,99 p.p./mês — três vezes
-# o que a série real mostra. Consequência: 16% dos sorteios caíam abaixo de
-# zero e eram truncados, empurrando a média simulada de 12% para 15% a.a.
+# As três variâncias eram chutadas, e todas grandes demais. Num AR(1) o desvio
+# ESTACIONÁRIO é σ_choque / √(1 − φ²), então um choque exagerado vira dispersão
+# muito exagerada. Medido contra as séries reais, 2016–2026:
 #
-# Recalibrado com a própria série do BCB (SGS 4390, Selic over mensal,
-# 127 meses de 2016 a 2026): desvio estacionário observado de 0,3298 p.p./mês
-# → σ do choque = 0,3298 × √(1 − 0,92²) = 0,1293 p.p./mês → variância 1,67e-6.
+#   variável       σ real (p.p./mês)          modelo antigo   fator
+#   Selic          0,3298  (SGS 4390)              0,99        0,334
+#   IPCA           0,3830  (SGS 433)               0,5467      0,701
+#   valorização    0,5079  (IVG-R, SGS 21340)      0,7041      0,721
 #
-# A linha/coluna da Selic é escalada pelo mesmo fator (d = 0,334) para
-# PRESERVAR as correlações com IPCA e apreciação — é Σ' = D·Σ·D com
-# D = diag(d, 1, 1), o que também mantém a matriz positiva-definida para o
-# Cholesky.
+# O custo disso não era só ruído: com a dispersão inflada, 16% dos sorteios de
+# Selic caíam abaixo de zero e eram truncados, empurrando a média simulada de
+# 12% para 15% a.a.; e o IPCA dava 22,8% de meses em deflação contra os 9,4%
+# observados — o modelo cobria a deflação, mas com o dobro da frequência.
+#
+# Cada linha/coluna é escalada pelo seu próprio fator, o que PRESERVA as
+# correlações: Σ' = D·Σ·D. A forma também mantém a matriz positiva-definida,
+# exigência do Cholesky (verificado).
+#
+# O fator NÃO é o quociente direto σ_real/σ_modelo: como _A tem termos
+# cruzados, a variância estacionária de cada variável depende da matriz
+# inteira (equação de Lyapunov), então um passo só erra ~5% no IPCA. Os
+# valores abaixo vêm de iterar Σ' = D·Σ·D até os três desvios convergirem —
+# 3 passos para erro < 0,3%. Refazer assim se _A mudar.
 _SIGMA_E = np.array([
-    [ 1.67e-6,  1.34e-6, -5.01e-7],
-    [ 1.34e-6,  7.0e-6,   3.0e-6 ],
-    [-5.01e-7,  3.0e-6,   2.0e-5 ],
+    [ 1.7056e-6,  8.8878e-7, -3.6888e-7],
+    [ 8.8878e-7,  3.0152e-6,  1.4346e-6],
+    [-3.6888e-7,  1.4346e-6,  1.0617e-5],
 ])
 
-_RATE_MIN = 0.0
+# Piso da Selic: taxa nominal de política monetária não é negativa.
+_RATE_MIN_SELIC = 0.0
 _RATE_MAX = 0.05   # ~80% a.a. — teto para clamp
 
 
@@ -148,7 +159,7 @@ def generate_macro_paths(
     #   • valorização: imóvel e veículo caem de preço — piso livre.
     # Antes as três eram truncadas em 0, o que além do viés proibia deflação
     # e desvalorização, dois fenômenos reais que a simulação precisa cobrir.
-    selic = np.clip(selic, 0.0, _RATE_MAX)
+    selic = np.clip(selic, _RATE_MIN_SELIC, _RATE_MAX)
     ipca  = np.clip(ipca,  _RATE_MIN_SIGNED, _RATE_MAX)
     appr  = np.clip(appr,  _RATE_MIN_SIGNED, _RATE_MAX)
 
