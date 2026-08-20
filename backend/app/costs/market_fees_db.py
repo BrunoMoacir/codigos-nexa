@@ -150,6 +150,16 @@ class MarketFeesDB:
                 continue
             seen.add(name)
 
+            # Banco não identificado não recebe benchmark. Antes recebia a média
+            # dos tradicionais como proxy — e como em produção TODAS as tarifas
+            # caíam nesse balde (transactions_clean não tem coluna de
+            # instituição), o relatório comparava o usuário contra bancos que
+            # talvez nem sejam os dele e chamava a diferença de "economia".
+            from app.costs.fee_detector import banco_identificado
+
+            if not banco_identificado(name):
+                continue
+
             live_avg = self._live_lookup(name)
             if live_avg is not None:
                 market_avg, source = live_avg, "open_finance_dados_abertos"
@@ -157,7 +167,7 @@ class MarketFeesDB:
                 market_avg = _BANK_FEES_DB.get(name)
                 source = _SOURCE
                 if market_avg is None:
-                    # Banco não mapeado: média dos tradicionais como proxy
+                    # Banco conhecido, sem preço na base: média dos tradicionais
                     market_avg = self._traditional_bank_avg()
 
             benchmarks.append(

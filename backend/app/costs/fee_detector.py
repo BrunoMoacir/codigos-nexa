@@ -81,10 +81,17 @@ _BANK_KEYWORDS: list[tuple[str, str]] = [
 ]
 _BANK_KEYWORD_RES = [(re.compile(p), name) for p, name in _BANK_KEYWORDS]
 
+BANCO_NAO_IDENTIFICADO = "Banco desconhecido"
+_NOMES_CONHECIDOS = frozenset(INSTITUTION_ID_MAP.values())
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # PADRÕES DE DETECÇÃO DE TARIFA
 # Ordem importa: mais específico primeiro
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Marcador explícito de COBRANÇA. É o que separa "TED" (a transferência que o
+# usuário fez) de "TARIFA TED" (os R$ 10 que o banco cobrou por ela).
+_MARCADOR_COBRANCA = r"(?:tarifa|tar|taxa|encargo|cobranca|deb\s+tar)"
 
 _FEE_PATTERNS: list[tuple[FeeType, re.Pattern]] = [
     (FeeType.ANUIDADE_CARTAO,    re.compile(r"\banuidade\b|\bannual.?fee\b")),
@@ -92,10 +99,25 @@ _FEE_PATTERNS: list[tuple[FeeType, re.Pattern]] = [
     # SEGURO_EMBUTIDO: seguros não-crédito vinculados a produtos bancários — correlação D1 completa fica em defense/
     (FeeType.SEGURO_EMBUTIDO,    re.compile(r"\bseguro\s+(habitacional|automovel|residencial|protecao|garantia|cobertura)\b")),
     (FeeType.PACOTE_SERVICOS,    re.compile(r"\bpacote\s+(de\s+)?(servicos?|tarifas?)\b")),
-    (FeeType.JUROS_ROTATIVO,     re.compile(r"\bjuros\b|\bencargo\b|\brotativo\b|\bjuro\s+rotativo\b")),
+    # ROTATIVO é específico do crédito rotativo do cartão — o produto predatório.
+    # `\bjuros\b` sozinho casava em "PAGAMENTO JUROS EMPRESTIMO", que é custo de
+    # crédito legítimo, não tarifa: o valor da linha é a prestação, não o encargo.
+    (FeeType.JUROS_ROTATIVO,     re.compile(
+        r"\brotativo\b|\b(juros|encargos?)\b.{0,20}\b(cartao|fatura|rotativ)"
+        r"|\b(cartao|fatura)\b.{0,20}\b(juros|encargos?)\b"
+    )),
     (FeeType.IOF,                re.compile(r"\biof\b|\bimposto\s+sobre\s+operac")),
-    (FeeType.SAQUE,              re.compile(r"\bsaque\b")),
-    (FeeType.TED_DOC,            re.compile(r"\b(ted|doc)\b(?!.*pix)")),  # exclui quando contexto é PIX
+    # SAQUE e TED/DOC exigem MARCADOR: sem ele, o valor casado é o da operação
+    # (o dinheiro sacado, o dinheiro transferido), não o da cobrança. Era o
+    # defeito de maior magnitude do F5 — uma TED de R$ 2.500 virava "tarifa de
+    # R$ 2.500", e o relatório inflava 114x num extrato realista.
+    (FeeType.SAQUE,              re.compile(
+        rf"{_MARCADOR_COBRANCA}\b.{{0,25}}\bsaque\b|\bsaque\b.{{0,25}}\b{_MARCADOR_COBRANCA}\b"
+    )),
+    (FeeType.TED_DOC,            re.compile(
+        rf"(?!.*pix)(?:{_MARCADOR_COBRANCA}\b.{{0,25}}\b(ted|doc|transferencia)\b"
+        rf"|\b(ted|doc|transferencia)\b.{{0,25}}\b{_MARCADOR_COBRANCA}\b)"
+    )),
     (FeeType.TARIFA_MANUTENCAO,  re.compile(
         r"\btarifa\b|\btaxa\s+(de\s+)?(manutencao|conta|servico|cadastro)\b"
         r"|\bcusto\s+(de\s+)?conta\b|\bmensalidade\s+(conta|cartao)\b"
@@ -103,6 +125,123 @@ _FEE_PATTERNS: list[tuple[FeeType, re.Pattern]] = [
 ]
 
 _MIN_FEE_VALUE = 0.50  # R$ — filtra micro-cobranças isoladas
+
+# Teto de plausibilidade por tipo, em R$ por cobrança. NÃO é calibração — é
+# sanidade: segunda linha de defesa para quando a descrição engana o regex.
+# Uma cobrança acima do teto é descartada COM LOG, nunca em silêncio, porque
+# falso negativo silencioso também é defeito (é o gap nº 1 da doc).
+#
+# IOF e JUROS_ROTATIVO ficam de fora de propósito: os dois escalam com o
+# principal da operação e não têm ordem de grandeza fixa (IOF de crédito é 3%
+# do principal; rotativo sobre fatura grande passa fácil de R$ 1.000).
+_FEE_CEILINGS: dict[FeeType, float] = {
+    FeeType.TARIFA_MANUTENCAO:  200.0,    # pacote mais caro do varejo fica < R$ 100
+    FeeType.PACOTE_SERVICOS:    300.0,
+    FeeType.TED_DOC:            150.0,    # tarifa de TED no varejo: R$ 5–30
+    FeeType.SAQUE:              150.0,    # saque em rede parceira: R$ 5–20
+    FeeType.ANUIDADE_CARTAO:   2500.0,    # cartão black à vista, sem parcelar
+    FeeType.SEGURO_PRESTAMISTA: 800.0,    # prêmio mensal
+    FeeType.SEGURO_EMBUTIDO:    800.0,
+}
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# NORMALIZAÇÃO DO EXTRATO
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def normalizar_extrato(
+    transactions_df: pl.DataFrame, user_id: str | None = None
+) -> pl.DataFrame:
+    """
+    Põe o extrato no vocabulário que o F5 espera, UMA vez, para todo mundo.
+
+    Antes cada consumidor normalizava por conta própria — e o `FeeDetector`
+    renomeava `date` → `transaction_date` só na sua CÓPIA LOCAL. O
+    `BankFeeAnalyzer._calc_period` recebia o DataFrame original, não achava a
+    coluna e devolvia 1 mês para qualquer histórico: a projeção anual saía
+    inflada exatamente pelo número de meses de dados (12x para quem tem um
+    ano). É a mesma deriva `date`/`transaction_date` que zerava a renda no ETL.
+
+    Faz três coisas:
+      1. `date` → `transaction_date` (o banco entrega `date`);
+      2. preenche `institution_id` a partir de `account_id` quando há user_id;
+      3. garante que a coluna `institution_id` exista.
+    """
+    if transactions_df.is_empty():
+        return transactions_df
+
+    if ("transaction_date" not in transactions_df.columns
+            and "date" in transactions_df.columns):
+        transactions_df = transactions_df.with_columns(
+            pl.col("date").alias("transaction_date")
+        )
+
+    if user_id:
+        transactions_df = enriquecer_institution_id(user_id, transactions_df)
+
+    if "institution_id" not in transactions_df.columns:
+        transactions_df = transactions_df.with_columns(
+            pl.lit("").alias("institution_id")
+        )
+
+    return transactions_df
+
+
+def enriquecer_institution_id(user_id: str, transactions_df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Preenche `institution_id` via `account_id` → `account_balances`.
+
+    `transactions_clean` NÃO tem coluna de instituição, e
+    `get_transactions_for_user` não devolve nenhuma — então a resolução de banco
+    do F5 colapsava na keyword da descrição. Só que extrato do Itaú diz
+    "TARIFA MANUTENCAO CONTA", não "TARIFA ITAU": na prática toda tarifa caía em
+    "Banco desconhecido", era comparada contra a média dos bancos tradicionais e
+    virava conselho de migração fabricado — inclusive para quem já está num
+    banco digital.
+
+    Esta função existia em `BankMatchService._enrich_institution_id`, usada por
+    1 dos 8 consumidores do analyzer. Foi promovida para cá para valer em todos.
+
+    Só preenche onde está vazio — metadado existente nunca é sobrescrito.
+    Falha aberta: qualquer problema devolve o DataFrame original.
+    """
+    try:
+        from app.core.db.balances import get_account_bank_map
+        from app.opportunities.services.bank_names import banks_match
+
+        if "account_id" not in transactions_df.columns:
+            return transactions_df
+        bank_by_account = get_account_bank_map(user_id)
+        if not bank_by_account:
+            return transactions_df
+
+        key_by_account: dict[str, str] = {}
+        for account_id, bank_name in bank_by_account.items():
+            for key, readable in INSTITUTION_ID_MAP.items():
+                if banks_match(bank_name, readable):
+                    key_by_account[account_id] = key
+                    break
+
+        if not key_by_account:
+            return transactions_df
+
+        mapper = pl.col("account_id").cast(pl.Utf8).replace_strict(
+            key_by_account, default=""
+        )
+        if "institution_id" in transactions_df.columns:
+            filled = (
+                pl.when(
+                    pl.col("institution_id").is_null()
+                    | (pl.col("institution_id").cast(pl.Utf8) == "")
+                )
+                .then(mapper)
+                .otherwise(pl.col("institution_id"))
+            )
+            return transactions_df.with_columns(filled.alias("institution_id"))
+        return transactions_df.with_columns(mapper.alias("institution_id"))
+    except Exception as exc:
+        logger.debug("enriquecer_institution_id | user=%s: %s", user_id, exc)
+        return transactions_df
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -133,19 +272,9 @@ class FeeDetector:
         if transactions_df.is_empty():
             return []
 
-        # Compatibilidade com diferentes fontes: algumas pipelines usam `date`
-        # ao invés de `transaction_date`.
-        if "transaction_date" not in transactions_df.columns and "date" in transactions_df.columns:
-            transactions_df = transactions_df.with_columns(
-                pl.col("date").alias("transaction_date")
-            )
-
-        # institution_id pode não estar disponível em alguns fluxos locais.
-        # Nesses casos mantemos vazio e aplicamos fallback por descrição.
-        if "institution_id" not in transactions_df.columns:
-            transactions_df = transactions_df.with_columns(
-                pl.lit("").alias("institution_id")
-            )
+        # Normalização compartilhada — ver normalizar_extrato(). Renomear aqui
+        # dentro era o que fazia o cálculo de período divergir da detecção.
+        transactions_df = normalizar_extrato(transactions_df)
 
         required = {"transaction_date", "amount", "description"}
         missing = required - set(transactions_df.columns)
@@ -154,6 +283,7 @@ class FeeDetector:
             return []
 
         fees: list[FeeEntry] = []
+        descartadas = 0
 
         # Apenas débitos acima do limiar mínimo
         debits = transactions_df.filter(pl.col("amount") < -_MIN_FEE_VALUE)
@@ -176,6 +306,21 @@ class FeeDetector:
             if fee_type is None:
                 continue
 
+            valor = abs(float(row["amount"]))
+            teto = _FEE_CEILINGS.get(fee_type)
+            if teto is not None and valor > teto:
+                # Segunda linha de defesa: a descrição enganou o regex e o valor
+                # casado é o da operação, não o da cobrança. Descartar em
+                # silêncio seria trocar um falso positivo por um falso negativo
+                # invisível — por isso o WARNING.
+                descartadas += 1
+                logger.warning(
+                    "FeeDetector | %s de R$ %.2f acima do teto de R$ %.2f — "
+                    "descartada como provável valor de operação: %r",
+                    fee_type.value, valor, teto, (row.get("description") or "")[:60],
+                )
+                continue
+
             institution_id = str(row.get("institution_id") or "")
             bank_name = self._resolve_bank_name(institution_id, text)
 
@@ -187,7 +332,7 @@ class FeeDetector:
                 FeeEntry(
                     transaction_date=tx_date,
                     fee_type=fee_type,
-                    amount=abs(float(row["amount"])),
+                    amount=valor,
                     bank_name=bank_name,
                     institution_id=institution_id,
                     description=row.get("description") or "",
@@ -195,7 +340,10 @@ class FeeDetector:
             )
 
         fees.sort(key=lambda f: f.transaction_date, reverse=True)
-        logger.info("FeeDetector | %d tarifa(s) detectada(s) em %d transações", len(fees), debits.height)
+        logger.info(
+            "FeeDetector | %d tarifa(s) em %d débitos (%d descartada(s) por teto)",
+            len(fees), debits.height, descartadas,
+        )
         return fees
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -225,7 +373,20 @@ class FeeDetector:
             if pattern.search(text):
                 return bank_name
 
-        return f"Banco ({institution_id})" if institution_id else "Banco desconhecido"
+        return f"Banco ({institution_id})" if institution_id else BANCO_NAO_IDENTIFICADO
+
+
+def banco_identificado(bank_name: str) -> bool:
+    """
+    O banco foi resolvido de verdade, ou é só um balde de sobra?
+
+    Sem isso, "Banco desconhecido" — que em produção continha TODAS as tarifas,
+    porque transactions_clean não tem coluna de instituição — era comparado com
+    a média dos bancos tradicionais e virava promessa de economia em reais.
+    Comparar o custo de um usuário contra a média de bancos que talvez não
+    sejam os dele não é benchmark, é ruído com casas decimais.
+    """
+    return bank_name in _NOMES_CONHECIDOS
 
 
 def _normalize_text(value: str) -> str:

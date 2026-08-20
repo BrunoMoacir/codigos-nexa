@@ -967,7 +967,24 @@ class TestCustosBancarios:
         assert "user_id" in data
         assert "total_fees_period" in data
         assert "annualized_cost" in data
-        assert isinstance(data.get("fee_breakdown", []), list)
+
+        # As asserções abaixo checam VALORES, não presença de chave. A versão
+        # anterior terminava em `isinstance(data.get("fee_breakdown", []), list)`
+        # — e `fee_breakdown` não é campo do modelo, então o `.get` devolvia []
+        # e o isinstance era sempre verdadeiro. Foi o que deixou passar a
+        # projeção anual inflada pelo número de meses de histórico.
+        assert isinstance(data["by_fee_type"], dict)
+        assert data["analysis_months"] >= 1
+        if data["total_paid"] > 0:
+            # coerência interna: anual = média mensal × 12, e a média mensal sai
+            # do período REAL do extrato, não de um mês fixo
+            assert data["period_start"] is not None
+            assert data["annualized_cost"] == pytest.approx(
+                data["monthly_avg"] * 12, abs=0.02
+            )
+            assert data["monthly_avg"] == pytest.approx(
+                data["total_paid"] / data["analysis_months"], abs=0.02
+            )
 
     def test_raio_x_sem_dados(self, client, H):
         """Usuário sem transações retorna 404."""

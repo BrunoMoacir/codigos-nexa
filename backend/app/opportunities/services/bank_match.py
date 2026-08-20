@@ -159,51 +159,13 @@ class BankMatchService:
 
     @staticmethod
     def _enrich_institution_id(user_id: str, transactions_df):
-        """Preenche institution_id via account_id → bank_name (account_balances)
-        → chave do INSTITUTION_ID_MAP do FeeDetector. Só preenche onde está
-        vazio/ausente — metadado existente nunca é sobrescrito. Falha aberta:
-        qualquer problema devolve o DataFrame original (heurística do F5)."""
-        try:
-            import polars as pl
+        """Delega para o F5 — a implementação foi promovida para
+        `app/costs/fee_detector.enriquecer_institution_id`, porque valia para os
+        8 consumidores do BankFeeAnalyzer e era usada só aqui. Mantido como
+        alias pelo nome já referenciado nos testes de Oportunidades."""
+        from app.costs.fee_detector import enriquecer_institution_id
 
-            from app.core.db.balances import get_account_bank_map
-            from app.costs.fee_detector import INSTITUTION_ID_MAP
-            from app.opportunities.services.bank_names import banks_match
-
-            if "account_id" not in transactions_df.columns:
-                return transactions_df
-            bank_by_account = get_account_bank_map(user_id)
-            if not bank_by_account:
-                return transactions_df
-
-            # bank_name legível → chave aceita pelo FeeDetector (ex: "nubank")
-            key_by_account: dict[str, str] = {}
-            for account_id, bank_name in bank_by_account.items():
-                for key, readable in INSTITUTION_ID_MAP.items():
-                    if banks_match(bank_name, readable):
-                        key_by_account[account_id] = key
-                        break
-
-            if not key_by_account:
-                return transactions_df
-
-            mapper = pl.col("account_id").cast(pl.Utf8).replace_strict(
-                key_by_account, default=""
-            )
-            if "institution_id" in transactions_df.columns:
-                filled = (
-                    pl.when(
-                        pl.col("institution_id").is_null()
-                        | (pl.col("institution_id").cast(pl.Utf8) == "")
-                    )
-                    .then(mapper)
-                    .otherwise(pl.col("institution_id"))
-                )
-                return transactions_df.with_columns(filled.alias("institution_id"))
-            return transactions_df.with_columns(mapper.alias("institution_id"))
-        except Exception as exc:
-            logger.debug("[BankMatch] enrich_institution_id user=%s: %s", user_id, exc)
-            return transactions_df
+        return enriquecer_institution_id(user_id, transactions_df)
 
     @staticmethod
     def _project_fees(

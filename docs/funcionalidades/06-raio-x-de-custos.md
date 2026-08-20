@@ -1,16 +1,24 @@
 # 06 — Raio-X de Custos (F5)
 
-> Mostra cada tarifa que o banco cobra de você — e se ela está acima do que o
-> mercado cobra.
+> Encontra as cobranças que o banco faz e você não sabia que tinha — e, quando
+> dá para saber de qual banco vieram, mostra se estão acima do mercado.
 
 ## Em palavras simples
 
 Tarifa bancária é desenhada para passar despercebida: R$ 24,90 aqui, R$ 12 de
-"manutenção" ali. O Raio-X varre o extrato, encontra todas as tarifas, soma o
-custo anual ("você paga R$ 487/ano só de tarifas") e compara com um benchmark:
-"a média de mercado para esse pacote é R$ 15 — o seu banco cobra R$ 25".
-É a matéria-prima da indignação que move a Defesa do Consumidor (doc 10) e o
-Negociador (doc 08).
+"manutenção" ali, um seguro prestamista que ninguém lembra de ter contratado.
+O Raio-X varre o extrato e devolve **cada cobrança, itemizada**.
+
+O output que move o produto é essa lista, não o total anual. "Seu banco te cobra
+um seguro prestamista de R$ 38,90 que você não pediu" é acionável; "você paga
+R$ 487/ano em tarifas" é interessante uma vez e não muda comportamento nenhum.
+A lista é o insumo da Defesa do Consumidor (doc 10) e do Negociador (doc 08) —
+o Raio-X é infraestrutura delas antes de ser uma tela.
+
+**O que ele deliberadamente NÃO promete**: economia em reais por trocar de banco
+quando a instituição não foi identificada. Comparar o custo de alguém contra a
+média de bancos que talvez nem sejam os dele não é benchmark, é ruído com casas
+decimais — ver "Reposicionamento de 2026-08" nos gaps.
 
 ---
 
@@ -166,14 +174,65 @@ identificar cobrança nova sem precedente — é o insumo do detector D2 (doc 10
 - **Não lê o contrato do usuário** — não sabe qual pacote foi contratado; o
   benchmark é por perfil típico, não pelo contrato específico.
 
+## Reposicionamento de 2026-08
+
+Três defeitos, todos encontrados de uma vez porque não existia teste algum de
+`BankFeeAnalyzer` nem de `FeeDetector` — `tests/costs/` só cobria o conector do
+Open Finance, e o único teste da rota checava presença de chaves, nunca valores.
+
+**1. O valor da operação era contado como tarifa.** `\b(ted|doc)\b` e
+`\bsaque\b` casavam o TIPO DE OPERAÇÃO, e o valor da linha é o dinheiro
+transferido ou sacado. Uma TED de R$ 2.500 virava "tarifa de R$ 2.500"; num
+extrato realista de 6 meses o relatório reportava R$ 29.357,40 contra R$ 901,80
+de tarifa real — **114x**. Agora TED/DOC e SAQUE exigem marcador explícito de
+cobrança (`TARIFA TED`, não `TED`), `JUROS` só casa em contexto de rotativo de
+cartão, e há teto de plausibilidade por tipo como segunda linha de defesa —
+descartando **com log**, porque falso negativo silencioso também é defeito.
+
+Vale notar quais padrões estavam quebrados: os três genéricos do fim da lista de
+prioridade. Os seis específicos — anuidade, seguro prestamista, seguro embutido,
+pacote, IOF, tarifa de manutenção — são sadios por construção, porque quando a
+descrição diz "anuidade" o valor da linha *é* a cobrança. São também exatamente
+os que a Defesa consome.
+
+**2. `analysis_months` era sempre 1.** `get_transactions_for_user` entrega a
+coluna `date`; o `FeeDetector` renomeava para `transaction_date` só na sua cópia
+local, e o `_calc_period` recebia o DataFrame original, não achava a coluna e
+devolvia 1 mês para qualquer histórico. A projeção anual saía multiplicada pelo
+número de meses de dados — **12x para quem tem um ano** — e `period_start`
+voltava nulo. É a mesma deriva `date`/`transaction_date` que zerava a renda no
+ETL. Agora `normalizar_extrato()` normaliza uma vez, antes de tudo.
+
+**3. Nenhum banco era identificado.** `transactions_clean` não tem coluna de
+instituição e a query não devolve nenhuma, então as duas camadas de resolução
+colapsavam em keyword na descrição — e extrato do Itaú diz "TARIFA MANUTENCAO
+CONTA", não "TARIFA ITAU". Tudo caía em "Banco desconhecido", que recebia a
+média dos tradicionais como proxy e virava promessa de economia em reais,
+inclusive para quem já está num banco digital.
+
+A correção já existia no repositório: `BankMatchService._enrich_institution_id`
+deriva a instituição de `account_id` → `account_balances`, e era usada por 1 dos
+8 consumidores do analyzer. Foi promovida para
+`app/costs/fee_detector.enriquecer_institution_id`. Onde ainda assim não dá para
+identificar, o relatório **não inventa benchmark**: a economia fica em zero e um
+aviso explica quanto ficou sem atribuição e por quê.
+
 ## Gaps e limitações
 
 - **A detecção é puramente textual.** Uma tarifa com descrição atípica
   ("DEB AUT CONV 4471") não casa em nenhum dos 9 padrões e simplesmente não
   aparece no relatório — falso negativo silencioso.
-- **Regex genérico pode gerar falso positivo**: `\bjuros\b` casa em qualquer
-  lançamento com a palavra "juros", inclusive juros **recebidos** — a proteção
-  é só o filtro `amount < 0`.
+- **Exigir marcador troca um erro por outro, de propósito.** Um banco que
+  descreva a tarifa de TED só como "TED 4471", sem palavra de cobrança, agora
+  passa despercebido. É a troca certa: falso positivo de R$ 2.500 num relatório
+  de tarifas destrói a confiança no produto inteiro; falso negativo de R$ 11,90
+  não.
+- **Os tetos de plausibilidade são sanidade, não calibração.** Vieram de ordem
+  de grandeza de mercado, não de medição. IOF e rotativo ficam de fora porque
+  escalam com o principal da operação.
+- **O flywheel acumulou dados errados.** `fee_snapshot` roda pelo mesmo caminho,
+  então `bank_fee_history` e `bank_fee_trends` guardam os números inflados de
+  antes desta correção. O baseline coletivo precisa ser reconstruído.
 - **A tabela estática é curada manualmente** e representa "o pacote padrão mais
   contratado", não o contrato do usuário. Os R$ 0,00 dos digitais ignoram
   anuidade de cartão, que varia por produto (o próprio comentário no código

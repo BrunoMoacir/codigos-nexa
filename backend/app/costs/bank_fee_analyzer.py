@@ -58,6 +58,16 @@ class BankFeeAnalyzer:
         warnings: list[str] = []
         data_sources: list[str] = []
 
+        # ── 0. Normalizar UMA vez, para todo o resto ──────────────────
+        # O detector normalizava na cópia local dele e o _calc_period recebia o
+        # DataFrame cru: sem a coluna `transaction_date`, devolvia 1 mês para
+        # qualquer histórico e a projeção anual saía inflada exatamente pelo
+        # número de meses de dados. Normalizar aqui é o que mantém detecção e
+        # período falando do mesmo extrato.
+        from app.costs.fee_detector import normalizar_extrato
+
+        transactions_df = normalizar_extrato(transactions_df, user_id=user_id)
+
         # ── 1. Detectar tarifas ───────────────────────────────────────
         fees = self._detector.detect(transactions_df)
         if not fees:
@@ -97,6 +107,21 @@ class BankFeeAnalyzer:
             warnings.append(
                 f"Histórico de apenas {analysis_months} mês(es) — "
                 "médias podem não refletir o custo real anual."
+            )
+
+        # Transparência sobre o que NÃO foi possível concluir. O relatório
+        # sempre teve o campo de economia; o que faltava era dizer quando ele
+        # é zero por falta de dado, e não por o usuário já estar bem.
+        from app.costs.fee_detector import banco_identificado
+
+        nao_identificados = [b for b in by_bank if not banco_identificado(b.bank_name)]
+        if nao_identificados:
+            valor = round(sum(b.total_paid for b in nao_identificados), 2)
+            warnings.append(
+                f"R$ {valor:.2f} em tarifas não puderam ser atribuídas a um banco "
+                "específico — sem isso não há comparação de mercado possível para "
+                "esse valor. Reconecte a conta pelo Open Finance para identificar "
+                "a instituição."
             )
 
         return BankCostReport(
@@ -373,10 +398,18 @@ class BankFeeAnalyzer:
         if not benchmarks or not by_bank:
             return 0.0
 
+        from app.costs.fee_detector import banco_identificado
+
         benchmark_map = {b.bank_name: b.monthly_avg_market for b in benchmarks}
         total_savings = 0.0
 
         for bank in by_bank:
+            # Só compara quando SABEMOS de que banco é a tarifa. O balde de
+            # sobra recebia o benchmark médio dos tradicionais e produzia
+            # economia em reais para um banco que ninguém identificou — dizendo
+            # a um usuário de banco digital que ele economizaria migrando.
+            if not banco_identificado(bank.bank_name):
+                continue
             market_avg = benchmark_map.get(bank.bank_name)
             if market_avg is None:
                 continue
