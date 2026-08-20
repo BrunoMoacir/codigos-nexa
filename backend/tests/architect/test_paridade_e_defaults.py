@@ -268,3 +268,174 @@ class TestParidadeConsorcio:
             f"entrada maior tem que antecipar a contemplação: {meses}"
         )
         assert meses[0] != meses[-1]
+
+
+class TestAlvoMovel:
+    """
+    Quem poupa para comprar mira o preço que o bem terá na data da compra.
+
+    O modelo mirava `target_amount` — o preço de HOJE, congelado — enquanto o
+    aluguel pago durante a espera era corrigido pelo IPCA mês a mês, oito linhas
+    acima no mesmo método. Encarecia a espera de um lado e congelava do outro, e
+    o viés tinha direção única: inflava SAVE_INVEST, que é justamente a
+    estratégia concorrente do financiamento.
+    """
+
+    RATES = {"ipca_annual": 0.045, "cdi_annual": 0.1465, "selic_annual": 0.1475}
+
+    def test_preco_do_bem_cresce_com_o_prazo(self):
+        req = _request(AssetType.IMOVEL)
+        precos = [cost_basis.preco_do_bem_em(req, self.RATES, m) for m in (0, 36, 120)]
+
+        assert precos[0] == pytest.approx(300_000.0)
+        assert precos == sorted(precos)
+        assert precos[2] > 500_000.0, f"120 meses a 6% a.a.: {precos[2]:,.0f}"
+
+    def test_aporte_necessario_e_maior_que_o_do_alvo_congelado(self):
+        """
+        Imóvel de R$ 300 mil, 120 meses: o modelo pedia R$ 616/mês contra os
+        R$ 1.742 de que a pessoa precisa. Aos 180 meses pedia R$ 30 — porque a
+        entrada rendendo sozinha quase alcançava um alvo que não anda.
+        """
+        from app.architect.calculators import investment as inv_calc
+
+        req = _request(AssetType.IMOVEL)
+        for meses in (36, 60, 120, 180):
+            congelado = inv_calc.calculate_pmt_needed(300_000.0, 0.11, meses, 60_000.0)
+            movel = cost_basis.aporte_para_alcancar_o_bem(req, self.RATES, 0.11, meses)
+            assert movel > congelado, f"{meses}m: {movel:.0f} vs {congelado:.0f}"
+
+    def test_bem_que_sobe_mais_que_o_rendimento_nao_e_alcancavel(self):
+        """
+        Resultado, não falha de cálculo: se o imóvel valoriza 6% a.a. e o
+        dinheiro rende 4%, a meta se afasta a cada mês. Antes isso virava um
+        prazo de 120 meses inventado, indistinguível de um plano que fecha.
+        """
+        req = _request(AssetType.IMOVEL)
+        assert cost_basis.meses_para_alcancar_o_bem(req, self.RATES, 2_000.0, 0.04) is None
+        assert cost_basis.meses_para_alcancar_o_bem(req, self.RATES, 2_000.0, 0.11) is not None
+
+    def test_bem_sem_indice_proprio_cresce_pelo_ipca(self):
+        """
+        Não existe índice de veículo no projeto. Crescer pelo IPCA é o neutro;
+        congelar não é — congelar afirma que o preço não muda.
+        """
+        for asset in (AssetType.VEICULO, AssetType.REFORMA, AssetType.OUTRO):
+            assert cost_basis.taxa_reajuste_do_bem(asset, self.RATES) == pytest.approx(0.045)
+        assert cost_basis.taxa_reajuste_do_bem(AssetType.IMOVEL, self.RATES) > 0.045
+
+    def test_valorizacao_do_var_deixou_de_ser_codigo_morto(self):
+        """
+        `paths.appreciation` era gerado, calibrado, clampado e DESCARTADO —
+        nenhum consumidor o lia. Agora é ele que move o alvo por trajetória.
+        """
+        import inspect
+
+        from app.architect.simulators import macro_scenario
+
+        # Consumo tem que existir FORA da função que gera as trajetórias.
+        fonte = inspect.getsource(macro_scenario.run_macro_simulation)
+        assert "paths.appreciation" in fonte
+
+        # E tem que chegar até o cálculo de NPV.
+        assert "asset_growth" in inspect.getsource(macro_scenario._compute_raw_npvs)
+        assert "asset_growth" in inspect.getsource(macro_scenario._npv_save_invest)
+
+    def test_alvo_movel_encarece_poupar_na_simulacao_macro(self):
+        import numpy as np
+
+        from app.architect.simulators.macro_scenario import (
+            _npv_save_invest, generate_macro_paths,
+        )
+
+        p = generate_macro_paths(n_sims=800, n_months=240, initial_selic_annual=0.12, seed=5)
+        congelado = _npv_save_invest(2_500.0, 300_000.0, 60_000.0, p.selic, 0.85)
+        movel = _npv_save_invest(
+            2_500.0, 300_000.0, 60_000.0, p.selic, 0.85, asset_growth=p.appreciation
+        )
+        assert float(np.median(movel)) < float(np.median(congelado))
+
+
+class TestIncertezaDosParametrosDoGrupo:
+    """
+    Dois parâmetros do consórcio não são conhecidos: a divisão das vagas entre
+    sorteio e lance, e a fração da carta usada como lance embutido. A ABAC não
+    publica nenhum dos dois e o dataset do BACEN que traria isso
+    (PANORAMA_DE_CONSORCIOS, no Olinda) responde 500 nos endpoints de dado.
+
+    A resposta não é escolher melhor o número — é parar de reportar precisão
+    que não existe.
+    """
+
+    KW = dict(
+        letter_value=300_000.0, months=180, admin_rate=0.19,
+        reserve_fund_rate=0.02, asset_type="property",
+        annual_adjustment_rate=0.0666, group_size=150,
+        num_simulations=4800, seed=42,
+    )
+
+    def _percentis(self, **extra):
+        return cons_calc.calculate_consortium_metrics(
+            bid_amount=120_000.0, **extra, **self.KW
+        ).contemplation_percentiles
+
+    def test_intervalo_alarga_com_a_incerteza(self):
+        """
+        Com lance alto a data depende muito de quanto os OUTROS ofertam — que é
+        exatamente o que ninguém publica. O intervalo tem que refletir isso.
+        """
+        incerto = self._percentis()
+        fixo = self._percentis(sorteio_share=0.5)
+
+        largura = lambda p: p["p90"] - p["p10"]
+        assert largura(incerto) > largura(fixo), (
+            f"incerteza não alargou: {largura(incerto)} vs {largura(fixo)}"
+        )
+
+    def test_share_explicito_desliga_a_propagacao(self):
+        """Determinismo continua disponível — é o que a sensibilidade usa."""
+        a = self._percentis(sorteio_share=0.5)
+        b = self._percentis(sorteio_share=0.5)
+        assert a == b
+
+    def test_sensibilidade_roda_sem_ruido_de_parametro(self):
+        """
+        Gráfico de tornado isola UMA variável. Ruído de parâmetro em cada ponto
+        mede ruído, não sensibilidade — e custava 25 s por teste.
+        """
+        import inspect
+
+        from app.architect.simulators import sensitivity_analyzer
+
+        fonte = inspect.getsource(sensitivity_analyzer._simular_consorcio)
+        assert "sorteio_share" in fonte
+
+    def test_faixas_declaradas_sao_plausiveis(self):
+        from app.architect.calculators.consortium import (
+            _LANCE_EMBUTIDO_FAIXA, _SORTEIO_SHARE_FAIXA,
+        )
+
+        # embutido: faixa real citada pela ABAC
+        assert _LANCE_EMBUTIDO_FAIXA == (0.10, 0.30)
+        # sorteio: simétrica em torno do 50/50 que o modelo sempre assumiu
+        assert sum(_SORTEIO_SHARE_FAIXA) == pytest.approx(1.0)
+        assert 0.0 < _SORTEIO_SHARE_FAIXA[0] < _SORTEIO_SHARE_FAIXA[1] < 1.0
+
+    def test_busca_do_prazo_e_por_bisseccao(self):
+        """
+        `calculate_months_needed` itera até 1200 meses em Python puro. Com o
+        alvo móvel ela deixou de convergir cedo e, sozinha, multiplicou por 5 o
+        tempo da suíte do architect (143 s → 720 s).
+        """
+        import time
+
+        req = _request(AssetType.IMOVEL)
+        rates = {"ipca_annual": 0.045}
+
+        t0 = time.perf_counter()
+        for _ in range(500):
+            cost_basis.meses_para_alcancar_o_bem(req, rates, 2_000.0, 0.11)
+        us = (time.perf_counter() - t0) / 500 * 1e6
+
+        assert us < 200, f"{us:.0f} µs/chamada — busca linear de volta?"
+

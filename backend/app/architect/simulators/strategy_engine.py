@@ -819,23 +819,28 @@ class StrategyEngine:
         selic_monthly = (1 + rate(rates, "selic_annual")) ** (1 / 12) - 1
         disc_monthly = rates.get("disc_rate_monthly", selic_monthly)
 
+        # O ALVO ANDA. Quem poupa para comprar mira o preço que o bem terá na
+        # data da compra, não o de hoje — ver cost_basis.meses_para_alcancar_o_bem.
+        # Antes o alvo era congelado enquanto o aluguel pago durante a espera era
+        # corrigido pelo IPCA logo abaixo: o modelo encarecia a espera de um lado
+        # e a congelava do outro, sempre a favor de SAVE_INVEST.
+        alvo_inalcancavel = False
+
         if req.max_monthly_budget:
             monthly_dep = req.max_monthly_budget
-            months = inv_calc.calculate_months_needed(
-                req.target_amount,
-                monthly_dep,
-                investment_rate,
-                req.down_payment,
+            months = cost_basis.meses_para_alcancar_o_bem(
+                req, rates, monthly_dep, investment_rate
             )
             if months is None:
-                months = 120
+                # O bem sobe mais rápido do que o dinheiro rende: a meta se
+                # afasta a cada mês. Antes isto virava um prazo de 120 meses
+                # inventado, indistinguível de um plano que fecha.
+                alvo_inalcancavel = True
+                months = req.financing_months
         else:
             months = req.financing_months
-            monthly_dep = inv_calc.calculate_pmt_needed(
-                req.target_amount,
-                investment_rate,
-                months,
-                req.down_payment,
+            monthly_dep = cost_basis.aporte_para_alcancar_o_bem(
+                req, rates, investment_rate, months
             )
 
         # Fluxo: -Entrada -Aportes mensais [-Aluguel mensal durante acumulação]
@@ -851,15 +856,21 @@ class StrategyEngine:
         npv_val = npv_calc.calculate_npv(cashflows, disc_monthly)
 
         # M3.1 — Valor futuro nominal vs. real (poder de compra de hoje)
-        fv_nominal = req.target_amount
+        # fv_nominal é o preço do bem NA DATA DA COMPRA, que é o que a pessoa
+        # precisa acumular — não o preço de hoje.
+        fv_nominal = cost_basis.preco_do_bem_em(req, rates, months)
         fv_real    = ipca_deflate(fv_nominal, ipca_annual, years=months / 12)
 
         return {
             "type": "SAVE_INVEST",
             "monthly_payment": round(monthly_dep, 2),
-            "min_cost": req.target_amount,
-            "expected_cost": req.target_amount,
-            "max_cost": req.target_amount,
+            "min_cost": round(fv_nominal, 2),
+            "expected_cost": round(fv_nominal, 2),
+            "max_cost": round(fv_nominal, 2),
+            "target_unreachable": alvo_inalcancavel,
+            "asset_growth_annual": round(
+                cost_basis.taxa_reajuste_do_bem(req.asset_type, rates), 4
+            ),
             "npv": npv_val,
             "months": months,
             # M3.1 extras:
@@ -1266,6 +1277,9 @@ class StrategyEngine:
                 consortium_admin_reserve          = consortium_admin_reserve,
                 consortium_expected_contemplation = consortium_expected,
                 invest_factor                     = invest_factor,
+                # Alvo móvel: imóvel cresce pela trajetória de valorização do
+                # próprio VAR; demais bens, pelo IPCA. Ver cost_basis.
+                asset_appreciates                 = (request.asset_type == AssetType.IMOVEL),
                 seed                              = None,
             )
 

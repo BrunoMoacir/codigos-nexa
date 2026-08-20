@@ -204,22 +204,41 @@ class TestMacroRevertePraMediaDeclarada:
 
         assert abs(ano30 - ano1) < 0.015, f"deriva de {(ano30-ano1)*100:.2f} p.p."
 
-    # σ mensal medido nas séries reais do BCB, 2016–2026 (127 meses):
-    #   Selic → SGS 4390 | IPCA → SGS 433 | valorização → IVG-R, SGS 21340
-    SIGMA_REAL = {"selic": 0.003298, "ipca": 0.003830, "appreciation": 0.005079}
+    # σ MENSAL medido nas séries observadas do BCB (não alisadas):
+    #   Selic → SGS 4390 | IPCA → SGS 433
+    SIGMA_MENSAL_REAL = {"selic": 0.003298, "ipca": 0.003830}
+    # σ ANUAL da valorização → IVG-R (SGS 21340), 25 anos não-sobrepostos
+    SIGMA_ANUAL_APPR = 0.0836
 
-    @pytest.mark.parametrize("variavel", ["selic", "ipca", "appreciation"])
-    def test_dispersao_bate_com_a_historica(self, paths, variavel):
+    @pytest.mark.parametrize("variavel", ["selic", "ipca"])
+    def test_dispersao_mensal_bate_com_a_historica(self, paths, variavel):
         """
         As três variâncias eram chutadas e grandes demais (Selic 3,0x, IPCA
-        1,4x, valorização 1,4x). Tolerância de 10% porque _SIGMA_E foi
-        calibrada por iteração numérica, não em forma fechada.
+        1,4x). Tolerância de 10% porque _SIGMA_E foi calibrada por iteração
+        numérica, não em forma fechada.
         """
-        alvo = self.SIGMA_REAL[variavel]
+        alvo = self.SIGMA_MENSAL_REAL[variavel]
         sigma = float(np.std(getattr(paths, variavel)))
 
         assert sigma == pytest.approx(alvo, rel=0.10), (
             f"{variavel}: σ={sigma:.5f} contra {alvo:.5f} da série real"
+        )
+
+    def test_dispersao_anual_da_valorizacao(self, paths):
+        """
+        A valorização é calibrada no ANUAL, não no mensal: o IVG-R é índice de
+        avaliação suavizado por filtro de estado — os incrementos mensais do
+        fim da série são 6,64 / 6,64 / 6,65 / 6,65 e ρ₁ das variações mensais é
+        0,999. Calibrar σ mensal contra ele importava a suavização e o modelo
+        saía com 4,11 p.p. de desvio anual contra os 8,36 observados,
+        subestimando o risco de valorização pela METADE.
+        """
+        n_sims = paths.appreciation.shape[0]
+        anos = paths.appreciation.shape[1] // 12
+        a12 = (1 + paths.appreciation[:, : anos * 12]).reshape(n_sims, anos, 12).prod(axis=2) - 1
+
+        assert float(a12.std()) == pytest.approx(self.SIGMA_ANUAL_APPR, rel=0.10), (
+            f"σ anual={a12.std():.4f} contra {self.SIGMA_ANUAL_APPR:.4f} do IVG-R"
         )
 
     def test_persistencia_calibrada_e_estacionaria(self):

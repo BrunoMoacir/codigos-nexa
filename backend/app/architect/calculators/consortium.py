@@ -61,6 +61,14 @@ _LANCE_EMBUTIDO_RATE = 0.25
 
 _SORTEIO_SHARE_PADRAO = 0.5
 
+# Faixas de INCERTEZA dos dois parâmetros que ninguém publica. A do embutido é a
+# faixa real citada pela própria ABAC (10–30%); a do sorteio é simétrica em torno
+# do 50/50 que o modelo sempre assumiu. Não são "erro de medida" — é a extensão
+# do que não se sabe, e o intervalo reportado tem que refleti-la.
+_LANCE_EMBUTIDO_FAIXA = (0.10, 0.30)
+_SORTEIO_SHARE_FAIXA  = (0.35, 0.65)
+_BLOCOS_INCERTEZA     = 24
+
 # Quantil da normal padrão, para amostrar estatística de ordem em O(1).
 _NORMAL = NormalDist()
 
@@ -136,7 +144,7 @@ def calculate_consortium_metrics(
     seed: Optional[int] = None,
     bid_mean_initial: float = 0.35,
     bid_std: float = 0.12,
-    sorteio_share: float = _SORTEIO_SHARE_PADRAO,
+    sorteio_share: Optional[float] = None,
 ) -> ConsortiumResult:
     """
     Simula um grupo de consórcio para estimar custos e prazos.
@@ -215,29 +223,55 @@ def calculate_consortium_metrics(
     # O lance embutido e o lance com recursos próprios SE SOMAM (o embutido sai
     # da própria carta, o próprio sai do bolso), então 'fixed' passa a ser
     # embutido + bid_amount, limitado a 100% da carta.
-    if bid_strategy == "fixed":
-        effective_bid = letter_value * _LANCE_EMBUTIDO_RATE + bid_amount
-        effective_bid = min(effective_bid, letter_value)
-    else:
-        effective_bid = bid_amount
-
-    bid_ratio = effective_bid / letter_value if letter_value > 0 else 0.0
+    def _bid_ratio(embutido: float) -> float:
+        if bid_strategy == "fixed":
+            bruto = min(letter_value * embutido + bid_amount, letter_value)
+        else:
+            bruto = bid_amount
+        return bruto / letter_value if letter_value > 0 else 0.0
 
     # ── Distribuição da contemplação ──────────────────────────────────────────
     # O risco por assembleia é determinístico (ver _hazard_por_assembleia); o
-    # sorteio só decide a sorte de CADA simulação dentro dessa distribuição.
-    hazard = _hazard_por_assembleia(
-        months=months,
-        user_bid_ratio=bid_ratio,
-        group_size=max(1, group_size),
-        contemplated_per_month=contemplated_per_month,
-        bid_mean_initial=bid_mean_initial,
-        bid_std=bid_std,
-        sorteio_share=sorteio_share,
-    )
-    contemplation_months = _amostrar_contemplacao(
-        hazard, months, num_simulations, rng
-    )
+    # sorteio decide a sorte de cada simulação DENTRO dessa distribuição.
+    #
+    # Dois parâmetros do grupo, porém, não são conhecidos: a divisão das vagas
+    # entre sorteio e lance e a fração da carta usada como lance embutido. A
+    # ABAC não publica nenhum dos dois, e o dataset do BACEN que traria isso
+    # (PANORAMA_DE_CONSORCIOS, no Olinda) responde 500 nos endpoints de dado.
+    #
+    # Em vez de fingir precisão que não existe, a incerteza dos dois é
+    # PROPAGADA: sorteia-se um par por bloco de simulações e o percentil
+    # reportado passa a incluir o desconhecimento sobre o grupo, não só o azar
+    # do cotista. O intervalo fica mais largo — e mais honesto. Passar faixas
+    # degeneradas (mín = máx) reproduz o comportamento determinístico anterior,
+    # que é o que os testes de paridade usam.
+    incerto = (sorteio_share is None) and (_LANCE_EMBUTIDO_FAIXA[0] != _LANCE_EMBUTIDO_FAIXA[1])
+    blocos = _BLOCOS_INCERTEZA if incerto else 1
+    por_bloco = max(1, num_simulations // blocos)
+
+    amostras = []
+    for _ in range(blocos):
+        share = (sorteio_share if sorteio_share is not None
+                 else float(rng.uniform(*_SORTEIO_SHARE_FAIXA)) if incerto
+                 else _SORTEIO_SHARE_PADRAO)
+        embutido = (float(rng.uniform(*_LANCE_EMBUTIDO_FAIXA)) if incerto
+                    else _LANCE_EMBUTIDO_RATE)
+        hazard = _hazard_por_assembleia(
+            months=months,
+            user_bid_ratio=_bid_ratio(embutido),
+            group_size=max(1, group_size),
+            contemplated_per_month=contemplated_per_month,
+            bid_mean_initial=bid_mean_initial,
+            bid_std=bid_std,
+            sorteio_share=share,
+        )
+        amostras.append(_amostrar_contemplacao(hazard, months, por_bloco, rng))
+
+    contemplation_months = np.concatenate(amostras)
+
+    # O lance reportado usa o embutido central — é o número que o usuário vê.
+    bid_ratio     = _bid_ratio(_LANCE_EMBUTIDO_RATE)
+    effective_bid = bid_ratio * letter_value
 
     # ── Estatísticas ──────────────────────────────────────────────────────────
     expected_month = int(np.median(contemplation_months))

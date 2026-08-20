@@ -57,8 +57,11 @@ _MU = np.array([
 # deixaria de reverter à média e o simulador inteiro depende disso. Não é
 # economia, é construção do índice: o IVG-R é apurado sobre janela móvel de
 # imóveis financiados, o que autocorrelaciona as variações mensais por desenho.
-# Calibrar essa linha exige um índice de preço não alisado (FipeZAP de venda,
-# por exemplo) — está registrado nos gaps da doc.
+# Não existe índice residencial brasileiro mensal, público e não alisado com
+# API estável (o FipeZAP não expõe uma). A persistência mensal fica então em
+# 0,72 por escolha de modelo — valor que garante reversão à média — e a
+# DISPERSÃO é calibrada no horizonte anual, onde o IVG-R ainda mede algo
+# (ver _SIGMA_E). É a divisão honesta: calibra-se o que o dado sustenta.
 _A = np.array([
     [ 0.9166,  0.0348,  0.0460],   # Selic       (calibrada)
     [-0.2880,  0.4199,  0.1401],   # IPCA        (calibrada)
@@ -66,33 +69,44 @@ _A = np.array([
 ])
 
 # Covariância dos choques (mensal), do resíduo do mesmo VAR estimado acima,
-# reescalada para que os desvios ESTACIONÁRIOS batam com as séries reais:
+# reescalada para reproduzir a dispersão observada — CADA UMA NO HORIZONTE EM
+# QUE A SÉRIE CARREGA INFORMAÇÃO:
 #
-#   variável       σ mensal real   fonte
-#   Selic             0,3298 p.p.  SGS 4390
-#   IPCA              0,3830 p.p.  SGS 433
-#   valorização       0,5079 p.p.  IVG-R (SGS 21340)
+#   variável       alvo                          fonte
+#   Selic          σ mensal   0,3298 p.p.        SGS 4390
+#   IPCA           σ mensal   0,3830 p.p.        SGS 433
+#   valorização    σ ANUAL    8,36 p.p.          IVG-R, SGS 21340 (25 anos)
 #
-# As três variâncias eram chutadas e grandes demais (3,0x, 1,4x e 1,4x). Num
-# AR(1) o desvio estacionário é σ_choque/√(1−φ²), então choque exagerado vira
-# dispersão muito exagerada: 16% dos sorteios de Selic caíam abaixo de zero e
-# eram truncados, empurrando a média de 12% para 15% a.a.; o IPCA dava 22,8% de
-# meses em deflação contra 9,4% observados.
+# Por que a valorização é calibrada no anual e não no mensal: o IVG-R é um
+# índice de AVALIAÇÃO, suavizado por filtro de estado. Os incrementos mensais
+# do fim da série são 6,64 / 6,64 / 6,65 / 6,65 e a autocorrelação de primeira
+# ordem das variações mensais é 0,999 — não há informação mensal ali. Calibrar
+# σ mensal contra ele importava a suavização: o modelo saía com 4,11 p.p. de
+# desvio ANUAL contra os 8,36 p.p. observados, subestimando o risco de
+# valorização pela metade. Índices de avaliação subestimarem volatilidade de
+# curto prazo é conhecido na literatura de imóveis; o horizonte anual é o mais
+# curto em que este índice ainda mede alguma coisa.
 #
-# As CORRELAÇÕES agora são as medidas, não as supostas. O código assumia
+# As três variâncias originais eram chutadas e as duas primeiras, grandes
+# demais (3,0x e 1,4x). Num AR(1) o desvio estacionário é σ_choque/√(1−φ²),
+# então choque exagerado vira dispersão muito exagerada: 16% dos sorteios de
+# Selic caíam abaixo de zero e eram truncados, empurrando a média de 12% para
+# 15% a.a.; o IPCA dava 22,8% de meses em deflação contra 9,4% observados.
+#
+# As CORRELAÇÕES são as medidas, não as supostas. O código assumia
 # Selic↑ → IPCA+ e Selic↑ → valorização−; nos resíduos elas são praticamente
-# ortogonais (0,02, 0,12 e 0,07). O sinal econômico não sumiu — ele está em _A,
+# ortogonais (0,02, 0,12 e 0,07). O sinal econômico não sumiu — está em _A,
 # onde Selic→IPCA é −0,29. Confundir os dois é o erro comum: a covariância dos
 # choques mede o que acontece no MESMO mês, não a transmissão.
 #
-# O reescalonamento é Σ' = D·Σ·D, que preserva as correlações e a positividade
-# exigida pelo Cholesky. Os valores vêm de iterar até os três desvios
-# convergirem (5 passos, erro < 1%) — a variância estacionária resolve Lyapunov
-# e não é separável por componente. REFAZER a iteração se _A mudar.
+# Reescalonamento Σ' = D·Σ·D, que preserva correlações e a positividade exigida
+# pelo Cholesky. Vem de iterar até os três alvos convergirem (erro < 0,5%) — a
+# variância estacionária resolve Lyapunov e não é separável por componente.
+# REFAZER a iteração se _A mudar.
 _SIGMA_E = np.array([
-    [ 1.8663e-6,  7.5965e-8,  5.0596e-7],
-    [ 7.5965e-8,  8.9356e-6,  6.8077e-7],
-    [ 5.0596e-7,  6.8077e-7,  1.0328e-5],
+    [ 5.3351e-7,  3.7897e-8,  6.0999e-7],
+    [ 3.7897e-8,  7.7795e-6,  1.4323e-6],
+    [ 6.0999e-7,  1.4323e-6,  5.2513e-5],
 ])
 
 # Piso da Selic: taxa nominal de política monetária não é negativa.
@@ -221,6 +235,7 @@ def run_macro_simulation(
     consortium_admin_reserve: float               = 0.19,
     consortium_expected_contemplation: Optional[int] = None,
     invest_factor: float                          = 0.85,
+    asset_appreciates: bool                       = True,
     seed: Optional[int]                           = None,
 ) -> Tuple[Dict[str, StrategyDistribution], Dict[str, float], Dict[str, Dict[str, str]]]:
     """
@@ -266,6 +281,7 @@ def run_macro_simulation(
         consortium_ar       = consortium_admin_reserve,
         expected_contemp    = consortium_expected_contemplation,
         invest_factor       = invest_factor,
+        asset_growth        = paths.appreciation if asset_appreciates else paths.ipca,
     )
 
     distributions = {k: _stats(v) for k, v in raw.items()}
@@ -287,6 +303,7 @@ def _compute_raw_npvs(
     consortium_ar: float,
     expected_contemp: Optional[int],
     invest_factor: float = 0.85,
+    asset_growth: Optional[np.ndarray] = None,
 ) -> Dict[str, np.ndarray]:
     raw: Dict[str, np.ndarray] = {}
 
@@ -294,7 +311,8 @@ def _compute_raw_npvs(
         raw["FINANCING"] = _npv_fixed(np.array(fin_cashflows, dtype=float), paths.selic)
 
     raw["SAVE_INVEST"] = _npv_save_invest(
-        save_monthly, target_amount, down_payment, paths.selic, invest_factor
+        save_monthly, target_amount, down_payment, paths.selic, invest_factor,
+        asset_growth=asset_growth,
     )
 
     if consortium_months is not None and expected_contemp is not None:
@@ -330,12 +348,24 @@ def _npv_save_invest(
     down_payment: float,
     selic: np.ndarray,
     invest_factor: float = 0.85,
+    asset_growth: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
     NPV de SAVE_INVEST com acumulação tracking CDI ajustado ao perfil de risco.
 
-    O número de meses até atingir o target varia por trajetória:
-      alta Selic → acumulação mais rápida → menos meses → NPV mais alto.
+    O número de meses até atingir o alvo varia por trajetória — e o ALVO TAMBÉM
+    ANDA. `asset_growth` é a trajetória mensal de valorização do bem (a variável
+    `appreciation` do VAR para imóvel, `ipca` para os demais): a cada mês o preço
+    do bem sobe junto, então a corrida é contra um alvo móvel.
+
+    Antes o alvo era `target` congelado no preço de hoje. Duas consequências:
+    a estratégia de poupar aparecia sistematicamente mais barata do que é, e a
+    variável `appreciation` do VAR era gerada, calibrada e DESCARTADA — nenhum
+    consumidor a lia. As duas coisas se resolvem aqui.
+
+    Nas trajetórias em que o bem sobe mais rápido do que o dinheiro rende, a meta
+    nunca é alcançada; o fluxo então corre até o horizonte, e o NPV reflete o
+    custo de uma acumulação que não fecha — que é o resultado honesto.
 
     invest_factor = taxa_investimento_usuario / selic_anual — captura o custo
     de oportunidade real do usuário, não apenas CDI × 0.85 genérico.
@@ -354,7 +384,12 @@ def _npv_save_invest(
     cum_sum   = np.cumsum(inv_p, axis=1)                  # Σ 1/P_k (n_sims, n)
     fv        = cum_inv * (down_payment + monthly * cum_sum)  # (n_sims, n)
 
-    reached   = fv >= target
+    if asset_growth is not None:
+        target_t = target * np.cumprod(1.0 + asset_growth[:, :n], axis=1)
+    else:
+        target_t = np.full_like(fv, target)
+
+    reached   = fv >= target_t
     first_t   = np.where(reached.any(axis=1), np.argmax(reached, axis=1), n - 1)
 
     t_idx = np.arange(n)

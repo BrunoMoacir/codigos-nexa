@@ -330,12 +330,28 @@ API viva → tabela fixa versionada em `data/architect/`.
   futura. As correlações contemporâneas dos choques, que o código supunha
   fortes, são praticamente nulas nos resíduos (0,02, 0,12, 0,07) — o sinal
   econômico está em `_A`, não em `_SIGMA_E`.
-- **A linha da valorização em `_A` NÃO é calibrada.** O MQO estima 1,0148 para
-  a própria defasagem (t = 135): raiz unitária, que faria o processo deixar de
-  reverter à média. Não é economia — é o alisamento do IVG-R, apurado sobre
-  janela móvel de imóveis financiados, o que autocorrelaciona as variações
-  mensais por construção. Calibrar essa linha exige um índice de preço não
-  alisado (FipeZAP de venda). Há teste travando o raio espectral em < 0,95.
+- **A linha da valorização em `_A` NÃO é calibrada, e não dá para calibrar com
+  o IVG-R.** O MQO estima 1,0148 para a própria defasagem (t = 135): raiz
+  unitária, que faria o processo deixar de reverter à média. Não é economia — é
+  alisamento. O índice é apurado por filtro de estado: os incrementos mensais do
+  fim da série são 6,64 / 6,64 / 6,65 / 6,65 e ρ₁ das variações mensais é 0,999.
+  Não há informação mensal ali. Não existe índice residencial brasileiro mensal,
+  público e não alisado com API estável (o FipeZAP não expõe uma), então a
+  persistência mensal fica em 0,72 por escolha de modelo — valor que garante
+  reversão — e a **dispersão é calibrada no horizonte anual**, o mais curto em
+  que o IVG-R ainda mede algo. Teste trava o raio espectral em < 0,95.
+- **A dispersão da valorização é calibrada no ANUAL (8,36 p.p.), não no mensal.**
+  Calibrar σ mensal contra um índice de avaliação importa a suavização: o modelo
+  saía com 4,11 p.p. de desvio anual contra os 8,36 observados em 25 anos —
+  subestimando o risco de valorização pela metade. Índices de avaliação
+  subestimarem volatilidade de curto prazo é conhecido na literatura de imóveis.
+  O modelo produz 23% de anos com desvalorização contra 8% observados: a série
+  real é assimétrica à direita e o VAR é gaussiano — limitação conhecida.
+- **A média de 6% a.a. da valorização segue sendo premissa.** Medido: o IVG-R
+  rendeu 8,65% a.a. nominais em 25 anos contra IPCA de 6,10%, ou seja **+2,41%
+  reais**. A janela 2016–2026 isolada dá 3,52% nominais (−1,5% reais) — é uma
+  década ruim específica, não uma expectativa. Os 6% nominais com IPCA de 5%
+  equivalem a ~1% real.
 - Variâncias, contra as séries reais do mesmo período (σ mensal, p.p.):
 
   | variável | modelo antigo | série real | fonte |
@@ -384,11 +400,36 @@ API viva → tabela fixa versionada em `data/architect/`.
   (limitados à carta), e a entrada move a mediana de 116 para 15 meses no
   intervalo testado.
 - **O ritmo de contemplação é repartido entre sorteio e lance** (`sorteio_share`,
-  50/50 — a mesma proporção que o modelo sempre teve implicitamente, quando
-  `contemplated_per_month=2` dava 1 vaga de cada). Sem repartir, as vagas de
-  lance eram `contemplacoes_do_mes − 1`, sempre zero abaixo de 2 contemplações
-  por mês — que é o caso de TODO consórcio de imóvel. A divisão em si não é
-  medida: a ABAC não a publica.
+  centrado em 50/50 — a mesma proporção que o modelo sempre teve implicitamente,
+  quando `contemplated_per_month=2` dava 1 vaga de cada). Sem repartir, as vagas
+  de lance eram `contemplacoes_do_mes − 1`, sempre zero abaixo de 2 contemplações
+  por mês — que é o caso de TODO consórcio de imóvel.
+- **A incerteza dos dois parâmetros não medidos é PROPAGADA para o intervalo.**
+  Nem a divisão sorteio/lance nem a fração de lance embutido são publicadas pela
+  ABAC, e o dataset do BACEN que traria isso (`PANORAMA_DE_CONSORCIOS`, no
+  Olinda) responde HTTP 500 nos endpoints de dado. Em vez de reportar precisão
+  inexistente, sorteia-se um par por bloco de simulações dentro das faixas
+  declaradas (embutido 10–30%, a faixa que a própria ABAC cita; sorteio
+  35–65%), de modo que o P10–P90 inclua o desconhecimento sobre o grupo e não
+  só o azar do cotista. Num lance de 40% da carta o intervalo vai de 24 para 50
+  meses de largura. Passar `sorteio_share` explícito desliga a propagação — é o
+  que a curva de sensibilidade faz, porque ali o objetivo é isolar uma variável.
+- **O alvo de quem poupa ANDA.** `_simulate_investment` mirava
+  `target_amount` — o preço de hoje, congelado — enquanto o aluguel pago durante
+  a espera era corrigido pelo IPCA mês a mês, oito linhas acima no mesmo método.
+  O modelo encarecia a espera de um lado e a congelava do outro, sempre a favor
+  de SAVE_INVEST, que é a estratégia concorrente do financiamento. Num imóvel de
+  R$ 300 mil com 240 meses o aporte pedido era **R$ 0,00** — a entrada rendendo
+  sozinha ultrapassava o alvo parado. Agora o alvo cresce pela valorização
+  (imóvel) ou pelo IPCA (demais bens: não há índice específico no projeto, e
+  congelar afirma que o preço não muda). Quando o bem sobe mais rápido do que o
+  dinheiro rende, a resposta é `target_unreachable` em vez de um prazo de 120
+  meses inventado. A busca do prazo é por bisseção: a versão iterativa roda até
+  1200 meses em Python e, com o alvo móvel, multiplicou por 5 o tempo da suíte.
+- **`paths.appreciation` deixou de ser código morto.** A terceira variável do
+  VAR era gerada, calibrada, clampada e descartada — `_compute_raw_npvs` lia só
+  Selic e IPCA. Agora é ela que move o alvo por trajetória na simulação macro,
+  o que também resolve o item anterior de forma estocástica.
 - **A contemplação não é mais Monte Carlo.** O número de vagas por assembleia e
   o grupo restante não dependem de nenhum sorteio, então o risco por mês é
   determinístico e o laço estava re-caminhando 2000 vezes o mesmo caminho.

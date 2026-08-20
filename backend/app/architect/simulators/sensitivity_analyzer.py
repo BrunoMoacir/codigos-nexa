@@ -62,10 +62,13 @@ _fluxo_consorcio       = cost_basis.fluxo_consorcio
 
 def _simular_consorcio(request, market_rates, bid_amount):
     """Monte Carlo determinístico e barato — ver cost_basis.SIMS_SENSIBILIDADE."""
+    from app.architect.calculators.consortium import _SORTEIO_SHARE_PADRAO
+
     return cost_basis.simular_consorcio(
         request, market_rates, bid_amount,
         num_simulations=cost_basis.SIMS_SENSIBILIDADE,
         seed=cost_basis.SEED_SENSIBILIDADE,
+        sorteio_share=_SORTEIO_SHARE_PADRAO,
     )
 
 
@@ -598,15 +601,16 @@ class SensitivityAnalyzer:
             )
             if request.max_monthly_budget:
                 monthly_dep = request.max_monthly_budget
-                months = inv_calc.calculate_months_needed(
-                    request.target_amount, monthly_dep, cdi_annual, down_payment
+                months = cost_basis.meses_para_alcancar_o_bem(
+                    request, market_rates, monthly_dep, cdi_annual
                 )
                 if months is None:
                     months = 120
             else:
                 months = request.financing_months
                 monthly_dep = inv_calc.calculate_pmt_needed(
-                    request.target_amount, cdi_annual, months, down_payment
+                    cost_basis.preco_do_bem_em(request, market_rates, months),
+                    cdi_annual, months, down_payment,
                 )
             cashflows = [-down_payment] + [-monthly_dep] * months
             return _safe_float(npv_calc.calculate_npv(cashflows, disc_monthly))
@@ -654,8 +658,8 @@ class SensitivityAnalyzer:
         try:
             if request.max_monthly_budget:
                 monthly_dep = request.max_monthly_budget
-                months = inv_calc.calculate_months_needed(
-                    target_amount, monthly_dep, cdi_annual, down_payment
+                months = cost_basis.meses_para_alcancar_o_bem(
+                    request, market_rates, monthly_dep, cdi_annual
                 )
                 if months is None:
                     months = n_months
