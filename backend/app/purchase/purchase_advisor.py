@@ -44,6 +44,37 @@ _FINANCING_MIN_AMOUNT = 1_000.0
 _FINANCING_FALLBACK_MONTHLY_RATE = 0.0415
 _CDI_FALLBACK = 0.1475
 
+# Horizonte da projeção de caixa usada pelo safe-to-spend. Uma constante só,
+# porque o projetor e o calculador precisam concordar: o projetor recebe no
+# construtor, o calculador no método.
+_HORIZONTE_DIAS = 30
+
+# Sobra em caixa a partir da qual o risco de liquidez é LOW — mesmo limiar do
+# _build_liquidity_impact. Acima disso, sinal de RITMO (burn rate) não reordena
+# o ranking: quem tem folga não é penalizado por ter gasto rápido no mês.
+_FOLGA_CONFORTAVEL = 1_000.0
+
+
+def _normalizar(transactions_df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Vocabulário único para todos os consumidores de contexto.
+
+    `get_transactions_for_user` entrega a coluna `date`; CashflowProjector,
+    ConsumptionProfiler, InvoiceHorizon e o detector de sombras esperam
+    `transaction_date`. Cada fetcher renomeava por conta própria — e três
+    deles esqueciam, imprimindo "Colunas faltando: {'transaction_date'}" e
+    devolvendo relatório vazio em silêncio. Normalizar uma vez, na entrada,
+    é o que impede a próxima integração de esquecer de novo.
+    """
+    if transactions_df is None or transactions_df.is_empty():
+        return transactions_df
+    if ("transaction_date" not in transactions_df.columns
+            and "date" in transactions_df.columns):
+        transactions_df = transactions_df.with_columns(
+            pl.col("date").alias("transaction_date")
+        )
+    return transactions_df
+
 
 class PurchaseAdvisor:
     """
@@ -64,7 +95,7 @@ class PurchaseAdvisor:
         data_sources: list[str] = []
 
         # ── 1. Transações ────────────────────────────────────────────
-        transactions_df = self._fetch_transactions(request.user_id)
+        transactions_df = _normalizar(self._fetch_transactions(request.user_id))
         if not transactions_df.is_empty():
             data_sources.append("transactions_db")
         else:
@@ -116,8 +147,17 @@ class PurchaseAdvisor:
             data_sources.append("invoice_horizon")
 
         # ── 7. Melhor cartão ─────────────────────────────────────────
+        # Renda e margem RESOLVIDAS (etapas 2 e 5), não as do request. O
+        # otimizador recebia `request.monthly_income` cru, que é None sempre que
+        # o usuário não digita — e digitar renda é exatamente o que ninguém faz
+        # no checkout. Sem renda nem margem ele recusa, o reward_rate fica em
+        # zero e o cashback nunca entra na conta: cartão à vista empatava com
+        # PIX até em centavos.
         best_card_name, reward_rate, card_warning = self._fetch_best_card(
-            request=request, transactions_df=transactions_df
+            request=request,
+            transactions_df=transactions_df,
+            monthly_income=monthly_income or None,
+            safe_to_spend=safe_to_spend or None,
         )
         if card_warning:
             warnings.append(card_warning)
@@ -173,14 +213,20 @@ class PurchaseAdvisor:
             profile_summary = profile_ctx.summary
 
         # ── 11. Montar opções de pagamento ───────────────────────────
+        # Preços diferenciados por modalidade: o desconto à vista é a pergunta
+        # de abertura da feature e antes não havia onde informá-lo — com um
+        # preço só, o PIX perdia por construção.
+        preco_avista = request.cash_price or request.amount
+        preco_parcelado = request.installments_total or request.amount
+
         options: list[PaymentOption] = []
-        options.append(self._build_pix_option(request.amount))
+        options.append(self._build_pix_option(preco_avista, cheio=request.amount))
         options.append(self._build_card_avista_option(request.amount, best_card_name, reward_rate))
 
         if request.installments > 1:
             options.append(
                 self._build_card_parcelado_option(
-                    amount=request.amount,
+                    amount=preco_parcelado,
                     installments=request.installments,
                     card_name=best_card_name,
                     reward_rate=reward_rate,
@@ -219,7 +265,28 @@ class PurchaseAdvisor:
             options = self._apply_invoice_penalty(options, invoice_horizon.invoice_pressure)
 
         # ── 14b. Penalidade de burn rate na categoria ────────────────
-        if burn_rate:
+        # A penalidade existe para proteger quem está SEM FOLGA de assumir
+        # compromisso novo. Mas burn rate mede RITMO (gastei mais rápido que o
+        # normal este mês), não CAPACIDADE — e dispara com facilidade: um
+        # usuário gastando 12% da renda já sai como WARNING, e uma despesa fixa
+        # como aluguel aparece "acima do ritmo" todo dia 10.
+        #
+        # Sem esta trava, o mesmo relatório dizia "risco LOW, margem de
+        # R$ 9.227" e encarecia o parcelado em 11%, empurrando-o para trás do
+        # à vista — quando adiar pagamento com folga em caixa é justamente o
+        # que faz sentido. Ritmo só reordena quando a capacidade também acusa.
+        # Mesmo limiar do _build_liquidity_impact (sobra ≥ R$ 1.000 = LOW),
+        # calculado sobre a saída mensal da compra pedida.
+        saida_mensal = (
+            request.amount / request.installments
+            if request.installments > 1
+            else request.amount
+        )
+        margem_confortavel = (
+            safe_to_spend > 0
+            and (safe_to_spend - saida_mensal) >= _FOLGA_CONFORTAVEL
+        )
+        if burn_rate and not margem_confortavel:
             options = self._apply_burn_rate_penalty(options, burn_rate, request.category)
 
         # ── 15. Ranquear por net_cost_real ───────────────────────────
@@ -296,7 +363,11 @@ class PurchaseAdvisor:
             return None
         try:
             from app.forecast.etl.income_profiler import IncomeProfiler
-            return IncomeProfiler().analyze(transactions_df)
+
+            # `.build()`, não `.analyze()` — o método nunca existiu. Toda chamada
+            # caía no except, a renda vinha None e o usuário PRECISAVA digitá-la
+            # justamente no fluxo de checkout, onde ninguém digita.
+            return IncomeProfiler().build(transactions_df)
         except Exception as exc:
             logger.warning("PurchaseAdvisor | IncomeProfiler falhou: %s", exc)
             return None
@@ -353,17 +424,50 @@ class PurchaseAdvisor:
             except Exception:
                 shadow_invoices_df = pl.DataFrame()
 
-            projection_df = CashflowProjector().project(
+            # `horizon_days` é parâmetro do CONSTRUTOR, não de project(). Passá-lo
+            # ao método estourava TypeError em toda chamada: o safe-to-spend
+            # ficava sempre em zero, o liquidity_impact sempre CRITICAL, e todo
+            # usuário lia "esta compra excede sua margem disponível (R$ 0,00)" —
+            # inclusive quem tem folga de sobra.
+            # Âncora de saldo: `transactions_clean` não tem coluna `balance`, então
+            # sem `current_balance` o projetor recusa a projeção. O saldo vem do
+            # snapshot de contas do Open Finance — a mesma fonte que o F5 usa
+            # para resolver instituição.
+            projection_df = CashflowProjector(horizon_days=_HORIZONTE_DIAS).project(
                 transactions_df=transactions_df,
                 shadow_invoices_df=shadow_invoices_df,
-                horizon_days=30,
+                current_balance=self._saldo_atual(user_id, transactions_df),
             )
             return SafeToSpendCalculator().calculate(
-                projection_df, horizon_days=30, income_monthly=income_monthly
+                projection_df, horizon_days=_HORIZONTE_DIAS, income_monthly=income_monthly
             )
         except Exception as exc:
             logger.warning("PurchaseAdvisor | safe_to_spend falhou: %s", exc)
             return None
+
+    @staticmethod
+    def _saldo_atual(user_id: str, transactions_df: pl.DataFrame) -> Optional[float]:
+        """
+        Saldo em conta corrente para ancorar a projeção.
+
+        Ordem: coluna `balance` se o DataFrame trouxer (fluxo do ETL) →
+        snapshot do Open Finance (`account_balances`) → None, e aí o projetor
+        recusa e o safe-to-spend fica indisponível COM aviso, em vez de sair
+        zerado fingindo que a margem é nula.
+        """
+        if "balance" in transactions_df.columns:
+            saldos = transactions_df["balance"].drop_nulls().to_list()
+            if saldos:
+                return float(saldos[-1])
+        try:
+            from app.core.db.balances import get_latest_balance
+
+            snapshot = get_latest_balance(user_id, "CHECKING")
+            if snapshot is not None:
+                return float(snapshot.balance)
+        except Exception as exc:
+            logger.debug("PurchaseAdvisor | saldo do Open Finance indisponível: %s", exc)
+        return None
 
     def _fetch_invoice_horizon(
         self,
@@ -409,7 +513,11 @@ class PurchaseAdvisor:
             return None
 
     def _fetch_best_card(
-        self, request: PurchaseRequest, transactions_df: pl.DataFrame
+        self,
+        request: PurchaseRequest,
+        transactions_df: pl.DataFrame,
+        monthly_income: Optional[float] = None,
+        safe_to_spend: Optional[float] = None,
     ) -> tuple[str, float, Optional[str]]:
         try:
             from app.optimizer.models import OptimizationRequest
@@ -417,7 +525,8 @@ class PurchaseAdvisor:
 
             opt_req = OptimizationRequest(
                 user_id=request.user_id,
-                monthly_income=request.monthly_income,
+                monthly_income=monthly_income or request.monthly_income,
+                safe_to_spend=safe_to_spend,
             )
             report = OptimizerService().analyze(
                 request=opt_req, transactions_df=transactions_df
@@ -515,8 +624,14 @@ class PurchaseAdvisor:
     def _fetch_active_goals(self, user_id: str) -> list:
         try:
             from app.goals.tracker import GoalTracker
-            from app.core.db.session import get_db_session
-            with get_db_session() as db:
+
+            # `app.core.db.session` reexporta `SessionLocal`/`get_db`, nunca um
+            # `get_db_session` — o ImportError derrubava a consulta de metas em
+            # toda chamada, e o raciocínio nunca mencionava meta atrapalhada,
+            # embora a doc prometesse isso.
+            from app.core.database import SessionLocal
+
+            with SessionLocal() as db:
                 return GoalTracker(db).list_goals(user_id, status="ACTIVE")
         except Exception as exc:
             logger.warning("PurchaseAdvisor | GoalTracker falhou: %s", exc)
@@ -526,7 +641,13 @@ class PurchaseAdvisor:
     # BUILDERS DE OPÇÃO
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    def _build_pix_option(self, amount: float) -> PaymentOption:
+    def _build_pix_option(self, amount: float, cheio: Optional[float] = None) -> PaymentOption:
+        desconto = (cheio - amount) if (cheio and cheio > amount) else 0.0
+        notes = (
+            f"Desconto à vista de R$ {desconto:.2f} sobre o preço cheio."
+            if desconto > 0
+            else "Sem juros, sem cashback. Melhor para negociar desconto à vista."
+        )
         return PaymentOption(
             method=PaymentMethod.PIX_AVISTA,
             label="PIX à vista",
@@ -534,7 +655,7 @@ class PurchaseAdvisor:
             monthly_cost=None,
             installments=1,
             reward_value=0.0,
-            notes="Sem juros, sem cashback. Melhor para negociar desconto à vista.",
+            notes=notes,
         )
 
     def _build_card_avista_option(

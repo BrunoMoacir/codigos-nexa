@@ -1,23 +1,40 @@
 """
 app/purchase/opportunity_cost.py — Custo de Oportunidade de Capital
 
-Calcula quanto o capital PODERIA render no CDI caso não fosse desembolsado
-à vista. Usado pelo PurchaseAdvisor para ajustar o net_cost_real de cada
-opção de pagamento.
+Traz as quatro opções de pagamento para o MESMO instante de referência (hoje),
+descontando cada fluxo pelo CDI líquido de IR. Sem isso não há comparação: um
+real pago hoje não é um real pago daqui a doze meses.
 
-Fórmulas:
-  PIX/cartão à vista:
-    opportunity_cost = amount × cdi_net_monthly
-    net_cost_real    = amount - reward + opportunity_cost
+    net_cost_real = VPL(fluxo de pagamentos) − reward
+    opportunity_cost_gain = nominal − VPL   (quanto vale adiar o desembolso)
 
-  Cartão parcelado sem juros (n parcelas):
-    ganho_k = (P/n) × ((1 + r_net)^(n-k) - 1)   para k = 1..n
-    ganho_total = Σ ganho_k
-    net_cost_real = P - reward - ganho_total
+Por opção:
 
-  Financiamento CDC (com juros):
-    O banco já precificou o tempo — sem ganho de oportunidade.
-    net_cost_real = total_cost - reward  (sem mudança)
+  PIX à vista        paga hoje                 → VPL = preço, ganho = 0
+  Cartão à vista     paga na fatura (~1 mês)   → VPL = preço/(1+r)
+  Cartão parcelado   n parcelas, meses 1..n    → VPL = Σ (P/n)/(1+r)^k
+  CDC                n prestações, meses 1..n  → VPL = Σ PMT/(1+r)^k
+
+O que esta versão corrigiu, e por quê:
+
+  • O cartão à vista recebia a MESMA penalidade do PIX (`+ P·r`), como se
+    ambos saíssem do bolso hoje. Compra no cartão é paga na fatura, ~30 dias
+    depois — é ganho, não penalidade. Com cashback zero as duas opções
+    empatavam em centavos, quando o cartão é estritamente melhor.
+
+  • O ganho do parcelado usava expoente `(n−k)`, que dá à PRIMEIRA parcela o
+    maior rendimento e à última nenhum: é a convenção de pagamento no ato.
+    Parcela de cartão cai na fatura seguinte, então o expoente é `k`. O erro
+    subestimava o benefício em cerca de um período (R$ 157 contra R$ 186 numa
+    compra de R$ 3.000 em 12x).
+
+  • O CDC era medido em reais NOMINAIS somados (`PMT × n`) enquanto as outras
+    opções ganhavam crédito de tempo — R$ 222 de inconsistência nos mesmos
+    R$ 3.000 em 12x. A direção estava certa (o CDC é pior mesmo), mas comparar
+    nominal contra descontado não é comparação.
+
+O ranking segue por `net_cost_real` crescente. A diferença é que agora os
+quatro números respondem à mesma pergunta.
 """
 
 from __future__ import annotations
@@ -35,6 +52,12 @@ _IR_BY_MONTHS = [
 # CDI anual de fallback se BacenConnector estiver indisponível
 _CDI_FALLBACK = 0.1475  # 14,75% a.a. (SELIC referência abr/2026)
 
+# Meses entre a compra no cartão e o pagamento da fatura. Depende de quando a
+# compra cai em relação ao fechamento (de ~1 a ~40 dias); 1 mês é o valor médio
+# e é premissa declarada, não medição. O InvoiceHorizon sabe o dia de
+# fechamento quando há dado — quando souber, é daqui que ele entra.
+_FLOAT_CARTAO_MESES = 1.0
+
 
 def _ir_rate(installments: int) -> float:
     """Retorna alíquota de IR pela tabela regressiva com base no prazo em meses."""
@@ -51,48 +74,51 @@ def _cdi_net_monthly(cdi_annual: float, installments: int) -> float:
     return cdi_monthly_gross * (1 - ir)
 
 
+def _vpl_parcelas(valor_total: float, n: int, r: float) -> float:
+    """VPL de `n` parcelas iguais pagas nos meses 1..n."""
+    if n <= 0:
+        return valor_total
+    parcela = valor_total / n
+    return sum(parcela / (1 + r) ** k for k in range(1, n + 1))
+
+
 def apply_opportunity_cost(
     option: PaymentOption,
     cdi_annual: float = _CDI_FALLBACK,
 ) -> PaymentOption:
     """
-    Recalcula ``net_cost_real`` de uma PaymentOption considerando o ganho
-    ou custo de oportunidade de capital ao CDI.
+    Recalcula ``net_cost_real`` trazendo o fluxo da opção a valor presente.
 
-    Retorna uma nova instância com os campos atualizados:
-      - ``opportunity_cost_gain``: magnitude do ajuste CDI em R$
-      - ``net_cost_real``:
-          PIX/à vista   → net_cost + gain  (capital imobilizado = custo)
-          Parcelado s/j → net_cost - gain  (capital investido mês a mês = benefício)
-          Financiamento → net_cost         (sem ajuste — juros já precificam o tempo)
-
-    Não modifica opções de FINANCIAMENTO (juros já estão no total_cost).
+    Campos atualizados:
+      - ``opportunity_cost_gain``: nominal − VPL, ou seja, quanto vale adiar
+        o desembolso. Zero para quem paga hoje.
+      - ``net_cost_real``: VPL − reward.
     """
-    amount = option.total_cost
+    nominal = option.total_cost
     reward = option.reward_value
     n = option.installments or 1
 
-    if option.method == PaymentMethod.FINANCIAMENTO:
-        # Juros CDC já precificam o custo do tempo — sem ajuste CDI
-        gain = 0.0
-        net_cost_real = round(amount - reward, 2)
-    elif option.method in (PaymentMethod.PIX_AVISTA, PaymentMethod.CARTAO_AVISTA):
-        # Desembolso integral hoje → capital imobilizado (CUSTO de oportunidade)
-        # O capital NÃO pode ser investido → penalidade somada ao net_cost
+    if option.method == PaymentMethod.PIX_AVISTA:
+        # Único desembolso realmente feito hoje — é a referência do zero.
+        vpl = nominal
+
+    elif option.method == PaymentMethod.CARTAO_AVISTA:
+        # Pago na fatura: o dinheiro rende até lá.
         r = _cdi_net_monthly(cdi_annual, installments=1)
-        gain = round(amount * r, 2)
-        net_cost_real = round(amount - reward + gain, 2)  # + porque é custo, não ganho
-    else:
-        # Cartão parcelado sem juros: capital liberado mês a mês rende CDI (GANHO)
-        # O capital permanece investido enquanto as parcelas vencem → benefício subtraído
+        vpl = nominal / (1 + r) ** _FLOAT_CARTAO_MESES
+
+    elif option.method == PaymentMethod.CARTAO_PARCELADO:
+        # Parcelas caem nas faturas seguintes: meses 1..n.
         r = _cdi_net_monthly(cdi_annual, installments=n)
-        gain = round(
-            sum((amount / n) * ((1 + r) ** (n - k) - 1) for k in range(1, n + 1)),
-            2,
-        )
-        net_cost_real = round(amount - reward - gain, 2)  # - porque é ganho real
+        vpl = _vpl_parcelas(nominal, n, r)
+
+    else:  # FINANCIAMENTO (CDC)
+        # As prestações também são futuras. Os juros do CDC já estão no
+        # `total_cost`; descontar não os apaga — só põe o CDC na mesma régua.
+        r = _cdi_net_monthly(cdi_annual, installments=n)
+        vpl = _vpl_parcelas(nominal, n, r)
 
     return option.model_copy(update={
-        "opportunity_cost_gain": gain,
-        "net_cost_real": net_cost_real,
+        "opportunity_cost_gain": round(nominal - vpl, 2),
+        "net_cost_real": round(vpl - reward, 2),
     })

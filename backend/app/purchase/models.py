@@ -32,10 +32,46 @@ class PurchaseRequest(BaseModel):
         default=None,
         description="Perfil de risco do usuário (consistente com Architect F3)",
     )
+    cash_price: Optional[float] = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Preço à vista (PIX/dinheiro) quando a loja dá desconto. "
+            "Ausente = mesmo valor de `amount`."
+        ),
+    )
+    installments_total: Optional[float] = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Total do parcelado quando é MAIOR que `amount` — o 'sem juros' "
+            "que embute juros no preço. Ausente = igual a `amount`."
+        ),
+    )
     apply_opportunity_cost: bool = Field(
         default=True,
         description="Aplicar custo de oportunidade de capital (CDI) no ranking de opções",
     )
+
+    @model_validator(mode="after")
+    def _precos_coerentes(self) -> "PurchaseRequest":
+        """
+        O desconto à vista é a pergunta de abertura da feature — "Pix com 10%
+        ou 12x sem juros?" — e não havia onde informá-lo: com um preço só, o
+        PIX perde por construção, porque carrega custo de oportunidade e nenhum
+        ganho. Praticado no varejo brasileiro e legal desde 2022.
+        """
+        if self.cash_price is not None and self.cash_price > self.amount:
+            raise ValueError(
+                "cash_price não pode ser maior que amount — se o à vista é mais "
+                "caro, informe o valor cheio em amount."
+            )
+        if self.installments_total is not None and self.installments_total < self.amount:
+            raise ValueError(
+                "installments_total não pode ser menor que amount — se o "
+                "parcelado é mais barato, ele é o preço de referência."
+            )
+        return self
 
     @field_validator("category")
     @classmethod
@@ -46,6 +82,7 @@ class PurchaseRequest(BaseModel):
         "example": {
             "user_id": "user_123",
             "amount": 3000.0,
+            "cash_price": 2700.0,
             "category": "Eletrônicos",
             "installments": 12,
         }

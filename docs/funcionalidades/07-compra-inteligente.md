@@ -36,10 +36,23 @@ A opção CDC **só é oferecida** quando `amount ≥ R$ 1.000`
 (`_FINANCING_MIN_AMOUNT`) **e** `installments > 6`. Taxa: BACEN ao vivo, com
 fallback **4,15% a.m.** (`_FINANCING_FALLBACK_MONTHLY_RATE`).
 
-### 2. `net_cost_real` — o custo de oportunidade do capital
+### 2. `net_cost_real` — tudo no mesmo instante de referência
 
 Este é o núcleo do módulo, e o que diferencia a análise de uma calculadora
-comum: **o dinheiro que você desembolsa hoje deixa de render**.
+comum: **um real pago hoje não é um real pago daqui a doze meses**. As quatro
+opções são trazidas a valor presente pelo CDI líquido de IR:
+
+```
+net_cost_real         = VPL(fluxo de pagamentos) − reward
+opportunity_cost_gain = nominal − VPL      (quanto vale adiar o desembolso)
+```
+
+| Opção | fluxo | VPL |
+|---|---|---|
+| PIX à vista | paga hoje | preço (referência do zero) |
+| Cartão à vista | paga na fatura (~1 mês) | `preço / (1+r)` |
+| Cartão parcelado | meses 1..n | `Σ (P/n)/(1+r)^k` |
+| CDC | meses 1..n | `Σ PMT/(1+r)^k` |
 
 `purchase/opportunity_cost.py` ajusta cada opção de forma diferente:
 
@@ -167,12 +180,62 @@ Vira card `PURCHASE_FOLLOWUP` no feed e tool `review_recent_purchases` no chat.
 - **Não recomenda rotativo/parcelamento de fatura** — nunca; se não cabe, o
   veredito é "não cabe", com o impacto mostrado.
 
+## Correções de 2026-08
+
+**Quatro integrações estavam mortas** — cada uma estourando em toda chamada e
+sendo engolida pelo `except` do seu fetcher, sem nada na resposta denunciando:
+
+| chamada | erro |
+|---|---|
+| `IncomeProfiler().analyze()` | a classe só tem `build` |
+| `CashflowProjector().project(horizon_days=30)` | é parâmetro do **construtor** |
+| `from app.core.db.session import get_db_session` | o módulo exporta `get_db` |
+| `OptimizerService` | recebia `request.monthly_income` cru (None sem digitação) |
+
+Consequência: `safe_to_spend` ficava sempre em zero, então **todo usuário lia
+"esta compra excede sua margem disponível (R$ 0,00)"** e recebia liquidez
+`CRITICAL` — inclusive quem tem folga de sobra. E sem renda resolvida o
+otimizador recusava, o `reward_rate` ficava em zero e o cashback nunca entrava
+na conta: cartão à vista empatava com PIX até em centavos.
+
+Num usuário com R$ 9.000 de renda e R$ 2.800 de aluguel, antes e depois:
+
+| | antes | depois |
+|---|---|---|
+| fontes de contexto vivas | 4 de 10 | **9** |
+| `confidence_score` | 0,40 | **1,00** |
+| `safe_to_spend` | R$ 0,00 | **R$ 10.262,50** |
+| risco de liquidez | CRITICAL | **LOW** |
+| cashback considerado | R$ 0,00 | **R$ 66,75** |
+
+Também corrigido:
+
+- **Preço diferenciado por modalidade** (`cash_price`, `installments_total`).
+  Era a pergunta de abertura da feature e não havia onde informá-la.
+- **Float do cartão à vista**: recebia a mesma penalidade do PIX, como se
+  saísse do bolso hoje. Compra no cartão é paga na fatura ~30 dias depois.
+- **Expoente das parcelas**: era `(n−k)`, convenção de pagamento no ato.
+  Parcela de cartão cai na fatura seguinte, então é `k`.
+- **CDC na mesma régua**: era medido em reais nominais somados enquanto as
+  outras opções ganhavam crédito de tempo (R$ 222 de inconsistência em
+  R$ 3.000/12x).
+- **Penalidade de ritmo travada pela capacidade**: burn rate mede RITMO, não
+  capacidade, e dispara com facilidade — um usuário gastando 12% da renda já
+  sai como WARNING, e aluguel aparece "acima do ritmo" todo dia 10. O mesmo
+  relatório dizia "risco LOW, margem de R$ 10.262" e encarecia o parcelado em
+  11%. Agora ritmo só reordena quando a folga é menor que R$ 1.000.
+
 ## Gaps e limitações
 
-- **O desconto à vista não é modelado**: PIX entra com `reward_value = 0` e o
-  mesmo `total_cost` das outras opções. Se a loja dá 10% no Pix, o usuário
-  precisa informar — senão o Pix perde por construção (só tem o custo de
-  oportunidade, sem nenhum ganho).
+- **O desconto à vista depende do usuário informar** `cash_price` — a Nexa não
+  conhece a promoção da loja. Sem ele, os dois preços são tratados como iguais.
+- **A sensibilidade do burn rate não foi corrigida**, só isolada aqui. O
+  detector acusa WARNING com 12% da renda gasta e trata despesa fixa mensal
+  como "acima do ritmo" — é defeito da feature de alertas, não do F7.
+- **O float do cartão é 1 mês fixo**, premissa declarada e não medição: o real
+  varia de ~1 a ~40 dias conforme a compra caia antes ou depois do fechamento.
+  O `InvoiceHorizon` sabe o dia de fechamento quando há dado — quando souber, é
+  de lá que o número deve vir.
 - **CDC usa taxa média de mercado** (BACEN, fallback 4,15% a.m.) — a taxa real
   do usuário pode ser melhor ou pior; o Negociador (doc 08) ajuda a melhorar.
 - **O `reward_rate` é uma taxa única**, não a taxa da categoria específica da
