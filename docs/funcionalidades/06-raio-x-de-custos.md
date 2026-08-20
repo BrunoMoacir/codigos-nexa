@@ -83,10 +83,14 @@ limitada a `[0,10 · 1,00]`:
 | Histórico < 3 meses | +0,10 |
 | ≥ 5 tarifas encontradas | +0,35 |
 | 1–4 tarifas | +0,20 |
-| `institution_id` disponível | +0,25 |
+| Fração do valor atribuída a banco identificado | +0,25 × fração |
 
-O peso de 0,25 no `institution_id` reflete que, sem ele, a agregação por banco
-depende de keyword na descrição — menos confiável.
+O último componente é **proporcional ao valor atribuído**, não um booleano.
+Era `has_institution_id`, que checava se a coluna existia e tinha valor
+não-nulo — e quando a normalização passou a garantir a coluna (preenchida com
+`""`), aquele booleano virou sempre verdadeiro: o relatório saía com confiança
+1,00 justamente quando NENHUM banco tinha sido identificado, ao lado do aviso
+dizendo isso. Confiança de formato de coluna não é confiança de conteúdo.
 
 ### 3. Benchmark de mercado — três fontes em cascata
 

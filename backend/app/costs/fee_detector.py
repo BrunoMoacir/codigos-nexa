@@ -115,8 +115,8 @@ _FEE_PATTERNS: list[tuple[FeeType, re.Pattern]] = [
         rf"{_MARCADOR_COBRANCA}\b.{{0,25}}\bsaque\b|\bsaque\b.{{0,25}}\b{_MARCADOR_COBRANCA}\b"
     )),
     (FeeType.TED_DOC,            re.compile(
-        rf"(?!.*pix)(?:{_MARCADOR_COBRANCA}\b.{{0,25}}\b(ted|doc|transferencia)\b"
-        rf"|\b(ted|doc|transferencia)\b.{{0,25}}\b{_MARCADOR_COBRANCA}\b)"
+        rf"{_MARCADOR_COBRANCA}\b.{{0,25}}\b(ted|doc|transferencia)\b"
+        rf"|\b(ted|doc|transferencia)\b.{{0,25}}\b{_MARCADOR_COBRANCA}\b"
     )),
     (FeeType.TARIFA_MANUTENCAO,  re.compile(
         r"\btarifa\b|\btaxa\s+(de\s+)?(manutencao|conta|servico|cadastro)\b"
@@ -125,6 +125,13 @@ _FEE_PATTERNS: list[tuple[FeeType, re.Pattern]] = [
 ]
 
 _MIN_FEE_VALUE = 0.50  # R$ — filtra micro-cobranças isoladas
+
+# PIX é gratuito para pessoa física — cobrança sobre PIX não é tarifa de TED.
+# A exclusão é checada explicitamente em _classify(), e não por lookahead dentro
+# do padrão: `(?!.*pix)` no início só vale para a posição testada, e re.search
+# varre todas — bastava haver texto antes do "pix" para o lookahead passar numa
+# posição posterior. Um guard legível não tem essa armadilha.
+_RE_PIX = re.compile(r"\bpix\b")
 
 # Teto de plausibilidade por tipo, em R$ por cobrança. NÃO é calibração — é
 # sanidade: segunda linha de defesa para quando a descrição engana o regex.
@@ -353,7 +360,10 @@ class FeeDetector:
     @staticmethod
     def _classify(text: str) -> Optional[FeeType]:
         """Retorna o FeeType do primeiro padrão que casar, ou None."""
+        tem_pix = bool(_RE_PIX.search(text))
         for fee_type, pattern in _FEE_PATTERNS:
+            if fee_type is FeeType.TED_DOC and tem_pix:
+                continue
             if pattern.search(text):
                 return fee_type
         return None

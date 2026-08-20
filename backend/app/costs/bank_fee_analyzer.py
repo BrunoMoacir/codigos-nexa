@@ -100,7 +100,7 @@ class BankFeeAnalyzer:
         confidence = self._compute_confidence(
             analysis_months=analysis_months,
             fee_count=len(fees),
-            has_institution_id=self._has_institution_id(transactions_df),
+            fracao_atribuida=self._fracao_atribuida(by_bank),
         )
 
         if analysis_months < 3:
@@ -420,16 +420,32 @@ class BankFeeAnalyzer:
         return round(total_savings, 2)
 
     @staticmethod
-    def _has_institution_id(df: pl.DataFrame) -> bool:
-        if "institution_id" not in df.columns:
-            return False
-        return df["institution_id"].drop_nulls().len() > 0
+    def _fracao_atribuida(by_bank: list[BankFeeSummary]) -> float:
+        """
+        Fração do valor em tarifas que foi atribuída a um banco IDENTIFICADO.
+
+        Substitui o antigo `_has_institution_id`, que só checava se a coluna
+        existia e tinha valor não-nulo. Depois que `normalizar_extrato` passou a
+        garantir a coluna (preenchida com ""), aquele booleano virou sempre True
+        — e o relatório saía com confiança 1,00 justamente quando NENHUM banco
+        tinha sido identificado, ao lado do aviso dizendo isso. Confiança de
+        formato de coluna não é confiança de conteúdo.
+
+        Proporcional de propósito: atribuir 80% do valor vale mais do que 10%.
+        """
+        from app.costs.fee_detector import banco_identificado
+
+        total = sum(b.total_paid for b in by_bank)
+        if total <= 0:
+            return 0.0
+        atribuido = sum(b.total_paid for b in by_bank if banco_identificado(b.bank_name))
+        return atribuido / total
 
     @staticmethod
     def _compute_confidence(
         analysis_months: int,
         fee_count: int,
-        has_institution_id: bool,
+        fracao_atribuida: float,
     ) -> float:
         score = 0.0
         # Qualidade do histórico
@@ -444,7 +460,8 @@ class BankFeeAnalyzer:
             score += 0.35
         elif fee_count >= 1:
             score += 0.20
-        # institution_id disponível (permite agregar por banco corretamente)
-        if has_institution_id:
-            score += 0.25
+        # Atribuição a banco identificado — proporcional ao VALOR atribuído,
+        # não a um booleano de "a coluna existe". Sem banco, não há comparação
+        # de mercado possível, e o relatório não deveria se dizer confiante.
+        score += 0.25 * max(0.0, min(1.0, fracao_atribuida))
         return max(0.10, min(1.00, score))

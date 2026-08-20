@@ -148,9 +148,23 @@ class TestOperacaoNaoEtarifa:
         assert fees == []
         assert any("teto" in r.getMessage() for r in caplog.records)
 
-    def test_pix_continua_fora_do_ted(self):
+    @pytest.mark.parametrize(
+        "descricao",
+        [
+            "TARIFA DOC PIX ENVIADO",   # pix DEPOIS do doc
+            "PIX TARIFA TED ENVIADA",   # pix ANTES — o lookahead deixava passar
+            "TARIFA TED PIX",
+        ],
+    )
+    def test_pix_nunca_e_tarifa_de_ted(self, descricao):
+        """
+        PIX é gratuito para PF. A exclusão era um lookahead `(?!.*pix)` no início
+        do padrão — que só vale para a posição testada, e `re.search` varre
+        todas: bastava haver texto antes do "pix" para ele passar numa posição
+        posterior. Agora é guard explícito em `_classify`.
+        """
         df = pl.DataFrame([{"date": date(2026, 3, 10), "amount": -50.00,
-                            "description": "TARIFA DOC PIX ENVIADO"}])
+                            "description": descricao}])
         fees = FeeDetector().detect(df)
         assert all(f.fee_type != FeeType.TED_DOC for f in fees)
 
@@ -340,3 +354,56 @@ class TestExtratoSujo:
         df = pl.DataFrame([{"date": date(2026, 3, 10), "amount": -38.90,
                             "description": "Seguro Prestamista Contrato"}])
         assert FeeDetector().detect(df)[0].fee_type == FeeType.SEGURO_PRESTAMISTA
+
+
+class TestConfiancaMedeAtribuicao:
+    """
+    A confiança media se dá para acreditar no relatório — e a comparação de
+    mercado só existe quando o banco foi identificado.
+
+    O componente de 0,25 vinha de `_has_institution_id`, que checava se a coluna
+    existia e tinha valor não-nulo. Quando `normalizar_extrato` passou a garantir
+    a coluna (preenchida com ""), aquele booleano virou sempre True: o relatório
+    saía com confiança 1,00 justamente quando NENHUM banco fora identificado,
+    ao lado do aviso dizendo isso. Regressão introduzida junto com a correção do
+    período — e o motivo de revalidar depois de consertar.
+    """
+
+    def _analise(self, institution_ids: list[str | None]):
+        linhas = []
+        for m in range(1, 7):
+            for i, inst in enumerate(institution_ids):
+                linha = {"date": date(2026, m, 10 + i), "amount": -42.90,
+                         "description": "TARIFA MANUTENCAO CONTA"}
+                if inst is not None:
+                    linha["institution_id"] = inst
+                linhas.append(linha)
+        return BankFeeAnalyzer().analyze(pl.DataFrame(linhas), user_id="u")
+
+    def test_sem_banco_identificado_nao_e_confianca_maxima(self):
+        assert self._analise([""]).confidence_score < 1.0
+
+    def test_com_banco_identificado_e_maior(self):
+        sem = self._analise([""]).confidence_score
+        com = self._analise(["itau"]).confidence_score
+        assert com > sem
+
+    def test_atribuicao_parcial_fica_no_meio(self):
+        sem = self._analise([""]).confidence_score
+        meio = self._analise(["itau", ""]).confidence_score
+        tudo = self._analise(["itau"]).confidence_score
+        assert sem < meio < tudo
+
+    def test_fracao_atribuida_pesa_pelo_valor(self):
+        """Atribuir 80% do valor vale mais que atribuir 10%."""
+        from app.costs.models import BankFeeSummary
+
+        def _resumo(nome, total):
+            return BankFeeSummary(bank_name=nome, institution_id="", total_paid=total,
+                                  monthly_avg=total / 6, fees_by_type={}, transaction_count=1)
+
+        frac = BankFeeAnalyzer._fracao_atribuida
+        assert frac([_resumo("Itaú", 800.0), _resumo(BANCO_NAO_IDENTIFICADO, 200.0)]) == pytest.approx(0.8)
+        assert frac([_resumo("Itaú", 100.0), _resumo(BANCO_NAO_IDENTIFICADO, 900.0)]) == pytest.approx(0.1)
+        assert frac([]) == 0.0
+
