@@ -17,6 +17,8 @@ def get_purchase_recommendation(
     category: str,
     installments: int = 1,
     monthly_income: Optional[float] = None,
+    cash_price: Optional[float] = None,
+    installments_total: Optional[float] = None,
 ) -> str:
     """
     Analisa uma compra e recomenda a melhor forma de pagamento comparando:
@@ -35,6 +37,18 @@ def get_purchase_recommendation(
         category: Categoria da compra. Ex: "Eletrônicos", "Viagem", "Móveis".
         installments: Número de parcelas desejadas (padrão: 1 = à vista). Ex: 12
         monthly_income: Renda mensal do usuário (opcional, use se o usuário informar).
+        cash_price: Preço à vista (Pix/dinheiro) quando a loja dá desconto.
+            Use SEMPRE que o usuário mencionar desconto — "10% no Pix",
+            "à vista sai por 2.700". Sem isso as duas modalidades são tratadas
+            pelo mesmo preço e o Pix perde por construção.
+        installments_total: Total do parcelado quando é MAIOR que `amount` —
+            o "sem juros" que embute juro no preço. Ex.: "3.000 à vista ou
+            12x de 280" → amount=3000, installments_total=3360.
+
+    A resposta pode terminar com PERGUNTAS EM ABERTO. Elas trazem o ponto de
+    virada já calculado ("a partir de 7,1% de desconto o Pix passa à frente").
+    Faça-as ao usuário e, com a resposta, chame a ferramenta de novo passando
+    `cash_price` ou `installments_total` — o veredito muda de verdade.
     """
     logger.info(
         "[Tool] get_purchase_recommendation | user=%s amount=%.2f category=%s installments=%d",
@@ -48,6 +62,8 @@ def get_purchase_recommendation(
             category=category,
             installments=installments,
             monthly_income=monthly_income,
+            cash_price=cash_price,
+            installments_total=installments_total,
         )
 
         result = PurchaseAdvisor().analyze(request)
@@ -93,6 +109,17 @@ def get_purchase_recommendation(
             lines += ["", "── Avisos ──"]
             for w in result.warnings:
                 lines.append(f"- {w}")
+
+        if result.follow_up_questions:
+            lines += [
+                "",
+                "── O que eu não sei e mudaria a resposta ──",
+                "(pergunte ao usuário; com a resposta, chame a ferramenta de novo)",
+            ]
+            for q in result.follow_up_questions:
+                lines.append(f"[{q.priority}] {q.question}")
+                if q.rationale:
+                    lines.append(f"   → {q.rationale}")
 
         lines += [
             "",

@@ -327,6 +327,15 @@ class PurchaseAdvisor:
             active_goals=active_goals,
         )
 
+        # ── 18. O que não sabemos e mudaria a resposta ───────────────
+        follow_ups = self._build_follow_ups(
+            request=request,
+            options=options,
+            income_profile=income_profile,
+            safe_to_spend=safe_to_spend,
+            cdi_annual=cdi_annual,
+        )
+
         return PurchaseRecommendation(
             user_id=request.user_id,
             amount=request.amount,
@@ -344,6 +353,7 @@ class PurchaseAdvisor:
             pressure_score=round(pressure_score, 2) if pressure_score else None,
             profile_summary=profile_summary,
             cdi_rate_used=round(cdi_annual, 4),
+            follow_up_questions=follow_ups,
         )
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -794,6 +804,139 @@ class PurchaseAdvisor:
             f"(R$ {safe_to_spend:.2f}). Considere adiar ou reduzir o valor."
         )
         return _best_by_cost(options)
+
+    def _build_follow_ups(
+        self,
+        request: PurchaseRequest,
+        options: list[PaymentOption],
+        income_profile,
+        safe_to_spend: float,
+        cdi_annual: float,
+    ) -> list:
+        """
+        O que a Nexa não sabe e que MUDARIA a recomendação.
+
+        A disciplina é não perguntar por perguntar: cada item só é emitido
+        quando a resposta pode virar o resultado, e vem com o ponto de virada
+        já calculado. "A loja dá desconto no Pix?" perguntado sempre é ruído;
+        perguntado com "a partir de 6,2% o Pix passa à frente, hoje ele perde
+        por R$ 186" é a própria análise continuando por outro meio.
+        """
+        from app.purchase.models import FollowUpQuestion
+
+        perguntas: list[FollowUpQuestion] = []
+        if not options:
+            return perguntas
+
+        por_metodo = {o.method: o for o in options}
+        pix = por_metodo.get(PaymentMethod.PIX_AVISTA)
+        melhor_outro = min(
+            (o for o in options if o.method != PaymentMethod.PIX_AVISTA),
+            key=lambda o: o.net_cost_real if o.net_cost_real is not None else float("inf"),
+            default=None,
+        )
+
+        # ── Desconto à vista ─────────────────────────────────────────
+        # O PIX é a referência do zero: seu net_cost_real É o preço pago. Então
+        # o preço à vista que empata com a melhor alternativa é exatamente o
+        # net_cost_real dela.
+        if request.cash_price is None and pix and melhor_outro:
+            preco_virada = melhor_outro.net_cost_real
+            desconto_pct = (request.amount - preco_virada) / request.amount
+
+            if desconto_pct > 0.005:   # abaixo disso não há pergunta a fazer
+                perguntas.append(FollowUpQuestion(
+                    question_id="cash_price",
+                    question=(
+                        f"A loja dá desconto no Pix ou dinheiro? "
+                        f"Se o à vista sair por menos de R$ {preco_virada:,.2f} "
+                        f"({desconto_pct:.1%} de desconto), ele passa a ser a melhor opção."
+                    ),
+                    field_to_populate="cash_price",
+                    priority="HIGH",
+                    rationale=(
+                        f"Sem essa informação as duas modalidades são tratadas pelo mesmo "
+                        f"preço, e aí o Pix perde por construção — hoje ele fica "
+                        f"R$ {pix.net_cost_real - melhor_outro.net_cost_real:,.2f} atrás. "
+                        f"Desconto à vista é prática comum no varejo e legal desde 2022."
+                    ),
+                    breakeven=round(preco_virada, 2),
+                ))
+
+        # ── "Sem juros" que não é sem juros ──────────────────────────
+        parcelado = por_metodo.get(PaymentMethod.CARTAO_PARCELADO)
+        if (
+            request.installments_total is None
+            and parcelado is not None
+            and melhor_outro is not None
+            and parcelado.net_cost_real is not None
+        ):
+            outros = [
+                o for o in options
+                if o.method != PaymentMethod.CARTAO_PARCELADO and o.net_cost_real is not None
+            ]
+            if outros:
+                alvo = min(o.net_cost_real for o in outros)
+                # net = VPL(total) − reward, e o VPL é linear no total.
+                fator = (
+                    (parcelado.total_cost - parcelado.opportunity_cost_gain)
+                    / parcelado.total_cost
+                    if parcelado.total_cost > 0 else 1.0
+                )
+                if fator > 0 and parcelado.net_cost_real < alvo:
+                    total_virada = (alvo + parcelado.reward_value) / fator
+                    acrescimo = (total_virada - request.amount) / request.amount
+                    if acrescimo > 0.005:
+                        perguntas.append(FollowUpQuestion(
+                            question_id="installments_total",
+                            question=(
+                                f"O total em {request.installments}x é os mesmos "
+                                f"R$ {request.amount:,.2f} ou sai mais caro? "
+                                f"Acima de R$ {total_virada:,.2f} "
+                                f"(+{acrescimo:.1%}) o parcelamento deixa de valer."
+                            ),
+                            field_to_populate="installments_total",
+                            priority="MEDIUM",
+                            rationale=(
+                                "Muito 'sem juros' embute o juro no preço: o à vista é "
+                                "um número, o parcelado somado é outro. A conta assume "
+                                "que são iguais até você dizer o contrário."
+                            ),
+                            breakeven=round(total_virada, 2),
+                        ))
+
+        # ── Renda, quando não dá para derivar com confiança ──────────
+        confianca_renda = getattr(income_profile, "confidence", 0.0) if income_profile else 0.0
+        if request.monthly_income is None and confianca_renda < 0.5:
+            perguntas.append(FollowUpQuestion(
+                question_id="monthly_income",
+                question="Qual sua renda mensal líquida aproximada (R$)?",
+                field_to_populate="monthly_income",
+                priority="HIGH",
+                rationale=(
+                    "Sem renda não dá para dizer a quais cartões você tem acesso nem "
+                    "quanto do orçamento essa compra ocupa — a análise fica só no "
+                    "custo, sem o seu contexto."
+                ),
+            ))
+
+        # ── Margem indisponível ──────────────────────────────────────
+        if safe_to_spend <= 0:
+            perguntas.append(FollowUpQuestion(
+                question_id="saldo_atual",
+                question=(
+                    "Quanto você tem em conta corrente hoje (R$)? "
+                    "Sem isso não consigo dizer se a compra cabe no seu mês."
+                ),
+                field_to_populate="current_balance",
+                priority="HIGH",
+                rationale=(
+                    "A projeção de caixa precisa de um saldo de partida. Conectar a "
+                    "conta pelo Open Finance resolve de uma vez e mantém atualizado."
+                ),
+            ))
+
+        return perguntas
 
     def _build_liquidity_impact(
         self, option: PaymentOption, safe_to_spend: float

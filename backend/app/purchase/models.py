@@ -114,6 +114,40 @@ class PaymentOption(BaseModel):
         return self
 
 
+class FollowUpQuestion(BaseModel):
+    """
+    Dado que a Nexa não tem como saber e que MUDARIA a recomendação.
+
+    Mesma forma da `FollowUpQuestion` do Architect (question_id /
+    field_to_populate / priority / rationale), para que o front e o agente
+    tratem as duas do mesmo jeito.
+
+    A regra de emissão é o que separa isto de um formulário: só se pergunta
+    quando a resposta pode virar o resultado. "A loja dá desconto no Pix?"
+    perguntado sempre é ruído; perguntado com o ponto de virada calculado
+    ("a partir de 6,2% o Pix passa à frente") é a própria análise.
+    """
+
+    question_id: str = Field(..., description="Identificador único (snake_case).")
+    question: str = Field(..., min_length=10, max_length=300)
+    field_to_populate: str = Field(
+        ...,
+        description="Campo do PurchaseRequest que a resposta preenche.",
+    )
+    priority: Literal["HIGH", "MEDIUM", "LOW"] = "MEDIUM"
+    rationale: str = Field(
+        default="",
+        description="Por que a resposta importa — com o número, quando há.",
+    )
+    breakeven: Optional[float] = Field(
+        default=None,
+        description=(
+            "Valor a partir do qual a resposta muda a recomendação. "
+            "Ex.: preço à vista abaixo do qual o PIX vence."
+        ),
+    )
+
+
 class LiquidityImpact(BaseModel):
     safe_to_spend_before: float
     safe_to_spend_after: float
@@ -148,3 +182,10 @@ class PurchaseRecommendation(BaseModel):
     pressure_score: Optional[float] = None     # 0.0–1.0: pressão financeira do perfil
     profile_summary: Optional[str] = None      # texto curto do perfil detectado
     cdi_rate_used: Optional[float] = None      # taxa CDI anual utilizada no cálculo
+    follow_up_questions: list[FollowUpQuestion] = Field(
+        default_factory=list,
+        description=(
+            "O que a Nexa não sabe e mudaria a resposta. Emitido só quando a "
+            "resposta pode virar a recomendação — ver PurchaseAdvisor."
+        ),
+    )

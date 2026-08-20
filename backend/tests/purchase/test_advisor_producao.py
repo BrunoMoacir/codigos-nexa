@@ -315,3 +315,102 @@ class TestExtratoSujo:
         rec = _analisar(_extrato(renda=4_000.0, aluguel=3_200.0, saldo=1_200.0))
         recomendada = _opcao(rec, rec.recommended_method)
         assert recomendada.profile_fit != "EVITAR"
+
+
+class TestPerguntasEmAberto:
+    """
+    O que a Nexa não sabe e que mudaria a resposta vira pergunta — com o ponto
+    de virada JÁ CALCULADO.
+
+    A disciplina é não perguntar por perguntar. "A loja dá desconto no Pix?"
+    perguntado sempre é ruído; perguntado com "a partir de 7,1% o Pix passa à
+    frente, hoje ele perde por R$ 213" é a análise continuando por outro meio.
+    """
+
+    def _ids(self, rec) -> set[str]:
+        return {q.question_id for q in rec.follow_up_questions}
+
+    def test_pergunta_o_desconto_a_vista(self):
+        rec = _analisar()
+        assert "cash_price" in self._ids(rec)
+
+    def test_nao_repergunta_o_que_ja_foi_informado(self):
+        rec = _analisar(cash_price=2_700.0)
+        assert "cash_price" not in self._ids(rec)
+
+    def test_o_ponto_de_virada_do_desconto_e_exato(self):
+        """
+        A pergunta afirma um número. Realimentado, o veredito tem que virar
+        exatamente ali — senão é chute com casas decimais.
+        """
+        rec = _analisar()
+        pergunta = next(q for q in rec.follow_up_questions if q.question_id == "cash_price")
+
+        assert pergunta.breakeven is not None
+        assert _analisar(cash_price=pergunta.breakeven).recommended_method == PaymentMethod.PIX_AVISTA
+        assert _analisar(cash_price=pergunta.breakeven + 15).recommended_method != PaymentMethod.PIX_AVISTA
+
+    def test_o_ponto_de_virada_do_parcelado_e_exato(self):
+        rec = _analisar()
+        pergunta = next(
+            q for q in rec.follow_up_questions if q.question_id == "installments_total"
+        )
+
+        assert pergunta.breakeven is not None
+        acima = _analisar(installments_total=pergunta.breakeven + 15)
+        assert acima.recommended_method != PaymentMethod.CARTAO_PARCELADO
+
+    def test_pergunta_carrega_o_numero_no_texto(self):
+        """Pergunta sem número é formulário; com número é análise."""
+        rec = _analisar()
+        for q in rec.follow_up_questions:
+            if q.breakeven is not None:
+                assert "R$" in q.question
+
+    def test_pergunta_a_renda_so_quando_nao_da_para_derivar(self):
+        com_historico = _analisar()
+        assert "monthly_income" not in self._ids(com_historico)
+
+        sem_historico = _analisar(pl.DataFrame())
+        assert "monthly_income" in self._ids(sem_historico)
+
+    def test_pergunta_o_saldo_quando_a_margem_falta(self):
+        sem_saldo = _extrato().drop("balance")
+        with patch("app.core.db.balances.get_latest_balance", return_value=None):
+            rec = _analisar(sem_saldo)
+        assert "saldo_atual" in self._ids(rec)
+
+    def test_prioridade_reflete_o_impacto(self):
+        rec = _analisar()
+        por_id = {q.question_id: q for q in rec.follow_up_questions}
+        # o desconto vira o veredito; o total do parcelado só ajusta a margem
+        assert por_id["cash_price"].priority == "HIGH"
+        assert por_id["installments_total"].priority == "MEDIUM"
+
+    def test_campo_apontado_existe_no_request(self):
+        """`field_to_populate` tem que ser um campo de verdade, ou o front erra."""
+        campos = set(PurchaseRequest.model_fields) | {"current_balance"}
+        for q in _analisar().follow_up_questions:
+            assert q.field_to_populate in campos, q.field_to_populate
+
+    def test_a_tool_do_agente_expoe_as_perguntas(self):
+        from app.agent.tools.get_purchase_recommendation import get_purchase_recommendation
+
+        with patch.object(PurchaseAdvisor, "_fetch_transactions", return_value=_extrato()):
+            saida = get_purchase_recommendation.invoke({
+                "user_id": "u", "amount": 3_000.0,
+                "category": "Eletrônicos", "installments": 12,
+            })
+        assert "O que eu não sei" in saida
+        assert "desconto no Pix" in saida
+
+    def test_a_tool_aceita_a_resposta(self):
+        from app.agent.tools.get_purchase_recommendation import get_purchase_recommendation
+
+        with patch.object(PurchaseAdvisor, "_fetch_transactions", return_value=_extrato()):
+            saida = get_purchase_recommendation.invoke({
+                "user_id": "u", "amount": 3_000.0, "category": "Eletrônicos",
+                "installments": 12, "cash_price": 2_700.0,
+            })
+        assert "PIX à vista" in saida.split("Recomendação:")[1].split("\n")[0]
+

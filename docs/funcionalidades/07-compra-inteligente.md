@@ -225,10 +225,34 @@ Também corrigido:
   relatório dizia "risco LOW, margem de R$ 10.262" e encarecia o parcelado em
   11%. Agora ritmo só reordena quando a folga é menor que R$ 1.000.
 
+### 8. O que não sabemos vira pergunta
+
+`follow_up_questions` na resposta, mesma forma da do Architect (`question_id`,
+`field_to_populate`, `priority`, `rationale`) mais um campo `breakeven`.
+
+A diferença entre isto e um formulário é a **regra de emissão**: só se pergunta
+quando a resposta pode virar a recomendação, e a pergunta carrega o ponto de
+virada já calculado.
+
+| pergunta | quando | exemplo |
+|---|---|---|
+| `cash_price` (HIGH) | não informado e há desconto plausível | *"A loja dá desconto no Pix? Se o à vista sair por menos de R$ 2.786,78 (7,1%), ele passa a ser a melhor opção."* |
+| `installments_total` (MEDIUM) | parcelado e não informado | *"O total em 12x é os mesmos R$ 3.000 ou sai mais caro? Acima de R$ 3.147,23 (+4,9%) o parcelamento deixa de valer."* |
+| `monthly_income` (HIGH) | renda não derivável (confiança < 0,5) | — |
+| `current_balance` (HIGH) | margem indisponível | — |
+
+Os pontos de virada são exatos: realimentados, o veredito muda precisamente ali
+(há teste que verifica isso, e não a existência da pergunta).
+
+A tool `get_purchase_recommendation` imprime as perguntas em aberto para o LLM
+**e** aceita `cash_price` / `installments_total` de volta — o ciclo fecha: o
+agente pergunta, o usuário responde, a conta refaz.
+
 ## Gaps e limitações
 
 - **O desconto à vista depende do usuário informar** `cash_price` — a Nexa não
-  conhece a promoção da loja. Sem ele, os dois preços são tratados como iguais.
+  conhece a promoção da loja, mas agora pergunta quando importa, com o
+  percentual de virada calculado.
 - **A sensibilidade do burn rate não foi corrigida**, só isolada aqui. O
   detector acusa WARNING com 12% da renda gasta e trata despesa fixa mensal
   como "acima do ritmo" — é defeito da feature de alertas, não do F7.
