@@ -46,9 +46,39 @@ blindado contra a sugestão de investir, não menos.
 | `REAL_BALANCE` | `account_balances` (conta CHECKING), com frescor de 7 dias |
 | `CASHFLOW_PROXY` | soma cumulativa de **todas** as transações conhecidas |
 
-A janela de 3 meses completos anteriores ao mês atual é usada para
+A janela de **3 meses completos anteriores ao mês atual** é usada para
 `avg_income`/`avg_expenses` e para dimensionar a reserva — não para o saldo.
-Mínimo de 2 meses (`_MIN_MONTHS`) para `has_sufficient_data`.
+O divisor é o número de meses que o dado **realmente cobre**, não a largura da
+janela: com 1 mês de histórico a média é sobre 1 mês, e `months_analyzed`
+carrega esse número. Mínimo de 2 meses (`_MIN_MONTHS`) para
+`has_sufficient_data`, que também é negado quando o histórico é antigo demais
+(nada na janela → `historico_desatualizado`).
+
+> **Correção de 2026-08.** O filtro não tinha limite superior — pegava o mês
+> corrente, pela metade — e o divisor era sempre 3, porque o cutoff é sempre 3
+> meses atrás. Os dois juntos erravam em direções opostas conforme o formato do
+> histórico. Com gasto real de R$ 4.800/mês (reserva correta R$ 28.800):
+>
+> | histórico | reserva calculada |
+> |---|---|
+> | 3 completos + mês corrente pela metade | R$ 21.600 |
+> | 3 completos + mês corrente cheio | R$ 38.400 |
+> | 1 mês | **R$ 9.600** |
+> | só dado antigo (12 meses de 2025) | R$ 115.200 |
+>
+> O caso de 1 mês é o perigoso: a reserva protegida virava um terço da real, e
+> o motor passaria a sugerir investir dinheiro que é reserva de emergência. E
+> como `months` era constante, `has_sufficient_data` era sempre verdadeiro — o
+> status `NO_DATA` era **inalcançável em produção**.
+>
+> Os 181 testes existentes passavam nos dois estados: as asserções sobre a
+> reserva usavam a saída do próprio detector como valor esperado
+> (`expected_months * result.avg_expenses_3m`), verificando a multiplicação e
+> nunca o número. Foram reescritas para comparar contra a despesa conhecida do
+> cenário.
+
+O campo continua se chamando `avg_expenses_3m` por compatibilidade da API, mas
+a média é sobre `months_analyzed` meses — que pode ser menor ou maior que 3.
 
 **Confirmação temporal** (`opportunity_engine.py`) — evita alertar por
 oscilação de um dia:

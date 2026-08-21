@@ -215,9 +215,25 @@ class OpportunityEngine:
         PRELIMINARY     → tudo o mais (cold start < 30 dias, ou oscilação abaixo do threshold)
         """
         if not idle.has_sufficient_data:
+            # O status NO_DATA era inalcançável: `months_analyzed` era constante
+            # em 3 (o cutoff é sempre 3 meses atrás), então
+            # `has_sufficient_data = months >= 2` dava sempre True — um usuário
+            # com três dias de histórico recebia recomendação como qualquer
+            # outro.
+            if idle.historico_desatualizado:
+                reason = (
+                    "Nenhuma movimentação nos últimos meses — o histórico "
+                    "disponível é antigo demais para sustentar uma recomendação. "
+                    "Reconecte sua conta pelo Open Finance."
+                )
+            else:
+                reason = (
+                    f"Histórico de transações insuficiente "
+                    f"({idle.months_analyzed} mês(es); mínimo 2)."
+                )
             return {
                 "status": "NO_DATA",
-                "reason": "Histórico de transações insuficiente (menos de 2 meses).",
+                "reason": reason,
                 "is_confirmed_idle": False,
                 "days_tracked": 0,
             }

@@ -40,6 +40,9 @@ _RESERVE_MONTHS_BY_FSS: dict[str, int] = {
 }
 _DEFAULT_RESERVE_MONTHS = 6  # fss_level desconhecido/ausente → tratar como saudável
 
+# Largura da janela de contexto, em meses completos anteriores ao mês atual.
+_JANELA_MESES = 3
+
 
 @dataclass
 class IdleMoneyResult:
@@ -61,6 +64,12 @@ class IdleMoneyResult:
     months_analyzed: int = 0
     has_sufficient_data: bool = False   # False quando < 2 meses de histórico
 
+    # True quando NENHUMA transação caiu na janela de meses completos — o
+    # histórico existe, mas é antigo. Recomendar investimento a partir de gasto
+    # de um ano atrás é pior que não recomendar: o saldo proxy e a despesa média
+    # descrevem uma vida financeira que pode não existir mais.
+    historico_desatualizado: bool = False
+
     # Origem do saldo bruto (Opção B do plano OPP.1)
     idle_source: IdleSource = "CASHFLOW_PROXY"
     balance_captured_at: Optional[datetime] = None   # só com REAL_BALANCE
@@ -76,6 +85,19 @@ class IdleMoneyDetector:
     """
 
     _MIN_MONTHS = 2
+
+    @staticmethod
+    def _meses_com_movimento(df, date_col: str) -> int:
+        """Quantos meses distintos o DataFrame cobre (mínimo 1)."""
+        import polars as pl
+
+        try:
+            n = df.select(
+                (pl.col(date_col).dt.year() * 12 + pl.col(date_col).dt.month()).n_unique()
+            ).item()
+            return max(1, int(n))
+        except Exception:
+            return 1
 
     def detect(
         self,
@@ -145,14 +167,37 @@ class IdleMoneyDetector:
                 idle_source = "CASHFLOW_PROXY"
                 balance_captured_at = None
 
-            # Janela: 3 meses completos anteriores ao mês atual — usada para
-            # avg_income/avg_expenses (contexto) e para dimensionar a reserva.
-            cutoff = today.replace(day=1)
-            for _ in range(3):
+            # Janela: meses COMPLETOS anteriores ao mês atual.
+            #
+            # O filtro não tinha limite superior — pegava o mês corrente, que
+            # está pela metade — e o divisor era a LARGURA da janela (sempre 3,
+            # porque o cutoff é sempre 3 meses atrás). Os dois juntos erravam
+            # em direções opostas conforme o formato do dado:
+            #
+            #   • mês corrente incluído  → 4 meses ÷ 3 = +33% na média, e a
+            #     inflação crescia ao longo do mês: a mesma consulta dava
+            #     respostas diferentes no dia 1 e no dia 28;
+            #   • 1 mês de histórico     → 1 mês ÷ 3 = um TERÇO da despesa real,
+            #     e a reserva protegida caía de R$ 28.800 para R$ 9.600. Este é
+            #     o lado perigoso: sugerir investir dinheiro que é reserva;
+            #   • histórico só antigo    → o fallback `df_recent = df` somava 12
+            #     meses e dividia por 3, inflando a reserva para R$ 115.200.
+            #
+            # E como `months` era constante, `has_sufficient_data` (months >= 2)
+            # era sempre True: o status NO_DATA do engine nunca era alcançável.
+            primeiro_do_mes_atual = today.replace(day=1)
+            cutoff = primeiro_do_mes_atual
+            for _ in range(_JANELA_MESES):
                 cutoff = (cutoff - timedelta(days=1)).replace(day=1)
 
-            df_recent = df.filter(pl.col(date_col) >= cutoff)
-            if df_recent.is_empty():
+            df_recent = df.filter(
+                (pl.col(date_col) >= cutoff)
+                & (pl.col(date_col) < primeiro_do_mes_atual)
+            )
+            historico_desatualizado = df_recent.is_empty()
+            if historico_desatualizado:
+                # Nada na janela: o histórico é antigo. Usa o que existe, mas
+                # o divisor sai do próprio dado — não da largura da janela.
                 df_recent = df
 
             income_df = df_recent.filter(pl.col("amount") > 0)
@@ -161,7 +206,12 @@ class IdleMoneyDetector:
             total_income = float(income_df["amount"].sum()) if income_df.height > 0 else 0.0
             total_expenses = abs(float(expenses_df["amount"].sum())) if expenses_df.height > 0 else 0.0
 
-            months = max(1, (today.year - cutoff.year) * 12 + today.month - cutoff.month)
+            # Divisor = meses que o dado REALMENTE cobre. Contar meses com
+            # movimento (e não a largura da janela) é o que faz a média ser
+            # média, e é o lado seguro quando falta dado: um mês vazio no meio
+            # provavelmente é lacuna de sincronização, não mês sem gastar —
+            # e supor gasto zero encolheria a reserva.
+            months = self._meses_com_movimento(df_recent, date_col)
             avg_income = round(total_income / months, 2)
             avg_expenses = round(total_expenses / months, 2)
 
@@ -182,7 +232,12 @@ class IdleMoneyDetector:
                 avg_income_3m=avg_income,
                 avg_expenses_3m=avg_expenses,
                 months_analyzed=months,
-                has_sufficient_data=months >= self._MIN_MONTHS,
+                # Dado antigo não sustenta recomendação de HOJE, por mais
+                # volumoso que seja.
+                has_sufficient_data=(
+                    months >= self._MIN_MONTHS and not historico_desatualizado
+                ),
+                historico_desatualizado=historico_desatualizado,
                 idle_source=idle_source,
                 balance_captured_at=balance_captured_at,
             )
