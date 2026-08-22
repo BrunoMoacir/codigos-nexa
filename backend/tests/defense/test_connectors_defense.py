@@ -73,7 +73,10 @@ class TestIPCAConnector:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# BacenCreditConnector (séries 20714, 20706, 25433)
+# BacenCreditConnector (séries 25477 rotativo, 25463 cheque especial,
+# 25468 consignado INSS — família "Taxa média mensal").
+# A identidade e a unidade de cada série são conferidas contra o catálogo
+# do BACEN em tests/defense/test_series_bacen.py.
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 class TestBacenCreditConnector:

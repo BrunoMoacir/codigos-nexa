@@ -241,22 +241,29 @@ class PortabilityDetector:
 
     @staticmethod
     def _get_market_rates() -> dict[str, float]:
-        try:
-            from app.architect.connectors.olinda_interest_rate import OlindaInterestRateConnector
-            return OlindaInterestRateConnector().get_market_averages()
-        except Exception:
-            pass
-        try:
-            from app.architect.connectors.bacen_credit import BacenCreditConnector
-            r = BacenCreditConnector().get_rates()
-            return {
-                "rotativo":      r.get("rotativo_monthly", 0.1567),
-                "cheque_especial": r.get("cheque_especial_monthly", 0.1080),
-                "consignado":    r.get("consignado_monthly", 0.0175),
-                "pessoal":       0.0320,
-            }
-        except Exception:
-            return {"rotativo": 0.1567, "cheque_especial": 0.1080, "consignado": 0.0175, "pessoal": 0.0320}
+        """
+        A mesma referência que o D3 usa, no vocabulário que `_infer_modality`
+        produz (`rotativo`, `pessoal`, sem o sufixo `_monthly`).
+
+        Havia aqui uma segunda cadeia de fontes com a própria tabela de
+        fallback, e ela tinha dois problemas. O primeiro: `pessoal` estava
+        fixado em 3,20% a.m., menos da metade da taxa real (7,08% a.m., SGS
+        25464) — e `pessoal` é a modalidade DEFAULT de `_infer_modality`, ou
+        seja, a referência da maioria dos empréstimos. Com o limiar de 1,20×,
+        qualquer taxa acima de 3,84% a.m. virava "acima do mercado": quem
+        pagava 5% a.m., abaixo do mercado, recebia ordem de portabilidade.
+
+        O segundo: os níveis 2 e 3 eram inalcançáveis. `get_market_averages()`
+        passa pelo `get_rates()` do BaseConnector, que já devolve fallback em
+        vez de levantar — o `except` nunca rodava. Cadeia de três níveis em que
+        o primeiro não falha é cadeia de um nível.
+        """
+        from app.defense.services.abusive_interest_detector import AbusiveInterestDetector
+
+        return {
+            chave.removesuffix("_monthly"): valor
+            for chave, valor in AbusiveInterestDetector._get_market_rates().items()
+        }
 
     @staticmethod
     def _get_best_rate(modality: str) -> Optional[float]:

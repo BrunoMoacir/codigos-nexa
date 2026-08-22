@@ -130,19 +130,31 @@ multiple = taxa_usuário / taxa_mercado
 Os rótulos são o vocabulário calibrado do produto — nunca "ilegal", nunca
 "você tem direito a".
 
-Taxas de mercado vivas via BACEN Olinda (`taxaJuros` por instituição) com
-fallback nas séries SGS. **Fallback fixo** (mar/2026):
+Taxas de mercado vivas em duas fontes, cada uma no papel em que é autoridade:
+as **médias** vêm do SGS (ponderadas pelo volume das concessões — é a "taxa
+média apurada pelo BACEN" a que o Tema 27/STJ se refere) e a **distribuição por
+instituição**, de onde sai a taxa máxima praticada, vem do Olinda `taxaJuros`.
 
-| Modalidade | Taxa mensal |
-|---|---|
-| Rotativo | 15,67% |
-| Rotativo (máximo) | 17,70% |
-| Cheque especial | 10,80% |
-| Consignado | 1,75% |
+| Modalidade | Série SGS (% a.m.) | Jun/2026 |
+|---|---|---|
+| Cartão rotativo | 25477 | 15,13% |
+| Cartão parcelado | 25478 | 9,32% |
+| Cheque especial | 25463 | 7,56% |
+| Crédito pessoal não consignado | 25464 | 7,08% |
+| Consignado INSS | 25468 | 1,83% |
+| Rotativo — máximo praticado | Olinda, maior IF | 24,99% |
 
-> O próprio código carrega um alerta: *"validar unidade da série 20714 antes de
-> usar em produção — pode ser % a.a."*. É um risco conhecido e anotado, não
-> resolvido.
+**Teto legal do cheque especial: 8% a.m.** (Res. CMN 4.765/2019, art. 2º,
+vigente desde 06/01/2020). Está em `bacen_credit.TETO_CHEQUE_ESPECIAL_MENSAL`,
+aparece no painel da tool do agente e entra no `legal_basis` do D3.
+
+> **A unidade e a identidade das séries foram confirmadas** contra o catálogo
+> de dados abertos do BACEN em 22/08/2026, e `tests/defense/test_series_bacen.py`
+> refaz essa conferência a cada execução — ele pergunta ao BACEN o título
+> oficial de cada código e exige que contenha "Taxa média **mensal**" e
+> "Pessoas físicas". O alerta que o código carregava (*"validar unidade da
+> série 20714 antes de usar em produção"*) está resolvido, e a resposta foi
+> pior do que o alerta supunha: ver a seção de correções abaixo.
 
 > **Três correções de 2026-08 no D3.**
 >
@@ -270,15 +282,74 @@ simples de juros contra a melhor taxa de mercado da modalidade.
 - **Não detecta fraude de terceiros** (cartão clonado) — o foco é a relação
   usuário × banco.
 
+### As séries de referência estavam trocadas (2026-08-22)
+
+Fechando a pendência que a rodada anterior deixou aberta. Conferido contra o
+catálogo de dados abertos do BACEN:
+
+| código | usado como | nome oficial da série |
+|---|---|---|
+| 20714 | rotativo PF (% a.m.) | Taxa média de juros — **Total** (SFN inteiro: PF+PJ, livres+direcionados), em **% a.a.** |
+| 20715 | rotativo máximo PF | Taxa média — **Pessoas jurídicas** — Total |
+| 20706 | cheque especial PF | **Concessões** de crédito direcionado PF — BNDES. Não é taxa: é R$ milhões |
+| 25433 | consignado INSS | Taxa média mensal — **Total** (SFN inteiro) |
+
+Nenhuma das quatro media o que o código dizia. Os sintomas eram visíveis sem
+consultar o catálogo: a "taxa máxima" (20,80) saía **menor** que a "média"
+(33,44) porque eram PJ e SFN-total; o "cheque especial" oscilava 32 → 772 → 55
+entre meses porque era volume; e 20714 e 25433 são a **mesma série** em
+unidades diferentes — em 20 meses seguidos, `(1 + 25433/100)^12 − 1 == 20714/100`
+dentro do arredondamento.
+
+O custo, em termos do usuário:
+
+| situação | referência antiga | referência corrigida |
+|---|---|---|
+| paga 8,28% a.m. de cheque especial (o **teto legal**, o que BB, Santander, Inter, C6 e BTG cobram) | 0,77× → **nenhum achado** | 1,10× → `low` |
+| paga 40% a.m. de rotativo | 1,20× → `low` | 2,64× → `medium` |
+
+O aglomerado dos grandes bancos em 8,26–8,28% a.m. no Olinda não é acaso: é
+`1,08^(31/30) − 1 = 8,2774%`, o teto de 8% a.m. convertido para um mês de 31
+dias. Serve de confirmação empírica do teto — e mostra que a referência de
+10,80% deixava o D3 desligado exatamente para quem paga o máximo que a lei
+permite.
+
+**Duas fontes mortas no mesmo caminho.** O `OlindaInterestRateConnector`
+consultava `TaxasJurosMensalPorMes`, que só publica financiamento imobiliário.
+`get_market_averages()` devolvia `{"imovel": …}` — e como não era vazio, passava
+por sucesso: o D3 nunca chegava ao BACEN, e o **D6 lia `market.get("rotativo")`
+→ `None` → `continue`, sem gerar achado de portabilidade para nenhuma
+modalidade de crédito**. Agora usa `ConsultaUnificada`, seleciona por
+`codigoModalidade` (código estável) em vez de substring do nome, e corta pelo
+período de apuração mais recente. E `get_best_rate()` filtrava por
+`NumeroDeContratos`, campo que não existe na v2: `int(None or 0) = 0 < 100`
+descartava todo candidato e a função devolvia `None` em toda chamada.
+
+**Uma tabela só para cada número.** A tool do agente mantinha a própria tabela
+de fallback e continuava imprimindo "Cheque Especial (média mercado): 10,80%
+a.m." na tela do usuário depois que o detector já tinha sido corrigido. O D6
+tinha uma terceira, com `pessoal` em 3,20% a.m. — metade da taxa real e a
+modalidade **default** de `_infer_modality`. Ambas passaram a ler a referência
+do D3.
+
+**A guarda ganhou uma segunda checagem.** Além da faixa por modalidade, a ordem
+entre produtos: consignado < cheque especial < rotativo. É invariante da
+estrutura do crédito (desconto em folha × dívida sem garantia) e pega uma troca
+de códigos que passa por todas as faixas individuais.
+
 ## Gaps e limitações
 
 - **⚠️ Bloqueador de lançamento**: D5/D6 têm código pronto, mas os templates
   de dossiê/petição **nunca passaram por revisão de advogado** — política do
   projeto é não lançar D5 sem parecer jurídico (responsabilidade por
   orientação incorreta).
-- **⚠️ Unidade da série BACEN 20714 não validada** — o código anota que pode
-  ser % a.a. em vez de % a.m. Se for, o múltiplo do D3 sai errado por ordem de
-  grandeza. Validar antes de produção.
+- ~~**⚠️ Unidade da série BACEN 20714 não validada**~~ — **resolvido em
+  2026-08-22**. Não era só a unidade: as quatro séries estavam trocadas. Ver a
+  correção abaixo. O teste de catálogo mantém a conferência viva.
+- **A média do Olinda é simples, não ponderada por volume** — a v2 não publica
+  volume por IF. Por isso o SGS continua sendo a fonte da média citada em
+  documento jurídico, e o Olinda só entra para comparar bancos entre si e para
+  a taxa máxima.
 - **D1 é correlação, não prova.** Sete dias entre crédito e seguro é um
   indício estatístico; o usuário pode ter contratado o seguro por vontade
   própria. Daí o disclaimer de "pré-indício" e a ação começando por

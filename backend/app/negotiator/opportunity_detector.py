@@ -5,8 +5,10 @@ Detecta quando o usuário tem poder de barganha para negociar taxas ou anuidades
 cruzando 3 fontes de dados:
 
   1. FeeDetector (F5)        → tarifas pagas nos últimos meses (JUROS_ROTATIVO, ANUIDADE_CARTAO)
-  2. BacenCreditConnector    → séries SGS reais de crédito PF:
-                               20714 (rotativo), 20706 (cheque especial), 25433 (consignado)
+  2. BacenCreditConnector    → séries SGS reais de crédito PF, família
+                               "Taxa média MENSAL de juros": 25477 (cartão
+                               rotativo), 25463 (cheque especial), 25468
+                               (consignado INSS)
                                Não mais SELIC+spread — benchmark direto por modalidade.
   3. UserProfileAnalyzer     → health score como proxy de poder de barganha
 
@@ -308,12 +310,17 @@ class NegotiationOpportunityDetector:
     ) -> list[NegotiationOpportunity]:
         """
         Detecta cobranças relacionadas a cheque especial na janela de 3 meses.
-        Usa SGS 20706 como benchmark de mercado.
+        Usa SGS 25463 como benchmark de mercado.
 
         Nota: a existência de qualquer cobrança de cheque especial já justifica
         a oportunidade, pois trata-se de uma das modalidades mais caras do Brasil.
-        Validação de teto legal (eventual Lei 14.905/2024) deve ser feita com
-        jurídico antes de ser codificada aqui.
+
+        Teto legal: a Res. CMN 4.765/2019, art. 2º, limita os juros do cheque
+        especial de PF e MEI a 8% ao mês desde 06/01/2020 — confirmado no dado
+        do Olinda, onde os grandes bancos se aglomeram em 8,26–8,28% a.m., que
+        é 1,08^(31/30)−1, o teto convertido para mês de 31 dias. A constante
+        está em `bacen_credit.TETO_CHEQUE_ESPECIAL_MENSAL`. Não é aplicada aqui
+        porque este detector não conhece a taxa contratada, só o valor cobrado.
         """
         import unicodedata
 
@@ -356,7 +363,7 @@ class NegotiationOpportunityDetector:
                     months_as_good_payer=good_payer_months,
                     description=(
                         f"Você pagou em média R$ {monthly_avg:.2f}/mês em cheque especial "
-                        f"para {bank_name}. A taxa média de mercado (BACEN SGS 20706) é "
+                        f"para {bank_name}. A taxa média de mercado (BACEN SGS 25463) é "
                         f"{cheque_market_rate * 100:.1f}% a.m. Negocie uma linha de crédito "
                         "pessoal com taxa menor ou peça redução do spread."
                     ),

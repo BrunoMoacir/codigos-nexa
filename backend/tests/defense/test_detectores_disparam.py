@@ -380,25 +380,25 @@ class TestD2ServicosEssenciaisRespeitaAFranquia:
 
 class TestReferenciaDeJurosPlausivel:
     """
-    Em 20/08/2026 as séries SGS, tratadas como % a.m., devolviam:
+    A referência de mercado do D3 — o que sobrou aqui depois que as séries
+    foram identificadas.
 
-        rotativo         33,44%  → 3.087% a.a.
-        rotativo (máx)   20,80%  → MENOR que a média: impossível
-        cheque especial  80,00%  → acima do teto legal de 8% a.m.
-                                    (Res. CMN 4.765/2019)
+    Em 20/08/2026 as quatro séries SGS deste conector estavam trocadas, e a
+    contradição interna já denunciava sem precisar do catálogo: a "taxa máxima"
+    (20,80) saía MENOR que a "média" (33,44), e o "cheque especial" oscilava
+    32 → 772 → 55 entre meses, porque era volume de concessões.
 
-    A contradição interna prova que as séries estão mal atribuídas, sem
-    precisar resolver a unidade de cada uma. E o custo era silencioso: com
-    referência de 33,44% a.m., um usuário pagando os 15% a.m. que são a taxa
-    REAL de rotativo sai com múltiplo 0,45× e o D3 não gera achado — a
-    comparação ficava desligada justamente para quem paga a taxa de mercado.
+    A identificação formal — quem publica, o que mede, em que unidade — está em
+    `tests/defense/test_series_bacen.py`, que pergunta ao catálogo de dados
+    abertos do BACEN em vez de afirmar. Aqui ficam só as propriedades que o D3
+    precisa que valham, venha o dado de onde vier.
     """
 
     def test_referencia_esta_na_ordem_de_grandeza_do_rotativo(self):
         from app.defense.services.abusive_interest_detector import AbusiveInterestDetector
 
         ref = AbusiveInterestDetector()._get_market_rates()["rotativo_monthly"]
-        assert 0.05 <= ref <= 0.25, f"referência de {ref:.2%} a.m. é implausível"
+        assert 0.08 <= ref <= 0.30, f"referência de {ref:.2%} a.m. é implausível"
 
     def test_maximo_nunca_abaixo_da_media(self):
         from app.defense.services.abusive_interest_detector import AbusiveInterestDetector
@@ -406,29 +406,26 @@ class TestReferenciaDeJurosPlausivel:
         m = AbusiveInterestDetector()._get_market_rates()
         assert m["rotativo_max_monthly"] >= m["rotativo_monthly"]
 
-    def test_cheque_especial_esta_na_ordem_de_grandeza(self):
+    def test_cheque_especial_cabe_abaixo_do_teto_legal(self):
         """
-        A faixa aceita o fallback versionado do projeto (10,80% a.m.) e rejeita
-        os 80% que a série devolvia.
-
-        PENDÊNCIA JURÍDICA registrada em `bacen_credit._FAIXAS_PLAUSIVEIS`: a
-        Res. CMN 4.765/2019 estabeleceu teto para cheque especial de PF, e o
-        número citado é 8% a.m. Se for isso, o próprio fallback de 10,80% está
-        acima do teto — decisão do Gabriel, não alterada aqui.
+        A pendência jurídica que ficou aberta na rodada anterior, agora
+        resolvida: a Res. CMN 4.765/2019, art. 2º, limita o cheque especial de
+        PF e MEI a 8% a.m. desde 06/01/2020. O fallback do projeto era 10,80%
+        a.m. — acima do teto — e a média real é 7,56%.
         """
+        from app.architect.connectors.bacen_credit import TETO_CHEQUE_ESPECIAL_MENSAL
         from app.defense.services.abusive_interest_detector import AbusiveInterestDetector
 
         ce = AbusiveInterestDetector()._get_market_rates()["cheque_especial_monthly"]
-        assert 0.02 <= ce <= 0.15, f"{ce:.2%} a.m. é implausível"
+        assert 0.01 <= ce <= TETO_CHEQUE_ESPECIAL_MENSAL, f"{ce:.2%} a.m. é implausível"
 
     def test_serie_implausivel_e_rejeitada(self):
         from app.architect.connectors.bacen_credit import BacenCreditConnector, ConnectorError
 
         with pytest.raises(ConnectorError):
             BacenCreditConnector._validar_plausibilidade({
-                "rotativo_monthly": 0.3344,      # 33,44% a.m. — a série de hoje
-                "rotativo_max_monthly": 0.2080,
-                "cheque_especial_monthly": 0.80,
+                "rotativo_monthly": 0.3344,      # era a média do SFN inteiro, em % a.a.
+                "cheque_especial_monthly": 0.80,  # era volume de concessões do BNDES
                 "consignado_monthly": 0.0243,
             })
 
@@ -436,10 +433,9 @@ class TestReferenciaDeJurosPlausivel:
         from app.architect.connectors.bacen_credit import BacenCreditConnector
 
         BacenCreditConnector._validar_plausibilidade({
-            "rotativo_monthly": 0.1567,
-            "rotativo_max_monthly": 0.1770,
-            "cheque_especial_monthly": 0.1080,
-            "consignado_monthly": 0.0175,
+            "rotativo_monthly": 0.1513,
+            "cheque_especial_monthly": 0.0756,
+            "consignado_monthly": 0.0183,
         })
 
     def test_quem_paga_a_taxa_de_mercado_nao_e_acusado(self):
@@ -450,4 +446,3 @@ class TestReferenciaDeJurosPlausivel:
         ref = AbusiveInterestDetector()._get_market_rates()["rotativo_monthly"]
         assert _classify(0.15, ref) is None, "15% a.m. é a taxa de mercado"
         assert _classify(0.50, ref).severity == "high"
-

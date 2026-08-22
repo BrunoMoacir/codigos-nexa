@@ -2,11 +2,16 @@
 app/defense/services/abusive_interest_detector.py — D3: Juros Abusivos
 
 Compara taxas de juros pagas pelo usuário com as taxas médias de mercado
-publicadas pelo BACEN (SGS séries 20714/20706) e Olinda taxaJuros v2 por IF.
+publicadas pelo BACEN — SGS 25477 (cartão rotativo PF) e 25463 (cheque
+especial PF), família "Taxa média MENSAL" — e com a distribuição por
+instituição do Olinda taxaJuros v2.
 
 Base legal:
   REsp 1.061.530/RS (Tema 27/STJ) — taxa média BACEN é o referencial de
   abusividade; análise do caso concreto é necessária.
+  Res. CMN 4.765/2019, art. 2º — cheque especial de PF e MEI limitado a
+  8% ao mês. É teto regulatório, não média: acima dele não se discute
+  "quanto acima do mercado", discute-se descumprimento de norma do CMN.
   STJ Terceira Turma (2023) — ultrapassar 1,5x/3x a média, por si só, não
   configura abusividade automática; exige análise do caso concreto.
   CDC art. 51, IV — cláusulas desproporcionais são abusivas e nulas.
@@ -24,6 +29,10 @@ import unicodedata
 from datetime import date, timedelta
 from typing import NamedTuple
 
+from app.architect.connectors.bacen_credit import (
+    TETO_CHEQUE_ESPECIAL_BASE_LEGAL,
+    TETO_CHEQUE_ESPECIAL_MENSAL,
+)
 from app.defense.models import DefenseFinding
 
 logger = logging.getLogger(__name__)
@@ -50,7 +59,8 @@ _LEGAL_BASIS = (
     "CDC art. 51, IV — cláusulas desproporcionais são abusivas e nulas de pleno direito. "
     "REsp 1.061.530/RS (Tema 27/STJ) — a taxa média BACEN é o referencial de abusividade. "
     "STJ 3ª Turma (2023) — abusividade exige análise do caso concreto, não apenas o múltiplo. "
-    "Súmula 297/STJ + ADI 2.591/STF — CDC aplica-se integralmente às instituições financeiras."
+    "Súmula 297/STJ + ADI 2.591/STF — CDC aplica-se integralmente às instituições financeiras. "
+    + TETO_CHEQUE_ESPECIAL_BASE_LEGAL
 )
 
 _DISCLAIMER = (
@@ -92,14 +102,23 @@ _THRESHOLDS = [
     _RateThreshold(1.0, "low",    "atenção",           _ACTION_LOW),
 ]
 
-# Fallback quando BACEN SGS estiver indisponível (mai/2026)
-# ATENÇÃO: validar unidade da série 20714 antes de usar em produção.
-# O PDF V2 aponta que pode ser % a.a. — confirmar na documentação SGS.
+# Fallback quando BACEN SGS e Olinda estiverem indisponíveis. Valores de
+# jun/2026 (SGS, família "Taxa média mensal") e do corte do Olinda de
+# 03/08/2026 para o máximo.
+#
+# O que havia aqui antes: rotativo 15,67% (perto do certo, por sorte) e cheque
+# especial 10,80% a.m. — 43% acima da média real (7,56%) e, pior, ACIMA do teto
+# de 8% a.m. da Res. CMN 4.765/2019. Com essa referência, o usuário que paga
+# exatamente o teto legal saía com múltiplo 0,77× e o D3 não gerava achado.
+# E como o Olinda estava consultando o endpoint errado, esse fallback era o
+# que rodava em produção — não era fallback, era a fonte.
 _FALLBACK_RATES = {
-    "rotativo_monthly":        0.1567,  # 15.67% a.m. — fallback mar/2026
-    "rotativo_max_monthly":    0.1770,
-    "cheque_especial_monthly": 0.1080,
-    "consignado_monthly":      0.0175,
+    "rotativo_monthly":        0.1513,  # 15,13% a.m. — SGS 25477, jun/2026
+    "rotativo_max_monthly":    0.2499,  # 24,99% a.m. — maior IF, Olinda 03/08/2026
+    "parcelado_monthly":       0.0932,  #  9,32% a.m. — SGS 25478
+    "cheque_especial_monthly": 0.0756,  #  7,56% a.m. — SGS 25463
+    "pessoal_monthly":         0.0708,  #  7,08% a.m. — SGS 25464
+    "consignado_monthly":      0.0183,  #  1,83% a.m. — SGS 25468
 }
 
 
@@ -198,6 +217,11 @@ class AbusiveInterestDetector:
                         f"Modalidade: {ref_label}",
                         f"Economia mensal estimada se taxa = média BACEN: R$ {float(gain):.2f}",
                         f"Taxa média BACEN de referência: {ref_rate*100:.2f}% a.m.",
+                        *([] if is_rotativo else [
+                            f"Teto regulatório: {TETO_CHEQUE_ESPECIAL_MENSAL*100:.0f}% a.m. — "
+                            f"{TETO_CHEQUE_ESPECIAL_BASE_LEGAL} Confira a taxa no seu extrato: "
+                            f"acima disso não é 'caro', é fora da norma do CMN."
+                        ]),
                         "Fonte: BACEN SGS + histórico de negociação Nexa",
                         "INDÍCIO — não garante revisão judicial; consulte advogado.",
                     ],
@@ -281,33 +305,54 @@ class AbusiveInterestDetector:
     @staticmethod
     def _get_market_rates() -> dict:
         """
-        Tenta Olinda por IF, depois BacenCreditConnector, depois fallback —
-        SEMPRE no mesmo vocabulário.
+        Monta a referência de mercado a partir das duas fontes, cada uma no
+        papel em que é a autoridade — SEMPRE no mesmo vocabulário.
 
-        As três fontes falavam línguas diferentes: o Olinda devolve `rotativo`,
-        o BacenCredit e o fallback devolvem `rotativo_monthly`, e os
-        consumidores liam `market["rotativo_monthly"]`. Com o Olinda
-        respondendo, o KeyError era engolido pelo `except` do chamador e o
-        detector devolvia lista vazia — ou seja, o D3 só funcionava quando o
-        dado de mercado FALHAVA. Normalizar aqui é o que impede a próxima fonte
-        de reintroduzir o problema.
+        1. SGS (`BacenCreditConnector`) dá as MÉDIAS. É a média ponderada pelo
+           volume das concessões, que é justamente a "taxa média de mercado
+           apurada pelo BACEN" a que o Tema 27/STJ se refere. O Olinda não
+           publica volume, então a média dele é média simples entre IFs — bom
+           para comparar bancos, fraco para citar num documento jurídico. Por
+           isso a ordem inverteu: o Olinda vinha primeiro e o BACEN só era
+           consultado quando o Olinda falhava.
+
+        2. Olinda dá a DISTRIBUIÇÃO por instituição, e é de lá que sai a taxa
+           máxima praticada. O SGS não publica máximo nenhum: a série que o
+           projeto usava como `rotativo_max` era a média de pessoas JURÍDICAS,
+           e por isso o "máximo" saía abaixo da "média".
+
+        As fontes falam línguas diferentes — o Olinda devolve `rotativo`, o
+        BacenCredit devolve `rotativo_monthly`, e os consumidores leem
+        `market["rotativo_monthly"]`. `_normalizar_taxas` é o que impede a
+        próxima fonte de reintroduzir o KeyError silencioso que já deixou o D3
+        funcionando SÓ quando o dado de mercado falhava.
         """
-        try:
-            from app.architect.connectors.olinda_interest_rate import OlindaInterestRateConnector
-            connector = OlindaInterestRateConnector()
-            rates = connector.get_market_averages()
-            if rates:
-                return _normalizar_taxas(rates)
-        except Exception as exc:
-            logger.debug("[D3] OlindaInterestRateConnector: %s", exc)
+        rates = dict(_FALLBACK_RATES)
 
         try:
             from app.architect.connectors.bacen_credit import BacenCreditConnector
-            return _normalizar_taxas(BacenCreditConnector().get_rates())
+            rates.update(_normalizar_taxas(BacenCreditConnector().get_rates()))
         except Exception as exc:
-            logger.debug("[D3] BacenCreditConnector fallback: %s", exc)
+            logger.debug("[D3] BacenCreditConnector: %s", exc)
 
-        return dict(_FALLBACK_RATES)
+        try:
+            from app.architect.connectors.olinda_interest_rate import OlindaInterestRateConnector
+            olinda = OlindaInterestRateConnector()
+
+            dist = olinda.get_rate_distribution("rotativo")
+            if dist and dist["max"] >= rates["rotativo_monthly"]:
+                rates["rotativo_max_monthly"] = dist["max"]
+
+            # Veículo e imóvel não estão na família "Taxa média mensal … PF"
+            # que o conector SGS usa; só o Olinda os cobre. Onde o SGS publica,
+            # ele manda — a média ponderada por volume é a que o Tema 27
+            # referencia.
+            for chave, valor in olinda.get_market_averages().items():
+                rates.setdefault(f"{chave}_monthly", valor)
+        except Exception as exc:
+            logger.debug("[D3] OlindaInterestRateConnector: %s", exc)
+
+        return rates
 
 
 def _normalizar_taxas(rates: dict) -> dict:

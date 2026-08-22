@@ -84,7 +84,7 @@ mantida como registro do planejamento original:
 |----|----------------|------------|--------------|------------------------|
 | D1 | Detector de Venda Casada (CDC art. 39) | Alta | 2–3 sem | F5 costs + Pluggy |
 | D2 | Recuperador de Cobranças Indevidas | Alta | 2–3 sem | F5 + baseline histórico |
-| D3 | Detector de Juros Abusivos (BACEN SGS 20714/20715 + STJ REsp 1.061.530) | Alta | 1–2 sem | F13 + BacenConnector (parcial — ver nota ↓) |
+| D3 | Detector de Juros Abusivos (BACEN SGS 25477/25463 + STJ REsp 1.061.530) | Alta | 1–2 sem | F13 + BacenConnector (parcial — ver nota ↓) |
 | D4 | Alerta de Mudança Unilateral de Tarifa | Média | 1–2 sem | MX.3 + baseline banco |
 | D5 | Central de Evidências (dossiê PROCON / JEC) | Média | 4+ sem | D1+D2+D3 + validação jurídica |
 | D6 | Simulador de Portabilidade Total (conta + cartão + crédito + salário + investimentos) | Baixa | 4+ sem | F3 + Res. BACEN 4.292/2013 |
@@ -92,8 +92,8 @@ mantida como registro do planejamento original:
 **Fluxo D5 (maior impacto):** Detecta → Calcula valor a recuperar → Gera dossiê → Modelo de petição JEC
 
 ↳ **Nota sobre D3 (verificado 2026-07-18):** a lacuna apontada em 2026-06-24 foi fechada — o conector
-das séries SGS específicas existe (`backend/app/architect/connectors/bacen_credit.py`, séries 20714
-rotativo PF / 20706 cheque especial) e é usado pelo detector D3
+das séries SGS específicas existe (`backend/app/architect/connectors/bacen_credit.py`, séries 25477
+cartão rotativo PF / 25463 cheque especial PF, família "Taxa média mensal") e é usado pelo detector D3
 (`backend/app/defense/services/abusive_interest_detector.py`), com base legal Tema 27/STJ
 (REsp 1.061.530/RS) e linguagem de "indício" (nunca promessa de direito).
 

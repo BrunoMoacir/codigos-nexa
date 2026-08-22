@@ -3,6 +3,7 @@ import logging
 
 from langchain_core.tools import tool
 
+from app.architect.connectors.bacen_credit import TETO_CHEQUE_ESPECIAL_MENSAL
 from app.core.db.queries import get_transactions_for_user
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,8 @@ def detect_abusive_interest(user_id: str) -> str:
         f"Crédito Rotativo PF (média mercado): {market_rates['rotativo_pct']:.2f}% a.m.",
         f"Crédito Rotativo PF (máximo mercado): {market_rates['rotativo_max_pct']:.2f}% a.m.",
         f"Cheque Especial (média mercado):       {market_rates['cheque_pct']:.2f}% a.m.",
+        f"Cheque Especial (TETO LEGAL):          {market_rates['cheque_teto_pct']:.2f}% a.m. "
+        f"— Res. CMN 4.765/2019, art. 2º",
         "",
     ]
 
@@ -114,7 +117,8 @@ def detect_abusive_interest(user_id: str) -> str:
 
     lines += [
         "",
-        f"Fonte: BACEN SGS séries 20714 (rotativo PF) e 20706 (cheque especial). "
+        f"Fonte: BACEN SGS 25477 (cartão rotativo PF) e 25463 (cheque especial PF) — "
+        f"família 'Taxa média mensal de juros'. Máximo por instituição: Olinda taxaJuros v2. "
         f"Dados: {market_rates['date_ref']}.",
     ]
 
@@ -124,24 +128,32 @@ def detect_abusive_interest(user_id: str) -> str:
 # ── Helpers ──────────────────────────────────────────────────────────
 
 def _get_market_rates() -> dict:
-    """Busca taxas BACEN via BacenCreditConnector; fallback para valores históricos."""
+    """
+    Delega ao D3 em vez de manter uma segunda cadeia de fontes.
+
+    Havia aqui uma tabela de fallback própria — e ela envelheceu separada da do
+    detector: continuava com cheque especial a 10,80% a.m., acima do teto de 8%
+    da Res. CMN 4.765/2019, depois que o detector já tinha sido corrigido. Duas
+    tabelas para o mesmo número é uma delas ficar errada.
+    """
+    from app.defense.services.abusive_interest_detector import (
+        AbusiveInterestDetector, _FALLBACK_RATES,
+    )
     try:
-        from app.architect.connectors.bacen_credit import BacenCreditConnector
-        rates = BacenCreditConnector().get_rates()
-        return {
-            "rotativo_pct":     rates["rotativo_monthly"] * 100,
-            "rotativo_max_pct": rates["rotativo_max_monthly"] * 100,
-            "cheque_pct":       rates["cheque_especial_monthly"] * 100,
-            "date_ref":         "último dado BACEN disponível",
-        }
+        rates = AbusiveInterestDetector()._get_market_rates()
+        origem = "último dado BACEN disponível"
     except Exception as exc:
-        logger.debug("[detect_abusive_interest] BacenCreditConnector indisponível: %s", exc)
-        return {
-            "rotativo_pct":     15.67,
-            "rotativo_max_pct": 17.70,
-            "cheque_pct":       10.80,
-            "date_ref":         "fallback histórico (BACEN indisponível)",
-        }
+        logger.debug("[detect_abusive_interest] referência de mercado indisponível: %s", exc)
+        rates = dict(_FALLBACK_RATES)
+        origem = "fallback versionado (BACEN indisponível)"
+
+    return {
+        "rotativo_pct":     rates["rotativo_monthly"] * 100,
+        "rotativo_max_pct": rates["rotativo_max_monthly"] * 100,
+        "cheque_pct":       rates["cheque_especial_monthly"] * 100,
+        "cheque_teto_pct":  TETO_CHEQUE_ESPECIAL_MENSAL * 100,
+        "date_ref":         origem,
+    }
 
 
 def _get_high_interest_opportunities(user_id: str) -> list[dict]:

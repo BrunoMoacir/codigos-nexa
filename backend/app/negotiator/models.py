@@ -12,9 +12,9 @@ from pydantic import BaseModel, Field
 
 
 class NegotiationTrigger(str, Enum):
-    JUROS_ROTATIVO_ALTO  = "JUROS_ROTATIVO_ALTO"    # pagou juros acima do CDC de mercado (SGS 20714)
+    JUROS_ROTATIVO_ALTO  = "JUROS_ROTATIVO_ALTO"    # pagou juros acima do CDC de mercado (SGS 25477)
     ANUIDADE_ALTA        = "ANUIDADE_ALTA"            # anuidade do cartão acima da média de mercado
-    CHEQUE_ESPECIAL_ALTO = "CHEQUE_ESPECIAL_ALTO"    # cheque especial detectado — benchmark SGS 20706
+    CHEQUE_ESPECIAL_ALTO = "CHEQUE_ESPECIAL_ALTO"    # cheque especial detectado — benchmark SGS 25463
     HEALTH_SCORE_ALTO    = "HEALTH_SCORE_ALTO"        # score >= 60 — usuário tem poder de barganha
 
 
