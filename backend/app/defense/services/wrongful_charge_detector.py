@@ -159,34 +159,71 @@ class WrongfulChargeDetector:
     # ── D2a: Duplicatas ───────────────────────────────────────────────
 
     def _check_duplicates(self, user_id: str) -> list[DefenseFinding]:
+        """
+        Mesma tarifa cobrada mais de uma vez no mês.
+
+        A versão anterior perguntava isso ao `bank_fee_history` com
+        `GROUP BY bank_name, fee_type HAVING COUNT(*) > 1` — sobre uma tabela
+        cuja constraint é `UNIQUE(user_id, month, bank_name, fee_type)`. O
+        grupo é único por construção, então `COUNT(*) > 1` **nunca** retorna
+        linha. E o escritor confirma a intenção: o docstring de
+        `BankFeeAnalyzer.persist_snapshot` diz que agrega por essas mesmas
+        chaves "para respeitar a constraint UNIQUE".
+
+        Escritor e leitor trabalhavam um contra o outro: um colapsa as
+        ocorrências de propósito, o outro procura por elas. A verificação
+        principal do D2 — a que carrega a regra do dobro do EAREsp 676.608 —
+        era estruturalmente impossível.
+
+        A contagem só existe onde as cobranças ainda são individuais: nas
+        `FeeEntry` do F5. E ali há também a DATA de cada uma, que o histórico
+        agregado não guarda e que o dossiê precisa como evidência — e que
+        permite aplicar a regra do dobro pela data REAL da cobrança, em vez do
+        primeiro dia do mês corrente.
+        """
         try:
-            from app.core.database import SessionLocal
-            from sqlalchemy import text
+            from collections import defaultdict
 
+            from app.core.db.queries import get_transactions_for_user
+            from app.costs.bank_fee_analyzer import BankFeeAnalyzer
+
+            df = get_transactions_for_user(user_id)
+            if df.is_empty():
+                return []
+
+            report = BankFeeAnalyzer().analyze(df, user_id=user_id)
             current_month = date.today().strftime("%Y-%m")
-            # Usa primeiro dia do mês corrente como data de referência para dobro
-            ref_date = date.today().replace(day=1)
-            mult = _multiplicador_dobro(ref_date)
-            dobro_label = _dobro_label(ref_date)
 
-            with SessionLocal() as db:
-                rows = db.execute(
-                    text(
-                        "SELECT bank_name, fee_type, COUNT(*) as cnt, SUM(amount) as total"
-                        " FROM bank_fee_history"
-                        " WHERE user_id = :uid AND month = :month"
-                        " GROUP BY bank_name, fee_type"
-                        " HAVING COUNT(*) > 1"
-                        " ORDER BY total DESC"
-                    ),
-                    {"uid": user_id, "month": current_month},
-                ).fetchall()
+            grupos: dict[tuple[str, str], list] = defaultdict(list)
+            for entrada in report.fees_detected:
+                if entrada.transaction_date.strftime("%Y-%m") != current_month:
+                    continue
+                grupos[(entrada.bank_name, entrada.fee_type.value)].append(entrada)
 
             findings = []
-            for bank, ftype, cnt, total in rows:
-                total_f = float(total)
+            for (bank, ftype), entradas in sorted(
+                grupos.items(), key=lambda kv: -sum(e.amount for e in kv[1])
+            ):
+                cnt = len(entradas)
+                if cnt <= 1:
+                    continue
+
+                total_f = round(sum(e.amount for e in entradas), 2)
                 excedente = round(total_f * (cnt - 1) / cnt, 2)
+
+                # Regra do dobro pela data REAL da cobrança excedente — a mais
+                # recente, que é a indevida. Antes usava o dia 1 do mês
+                # corrente, que só por acaso cai do lado certo do corte.
+                ref_date = max(e.transaction_date for e in entradas)
+                mult = _multiplicador_dobro(ref_date)
+                dobro_label = _dobro_label(ref_date)
                 contestavel = round(excedente * mult, 2)
+
+                datas = ", ".join(
+                    e.transaction_date.strftime("%d/%m") for e in sorted(
+                        entradas, key=lambda e: e.transaction_date
+                    )
+                )
 
                 findings.append(DefenseFinding(
                     detector="D2",
@@ -207,12 +244,13 @@ class WrongfulChargeDetector:
                         f"Mês: {current_month}",
                         f"Banco: {bank}",
                         f"Tipo de tarifa: {ftype}",
-                        f"Ocorrências no mês: {cnt}x",
+                        f"Ocorrências no mês: {cnt}x — dias {datas}",
                         f"Total cobrado: R$ {total_f:.2f}",
                         f"Excedente indevido (base): R$ {excedente:.2f}",
                         f"Estimativa contestável ({dobro_label}): R$ {contestavel:.2f}",
                     ],
                 ))
+
             return findings
         except Exception as exc:
             logger.debug("[D2] _check_duplicates: %s", exc)

@@ -70,8 +70,22 @@ detector não pode saber se houve imposição, só que houve correlação.
 
 Quatro verificações:
 
-**(a) Duplicidade** — SQL sobre `bank_fee_history` agrupando por
-`(banco, tipo)` no mês corrente com `HAVING COUNT(*) > 1`:
+**(a) Duplicidade** — lida das `FeeEntry` do F5, não do histórico agregado:
+
+> **Correção de 2026-08.** A verificação era um SQL sobre `bank_fee_history`
+> com `GROUP BY bank_name, fee_type HAVING COUNT(*) > 1` — sobre uma tabela cuja
+> constraint é `UNIQUE(user_id, month, bank_name, fee_type)`. O grupo é único
+> por construção: **`COUNT(*) > 1` nunca retornava linha**. E o escritor
+> confirma a intenção por escrito — o docstring de
+> `BankFeeAnalyzer.persist_snapshot` diz que agrega por essas mesmas chaves
+> "para respeitar a constraint UNIQUE". Escritor colapsava as ocorrências de
+> propósito; leitor procurava por elas. A verificação principal do D2, a que
+> carrega a regra do dobro, era estruturalmente impossível.
+>
+> A contagem só existe onde as cobranças ainda são individuais: nas `FeeEntry`.
+> E ali há a DATA de cada uma — que o histórico agregado não guarda, que o
+> dossiê precisa como evidência, e que permite aplicar a regra do dobro pela
+> data REAL da cobrança em vez do primeiro dia do mês corrente.
 
 ```
 excedente   = total × (cnt − 1) / cnt        ← só o que passou de 1 cobrança
@@ -130,7 +144,7 @@ fallback nas séries SGS. **Fallback fixo** (mar/2026):
 > usar em produção — pode ser % a.a."*. É um risco conhecido e anotado, não
 > resolvido.
 
-> **Duas correções de 2026-08 no D3.**
+> **Três correções de 2026-08 no D3.**
 >
 > 1. `_INTEREST_PATTERN` procurava `\bjuro\b` e `\bencargo\b` no **singular**.
 >    Extrato escreve "JUROS", "ENCARGOS" — "JUROS EMPRESTIMO", "ENCARGOS FATURA"
@@ -149,6 +163,25 @@ fallback nas séries SGS. **Fallback fixo** (mar/2026):
 >    KeyError era engolido pelo `except` e o detector devolvia lista vazia — ou
 >    seja, **o D3 só funcionava quando o dado de mercado falhava**. Agora
 >    `_normalizar_taxas()` põe tudo no mesmo sufixo na fronteira.
+>
+> 3. **A unidade das séries está errada, e agora há guarda.** Em 20/08/2026,
+>    tratadas como % a.m., as séries devolviam rotativo 33,44% (3.087% a.a.),
+>    rotativo máximo 20,80% — **menor que a média, o que é impossível** — e
+>    cheque especial 80,00%. A contradição interna prova que estão mal
+>    atribuídas, sem precisar resolver a unidade de cada uma.
+>
+>    O custo era silencioso: com referência de 33,44% a.m., um usuário pagando
+>    os ~15% a.m. que são a taxa REAL de rotativo sai com múltiplo 0,45× e o D3
+>    **não gera achado** — a comparação de juros abusivos ficava desligada
+>    justamente para quem paga a taxa de mercado. `_validar_plausibilidade()`
+>    rejeita taxa fora da ordem de grandeza da modalidade e o fallback
+>    versionado assume, como já era feito com a série do IPCA no Architect.
+>
+> **Pendência jurídica:** a Res. CMN 4.765/2019 estabeleceu teto para o cheque
+> especial de PF, e o número citado é 8% a.m. Se for isso, o próprio fallback
+> versionado do projeto (10,80% a.m.) está acima do teto e precisa ser revisto.
+> Não foi alterado — é constante versionada e a confirmação é de quem cuida da
+> parte jurídica.
 
 **Base legal**: CDC art. 51, IV · Tema 27/STJ (REsp 1.061.530/RS) · STJ 3ª
 Turma 2023 · Súmula 297/STJ · ADI 2.591.

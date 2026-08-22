@@ -266,3 +266,188 @@ class TestVocabularioNaoPrometeOQueNaoPode:
     def test_todo_achado_tem_acao_recomendada(self):
         for achado in self._todos_os_achados():
             assert len(achado.recommended_action) > 40, achado.detector
+
+
+# ── D2 — cobranças indevidas ─────────────────────────────────────────────────
+
+class TestD2DuplicidadeEraImpossivel:
+    """
+    `bank_fee_history` tem `UNIQUE(user_id, month, bank_name, fee_type)`, e o
+    D2 procurava duplicidade com `GROUP BY bank_name, fee_type HAVING
+    COUNT(*) > 1` sobre esse mesmo grupo — que é único por construção. Nunca
+    retornava linha.
+
+    O escritor confirma a intenção por escrito: o docstring de
+    `BankFeeAnalyzer.persist_snapshot` diz que agrega por essas chaves "para
+    respeitar a constraint UNIQUE". Escritor colapsava as ocorrências de
+    propósito; leitor procurava por elas. A verificação principal do D2 — a
+    que carrega a regra do dobro do EAREsp 676.608 — era estruturalmente
+    impossível.
+    """
+
+    def _cobrancas(self, n: int, valor: float = 42.90):
+        hoje = dt.date.today()
+        return [
+            {"account_id": "acc1", "date": hoje.replace(day=min(4 + i * 7, 28)),
+             "amount": -valor, "description": "TARIFA MANUTENCAO CONTA"}
+            for i in range(n)
+        ]
+
+    def test_uma_cobranca_nao_e_duplicidade(self):
+        from app.defense.services.wrongful_charge_detector import WrongfulChargeDetector
+
+        with _com_extrato(self._cobrancas(1)):
+            assert WrongfulChargeDetector()._check_duplicates("u") == []
+
+    @pytest.mark.parametrize("n", [2, 3])
+    def test_cobranca_repetida_no_mes_dispara(self, n):
+        from app.defense.services.wrongful_charge_detector import WrongfulChargeDetector
+
+        with _com_extrato(self._cobrancas(n)):
+            achados = WrongfulChargeDetector()._check_duplicates("u")
+
+        assert len(achados) == 1, f"{n} cobranças iguais no mês não geraram achado"
+        assert achados[0].severity == "high"
+        assert f"{n}x" in achados[0].title
+
+    def test_excedente_e_o_que_passou_de_uma_cobranca(self):
+        """2 × R$ 42,90: excedente é R$ 42,90 (uma cobrança), não o total."""
+        from app.defense.services.wrongful_charge_detector import WrongfulChargeDetector
+
+        with _com_extrato(self._cobrancas(2)):
+            achado = WrongfulChargeDetector()._check_duplicates("u")[0]
+
+        # cobrança pós-30/03/2021 → em dobro
+        assert achado.amount_disputed == pytest.approx(85.80, abs=0.01)
+        assert any("42.90" in e for e in achado.evidence_points)
+
+    def test_a_evidencia_traz_as_datas(self):
+        """
+        O histórico agregado não guarda a data de cada cobrança — e o dossiê
+        precisa dela. Ler das FeeEntry recupera essa informação.
+        """
+        from app.defense.services.wrongful_charge_detector import WrongfulChargeDetector
+
+        with _com_extrato(self._cobrancas(2)):
+            achado = WrongfulChargeDetector()._check_duplicates("u")[0]
+
+        assert any("dias" in e for e in achado.evidence_points)
+
+    def test_regra_do_dobro_citada(self):
+        from app.defense.services.wrongful_charge_detector import WrongfulChargeDetector
+
+        with _com_extrato(self._cobrancas(2)):
+            achado = WrongfulChargeDetector()._check_duplicates("u")[0]
+
+        assert "EAREsp 676.608" in achado.description
+
+
+class TestD2ServicosEssenciaisRespeitaAFranquia:
+    """CMN 3.919/2010: PF tem franquia gratuita — cobrar além dela é legítimo."""
+
+    def _saques(self, n: int):
+        hoje = dt.date.today()
+        return [
+            {"account_id": "acc1", "date": hoje.replace(day=min(i + 2, 28)),
+             "amount": -12.0, "description": "TARIFA SAQUE TERMINAL"}
+            for i in range(n)
+        ]
+
+    @pytest.mark.parametrize("n", [1, 3])
+    def test_dentro_da_franquia_nao_dispara(self, n):
+        from app.defense.services.wrongful_charge_detector import WrongfulChargeDetector
+
+        with _com_extrato(self._saques(n)):
+            assert WrongfulChargeDetector()._check_essential_services("u") == []
+
+    def test_acima_da_franquia_dispara(self):
+        from app.defense.services.wrongful_charge_detector import WrongfulChargeDetector
+
+        with _com_extrato(self._saques(6)):
+            assert WrongfulChargeDetector()._check_essential_services("u")
+
+    def test_tarifa_para_RECEBER_pix_dispara_na_primeira(self):
+        """Franquia None = proibição total. PF não paga para receber Pix."""
+        from app.defense.services.wrongful_charge_detector import WrongfulChargeDetector
+
+        linhas = [{"account_id": "acc1", "date": dt.date.today().replace(day=5),
+                   "amount": -3.5, "description": "TARIFA RECEBIMENTO PIX"}]
+        with _com_extrato(linhas):
+            assert WrongfulChargeDetector()._check_essential_services("u")
+
+
+# ── D3 — a taxa de referência ────────────────────────────────────────────────
+
+class TestReferenciaDeJurosPlausivel:
+    """
+    Em 20/08/2026 as séries SGS, tratadas como % a.m., devolviam:
+
+        rotativo         33,44%  → 3.087% a.a.
+        rotativo (máx)   20,80%  → MENOR que a média: impossível
+        cheque especial  80,00%  → acima do teto legal de 8% a.m.
+                                    (Res. CMN 4.765/2019)
+
+    A contradição interna prova que as séries estão mal atribuídas, sem
+    precisar resolver a unidade de cada uma. E o custo era silencioso: com
+    referência de 33,44% a.m., um usuário pagando os 15% a.m. que são a taxa
+    REAL de rotativo sai com múltiplo 0,45× e o D3 não gera achado — a
+    comparação ficava desligada justamente para quem paga a taxa de mercado.
+    """
+
+    def test_referencia_esta_na_ordem_de_grandeza_do_rotativo(self):
+        from app.defense.services.abusive_interest_detector import AbusiveInterestDetector
+
+        ref = AbusiveInterestDetector()._get_market_rates()["rotativo_monthly"]
+        assert 0.05 <= ref <= 0.25, f"referência de {ref:.2%} a.m. é implausível"
+
+    def test_maximo_nunca_abaixo_da_media(self):
+        from app.defense.services.abusive_interest_detector import AbusiveInterestDetector
+
+        m = AbusiveInterestDetector()._get_market_rates()
+        assert m["rotativo_max_monthly"] >= m["rotativo_monthly"]
+
+    def test_cheque_especial_esta_na_ordem_de_grandeza(self):
+        """
+        A faixa aceita o fallback versionado do projeto (10,80% a.m.) e rejeita
+        os 80% que a série devolvia.
+
+        PENDÊNCIA JURÍDICA registrada em `bacen_credit._FAIXAS_PLAUSIVEIS`: a
+        Res. CMN 4.765/2019 estabeleceu teto para cheque especial de PF, e o
+        número citado é 8% a.m. Se for isso, o próprio fallback de 10,80% está
+        acima do teto — decisão do Gabriel, não alterada aqui.
+        """
+        from app.defense.services.abusive_interest_detector import AbusiveInterestDetector
+
+        ce = AbusiveInterestDetector()._get_market_rates()["cheque_especial_monthly"]
+        assert 0.02 <= ce <= 0.15, f"{ce:.2%} a.m. é implausível"
+
+    def test_serie_implausivel_e_rejeitada(self):
+        from app.architect.connectors.bacen_credit import BacenCreditConnector, ConnectorError
+
+        with pytest.raises(ConnectorError):
+            BacenCreditConnector._validar_plausibilidade({
+                "rotativo_monthly": 0.3344,      # 33,44% a.m. — a série de hoje
+                "rotativo_max_monthly": 0.2080,
+                "cheque_especial_monthly": 0.80,
+                "consignado_monthly": 0.0243,
+            })
+
+    def test_serie_plausivel_passa(self):
+        from app.architect.connectors.bacen_credit import BacenCreditConnector
+
+        BacenCreditConnector._validar_plausibilidade({
+            "rotativo_monthly": 0.1567,
+            "rotativo_max_monthly": 0.1770,
+            "cheque_especial_monthly": 0.1080,
+            "consignado_monthly": 0.0175,
+        })
+
+    def test_quem_paga_a_taxa_de_mercado_nao_e_acusado(self):
+        from app.defense.services.abusive_interest_detector import (
+            AbusiveInterestDetector, _classify,
+        )
+
+        ref = AbusiveInterestDetector()._get_market_rates()["rotativo_monthly"]
+        assert _classify(0.15, ref) is None, "15% a.m. é a taxa de mercado"
+        assert _classify(0.50, ref).severity == "high"
+
