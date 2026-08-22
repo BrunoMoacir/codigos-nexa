@@ -116,13 +116,25 @@ class TiedSaleDetector:
             if df.is_empty():
                 return []
 
-            desc_col  = "description"      if "description"      in df.columns else None
-            bank_col  = "bank_name"        if "bank_name"        in df.columns else None
+            desc_col  = "description" if "description" in df.columns else None
             date_col  = next((c for c in ("transaction_date", "date") if c in df.columns), None)
-            amt_col   = "amount"           if "amount"           in df.columns else None
+            amt_col   = "amount"      if "amount"      in df.columns else None
 
-            if not all([desc_col, bank_col, date_col, amt_col]):
+            if not all([desc_col, date_col, amt_col]):
                 return []
+
+            # `bank_name` NÃO existe em transactions_clean nem é devolvido por
+            # get_transactions_for_user — a guarda que exigia essa coluna
+            # zerava D1a em produção, e D1a é o caminho mais forte do detector:
+            # um empréstimo de R$ 15 mil seguido de seguro prestamista três
+            # dias depois (o caso do Tema 972/STJ) não gerava achado nenhum.
+            #
+            # A correlação é feita por CONTA, não por banco. Crédito caindo na
+            # conta X e débito saindo da conta X é um vínculo mais apertado que
+            # "mesmo banco" — e `account_id` está disponível. O nome legível vem
+            # do enriquecimento do F5 quando dá para resolver; quando não dá, o
+            # achado sai com rótulo genérico em vez de não sair.
+            df = self._resolver_conta_e_banco(user_id, df)
 
             rows = df.iter_rows(named=True)
             credits: list[dict] = []
@@ -130,16 +142,19 @@ class TiedSaleDetector:
 
             for row in rows:
                 desc  = _normalize(row.get(desc_col, "") or "")
-                bank  = row.get(bank_col) or "Banco"
+                chave = row.get("_chave_correlacao") or "conta"
+                bank  = row.get("_banco_label") or "seu banco"
                 amt   = row.get(amt_col, 0.0) or 0.0
                 dt    = row.get(date_col)
                 if not isinstance(dt, date):
                     continue
 
                 if amt > 0 and _CREDIT_PATTERNS.search(desc):
-                    credits.append({"bank": bank, "date": dt, "amount": amt, "desc": desc[:80]})
+                    credits.append({"chave": chave, "bank": bank, "date": dt,
+                                    "amount": amt, "desc": desc[:80]})
                 elif amt < 0 and _TIED_PRODUCT_PATTERNS.search(desc):
-                    debits.append({"bank": bank, "date": dt, "amount": abs(amt), "desc": desc[:80]})
+                    debits.append({"chave": chave, "bank": bank, "date": dt,
+                                   "amount": abs(amt), "desc": desc[:80]})
 
             if not credits or not debits:
                 return []
@@ -150,12 +165,12 @@ class TiedSaleDetector:
             for credit in credits:
                 window_end = credit["date"] + timedelta(days=_CORRELATION_WINDOW_DAYS)
                 for debit in debits:
-                    if debit["bank"] != credit["bank"]:
+                    if debit["chave"] != credit["chave"]:
                         continue
                     if not (credit["date"] <= debit["date"] <= window_end):
                         continue
 
-                    pair_key = (credit["bank"], str(credit["date"]), str(debit["date"]))
+                    pair_key = (credit["chave"], str(credit["date"]), str(debit["date"]))
                     if pair_key in seen_pairs:
                         continue
                     seen_pairs.add(pair_key)
@@ -194,6 +209,50 @@ class TiedSaleDetector:
         except Exception as exc:
             logger.debug("[D1] _check_temporal_correlation: %s", exc)
             return []
+
+    @staticmethod
+    def _resolver_conta_e_banco(user_id: str, df):
+        """
+        Acrescenta `_chave_correlacao` (conta ou instituição) e `_banco_label`.
+
+        A chave sai de `institution_id` quando o enriquecimento do F5 consegue
+        resolver, e de `account_id` caso contrário. As duas amarram o crédito
+        ao débito; a instituição só é melhor quando o usuário tem várias contas
+        no mesmo banco.
+        """
+        import polars as pl
+
+        from app.costs.fee_detector import INSTITUTION_ID_MAP, enriquecer_institution_id
+
+        try:
+            df = enriquecer_institution_id(user_id, df)
+        except Exception as exc:
+            logger.debug("[D1] enriquecimento de instituição: %s", exc)
+
+        tem_inst = "institution_id" in df.columns
+        tem_conta = "account_id" in df.columns
+
+        if tem_inst:
+            chave = pl.col("institution_id").cast(pl.Utf8).fill_null("")
+            if tem_conta:
+                chave = pl.when(chave == "").then(
+                    pl.col("account_id").cast(pl.Utf8).fill_null("conta")
+                ).otherwise(chave)
+        elif tem_conta:
+            chave = pl.col("account_id").cast(pl.Utf8).fill_null("conta")
+        else:
+            chave = pl.lit("conta")
+
+        df = df.with_columns(chave.alias("_chave_correlacao"))
+
+        if tem_inst:
+            label = pl.col("institution_id").cast(pl.Utf8).str.to_lowercase().replace_strict(
+                INSTITUTION_ID_MAP, default="seu banco"
+            )
+        else:
+            label = pl.lit("seu banco")
+
+        return df.with_columns(label.alias("_banco_label"))
 
     # ── D1b: Fee analyzer (snapshot atual) ───────────────────────────
 

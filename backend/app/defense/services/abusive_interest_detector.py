@@ -28,8 +28,20 @@ from app.defense.models import DefenseFinding
 
 logger = logging.getLogger(__name__)
 
+# Extrato bancário escreve no PLURAL: "JUROS", "ENCARGOS". O padrão só aceitava
+# o singular (`\bjuro\b`, `\bencargo\b`), então "JUROS EMPRESTIMO", "ENCARGOS
+# FATURA" e "JUROS SOBRE SALDO DEVEDOR" não casavam — e essas são as formas
+# comuns. Só passava quando havia "rotativo" na mesma descrição.
+#
+# Este padrão é DELIBERADAMENTE mais largo que o `JUROS_ROTATIVO` do F5
+# (app/costs/fee_detector.py), e os dois não devem ser unificados: lá o objetivo
+# é classificar uma TARIFA de rotativo, e por isso exige contexto de cartão/
+# fatura para não capturar juro de empréstimo — que é custo legítimo de crédito.
+# Aqui o objetivo é o oposto: encontrar QUALQUER encargo de juros para comparar
+# com a média de mercado, inclusive de empréstimo e cheque especial.
 _INTEREST_PATTERN = re.compile(
-    r"\b(juro|encargo|rotativo|cheque especial|limite especial|financiamento|cet)\b",
+    r"\b(juros?|encargos?|rotativo|cheque\s+especial|limite\s+especial"
+    r"|financiamento|cet)\b",
     re.IGNORECASE,
 )
 
@@ -268,23 +280,48 @@ class AbusiveInterestDetector:
 
     @staticmethod
     def _get_market_rates() -> dict:
-        """Tenta Olinda por IF, depois BacenCreditConnector, depois fallback."""
+        """
+        Tenta Olinda por IF, depois BacenCreditConnector, depois fallback —
+        SEMPRE no mesmo vocabulário.
+
+        As três fontes falavam línguas diferentes: o Olinda devolve `rotativo`,
+        o BacenCredit e o fallback devolvem `rotativo_monthly`, e os
+        consumidores liam `market["rotativo_monthly"]`. Com o Olinda
+        respondendo, o KeyError era engolido pelo `except` do chamador e o
+        detector devolvia lista vazia — ou seja, o D3 só funcionava quando o
+        dado de mercado FALHAVA. Normalizar aqui é o que impede a próxima fonte
+        de reintroduzir o problema.
+        """
         try:
             from app.architect.connectors.olinda_interest_rate import OlindaInterestRateConnector
             connector = OlindaInterestRateConnector()
             rates = connector.get_market_averages()
             if rates:
-                return rates
+                return _normalizar_taxas(rates)
         except Exception as exc:
             logger.debug("[D3] OlindaInterestRateConnector: %s", exc)
 
         try:
             from app.architect.connectors.bacen_credit import BacenCreditConnector
-            return BacenCreditConnector().get_rates()
+            return _normalizar_taxas(BacenCreditConnector().get_rates())
         except Exception as exc:
             logger.debug("[D3] BacenCreditConnector fallback: %s", exc)
 
-        return _FALLBACK_RATES
+        return dict(_FALLBACK_RATES)
+
+
+def _normalizar_taxas(rates: dict) -> dict:
+    """
+    Põe as taxas no sufixo `_monthly`, aceitando as duas convenções, e completa
+    o que faltar com o fallback — para o consumidor nunca cair em KeyError.
+    """
+    out = dict(_FALLBACK_RATES)
+    for chave, valor in (rates or {}).items():
+        if valor is None:
+            continue
+        canonica = chave if chave.endswith("_monthly") else f"{chave}_monthly"
+        out[canonica] = float(valor)
+    return out
 
 
 def _normalize(s: str) -> str:

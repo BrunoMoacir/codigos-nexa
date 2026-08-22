@@ -35,6 +35,19 @@ vinculado: \b(seguro|prestamista|capitalizacao|capitaliz|assistencia|protect|ass
 
 Severidade `high`; a evidência registra o intervalo exato em dias.
 
+A correlação é por **conta** (`account_id`), não por nome de banco. Crédito
+caindo na conta X e débito saindo da conta X é um vínculo mais apertado que
+"mesmo banco", e `account_id` está disponível — `bank_name` não. O nome legível
+vem do enriquecimento do F5 (`institution_id` via `account_balances`) quando dá
+para resolver; quando não dá, o achado sai com rótulo genérico em vez de não
+sair.
+
+> **Correção de 2026-08.** A guarda exigia a coluna `bank_name`, que
+> `transactions_clean` não tem e `get_transactions_for_user` não devolve —
+> `if not all([...]): return []`. D1a, o caminho mais forte, era **inteiramente
+> morto em produção**: o caso de manual do Tema 972 (empréstimo de R$ 15 mil
+> seguido de seguro prestamista três dias depois) não gerava achado nenhum.
+
 **(b) Tipos de tarifa suspeitos** vindos do FeeDetector (doc 06):
 `SEGURO_EMBUTIDO`, `SEGURO_PRESTAMISTA`, `TARIFA_CADASTRO`.
 
@@ -116,6 +129,26 @@ fallback nas séries SGS. **Fallback fixo** (mar/2026):
 > O próprio código carrega um alerta: *"validar unidade da série 20714 antes de
 > usar em produção — pode ser % a.a."*. É um risco conhecido e anotado, não
 > resolvido.
+
+> **Duas correções de 2026-08 no D3.**
+>
+> 1. `_INTEREST_PATTERN` procurava `\bjuro\b` e `\bencargo\b` no **singular**.
+>    Extrato escreve "JUROS", "ENCARGOS" — "JUROS EMPRESTIMO", "ENCARGOS FATURA"
+>    e "JUROS SOBRE SALDO DEVEDOR" não casavam. Só passava quando havia
+>    "rotativo" na mesma descrição.
+>
+>    O padrão é deliberadamente **mais largo** que o `JUROS_ROTATIVO` do F5 e os
+>    dois não devem ser unificados: lá o objetivo é classificar uma *tarifa* de
+>    rotativo (e por isso exige contexto de cartão/fatura, para não capturar
+>    juro de empréstimo, que é custo legítimo); aqui é encontrar *qualquer*
+>    encargo para comparar com o mercado.
+>
+> 2. As três fontes de taxa falavam vocabulários diferentes: o Olinda devolve
+>    `rotativo`, o BacenCredit e o fallback devolvem `rotativo_monthly`, e o
+>    consumidor lia `market["rotativo_monthly"]`. Com o Olinda respondendo, o
+>    KeyError era engolido pelo `except` e o detector devolvia lista vazia — ou
+>    seja, **o D3 só funcionava quando o dado de mercado falhava**. Agora
+>    `_normalizar_taxas()` põe tudo no mesmo sufixo na fronteira.
 
 **Base legal**: CDC art. 51, IV · Tema 27/STJ (REsp 1.061.530/RS) · STJ 3ª
 Turma 2023 · Súmula 297/STJ · ADI 2.591.

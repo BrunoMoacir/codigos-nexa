@@ -138,17 +138,28 @@ _RE_PIX = re.compile(r"\bpix\b")
 # Uma cobrança acima do teto é descartada COM LOG, nunca em silêncio, porque
 # falso negativo silencioso também é defeito (é o gap nº 1 da doc).
 #
-# IOF e JUROS_ROTATIVO ficam de fora de propósito: os dois escalam com o
-# principal da operação e não têm ordem de grandeza fixa (IOF de crédito é 3%
-# do principal; rotativo sobre fatura grande passa fácil de R$ 1.000).
+# O critério para ter teto é ter ORDEM DE GRANDEZA FIXA. Cobrança que escala
+# com o principal da operação não tem — e por isso fica de fora:
+#
+#   IOF              3% do principal (crédito)
+#   JUROS_ROTATIVO   sobre fatura grande passa fácil de R$ 1.000
+#   SEGURO_*         prêmio proporcional ao valor segurado
+#
+# Os seguros estavam com teto de R$ 800 por um comentário meu que dizia "prêmio
+# mensal" — premissa que eu não confirmei. Prestamista costuma ser prêmio ÚNICO
+# sobre o principal (1–8% é a faixa usual), então num empréstimo de R$ 15 mil um
+# prêmio de R$ 890 é normal. O teto descartava exatamente o sinal que a Defesa
+# do Consumidor usa para detectar venda casada (D1, Tema 972/STJ) — falso
+# negativo na feature onde ele custa mais caro.
+#
+# Nenhum dos dois tem risco de confundir operação com cobrança: quando a
+# descrição diz "seguro prestamista", o valor da linha É o prêmio.
 _FEE_CEILINGS: dict[FeeType, float] = {
     FeeType.TARIFA_MANUTENCAO:  200.0,    # pacote mais caro do varejo fica < R$ 100
     FeeType.PACOTE_SERVICOS:    300.0,
     FeeType.TED_DOC:            150.0,    # tarifa de TED no varejo: R$ 5–30
     FeeType.SAQUE:              150.0,    # saque em rede parceira: R$ 5–20
     FeeType.ANUIDADE_CARTAO:   2500.0,    # cartão black à vista, sem parcelar
-    FeeType.SEGURO_PRESTAMISTA: 800.0,    # prêmio mensal
-    FeeType.SEGURO_EMBUTIDO:    800.0,
 }
 
 
