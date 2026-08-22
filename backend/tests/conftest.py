@@ -31,6 +31,7 @@ def _disable_rate_limit():
         "app.api.v1.routes.auth",
         "app.forecast.router",
         "app.agent.router",
+        "app.rights.router",
     )
     import importlib
 

@@ -276,7 +276,6 @@ def get_ir_pf_breakeven(
 @router.get("/forgotten-rights", response_model=ForgottenRightsReport)
 async def get_forgotten_rights(
     user_id: str = Depends(require_owner),
-    cpf: str = Query(..., description="CPF do usuário para consulta (somente números)"),
 ):
     """
     T3 - Monitor de Direitos Esquecidos (visão fiscal).
@@ -285,9 +284,15 @@ async def get_forgotten_rights(
     - SVR BACEN → consulta REAL assistida em `POST /rights/{user_id}/svr/check`
     - Restituição IRPF → consulta REAL autorizada em `POST /rights/{user_id}/ir/check`
     - FGTS → orientação (sem API pública para terceiros)
+
+    O parâmetro `cpf` foi REMOVIDO: era obrigatório, viajava na query string —
+    e portanto em access log, proxy, histórico do navegador e header Referer —
+    numa funcionalidade cujo compromisso declarado é registrar só CPF
+    mascarado. E nenhum dos três conectores chegava a usá-lo. Onde o CPF é de
+    fato necessário (`POST /rights/{user_id}/svr/check`), ele vai no corpo.
     """
     try:
-        report = await _rights_monitor.run_scan(user_id=user_id, cpf=cpf)
+        report = await _rights_monitor.run_scan(user_id=user_id)
         return report
     except Exception as exc:
         logger.error("Erro ao buscar direitos esquecidos user=%s: %s", user_id, exc)

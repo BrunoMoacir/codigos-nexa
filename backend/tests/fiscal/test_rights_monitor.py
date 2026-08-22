@@ -15,11 +15,9 @@ from app.fiscal.rights_monitor.services.monitor import RightsMonitorAggregator
 from app.fiscal.rights_monitor.services.receita_connector import ReceitaConnector
 from app.fiscal.rights_monitor.services.svr_connector import SVRConnector
 
-CPF = "52998224725"
-
 
 def test_svr_connector_aponta_consulta_assistida_sem_fabricar_valor():
-    candidate = asyncio.run(SVRConnector().check_rights(user_id="u1", cpf=CPF))
+    candidate = asyncio.run(SVRConnector().check_rights(user_id="u1"))
 
     assert candidate.source == "SVR_BACEN"
     assert candidate.status == "PENDING_VERIFICATION"
@@ -29,7 +27,7 @@ def test_svr_connector_aponta_consulta_assistida_sem_fabricar_valor():
 
 
 def test_fgts_connector_orientativo_sem_fabricar_valor():
-    candidate = asyncio.run(FGTSConnector().check_rights(user_id="u1", cpf=CPF))
+    candidate = asyncio.run(FGTSConnector().check_rights(user_id="u1"))
 
     assert candidate.source == "FGTS"
     assert candidate.status == "PENDING_VERIFICATION"
@@ -38,7 +36,7 @@ def test_fgts_connector_orientativo_sem_fabricar_valor():
 
 def test_receita_connector_com_serpro_configurado(monkeypatch):
     monkeypatch.setattr(settings, "SERPRO_RESTITUICAO_TRIAL", True, raising=False)
-    candidate = asyncio.run(ReceitaConnector().check_rights(user_id="u1", cpf=CPF))
+    candidate = asyncio.run(ReceitaConnector().check_rights(user_id="u1"))
 
     assert candidate.source == "IR_RESTITUTION"
     assert candidate.status == "PENDING_VERIFICATION"
@@ -50,14 +48,14 @@ def test_receita_connector_sem_serpro(monkeypatch):
     monkeypatch.setattr(settings, "SERPRO_RESTITUICAO_TRIAL", False, raising=False)
     monkeypatch.setattr(settings, "SERPRO_CONSUMER_KEY", "", raising=False)
     monkeypatch.setattr(settings, "SERPRO_CONSUMER_SECRET", "", raising=False)
-    candidate = asyncio.run(ReceitaConnector().check_rights(user_id="u1", cpf=CPF))
+    candidate = asyncio.run(ReceitaConnector().check_rights(user_id="u1"))
 
     assert candidate.status == "PENDING_VERIFICATION"
     assert "ainda não está" in candidate.description
 
 
 def test_aggregator_reune_as_tres_fontes():
-    report = asyncio.run(RightsMonitorAggregator().run_scan(user_id="user_2", cpf=CPF))
+    report = asyncio.run(RightsMonitorAggregator().run_scan(user_id="user_2"))
 
     assert report.user_id == "user_2"
     assert len(report.candidates) == 3
@@ -74,7 +72,7 @@ def test_aggregator_tolera_excecao_em_conector(monkeypatch):
 
     monkeypatch.setattr(aggregator.svr, "check_rights", boom)
 
-    report = asyncio.run(aggregator.run_scan(user_id="user_err", cpf=CPF))
+    report = asyncio.run(aggregator.run_scan(user_id="user_err"))
 
     assert len(report.candidates) == 2
     assert "SVR_BACEN" not in {c.source for c in report.candidates}

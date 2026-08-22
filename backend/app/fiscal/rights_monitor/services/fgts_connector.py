@@ -25,7 +25,7 @@ class FGTSConnector:
             "https://www.caixa.gov.br/beneficios-trabalhador/fgts/Paginas/default.aspx"
         )
 
-    async def check_rights(self, user_id: str, cpf: str) -> ForgottenRightCandidate:
+    async def check_rights(self, user_id: str) -> ForgottenRightCandidate:
         logger.info("FGTSConnector: orientação de verificação (user: %s)", user_id)
         return ForgottenRightCandidate(
             source="FGTS",

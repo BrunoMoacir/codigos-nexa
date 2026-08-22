@@ -26,7 +26,7 @@ class SVRConnector:
     def __init__(self):
         self._action_url = "https://valoresareceber.bcb.gov.br/"
 
-    async def check_rights(self, user_id: str, cpf: str) -> ForgottenRightCandidate:
+    async def check_rights(self, user_id: str) -> ForgottenRightCandidate:
         logger.info("SVRConnector: fluxo assistido indicado (user: %s)", user_id)
         return ForgottenRightCandidate(
             source="SVR_BACEN",

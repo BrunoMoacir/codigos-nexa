@@ -1,62 +1,64 @@
 """
 app/rights/services/ir_restituicao_checker.py — Restituição de Imposto de Renda
 
-Escaneia transações em busca de "IR RETIDO NA FONTE" (IRRF) para estimar
-o montante retido. A restituição real depende das deduções declaradas —
-esta é apenas uma estimativa de base.
+Escaneia o extrato em busca de IRRF retido para dimensionar relevância e
+orienta a consulta real. A consulta de verdade existe e está a um endpoint de
+distância: `POST /rights/{user_id}/ir/check`, com token do e-CAC (SERPRO).
 
-Canal oficial: e-CAC / app Meu Imposto de Renda (Receita Federal).
+Três defeitos corrigidos:
+
+1. **IRRF retido não é restituição.** O total retido ia como
+   `estimated_amount` com confiança `medium` e entrava em
+   `total_estimated_recoverable`. Quem ganha R$ 6.000/mês e teve R$ 9.900
+   retidos no ano via "R$ 9.900" num campo chamado "total recuperável" —
+   quando o mais provável é que deva exatamente o que foi retido e receba
+   R$ 0. Agora vai em `sinal`, com o rótulo correto.
+
+2. **A soma misturava os sinais.** `abs(ir_rows["amount"].sum())` somava
+   débito de retenção com crédito de restituição JÁ RECEBIDA: seis retenções
+   de R$ 500 mais uma restituição de R$ 4.000 davam "R$ 1.000 de IRRF
+   retido". Agora só débitos entram.
+
+3. **A faixa de isenção era de 2024.** `28_559.70` anuais. Desde 01/2026 a
+   isenção é de R$ 5.000/mês (Lei 15.270/2025) — quem ganha R$ 3.000/mês era
+   informado de que estava "acima do limite de isenção, provável IR retido na
+   fonte", com R$ 2.700 estimados. O parâmetro agora vem de
+   `parametros_legais`, datado, com um teste que quebra quando o ano vira.
+
+A regex também era duas: `_IR_KEYWORDS` compilada e nunca usada, e uma inline
+mais pobre no filtro. A inline não casava "IMPOSTO DE RENDA RETIDO NA FONTE".
+Agora há uma só, em `contexto_transacional.PADRAO_IRRF`.
 """
 
 from __future__ import annotations
 
 import logging
-import re
-from datetime import date, timedelta
-from typing import Optional
 
-from app.rights.models import ForgottenRight
+from app.rights.models import ForgottenRight, SinalDeRelevancia
+from app.rights.parametros_legais import (
+    IRPF_FONTE,
+    IRPF_ISENCAO_MENSAL,
+    irpf_isencao_anual,
+)
+from app.rights.services.contexto_transacional import ContextoTransacional
 
 logger = logging.getLogger(__name__)
 
-_IR_KEYWORDS = re.compile(
-    r"\b(ir retido|irrf|imposto renda|ir fonte|imposto de renda retido|ret fonte|ret ir)\b",
-    re.IGNORECASE,
-)
-
-_COMMON_DEDUCTIONS = [
+_DEDUCOES_COMUNS = [
     "Despesas médicas (plano de saúde, consultas, exames)",
     "Previdência privada PGBL (até 12% da renda bruta)",
     "Dependentes (filhos, cônjuge, pais em certas condições)",
-    "Despesas educacionais (teto R$ 3.561,50/dependente em 2024)",
+    "Despesas educacionais (dentro do teto anual por dependente)",
     "Contribuição ao INSS (automaticamente deduzida)",
 ]
 
 
 class IrRestituicaoChecker:
-    """
-    Estima IRRF retido na fonte a partir de transações e orienta a verificação
-    da restituição via canais da Receita Federal.
-    """
+    """Dimensiona o IRRF retido e orienta a consulta real da restituição."""
 
-    def check(self, user_id: str) -> ForgottenRight:
-        irrf_total, months, reason = self._scan_irrf_transactions(user_id)
-        income_annual, _ = self._estimate_annual_income(user_id)
-
-        if irrf_total and irrf_total > 0:
-            estimated = irrf_total
-            confidence = "medium" if months >= 3 else "low"
-        elif income_annual and income_annual > 28_559.70:  # faixa tributável mínima 2024
-            estimated = round(income_annual * 0.075, 2)  # alíquota média estimada
-            confidence = "low"
-            reason = (
-                f"Renda anual estimada R$ {income_annual:,.2f} — "
-                "acima do limite de isenção, provável IR retido na fonte. "
-                "Deduções (saúde, previdência, dependentes) podem gerar restituição."
-            )
-        else:
-            estimated = None
-            confidence = "unknown"
+    def check(self, user_id: str, ctx: ContextoTransacional | None = None) -> ForgottenRight:
+        ctx = ctx if ctx is not None else ContextoTransacional.carregar(user_id)
+        sinal, motivo = self._sinal(ctx)
 
         return ForgottenRight(
             category="ir_restituicao",
@@ -66,84 +68,65 @@ class IrRestituicaoChecker:
                 "Despesas dedutíveis frequentemente esquecidas aumentam a restituição. "
                 "Restituições não resgatadas ficam disponíveis por 5 anos."
             ),
-            estimated_amount=estimated,
-            estimated_confidence=confidence,
-            relevance_reason=reason,
+            estimated_amount=None,
+            estimated_confidence="unknown",
+            sinal=sinal,
+            relevance_reason=motivo,
             official_channel="App Meu Imposto de Renda (Receita Federal) · e-CAC",
             official_url="https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda",
             action_steps=[
-                "Consulte em tempo real pela Nexa: gere uma Autorização de Compartilhamento "
+                "Consulte o VALOR REAL pela Nexa: gere uma Autorização de Compartilhamento "
                 "no e-CAC (Compartilha Receita Federal) e cole o token no app.",
                 "Alternativa: baixe o app 'Meu Imposto de Renda' (iOS/Android) ou acesse o e-CAC.",
                 "Consulte o extrato da declaração para ver se há restituição pendente.",
                 "Se constar 'em análise' há mais de 60 dias, acesse 'Consultar Impugnação/Autuação'.",
-                "Verifique deduções esquecidas: " + " · ".join(_COMMON_DEDUCTIONS[:3]) + ".",
+                "Verifique deduções esquecidas: " + " · ".join(_DEDUCOES_COMUNS[:3]) + ".",
                 "Restituições de até 5 anos anteriores podem ser recuperadas se a declaração foi entregue.",
             ],
             warning=(
-                "Estimativa Nexa baseada em IRRF detectado nas transações (R$ "
-                f"{irrf_total:,.2f} em {months} lançamentos). "
-                "O valor real depende das deduções declaradas."
-            ) if irrf_total else None,
+                "O valor acima é o imposto RETIDO, não o que você tem a receber. A "
+                "restituição depende das deduções da sua declaração e pode ser zero — ou "
+                "pode haver saldo a pagar. O número real está na consulta do e-CAC."
+            ) if sinal and sinal.valor else None,
         )
 
-    def _scan_irrf_transactions(self, user_id: str) -> tuple[Optional[float], int, str]:
-        try:
-            from app.core.db.queries import get_transactions_for_user
-            import polars as pl
-
-            df = get_transactions_for_user(user_id)
-            if df.is_empty():
-                return None, 0, "Sem transações disponíveis para análise de IRRF."
-
-            desc_col = next(
-                (c for c in ("description", "memo", "name") if c in df.columns), None
-            )
-            if not desc_col:
-                return None, 0, "Descrições de transações não disponíveis para análise de IRRF."
-
-            date_col = "transaction_date" if "transaction_date" in df.columns else "date"
-            cutoff = date.today() - timedelta(days=365)
-            df_year = df.filter(pl.col(date_col) >= cutoff)
-
-            ir_rows = df_year.filter(
-                pl.col(desc_col).str.contains(r"(?i)(ir retido|irrf|imposto renda|ret ir|ret fonte)")
+    @staticmethod
+    def _sinal(ctx: ContextoTransacional) -> tuple[SinalDeRelevancia | None, str]:
+        if not ctx.disponivel:
+            return None, (
+                "Sem transações disponíveis. Consulte a restituição no app Meu Imposto "
+                "de Renda ou pela consulta real da Nexa (token do e-CAC)."
             )
 
-            if ir_rows.is_empty():
-                return None, 0, "Nenhum IRRF retido detectado nas transações do último ano."
-
-            total = abs(float(ir_rows["amount"].sum()))
-            count = ir_rows.height
-            return round(total, 2), count, (
-                f"Detectados {count} lançamento(s) de IRRF nas transações "
-                f"(total R$ {total:,.2f} no último ano)."
+        if ctx.irrf_retido > 0:
+            return (
+                SinalDeRelevancia(
+                    valor=ctx.irrf_retido,
+                    rotulo="IRRF retido detectado no período (não é o valor da restituição)",
+                    base=(
+                        f"Soma de {ctx.irrf_lancamentos} débito(s) com descrição de imposto "
+                        f"retido no período {ctx.janela}. Restituição = imposto retido − "
+                        f"imposto devido após deduções; pode ser zero."
+                    ),
+                ),
+                (
+                    f"Detectados {ctx.irrf_lancamentos} lançamento(s) de IRRF no período "
+                    f"{ctx.janela} (R$ {ctx.irrf_retido:,.2f} retidos) — vale conferir se "
+                    "há restituição."
+                ),
             )
 
-        except Exception as exc:
-            logger.warning("[IrRestituicaoChecker] user=%s: %s", user_id, exc)
-            return None, 0, "Consulte o app Meu Imposto de Renda para verificar restituições pendentes."
-
-    def _estimate_annual_income(self, user_id: str) -> tuple[Optional[float], str]:
-        try:
-            from app.core.db.queries import get_transactions_for_user
-            import polars as pl
-
-            df = get_transactions_for_user(user_id)
-            if df.is_empty():
-                return None, "Sem dados."
-
-            date_col = "transaction_date" if "transaction_date" in df.columns else "date"
-            cutoff = date.today() - timedelta(days=365)
-            income = (
-                df.filter(pl.col(date_col) >= cutoff)
-                .filter(pl.col("amount") > 0)
+        renda_anual = ctx.renda_anual
+        if renda_anual and renda_anual > irpf_isencao_anual():
+            mensal = round(renda_anual / max(ctx.meses_com_renda, 1), 2)
+            return None, (
+                f"Renda média de R$ {mensal:,.2f}/mês no período {ctx.janela} — acima da "
+                f"faixa de isenção (R$ {IRPF_ISENCAO_MENSAL:,.2f}/mês). Não detectamos "
+                f"IRRF no extrato, mas pode haver retenção na folha. {IRPF_FONTE}"
             )
-            if income.is_empty():
-                return None, "Sem créditos no último ano."
 
-            total = float(income["amount"].sum())
-            return round(total, 2), f"Renda bruta anual estimada: R$ {total:,.2f}."
-
-        except Exception:
-            return None, "Não foi possível estimar renda anual."
+        return None, (
+            f"Nenhum IRRF detectado no período {ctx.janela} e renda dentro da faixa de "
+            f"isenção (R$ {IRPF_ISENCAO_MENSAL:,.2f}/mês). Se declarou em anos anteriores, "
+            "ainda pode haver restituição não resgatada — o prazo é de 5 anos."
+        )

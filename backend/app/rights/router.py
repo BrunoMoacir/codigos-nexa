@@ -15,7 +15,9 @@ não são persistidos; logs registram apenas CPF mascarado (LGPD).
 import logging
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.core.security import require_owner
 from app.rights.models import (
@@ -42,9 +44,17 @@ from app.rights.services.svr_bacen_client import SvrBacenClient
 from app.rights.services.fgts_checker import FgtsChecker
 from app.rights.services.pis_pasep_checker import PisPasepChecker
 from app.rights.services.ir_restituicao_checker import IrRestituicaoChecker
+from app.rights.services.contexto_transacional import ContextoTransacional
+from app.rights.services.capacidades import anotar_capacidade
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/rights", tags=["Rights (T3 — Direitos Esquecidos)"])
+
+# Os dois endpoints de consulta real fazem proxy de APIs oficiais de terceiros
+# (BACEN e SERPRO). Sem limite, um cliente em loop consome cota alheia e o
+# risco é o IP da Nexa ser bloqueado pelo BACEN — o que derruba justamente a
+# única consulta de verdade que a funcionalidade tem.
+limiter = Limiter(key_func=get_remote_address)
 
 _svr = SvrBacenClient()
 _fgts = FgtsChecker()
@@ -102,6 +112,11 @@ def get_forgotten_rights(
     rights: list[ForgottenRight] = []
     context_note: str | None = None
 
+    # Uma leitura do extrato para os quatro verificadores. Cada um lia por
+    # conta própria — cinco idas ao banco por chamada, cada uma com a sua
+    # versão da janela e da regex.
+    ctx = ContextoTransacional.carregar(user_id)
+
     checkers = [
         ("svr_bacen", _svr),
         ("fgts", _fgts),
@@ -110,18 +125,21 @@ def get_forgotten_rights(
     ]
     for name, checker in checkers:
         try:
-            right = checker.check(user_id)
-            _annotate_capability(right)
+            right = checker.check(user_id, ctx)
+            anotar_capacidade(right, _serpro.is_configured)
             rights.append(right)
         except Exception as exc:
             logger.error("[rights] checker=%s user=%s: %s", name, user_id, exc)
 
-    # Soma apenas estimativas com confiança medium ou high
-    recoverable = sum(
-        r.estimated_amount
-        for r in rights
-        if r.estimated_amount and r.estimated_confidence in ("high", "medium")
-    )
+    # Soma apenas valores CONFIRMADOS em consulta real. Numa varredura
+    # automática não há consulta, então é sempre 0.0 — a mesma regra que
+    # `app/fiscal/rights_monitor` já seguia.
+    #
+    # Antes somava as heurísticas com confiança `medium`: depósito de FGTS de
+    # emprego ativo + um "abono" que era constante + o IRRF retido. Um usuário
+    # de R$ 6.000/mês lia "total recuperável R$ 13.712,00", e nenhuma das três
+    # parcelas era dinheiro a receber.
+    recoverable = sum(r.estimated_amount or 0.0 for r in rights if r.estimated_amount)
 
     # Contexto adicional de ganhos já identificados pelo Negociador
     negotiation_gain = _get_negotiation_gain(user_id)
@@ -146,23 +164,15 @@ def get_forgotten_rights(
     )
 
 
-def _annotate_capability(right: ForgottenRight) -> None:
-    """Marca como a Nexa consegue verificar cada fonte (real vs orientativo)."""
-    if right.category == "svr_bacen":
-        right.capability = "assisted_real"
-        right.check_endpoint = "/api/v1/rights/{user_id}/svr/check"
-    elif right.category == "ir_restituicao" and _serpro.is_configured:
-        right.capability = "authorized_real"
-        right.check_endpoint = "/api/v1/rights/{user_id}/ir/check"
-    else:
-        right.capability = "guided"
-
-
 # ── Consulta assistida SVR — API pública oficial do BACEN ──────────────────
 
 
 @router.get("/{user_id}/svr/captcha", response_model=SvrCaptchaOut)
-def get_svr_captcha(user_id: str = Depends(require_owner)) -> SvrCaptchaOut:
+@limiter.limit("10/minute")
+def get_svr_captcha(
+    request: Request,
+    user_id: str = Depends(require_owner),
+) -> SvrCaptchaOut:
     """
     **Etapa 1 da consulta assistida do SVR.**
 
@@ -186,7 +196,9 @@ def get_svr_captcha(user_id: str = Depends(require_owner)) -> SvrCaptchaOut:
 
 
 @router.post("/{user_id}/svr/check", response_model=SvrCheckOut)
+@limiter.limit("10/minute")
 def check_svr(
+    request: Request,
     body: SvrCheckIn,
     user_id: str = Depends(require_owner),
 ) -> SvrCheckOut:
@@ -236,7 +248,9 @@ def check_svr(
 
 
 @router.post("/{user_id}/ir/check", response_model=IrCheckOut)
+@limiter.limit("10/minute")
 def check_ir_restituicao(
+    request: Request,
     body: IrCheckIn,
     user_id: str = Depends(require_owner),
 ) -> IrCheckOut:

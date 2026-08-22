@@ -5,16 +5,19 @@ Não existe API pública JSON para consulta por CPF — o portal usa autenticaç
 GOV.BR (OAuth2 gov.br) e não expõe endpoint documentado de terceiros.
 
 Esta implementação:
-  - lê bank_fee_history para estimar cobranças potencialmente contestáveis
-    que podem aparecer no SVR após resolução com o banco;
+  - lê bank_fee_history apenas para EXPLICAR por que vale consultar (contas
+    inativas, tarifas contestáveis) — nunca para produzir um valor;
   - sempre orienta o usuário ao canal oficial (valoresareceber.bcb.gov.br).
+
+A consulta REAL existe e está em `POST /rights/{user_id}/svr/check`: a API
+pública do BACEN, com o captcha oficial respondido pelo próprio usuário,
+responde se há valor. O montante exige login GOV.BR no portal.
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
-from typing import Optional
 
 from app.rights.models import ForgottenRight
 
@@ -25,12 +28,14 @@ class SvrBacenClient:
     """
     Verificador de Valores a Receber — SVR BACEN.
 
-    Faz consulta heurística em bank_fee_history para estimar relevância
-    e retorna orientação de acesso ao portal oficial.
+    Explica por que vale consultar e aponta para a consulta assistida real.
+    Não produz valor: o SVR público não devolve montante.
     """
 
-    def check(self, user_id: str) -> ForgottenRight:
-        estimated, reason = self._estimate_from_fee_history(user_id)
+    def check(self, user_id: str, ctx=None) -> ForgottenRight:
+        # `ctx` entra por uniformidade com os outros verificadores; o SVR não
+        # depende do extrato — o sinal dele vem do histórico de tarifas.
+        _estimated, reason = self._estimate_from_fee_history(user_id)
 
         return ForgottenRight(
             category="svr_bacen",
@@ -38,11 +43,14 @@ class SvrBacenClient:
             description=(
                 "O SVR BACEN lista saldos esquecidos em contas encerradas, cheques não sacados, "
                 "quotas de consórcio não retiradas, tarifas cobradas indevidamente e parcelas "
-                "restituíveis de seguros. A mediana entre os usuários que encontram valores "
-                "é de aproximadamente R$ 150."
+                "restituíveis de seguros."
+                # Havia aqui "a mediana entre os usuários que encontram valores é de
+                # aproximadamente R$ 150" — estatística sem fonte, apresentada ao
+                # usuário como fato. Removida: número em texto de produto precisa de
+                # origem verificável.
             ),
-            estimated_amount=estimated,
-            estimated_confidence="low" if estimated and estimated > 0 else "unknown",
+            estimated_amount=None,        # a consulta pública do SVR não devolve valor
+            estimated_confidence="unknown",
             relevance_reason=reason,
             official_channel="Portal SVR BACEN (acesso com GOV.BR)",
             official_url="https://valoresareceber.bcb.gov.br",
@@ -60,7 +68,14 @@ class SvrBacenClient:
             ),
         )
 
-    def _estimate_from_fee_history(self, user_id: str) -> tuple[Optional[float], str]:
+    def _estimate_from_fee_history(self, user_id: str) -> tuple[None, str]:
+        """
+        Devolve apenas o MOTIVO de relevância. Nunca um valor: a consulta
+        pública do SVR responde `temValorAReceber: bool` e mais nada — o
+        montante exige login GOV.BR no portal oficial. Inventar um número aqui
+        seria fabricar dinheiro para uma fonte que nem o BACEN quantifica sem
+        autenticação.
+        """
         try:
             from app.core.database import SessionLocal
             from sqlalchemy import text

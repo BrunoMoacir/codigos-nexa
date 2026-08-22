@@ -29,7 +29,7 @@ class ReceitaConnector:
         )
         self._serpro = serpro or SerproRestituicaoConnector()
 
-    async def check_rights(self, user_id: str, cpf: str) -> ForgottenRightCandidate:
+    async def check_rights(self, user_id: str) -> ForgottenRightCandidate:
         if self._serpro.is_configured:
             description = (
                 "Consulta em tempo real habilitada: gere uma Autorização de "

@@ -2,48 +2,48 @@
 app/rights/services/fgts_checker.py — FGTS Esquecido
 
 Não existe API pública para consultar saldo FGTS por CPF sem autenticação
-via GOV.BR / app FGTS (CEF).
+via GOV.BR / app FGTS (CEF). Este verificador é orientativo: detecta vínculo
+CLT no extrato, dimensiona o DEPÓSITO mensal teórico como sinal de relevância
+e manda o usuário ao canal oficial.
 
-Esta implementação:
-  - analisa transações para detectar padrões de renda CLT (salário regular);
-  - estima a contribuição FGTS teórica (8% do salário bruto × meses) como
-    indicativo de relevância — NÃO é o saldo real, que só a CEF tem;
-  - orienta o usuário ao app FGTS ou agência CEF.
+O que mudou, e por quê:
+
+**O número não é mais valor a receber.** `salário × 8% × meses` é o depósito
+do emprego ATIVO no período analisado — não é saldo, não é dinheiro esquecido
+e, com contrato em vigor, não é sacável fora das hipóteses legais. Ia como
+`estimated_amount` com confiança `medium`, entrava em
+`total_estimated_recoverable` e virava promessa: uma pessoa de R$ 6.000/mês
+via "R$ 2.400" num campo chamado "total recuperável". Agora vai em `sinal`,
+com o rótulo do que é.
+
+**O cálculo dependia de como o patrão parcelava o pagamento.** `months` era
+`salary_rows.height` — o número de LINHAS — e a média era por lançamento. Com
+a mesma renda de R$ 4.000/mês, quem recebia de uma vez via R$ 1.600 e quem
+recebia adiantamento + salário via R$ 960. Agora a agregação é por mês, no
+`ContextoTransacional`.
+
+**A regex morta era a documentada.** `_CLT_KEYWORDS` era compilada e nunca
+usada; o filtro real era uma regex inline diferente e mais pobre. Agora existe
+uma só, em `contexto_transacional.PADRAO_SALARIO`.
 """
 
 from __future__ import annotations
 
 import logging
-import re
-from datetime import date, timedelta
-from typing import Optional
 
-from app.rights.models import ForgottenRight
+from app.rights.models import ForgottenRight, SinalDeRelevancia
+from app.rights.parametros_legais import FGTS_ALIQUOTA_MENSAL, FGTS_FONTE
+from app.rights.services.contexto_transacional import ContextoTransacional
 
 logger = logging.getLogger(__name__)
 
-_CLT_KEYWORDS = re.compile(
-    r"\b(salario|salário|folha|pagamento|holerite|vencimento|remuneracao|remuneração|clt)\b",
-    re.IGNORECASE,
-)
-
-_FGTS_RATE = 0.08  # 8% do salário bruto — alíquota padrão CLT
-
 
 class FgtsChecker:
-    """
-    Detecta se o usuário provavelmente tem vínculo CLT e estima contribuição FGTS.
-    """
+    """Detecta vínculo CLT e dimensiona o depósito de FGTS do período."""
 
-    def check(self, user_id: str) -> ForgottenRight:
-        monthly_salary, months_detected, reason = self._detect_salary(user_id)
-
-        if monthly_salary and monthly_salary > 0:
-            estimated = round(monthly_salary * _FGTS_RATE * months_detected, 2)
-            confidence = "medium" if months_detected >= 3 else "low"
-        else:
-            estimated = None
-            confidence = "unknown"
+    def check(self, user_id: str, ctx: ContextoTransacional | None = None) -> ForgottenRight:
+        ctx = ctx if ctx is not None else ContextoTransacional.carregar(user_id)
+        sinal, motivo = self._sinal(ctx)
 
         return ForgottenRight(
             category="fgts",
@@ -53,9 +53,10 @@ class FgtsChecker:
                 "O FGTS pode ser sacado em demissão sem justa causa, aposentadoria, compra do imóvel "
                 "ou doenças graves. Contas de empregos anteriores ficam ativas indefinidamente."
             ),
-            estimated_amount=estimated,
-            estimated_confidence=confidence,
-            relevance_reason=reason,
+            estimated_amount=None,   # só consulta real preenche
+            estimated_confidence="unknown",
+            sinal=sinal,
+            relevance_reason=motivo,
             official_channel="App FGTS (CEF) ou agência Caixa Econômica Federal",
             official_url="https://www.fgts.gov.br",
             action_steps=[
@@ -66,67 +67,42 @@ class FgtsChecker:
                 "Saque-aniversário: avalie se a modalidade atual ainda é vantajosa para seu perfil.",
             ],
             warning=(
-                f"Estimativa Nexa (R$ {estimated:,.2f}) baseada em {months_detected} meses de salário detectado × 8%. "
-                "O saldo real inclui correção TR + 3% a.a. e só a Caixa tem o extrato completo."
-            ) if estimated else None,
+                "O valor acima é o DEPÓSITO estimado do seu vínculo atual no período "
+                "analisado — não é saldo, não é dinheiro esquecido e, com contrato em "
+                "vigor, o saque só ocorre nas hipóteses previstas em lei. O saldo real "
+                "inclui correção (TR + 3% a.a.) desde cada depósito e só a Caixa tem o "
+                "extrato completo."
+            ) if sinal and sinal.valor else None,
         )
 
-    def _detect_salary(self, user_id: str) -> tuple[Optional[float], int, str]:
-        try:
-            from app.core.db.queries import get_transactions_for_user
-            import polars as pl
-
-            df = get_transactions_for_user(user_id)
-            if df.is_empty():
-                return None, 0, "Sem transações disponíveis. Verifique o app FGTS para histórico de empregos."
-
-            date_col = "transaction_date" if "transaction_date" in df.columns else "date"
-            desc_col = "description" if "description" in df.columns else None
-
-            # Últimos 6 meses
-            cutoff = date.today() - timedelta(days=180)
-            df_recent = df.filter(pl.col(date_col) >= cutoff)
-
-            income = df_recent.filter(pl.col("amount") > 0)
-
-            # Filtra por descrição CLT se disponível
-            if desc_col and desc_col in df_recent.columns:
-                salary_rows = income.filter(
-                    pl.col(desc_col).str.contains(r"(?i)(salario|salário|folha|pagamento|clt|vencimento)")
-                )
-                if salary_rows.height > 0:
-                    avg_salary = round(float(salary_rows["amount"].mean()), 2)
-                    months = salary_rows.height
-                    return avg_salary, min(months, 6), (
-                        f"Detectados {months} crédito(s) com padrão salarial CLT "
-                        f"(média R$ {avg_salary:,.2f}/mês nos últimos 6 meses)."
-                    )
-
-            # Heurística: depósitos regulares mensais de valor similar
-            monthly = (
-                income
-                .with_columns(
-                    pl.col(date_col).dt.strftime("%Y-%m").alias("month")
-                )
-                .group_by("month")
-                .agg(pl.col("amount").max().alias("max_deposit"))
-                .sort("month")
-            )
-            if monthly.height >= 3:
-                deposits = monthly["max_deposit"].to_list()
-                avg = sum(deposits) / len(deposits)
-                variability = max(abs(d - avg) / avg for d in deposits if avg > 0)
-                if variability < 0.15 and avg > 800:
-                    return round(avg, 2), monthly.height, (
-                        f"Detectados depósitos mensais regulares com pouca variação "
-                        f"(média R$ {avg:,.2f}/mês) — possível vínculo CLT."
-                    )
-
-            return None, 0, (
-                "Padrão CLT não identificado nas transações recentes. "
-                "Se teve empregos anteriores, consulte o app FGTS mesmo assim."
+    @staticmethod
+    def _sinal(ctx: ContextoTransacional) -> tuple[SinalDeRelevancia | None, str]:
+        if not ctx.disponivel:
+            return None, (
+                "Sem transações disponíveis. Se teve empregos anteriores, consulte o "
+                "app FGTS mesmo assim — contas antigas ficam ativas indefinidamente."
             )
 
-        except Exception as exc:
-            logger.warning("[FgtsChecker] user=%s: %s", user_id, exc)
-            return None, 0, "Verifique o app FGTS (CEF) para confirmar saldos de empregos anteriores."
+        salario = ctx.salario_mensal_medio
+        meses = ctx.meses_com_salario
+        if not salario or meses == 0:
+            return None, (
+                "Padrão de salário CLT não identificado no extrato. Isso não significa "
+                "que não haja FGTS: empregos anteriores continuam com conta ativa."
+            )
+
+        valor = round(salario * FGTS_ALIQUOTA_MENSAL * meses, 2)
+        return (
+            SinalDeRelevancia(
+                valor=valor,
+                rotulo="Depósitos de FGTS estimados no período analisado (não é saldo)",
+                base=(
+                    f"R$ {salario:,.2f}/mês × {FGTS_ALIQUOTA_MENSAL:.0%} × {meses} "
+                    f"mês(es) com salário detectado ({ctx.janela}). {FGTS_FONTE}"
+                ),
+            ),
+            (
+                f"Salário CLT detectado em {meses} mês(es) do período {ctx.janela} "
+                f"(média R$ {salario:,.2f}/mês) — vínculo formal gera depósito de FGTS."
+            ),
+        )

@@ -19,14 +19,19 @@ class RightsMonitorAggregator:
         self.fgts = FGTSConnector()
         self.receita = ReceitaConnector()
 
-    async def run_scan(self, user_id: str, cpf: str) -> ForgottenRightsReport:
+    async def run_scan(self, user_id: str) -> ForgottenRightsReport:
+        """
+        Varredura de status por fonte. NÃO recebe CPF: nenhum dos conectores
+        usa — as três consultas reais dependem de ação do titular (captcha do
+        BACEN, token do e-CAC) e não de um CPF passado por parâmetro.
+        """
         logger.info(f"RightsMonitorAggregator: Iniciando varredura para user {user_id}")
         
         # Executa as consultas em paralelo para minimizar tempo de resposta
         results = await asyncio.gather(
-            self.svr.check_rights(user_id, cpf),
-            self.fgts.check_rights(user_id, cpf),
-            self.receita.check_rights(user_id, cpf),
+            self.svr.check_rights(user_id),
+            self.fgts.check_rights(user_id),
+            self.receita.check_rights(user_id),
             return_exceptions=True
         )
 
