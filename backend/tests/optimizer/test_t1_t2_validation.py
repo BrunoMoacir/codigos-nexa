@@ -1057,14 +1057,34 @@ class TestFSSCalculator:
         assert result["fss_level"] in ("SAUDAVEL", "ATENCAO", "ALERTA", "CRITICO")
 
     def test_overdraft_detection_by_keyword(self):
+        """
+        Com base suficiente (2+ meses), a keyword dispara o sinal.
+
+        A versão anterior deste teste usava UMA transação num ÚNICO mês e
+        afirmava o disparo — que era exatamente o defeito: 1 mês com cobrança
+        ÷ 1 mês de dado = 1,0, o sinal máximo (+25 pontos) a partir de uma
+        amostra de um mês. Ver `test_overdraft_exige_base_minima`.
+        """
         from app.optimizer.detectors.fss_calculator import FSSCalculator
         rows = [
+            {"date": date(2026, 2, 10), "amount": -50.0, "description": "IOF ESPECIAL"},
             {"date": date(2026, 3, 10), "amount": -50.0, "description": "IOF ESPECIAL"},
         ]
         overdraft_df = pl.DataFrame(rows, schema={"date": pl.Date, "amount": pl.Float64, "description": pl.Utf8})
         profile = self._profile()
         result = FSSCalculator().calc_fss(profile, overdraft_df, resilience_score=80)
         assert any("overdraft" in s for s in result["fss_signals"])
+
+    def test_overdraft_exige_base_minima(self):
+        """Um único mês de histórico não estima fração de meses com cheque especial."""
+        from app.optimizer.detectors.fss_calculator import FSSCalculator
+        rows = [
+            {"date": date(2026, 3, 10), "amount": -50.0, "description": "IOF ESPECIAL"},
+        ]
+        df = pl.DataFrame(rows, schema={"date": pl.Date, "amount": pl.Float64, "description": pl.Utf8})
+        result = FSSCalculator().calc_fss(self._profile(), df, resilience_score=80)
+        assert not any("overdraft" in s for s in result["fss_signals"])
+        assert result["fss_confidence"] == 0.3
 
 
 # ═══════════════════════════════════════════════════════════════════════════

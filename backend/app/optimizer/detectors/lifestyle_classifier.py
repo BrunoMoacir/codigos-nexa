@@ -74,24 +74,68 @@ class LifestyleClassifier:
     # teste ponta a ponta do demo.
     _RULES_FLOOR_CONFIDENCE = 0.60
 
+    # Corroboração: dois sinais fracos que APONTAM PARA O MESMO LUGAR valem
+    # mais que um sinal fraco sozinho. É exatamente o princípio que o
+    # EvidenceScorer já aplica nos eventos de vida — BUFFET isolado é
+    # bloqueado, BUFFET+NOIVAS+FOTÓGRAFO passa com folga — aplicado aqui, no
+    # ponto em que o híbrido é mais fraco.
+    #
+    # Medição que motivou isto: em 4.000 perfis, o ML abstinha e o piso de
+    # 0,60 salvava 18,5%. O resto virava NAO_CLASSIFICADO, que no produto
+    # significa tom neutro no chat, nenhum ajuste de orçamento e nenhum
+    # bônus de ranking — ou seja, a feature inteira desligada para aquele
+    # usuário. Boa parte desses casos tinha ML e regras concordando, cada um
+    # logo abaixo do seu próprio limiar.
+    _CORROBORATION_ML = 0.25      # vs 0.35 exigido do ML sozinho
+    _CORROBORATION_RULES = 0.40   # vs 0.60 exigido das regras sozinhas
+
     def _apply_rules_floor(self, profile: UserProfile, ml_result: dict) -> dict:
         if ml_result.get("lifestyle_cluster") != CLUSTER_UNCLASSIFIED:
             return ml_result
-        rules = self.classify_rules(profile)
-        rule_primary = rules["lifestyle_cluster"]
-        if rule_primary == CLUSTER_UNCLASSIFIED:
+
+        # `ml.classify()` já devolve as afinidades das regras em
+        # `cluster_scores` — recalcular aqui daria o mesmo resultado por um
+        # segundo passe do classificador de regras.
+        rule_scores = ml_result.get("cluster_scores") or {}
+        rules = self.classify_rules(profile) if not rule_scores else None
+        if rules is not None:
+            rule_scores = rules["cluster_scores"]
+
+        candidatos = {c: s for c, s in rule_scores.items() if c != CLUSTER_UNCLASSIFIED}
+        if not candidatos:
             return ml_result
-        rule_score = rules["cluster_scores"].get(rule_primary, 0.0)
-        if rule_score < self._RULES_FLOOR_CONFIDENCE:
+        rule_primary = max(candidatos, key=candidatos.get)
+        rule_score = candidatos[rule_primary]
+
+        fonte = None
+        if rule_score >= self._RULES_FLOOR_CONFIDENCE:
+            fonte = "ml+rules_floor"
+        elif rule_score >= self._CORROBORATION_RULES:
+            # O ML absteve por não cruzar 0,35, mas ainda tem um favorito.
+            # Se o favorito dele é o mesmo das regras, os dois concordam.
+            probas = ml_result.get("ml_probabilities") or {}
+            ml_cands = {c: p for c, p in probas.items() if c != CLUSTER_UNCLASSIFIED}
+            if ml_cands:
+                ml_top = max(ml_cands, key=ml_cands.get)
+                if ml_top == rule_primary and ml_cands[ml_top] >= self._CORROBORATION_ML:
+                    fonte = "ml+rules_agreement"
+
+        if fonte is None:
             return ml_result
-        # Regras confiantes vencem a abstenção do ML — mantém as afinidades
-        # das regras como cluster_scores (contrato preservado).
+
+        secundarios = sorted(
+            [c for c, s in candidatos.items()
+             if c != rule_primary and s >= _SECONDARY_THRESHOLD],
+            key=lambda c: candidatos[c],
+            reverse=True,
+        )[:_MAX_SECONDARY]
+
         return {
             "lifestyle_cluster": rule_primary,
-            "secondary_clusters": rules["secondary_clusters"],
-            "cluster_scores": rules["cluster_scores"],
+            "secondary_clusters": secundarios,
+            "cluster_scores": rule_scores,
             "ml_probabilities": ml_result.get("ml_probabilities"),
-            "classification_source": "ml+rules_floor",
+            "classification_source": fonte,
             "ml_confidence": ml_result.get("ml_confidence"),
         }
 

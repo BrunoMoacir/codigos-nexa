@@ -14,9 +14,30 @@ Etapas em ordem:
                                             limitados a _MAX_NON_CRITICAL slots
 
 Regras de proteção:
-    - Notificações CRITICAL nunca são descartadas em nenhuma etapa.
     - Thresholds escalam com a renda do usuário via _income_scaled():
       mesmo evento é ruído para quem ganha R$15k e relevante para quem ganha R$2k.
+    - CRITICAL é imune aos caps (etapas 2 e 3) e aos portões de RELEVÂNCIA da
+      etapa 1 — mas nunca aos de VALIDADE. Ver a distinção abaixo.
+
+Duas naturezas de portão na etapa 1, e a diferença importa:
+
+    RELEVÂNCIA — "isso é grande o bastante para te interromper?"
+        Valor da anomalia, ganho do cartão, reajuste da assinatura. São
+        julgamentos de magnitude, quase todos escalados pela renda. Se o
+        gerador já decidiu que a nota é CRITICAL, magnitude deixa de ser a
+        pergunta: CRITICAL passa por cima.
+
+    VALIDADE — "esse sinal é real?"
+        Confiança do evento de vida, marco de meta, janela do prazo fiscal.
+        Uma nota CRITICAL que não passa num portão desses não é urgente, é
+        malformada — e um falso "detectamos um bebê" fica PIOR alto.
+        CRITICAL nunca é imune a esses.
+
+A etapa 1 não fazia distinção nenhuma e também não olhava prioridade: uma
+anomalia CRITICAL de R$ 150 (fator 4,2× — o gerador marca CRITICAL a partir
+de 3×) era descartada para quem ganha R$ 15 mil exatamente como um WARNING,
+enquanto as etapas 2 e 3 checavam `n.priority == "CRITICAL"` e a protegiam.
+A invariante estava escrita em três lugares e implementada em dois terços.
 """
 
 from __future__ import annotations
@@ -54,13 +75,16 @@ def _burn_rate_relevant(n: Notification, income: float) -> bool:
     return n.metadata.get("pct_consumed", 0.0) >= 75.0
 
 
+def _anomaly_valid(n: Notification, income: float) -> bool:
+    # VALIDADE: é mesmo uma anomalia? ≥2.5× o padrão. Independente de renda
+    # e de prioridade — abaixo disso o sinal não se sustenta.
+    return n.metadata.get("factor", 0.0) >= 2.5
+
+
 def _anomaly_relevant(n: Notification, income: float) -> bool:
-    # Fator mínimo: ≥2.5× o padrão (sinal objetivo, independente de renda)
-    # Valor mínimo: escala com renda — 2% da renda mensal, entre R$30 e R$200
-    factor = n.metadata.get("factor", 0.0)
-    amount = n.metadata.get("amount", 0.0)
+    # RELEVÂNCIA: vale te interromper? 2% da renda mensal, entre R$30 e R$200.
     min_amount = _income_scaled(income, 0.02, 30.0, 200.0)
-    return factor >= 2.5 and amount >= min_amount
+    return n.metadata.get("amount", 0.0) >= min_amount
 
 
 def _subscription_relevant(n: Notification, income: float) -> bool:
@@ -149,22 +173,33 @@ def _purchase_followup_relevant(n: Notification, income: float) -> bool:
     return n.metadata.get("potential_savings_brl", 0.0) >= min_savings
 
 
-_TYPE_FILTERS: dict[str, Callable[[Notification, float], bool]] = {
+# ── Portões de VALIDADE — o sinal é real? CRITICAL NUNCA é imune ─────────────
+_VALIDITY_FILTERS: dict[str, Callable[[Notification, float], bool]] = {
+    # Falso "detectamos um bebê" fica pior alto, não melhor.
+    "LIFE_EVENT":          _life_event_relevant,
+    # 25% não é marco; o produto notifica 50/75/100.
+    "GOAL_PROGRESS":       _goal_relevant,
+    "CHALLENGE_PROGRESS":  _challenge_relevant,
+    # A oferta se qualifica ou não — não é questão de magnitude.
+    "TRANSFER_PROMO":      _transfer_promo_relevant,
+    # Fora da janela do calendário, o prazo não é notícia.
+    "FISCAL_SEASON":       _fiscal_season_relevant,
+    # É mesmo uma anomalia (≥2,5× o padrão)?
+    "ANOMALY_DETECTED":    _anomaly_valid,
+}
+
+# ── Portões de RELEVÂNCIA — grande o bastante? CRITICAL passa por cima ───────
+_RELEVANCE_FILTERS: dict[str, Callable[[Notification, float], bool]] = {
     "BURN_RATE_HIGH":        _burn_rate_relevant,
     "ANOMALY_DETECTED":      _anomaly_relevant,
     "SUBSCRIPTION_INCREASE": _subscription_relevant,
     "CARD_OPPORTUNITY":      _card_opportunity_relevant,
     "WAIVER_ALERT":          _waiver_relevant,
-    "TRANSFER_PROMO":        _transfer_promo_relevant,
     "SCORE_IMPROVED":        _score_relevant,
-    "GOAL_PROGRESS":         _goal_relevant,
     "SAFE_TO_SPEND_LOW":     _safe_to_spend_relevant,
-    "LIFE_EVENT":            _life_event_relevant,
     "SAVINGS_BELOW_CDI":     _savings_below_cdi_relevant,
     "IDLE_MONEY_DETECTED":   _idle_money_relevant,
-    "FISCAL_SEASON":         _fiscal_season_relevant,
     "CHALLENGE_COMPLETED":   _challenge_relevant,
-    "CHALLENGE_PROGRESS":    _challenge_relevant,
     "PURCHASE_FOLLOWUP":     _purchase_followup_relevant,
 }
 
@@ -193,15 +228,22 @@ class NotificationRelevanceFilter:
         notifications: list[Notification],
         monthly_income: float = 0.0,
     ) -> list[Notification]:
-        # ── Etapa 1: threshold de qualidade por tipo ──────────────────
+        # ── Etapa 1: validade sempre; relevância só para não-CRITICAL ──
         after_quality: list[Notification] = []
         dropped_quality = 0
         for n in notifications:
-            fn = _TYPE_FILTERS.get(n.type)
-            if fn is None or fn(n, monthly_income):
-                after_quality.append(n)
-            else:
+            valida = _VALIDITY_FILTERS.get(n.type)
+            if valida is not None and not valida(n, monthly_income):
                 dropped_quality += 1
+                continue
+
+            if n.priority != "CRITICAL":
+                relevante = _RELEVANCE_FILTERS.get(n.type)
+                if relevante is not None and not relevante(n, monthly_income):
+                    dropped_quality += 1
+                    continue
+
+            after_quality.append(n)
 
         # ── Etapa 1b: deduplicação de GOAL_PROGRESS ───────────────────
         # O gerador pode emitir dois alertas do mesmo marco para a mesma meta

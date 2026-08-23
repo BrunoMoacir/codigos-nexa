@@ -27,18 +27,24 @@ com resilience_score disponível:
     base_stress = max(0, (100 − resilience_score) × 0,50)
 
 sem resilience_score:
-    savings_rate muito negativa      → +15
-    savings_rate negativa            → +7
-    future_commitment > 40%          → +min((commitment − 0,40) × 100, 20)
+    savings_rate  → rampa de +15 (em −5% ou pior) até 0 (em +5%)
+    future_commitment > 40% → +min((commitment − 0,40) × 100, 20)
 ```
 
 **Componentes adicionais (sempre somados):**
 
 | Sinal | Fórmula |
 |---|---|
-| Uso de rotativo | `committed > 50%` **e** `credit_spend_ratio > 70%` → `+min((committed − 0,50) × 60, 30)` |
-| Cheque especial | `+ overdraft_usage × 25`, onde `overdraft_usage = meses_com_cheque_especial / meses_totais` (detectado por keyword) |
-| Queda de renda | queda `> 15%` nos últimos 3 meses → **+20** |
+| Uso de rotativo | `committed > 50%` → `+min((committed − 0,50) × 60, 30) × peso_crédito`, onde `peso_crédito` é a rampa de `credit_spend_ratio` entre 0,50 e 0,70 |
+| Cheque especial | `+ overdraft_usage × 25`, onde `overdraft_usage = meses_com_cheque_especial / meses_totais` — **exige ao menos 2 meses de histórico** |
+| Queda de renda | rampa de 0 (em −5%) até **+20** (em −15%), saturada dali para baixo |
+
+**Nada de degraus.** Cada componente é uma rampa que alcança o valor cheio no
+mesmo ponto em que o degrau antigo disparava — ninguém que era detectado
+deixa de ser — e adiciona sensibilidade ANTES dele. Ver a seção de correções.
+
+**`fss_confidence`** acompanha o score: 0,0 sem dado, 0,3 com um mês, 0,6 com
+dois, 1,0 com três ou mais. Não altera o valor — diz o quanto confiar nele.
 
 **Faixas:**
 
@@ -81,7 +87,7 @@ _MAX_SECONDARY       = 2
 O `(1 − credit_spend_ratio)` do `DIGITAL_NATIVO` é um proxy de uso de PIX/débito
 — quanto menos crédito, mais "nativo digital".
 
-### 3. O motor ML híbrido — e os dois guardrails
+### 3. O motor ML híbrido — e os três guardrails
 
 **Artefato real** (`models/lifestyle_classifier_metadata.json`):
 
@@ -126,7 +132,21 @@ do usuário, e ela sai de regra determinística.
 Quando o ML **abstém** (primário = `NAO_CLASSIFICADO` por ficar abaixo do
 limiar de probabilidade) mas as regras — o *professor* do modelo — têm veredito
 com score **≥ 0,60**, as regras vencem, e o resultado é marcado
-`classification_source = "ml+rules_floor"`.
+`classification_source = "ml+rules_floor"`. Medido em 4.000 perfis: dispara em
+**18,5%** dos casos. Não é rede de exceção — é caminho parcial.
+
+**Guardrail 3 — corroboração (`ml+rules_agreement`):**
+
+Quando nem o ML nem as regras alcançam o próprio limiar, mas os dois apontam
+para o **mesmo cluster**, a concordância vale mais que qualquer um sozinho:
+ML ≥ 0,25 (contra 0,35 solo) e regras ≥ 0,40 (contra 0,60 do piso).
+
+É o mesmo princípio que o `EvidenceScorer` aplica nos eventos de vida — BUFFET
+isolado é bloqueado, BUFFET + NOIVAS + FOTÓGRAFO passa com folga — aplicado no
+ponto mais fraco do classificador. Recupera cerca de um terço dos perfis que
+terminariam em `NAO_CLASSIFICADO`, que no produto significa tom neutro no chat,
+nenhum ajuste de orçamento e nenhum bônus de ranking: a feature desligada
+para aquele usuário.
 
 O motivo está anotado: o ML espalha probabilidade entre classes correlacionadas
 em perfis realistas (*"foodie que também parece esticado pelo aluguel"*) e
@@ -181,7 +201,19 @@ para disparar. Variação de renda: `±20%` (`_SALARY_INCREASE_THRESHOLD` /
 
 ### 5. Filtro de Relevância de Notificações (`notifications/relevance_filter.py`)
 
-Pipeline de 3 etapas, com **CRITICAL imune em todas**:
+Pipeline de 3 etapas. **CRITICAL é imune aos caps (etapas 2 e 3) e aos portões
+de RELEVÂNCIA da etapa 1 — nunca aos de VALIDADE:**
+
+| Natureza | Pergunta | CRITICAL |
+|---|---|---|
+| **Relevância** | "é grande o bastante para te interromper?" | passa por cima |
+| **Validade** | "esse sinal é real?" | continua sujeito |
+
+Valor da anomalia, ganho do cartão e reajuste de assinatura são magnitude — se
+o gerador já marcou CRITICAL, magnitude deixa de ser a pergunta. Confiança do
+evento de vida, marco de meta e janela do prazo fiscal são validade: uma nota
+CRITICAL que falha ali não é urgente, é malformada, e um falso "detectamos um
+bebê" fica *pior* alto.
 
 **Etapa 1 — threshold por tipo, escalado pela renda:**
 
@@ -236,6 +268,54 @@ preserva essa ordem.
   temporais.
 - Treino reproduzível: `scripts/train_lifestyle_classifier.py` (seed 42).
 
+### As correções e a melhoria de 2026-08-23
+
+Auditoria com medição antes de mexer. O guardrail do FSS CRÍTICO foi
+**verificado sob teste** e se sustenta: em 600 perfis que as regras classificam
+como `ESTRESSE_FINANCEIRO`, nenhum perdeu a classificação — nem os 600 em
+`ALERTA`, que passam pelo ML sem proteção.
+
+**O FSS era uma soma de degraus.** `income_drop < −0,15 → +20` fazia uma queda
+de 14,9% valer zero e uma de 15,1% valer 20 pontos: um terço da distância entre
+SAUDAVEL e CRITICO decidido por 0,2 ponto percentual, num número que dimensiona
+a reserva de emergência do OPP, os pesos do Bank Match, a penalidade de anuidade
+do optimizer e o tom do agente. O mesmo valia para `credit_spend_ratio > 0,70`
+(0,699 zerava 30 pontos de rotativo; 0,701 liberava todos) e para os dois
+degraus de poupança, em que quem poupava 4,9% levava a penalidade de quem
+poupava zero. As rampas alcançam o valor cheio no mesmo ponto de disparo antigo
+e só adicionam sensibilidade antes dele.
+
+**Um mês de histórico dava o sinal máximo de cheque especial.**
+`overdraft_months / total_months` com uma única cobrança num único mês = 1/1 =
+1,0, ou seja, os 25 pontos inteiros a partir de uma amostra de um mês. Mesmo
+defeito de janela curta do Radar de Oportunidades, e para o lado perigoso:
+inflava o estresse de quem acabou de conectar a conta. Agora exige 2+ meses, e
+a fração é de MESES, não de lançamentos — dez cobranças no mesmo mês valem um
+mês.
+
+**O vocabulário de cheque especial eram quatro strings.** Faltava
+`ADIANTAMENTO A DEPOSITANTE` — o termo regulado, que vários bancos escrevem
+literal no extrato — além das formas abreviadas (`ADIANT DEPOSITANTE`), do
+nome comercial do Itaú (`LIS`, com fronteira de palavra para não casar
+"LISBOA") e do plural `ENCARGOS ESPECIAIS`. Mesma lição do D3 na Defesa, onde
+o padrão só aceitava o singular e o detector inteiro ficava mudo. O padrão
+também era compilado com `re.IGNORECASE` e usado via `.pattern`, que devolve a
+string crua e descarta a flag: funcionava por coincidência de duas decisões.
+
+**CRITICAL não era imune na etapa 1 do filtro.** A doc, o docstring do módulo e
+as etapas 2 e 3 diziam que era. Uma anomalia CRITICAL de R$ 150 (fator 4,2× — o
+gerador marca CRITICAL a partir de 3×) era descartada para quem ganha R$ 15 mil
+exatamente como um WARNING. A correção não foi isentar CRITICAL de tudo, e sim
+separar RELEVÂNCIA de VALIDADE — ver a tabela na seção 5.
+
+**O FSS agora carrega `fss_confidence`.** Ele saía igual para quem tem três
+meses de histórico e para quem conectou a conta ontem, e quatro módulos o
+consomem sem saber a diferença.
+
+**A corroboração é a única adição de comportamento novo.** Não corrige defeito:
+ataca o `NAO_CLASSIFICADO`, que desliga a personalização inteira para o
+usuário. Ver o guardrail 3.
+
 ## O que NÃO faz
 
 - Não infere dados sensíveis (saúde, religião, orientação) — clusters são
@@ -260,7 +340,16 @@ preserva essa ordem.
   `travel_frequency × 0,45` seja melhor que `× 0,40`.
 - **Janela de 90 dias**: usuário recém-conectado fica `NAO_CLASSIFICADO`
   (neutro) até acumular histórico.
-- **Detecção de cheque especial é por keyword** na descrição — banco que não
-  descreve explicitamente passa despercebido, subestimando o FSS.
+- **Detecção de cheque especial continua por keyword** na descrição. O
+  vocabulário cobre as formas que os bancos brasileiros de fato escrevem
+  (incluindo o termo regulado `ADIANTAMENTO A DEPOSITANTE`), mas banco que não
+  descreve explicitamente segue passando despercebido, subestimando o FSS.
+  Saldo negativo diário resolveria — `transactions_clean` não tem saldo.
+- **`fss_confidence` existe e ninguém consome ainda.** O OPP, o Bank Match e o
+  optimizer continuam tratando um FSS de um mês de base como um de três. O
+  campo é o primeiro passo; usá-lo é decisão de produto por módulo.
+- **`classification_source` não é agregado em produção.** Sabemos que o piso de
+  regras responde por 18,5% e a corroboração por ~0,5% numa distribuição
+  sintética adversarial. Na distribuição real, ninguém mediu.
 - **Peer comparison (doc 14) usa benchmarks IBGE hardcoded** por faixa de
   renda — a comparação com "pares reais da base" espera massa crítica.
