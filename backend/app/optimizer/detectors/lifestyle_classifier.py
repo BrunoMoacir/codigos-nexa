@@ -57,7 +57,9 @@ class LifestyleClassifier:
                 if ml.is_available:
                     result = ml.classify(profile)
                     if result is not None:
-                        return self._apply_rules_floor(profile, result)
+                        return self._stress_floor(
+                            self._apply_rules_floor(profile, result)
+                        )
             except Exception:  # nunca deixa o ML derrubar a classificação
                 pass
 
@@ -137,6 +139,53 @@ class LifestyleClassifier:
             "ml_probabilities": ml_result.get("ml_probabilities"),
             "classification_source": fonte,
             "ml_confidence": ml_result.get("ml_confidence"),
+        }
+
+    def _stress_floor(self, result: dict) -> dict:
+        """
+        O ML pode ADICIONAR estresse financeiro; nunca REMOVER.
+
+        O guardrail original protegia só FSS CRITICO. Mas o argumento que o
+        justifica — *"o tratamento de estresse financeiro (empatia, zero
+        sugestão de gasto) não pode depender de fronteira aprendida"* — vale
+        sempre que o caminho determinístico conclui estresse, não só no nível
+        mais alto.
+
+        Medido em 2.309 perfis que as REGRAS classificam como
+        ESTRESSE_FINANCEIRO: 15 (0,65%) saíam como DIGITAL_NATIVO pelo ML,
+        todos em ATENCAO ou ALERTA — abaixo do guardrail antigo. Um deles
+        tinha poupança de −22,6% e comprometimento de 51%, e receberia
+        recomendação de cartão e tom otimista. `DIGITAL_NATIVO` pontua alto
+        com pouco crédito e muitos merchants distintos, o que não é
+        incompatível com estar afundando: as duas coisas convivem no espaço
+        de features, e o modelo escolhia a errada.
+
+        A guarda é assimétrica de propósito. Só empurra na direção protetora.
+        """
+        if result.get("lifestyle_cluster") == CLUSTER_FINANCIAL_STRESS:
+            return result
+
+        scores = result.get("cluster_scores") or {}
+        estresse = scores.get(CLUSTER_FINANCIAL_STRESS, 0.0)
+        if estresse < _PRIMARY_THRESHOLD:
+            return result
+        # As regras elegeriam estresse como primário? (ganha e cruza o limiar)
+        if estresse < max(
+            (s for c, s in scores.items() if c != CLUSTER_FINANCIAL_STRESS),
+            default=0.0,
+        ):
+            return result
+
+        anterior = result.get("lifestyle_cluster")
+        secundarios = [c for c in result.get("secondary_clusters", [])
+                       if c != CLUSTER_FINANCIAL_STRESS]
+        if anterior and anterior != CLUSTER_UNCLASSIFIED and anterior not in secundarios:
+            secundarios = [anterior] + secundarios
+        return {
+            **result,
+            "lifestyle_cluster": CLUSTER_FINANCIAL_STRESS,
+            "secondary_clusters": secundarios[:_MAX_SECONDARY],
+            "classification_source": "ml+stress_floor",
         }
 
     def classify_rules(self, profile: UserProfile) -> dict:

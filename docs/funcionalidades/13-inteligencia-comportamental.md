@@ -39,9 +39,15 @@ sem resilience_score:
 | Cheque especial | `+ overdraft_usage × 25`, onde `overdraft_usage = meses_com_cheque_especial / meses_totais` — **exige ao menos 2 meses de histórico** |
 | Queda de renda | rampa de 0 (em −5%) até **+20** (em −15%), saturada dali para baixo |
 
-**Nada de degraus.** Cada componente é uma rampa que alcança o valor cheio no
-mesmo ponto em que o degrau antigo disparava — ninguém que era detectado
-deixa de ser — e adiciona sensibilidade ANTES dele. Ver a seção de correções.
+**Nada de degraus.** As rampas de queda de renda e de concentração em crédito
+alcançam o valor cheio no mesmo ponto em que o degrau antigo disparava e só
+adicionam sensibilidade ANTES dele — nesses dois, ninguém que era detectado
+deixa de ser.
+
+A de poupança é diferente, e merece o registro: ela **substitui** um degrau que
+dava +7 uniformes para qualquer taxa entre −5% e +5%. Quem poupa 4% passa a
+receber menos que quem poupa 0% — que é o comportamento correto, mas é uma
+redução. Ver a medição na seção de correções.
 
 **`fss_confidence`** acompanha o score: 0,0 sem dado, 0,3 com um mês, 0,6 com
 dois, 1,0 com três ou mais. Não altera o valor — diz o quanto confiar nele.
@@ -87,7 +93,7 @@ _MAX_SECONDARY       = 2
 O `(1 − credit_spend_ratio)` do `DIGITAL_NATIVO` é um proxy de uso de PIX/débito
 — quanto menos crédito, mais "nativo digital".
 
-### 3. O motor ML híbrido — e os três guardrails
+### 3. O motor ML híbrido — e os quatro guardrails
 
 **Artefato real** (`models/lifestyle_classifier_metadata.json`):
 
@@ -135,7 +141,32 @@ com score **≥ 0,60**, as regras vencem, e o resultado é marcado
 `classification_source = "ml+rules_floor"`. Medido em 4.000 perfis: dispara em
 **18,5%** dos casos. Não é rede de exceção — é caminho parcial.
 
-**Guardrail 3 — corroboração (`ml+rules_agreement`):**
+**Guardrail 3 — piso de estresse, assimétrico (`ml+stress_floor`):**
+
+**O ML pode ADICIONAR estresse financeiro; nunca REMOVER.** Sempre que as
+regras elegeriam `ESTRESSE_FINANCEIRO` como primário, o veredito delas
+prevalece — independente do nível de FSS.
+
+O guardrail 1 protegia só CRITICO. Mas o argumento que o justifica —
+*"o tratamento de estresse financeiro não pode depender de fronteira
+aprendida"* — vale sempre que o caminho determinístico conclui estresse.
+Varrendo a FRONTEIRA em 2.309 perfis que as regras chamam de
+`ESTRESSE_FINANCEIRO`, **15 (0,65%) saíam como `DIGITAL_NATIVO` pelo ML**,
+todos em ATENCAO ou ALERTA. Um deles tinha poupança de −13,6% e estabilidade
+de gasto de 0,08, com as regras dando ESTRESSE=0,70 contra DIGITAL=0,53 — e
+receberia recomendação de cartão e tom otimista.
+
+`DIGITAL_NATIVO` pontua alto com pouco crédito e muitos merchants distintos,
+o que não é incompatível com estar afundando: as duas coisas convivem no
+espaço de features, e o modelo escolhia a errada.
+
+A assimetria é deliberada. Onde o ML vê estresse e as regras não, o ML
+permanece — é a direção protetora, e ela responde por 1.186 casos em 4.000
+que a guarda não toca. Depois da guarda: **0 perfis perdem a classificação de
+estresse**, e a guarda nunca dispara sem as regras elegerem (36 disparos em
+4.000, 0 sem apoio).
+
+**Guardrail 4 — corroboração (`ml+rules_agreement`):**
 
 Quando nem o ML nem as regras alcançam o próprio limiar, mas os dois apontam
 para o **mesmo cluster**, a concordância vale mais que qualquer um sozinho:
@@ -307,6 +338,25 @@ as etapas 2 e 3 diziam que era. Uma anomalia CRITICAL de R$ 150 (fator 4,2× —
 gerador marca CRITICAL a partir de 3×) era descartada para quem ganha R$ 15 mil
 exatamente como um WARNING. A correção não foi isentar CRITICAL de tudo, e sim
 separar RELEVÂNCIA de VALIDADE — ver a tabela na seção 5.
+
+**O impacto das rampas foi medido, não presumido.** Comparando as duas versões
+em 20.000 perfis:
+
+| | |
+|---|---|
+| score sobe (mais estresse detectado) | 27,6% — as rampas pegando o que os degraus perdiam |
+| score desce | 2,6%, no máximo 7 pontos — só pela rampa de poupança |
+| muda de nível para CIMA | 11,6% |
+| muda de nível para BAIXO | **0,13%**, dos quais 6 em 20.000 saem de CRITICO |
+
+Os que saem de CRITICO são todos perfis com poupança POSITIVA (+1,7% a +5,0%) e
+comprometimento alto, que o degrau antigo penalizava como se não poupassem
+nada. A consequência foi verificada nos dois consumidores que importam:
+
+- **A reserva de emergência não muda** — ALERTA e CRITICO protegem 9 meses.
+- **O cluster continua `ESTRESSE_FINANCEIRO`** em todos os casos amostrados. O
+  que muda é a classificação chegar pelo ML em vez do caminho determinístico —
+  e nesse regime o ML concordou com as regras em 600/600 perfis estressados.
 
 **O FSS agora carrega `fss_confidence`.** Ele saía igual para quem tem três
 meses de histórico e para quem conectou a conta ontem, e quatro módulos o

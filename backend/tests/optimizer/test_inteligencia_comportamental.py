@@ -360,3 +360,181 @@ class TestInvarianteDeEstresseIntacta:
                         committed_percentage=0.75, spending_stability=0.15,
                         monthly_avg_spend=3_000.0, credit_spend_ratio=0.8)
         assert lc.classify(p)["lifestyle_cluster"] == "ESTRESSE_FINANCEIRO"
+
+
+class TestImpactoDasRampasNoNivel:
+    """
+    A rampa de poupança SUBSTITUI um degrau que dava +7 uniformes entre −5% e
+    +5%, então ela pode REDUZIR o score de quem poupa pouco mas poupa. Medido
+    em 20.000 perfis: 0,13% mudam de nível para baixo, e 6 em 20.000 saem de
+    CRITICO.
+
+    A afirmação original — "ninguém que era detectado deixa de ser" — vale por
+    componente, não na fronteira de nível. Estes testes fixam a consequência
+    que foi verificada em vez de deixá-la como suposição.
+    """
+
+    @pytest.fixture
+    def calc(self):
+        return FSSCalculator()
+
+    def test_quem_sai_de_critico_e_quem_poupa_de_verdade(self, calc):
+        """
+        O perfil típico: poupança positiva e comprometimento alto. O degrau
+        antigo o tratava como quem não poupa nada.
+        """
+        p = UserProfile(savings_rate=4.0, committed_percentage=0.81,
+                        credit_spend_ratio=0.5, monthly_avg_spend=4_000.0)
+        r = calc.calc_fss(p, pl.DataFrame(), income_3m_avg=5_000, income_12m_avg=5_000)
+        # Rampa: 4% de poupança custa apenas 1,5 ponto, contra os 7 do degrau.
+        assert r["fss"] < 65.0 + 7.0
+
+    def test_a_reserva_de_emergencia_nao_muda_entre_alerta_e_critico(self):
+        """
+        O consumidor mais consequente do FSS. Se ALERTA e CRITICO protegem o
+        mesmo número de meses, sair de CRITICO não desprotege ninguém.
+        """
+        from app.opportunities.services.idle_money_detector import (
+            _RESERVE_MONTHS_BY_FSS,
+        )
+        assert _RESERVE_MONTHS_BY_FSS["ALERTA"] == _RESERVE_MONTHS_BY_FSS["CRITICO"]
+
+    @pytest.mark.parametrize("poupanca", [1.7, 2.0, 3.5, 5.0])
+    def test_quem_sai_de_critico_continua_sendo_estresse(self, poupanca):
+        """
+        A consequência real de CRITICO → ALERTA é a classificação passar pelo
+        ML em vez do caminho determinístico. O veredito tem que ser o mesmo.
+        """
+        from app.optimizer.detectors.lifestyle_classifier import LifestyleClassifier
+
+        p = UserProfile(savings_rate=poupanca, committed_percentage=0.82,
+                        credit_spend_ratio=0.6, spending_stability=0.2,
+                        monthly_avg_spend=4_000.0, fss_level="ALERTA")
+        r = LifestyleClassifier().classify(p)
+        assert r["lifestyle_cluster"] == "ESTRESSE_FINANCEIRO"
+
+    def test_a_rampa_so_reduz_para_quem_tem_poupanca_positiva(self, calc):
+        """
+        Abaixo de zero a rampa nunca dá menos que o degrau antigo (+15 em −5%,
+        +7 no antigo entre −5% e +5%). O ponto de virada é a poupança positiva.
+        """
+        def fss(taxa):
+            return calc.calc_fss(UserProfile(savings_rate=taxa), pl.DataFrame())["fss"]
+
+        assert fss(-5.0) == pytest.approx(15.0)   # degrau antigo dava 15
+        assert fss(0.0) == pytest.approx(7.5)     # degrau antigo dava 7
+        assert fss(4.0) < 7.0                     # aqui a rampa reduz
+
+
+class TestGuardaDeEstresseAssimetrica:
+    """
+    Achado da revalidação, não da auditoria original.
+
+    O guardrail determinístico protegia só FSS CRITICO. Varrendo a FRONTEIRA
+    (poupança até +6%, comprometimento a partir de 45%, estabilidade até 0,45)
+    em 2.309 perfis que as REGRAS classificam como ESTRESSE_FINANCEIRO, 15
+    (0,65%) saíam como DIGITAL_NATIVO pelo ML — todos em ATENCAO ou ALERTA,
+    abaixo do guardrail antigo.
+
+    Um deles: poupança de −22,6%, comprometimento de 51%, regras dando
+    ESTRESSE=0,70 — e o ML dizendo DIGITAL_NATIVO com confiança 0,55. Esse
+    usuário receberia recomendação de cartão e tom otimista.
+
+    `DIGITAL_NATIVO` pontua alto com pouco crédito e muitos merchants
+    distintos, o que não é incompatível com estar afundando. As duas coisas
+    convivem no espaço de features e o modelo escolhia a errada.
+
+    A guarda é ASSIMÉTRICA: o ML pode ADICIONAR estresse, nunca REMOVER.
+    """
+
+    @pytest.fixture
+    def lc(self):
+        from app.optimizer.detectors.lifestyle_classifier import LifestyleClassifier
+        return LifestyleClassifier()
+
+    def test_ml_nao_pode_remover_estresse_eleito_pelas_regras(self, lc):
+        resultado = {
+            "lifestyle_cluster": "DIGITAL_NATIVO",
+            "secondary_clusters": [],
+            "cluster_scores": {"ESTRESSE_FINANCEIRO": 0.70, "DIGITAL_NATIVO": 0.53},
+            "ml_probabilities": {"DIGITAL_NATIVO": 0.55},
+            "classification_source": "ml",
+            "ml_confidence": 0.55,
+        }
+        r = lc._stress_floor(resultado)
+        assert r["lifestyle_cluster"] == "ESTRESSE_FINANCEIRO"
+        assert r["classification_source"] == "ml+stress_floor"
+
+    def test_o_cluster_do_ML_vira_secundario(self, lc):
+        """O sinal do modelo não é jogado fora — é rebaixado."""
+        r = lc._stress_floor({
+            "lifestyle_cluster": "DIGITAL_NATIVO",
+            "secondary_clusters": ["URBANO_FOODIE"],
+            "cluster_scores": {"ESTRESSE_FINANCEIRO": 0.70, "DIGITAL_NATIVO": 0.53},
+            "ml_probabilities": {}, "classification_source": "ml", "ml_confidence": 0.5,
+        })
+        assert "DIGITAL_NATIVO" in r["secondary_clusters"]
+
+    def test_nao_dispara_quando_as_regras_nao_elegem_estresse(self, lc):
+        """A guarda não pode INVENTAR estresse — só preservar o que as regras viram."""
+        original = {
+            "lifestyle_cluster": "DIGITAL_NATIVO",
+            "secondary_clusters": [],
+            "cluster_scores": {"ESTRESSE_FINANCEIRO": 0.32, "DIGITAL_NATIVO": 0.60},
+            "ml_probabilities": {}, "classification_source": "ml", "ml_confidence": 0.6,
+        }
+        assert lc._stress_floor(original)["lifestyle_cluster"] == "DIGITAL_NATIVO"
+
+    def test_nao_dispara_quando_outro_cluster_ganha_das_regras(self, lc):
+        """0,40 cruza o limiar mas perde para 0,55 — as regras não elegeriam estresse."""
+        original = {
+            "lifestyle_cluster": "URBANO_FOODIE",
+            "secondary_clusters": [],
+            "cluster_scores": {"ESTRESSE_FINANCEIRO": 0.40, "URBANO_FOODIE": 0.55},
+            "ml_probabilities": {}, "classification_source": "ml", "ml_confidence": 0.6,
+        }
+        assert lc._stress_floor(original)["lifestyle_cluster"] == "URBANO_FOODIE"
+
+    def test_e_idempotente_quando_ja_e_estresse(self, lc):
+        original = {
+            "lifestyle_cluster": "ESTRESSE_FINANCEIRO",
+            "secondary_clusters": [], "cluster_scores": {"ESTRESSE_FINANCEIRO": 0.80},
+            "ml_probabilities": {}, "classification_source": "ml", "ml_confidence": 0.8,
+        }
+        assert lc._stress_floor(original) is original
+
+    def test_ponta_a_ponta_o_caso_real_encontrado(self, lc):
+        """
+        Perfil extraído da varredura, com os parâmetros exatos: poupança de
+        −13,6% (gasta 13% a mais do que ganha), estabilidade de 0,08 e FSS
+        ATENCAO — abaixo do guardrail antigo, que só cobria CRITICO.
+
+        As regras dão ESTRESSE=0,70 contra DIGITAL_NATIVO=0,53. O ML elegia
+        DIGITAL_NATIVO, e o usuário receberia tom otimista e recomendação de
+        cartão. Sem a guarda, este teste falha.
+        """
+        p = UserProfile(
+            savings_rate=-13.5829, committed_percentage=0.4599,
+            spending_stability=0.0751, credit_spend_ratio=0.6806,
+            monthly_avg_spend=7_972.94,
+            spend_by_category={"alimentacao": 1_096.58},
+            foodie_score=31.4082, merchant_diversity_score=81.6116,
+            subscription_burn_monthly=40.9199, fss_level="ATENCAO",
+        )
+        assert lc.classify_rules(p)["lifestyle_cluster"] == "ESTRESSE_FINANCEIRO"
+        r = lc.classify(p)
+        assert r["lifestyle_cluster"] == "ESTRESSE_FINANCEIRO"
+        assert r["classification_source"] == "ml+stress_floor"
+
+    def test_o_ML_continua_podendo_ADICIONAR_estresse(self, lc):
+        """
+        A assimetria vale só num sentido: onde o ML vê estresse e as regras
+        não, o veredito do ML permanece. É a direção protetora.
+        """
+        original = {
+            "lifestyle_cluster": "ESTRESSE_FINANCEIRO",
+            "secondary_clusters": [],
+            "cluster_scores": {"ESTRESSE_FINANCEIRO": 0.20, "URBANO_FOODIE": 0.60},
+            "ml_probabilities": {}, "classification_source": "ml", "ml_confidence": 0.7,
+        }
+        assert lc._stress_floor(original)["lifestyle_cluster"] == "ESTRESSE_FINANCEIRO"
