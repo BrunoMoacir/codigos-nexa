@@ -47,5 +47,13 @@ def calc_breakeven(
 
 
 def ir_rate_for_months(holding_months: int) -> float:
-    """Retorna a alíquota IR (0–0.225) para o prazo em meses."""
-    return IRPFCalculator._ir_rate(holding_months * 30)
+    """
+    Alíquota da tabela regressiva a partir de um prazo em MESES.
+
+    Mantido para chamadas legadas. Prefira `parametros_fiscais.aliquota_regressiva`
+    com o prazo em dias: a lei conta dias, e `meses × 30` erra até meio mês —
+    o suficiente para dizer que uma posição de 181 dias ainda está em 22,5%.
+    """
+    from app.tax.parametros_fiscais import aliquota_regressiva
+
+    return aliquota_regressiva(holding_months * 30)

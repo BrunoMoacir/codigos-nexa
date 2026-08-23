@@ -18,55 +18,68 @@ Fiscal MEI** consolida faturamento e estima o DAS.
 ### Tabela de brackets (a base de tudo)
 
 ```
-≤  6 meses (180 dias)  → 22,5%
-≤ 12 meses (360 dias)  → 20,0%
-≤ 24 meses (720 dias)  → 17,5%
-> 24 meses             → 15,0%
+≤ 180 dias   → 22,5%
+181–360      → 20,0%
+361–720      → 17,5%
+> 720 dias   → 15,0%
 ```
+
+Lei 11.033/2004, art. 1º. A tabela mora em `app/tax/parametros_fiscais.py` e é
+contada em **dias** — a lei conta dias, e a conversão por meses×30 erra até meio
+mês, o suficiente para dizer que uma posição de 181 dias ainda está em 22,5%.
 
 ### Tax-loss harvesting (`services/tax_loss_harvesting.py`)
 
-Só dispara quando existem **as duas coisas**: posições com perda não realizada
-**e** IR a pagar sobre posições com ganho. Sem ganho tributável, não há o que
-abater — e o detector fica em silêncio.
+**Só nas classes em que a lei permite compensar.** Compensação de prejuízo não
+existe em renda fixa: o IR do CDB e do Tesouro é retido na fonte sobre o
+rendimento de cada operação, e a perda de um papel não abate o ganho de outro.
+Onde existe:
+
+| Classe | Compensa com |
+|---|---|
+| Ações, ETF, BDR | entre si, saldo carregado indefinidamente |
+| FII | **apenas** com FII — categoria separada |
+| Fundos | fundos da **mesma administradora** e mesma classificação tributária |
+| CDB, Tesouro, debêntures, LCI/LCA | nada |
+
+O agrupamento acontece nessas fronteiras, e só dentro de um grupo a perda abate
+o ganho:
 
 ```
-total_loss        = |Σ perdas não realizadas (não isentas)|
-effective_offset  = min(total_loss,  Σ ganhos não realizados)
-avg_rate          = alíquota do prazo MÉDIO das posições com ganho
-tax_saving        = effective_offset × avg_rate
+ir_dos_ganhos   = Σ IR estimado das posições com ganho do grupo
+abatimento      = min(Σ perdas, Σ ganhos)
+economia        = ir_dos_ganhos × (abatimento / Σ ganhos)
+parcela_i       = economia × (perda_i / Σ perdas)
 ```
 
-A economia total é **rateada entre as posições com perda**, proporcionalmente:
+A economia sai da fração do ganho que a perda cobre vezes o IR **efetivamente
+apurado por posição** — substitui a "alíquota do prazo médio", que errava
+quando a carteira tinha prazos dispersos.
 
-```
-saving_share_i = tax_saving × (perda_i / total_loss)
-```
-
-Confiança: `medium` — a compensação depende de as posições serem do mesmo tipo
-no mesmo ano-calendário, o que a recomendação diz explicitamente.
+**Guarda da isenção de bolsa**: se a venda inteira das posições com ganho em
+ações couber nos R$ 20.000 mensais isentos (Lei 11.033/2004, art. 3º, I), não
+há IR a abater e o detector se cala — realizar prejuízo para compensar um ganho
+isento é perda pura.
 
 ### Hold-longer — esperar o bracket cair
 
 Para cada posição com ganho não isenta:
 
+A conta é em **dias**, que é a unidade da lei:
+
 ```
-current_rate = alíquota(holding_months)
-next_bracket, next_rate = próximo degrau da tabela
-months_to_wait = next_bracket − holding_months
-ir_saving = ganho_não_realizado × (current_rate − next_rate)
+dias                  = hoje − data_de_aplicação
+faltam, nova_alíquota = proximo_degrau(dias)      # parametros_fiscais
+ir_saving             = ganho_não_realizado × (alíquota_atual − nova_alíquota)
 ```
 
-**Três filtros que evitam ruído:**
+**Dois filtros:** `faltam ≤ 180 dias` e `ir_saving ≥ R$ 50`. Só entram produtos
+cujo IR segue a tabela regressiva — ação e ETF são 15% lineares e FII é 20%
+linear, e não há degrau a esperar.
 
-| Filtro | Motivo |
-|---|---|
-| `months_to_wait ≤ 6` | esperar mais de 6 meses não é conselho acionável |
-| `ir_saving ≥ R$ 50` | economia menor não justifica interromper o usuário |
-| `next_rate < current_rate` | óbvio, mas explícito |
-
-Confiança `high` (é aritmética determinística) e um `action_deadline` na
-forma *"não resgatar nas próximas N semanas"*.
+Confiança `high` quando a fonte informa a data de aplicação, `medium` quando o
+prazo vem de `holding_months` (aritmética de mês-calendário, que erra até ~15
+dias — e aí a mensagem fala em "cerca de N meses" em vez de prometer dias).
 
 ### Portfólio via Open Finance (`services/investment_profiler.py`)
 
@@ -99,9 +112,15 @@ pode custar mais do que a vantagem.
 
 ### Come-cotas → CDB
 
-Identifica fundos sujeitos a come-cotas e calcula quantos meses faltam para a
-próxima incidência (`_months_to_next_come_cotas`), sugerindo a migração antes
-dela.
+Identifica fundos sujeitos a come-cotas, projeta o IR que será antecipado até a
+próxima incidência (último dia útil de maio ou novembro) e sugere avaliar a
+migração antes dela.
+
+**O benefício é diferimento, não economia.** O IR sai no resgate de qualquer
+forma; o ganho é o rendimento do dinheiro que não foi antecipado — calculado
+sobre o semestre que a troca garante pular. Vai marcado como
+`benefit_kind="deferral"` e é somado em `total_estimated_deferral_gain`,
+separado de `total_estimated_tax_saving`.
 
 Endpoint: `POST /tax/breakeven`, `GET /tax/optimize/{user_id}` (plano Total).
 
@@ -173,17 +192,23 @@ lucro_estimado = total_receita − total_despesa
 
 ### Cálculo do DAS — Simples Nacional Anexo III (Serviços)
 
-**Determinação da faixa** — usa o **RBT12 real** (soma dos últimos 12 meses),
-não o mês anualizado:
+**Determinação da faixa** — usa o RBT12 real dos **doze meses ANTERIORES** ao
+período de apuração (LC 123/2006, art. 18, § 1º), que não inclui o próprio mês:
 
 ```
-relatório mensal → rbt12 = soma real dos últimos 12 meses
+relatório mensal → rbt12 = soma dos 12 meses anteriores ao mês de apuração
                    (fallback: receita_do_mês × 12 se histórico insuficiente)
 relatório anual  → rbt12 = receita total do ano
 ```
 
 **Teto do Simples**: `rbt12 > R$ 4.800.000` → não calcula DAS e devolve a
 mensagem *"Fora do Simples Nacional — regime Lucro Presumido ou Real"*.
+
+**Anexo III ou V — o Fator R decide.** Serviço só é Anexo III quando a folha de
+salários dos 12 meses anteriores representa 28% ou mais da receita bruta do
+mesmo período (LC 123/2006, art. 18, §§ 5º-J e 5º-M); abaixo disso é Anexo V,
+cuja primeira faixa é **15,5%** contra 6% — 2,6× mais. A folha vem de
+`despesa_pessoal_pj`, na mesma janela do RBT12.
 
 **Alíquota efetiva** — a fórmula oficial, com parcela a deduzir:
 
@@ -206,6 +231,63 @@ Saída: `rbt12_anualizado`, `das_aliquota_efetiva` (em %), `das_estimado`,
 
 ---
 
+### As correções de 2026-08-22
+
+O calendário fiscal e o `IRPFCalculator` não precisaram de nada. Os defeitos
+estavam no otimizador de IR e no cálculo do DAS.
+
+**`hold_longer` disparava em 1 de 29 prazos.** `_next_bracket` devolvia a faixa
+em que a posição JÁ estava, não a seguinte. Varredura de 1 a 29 meses: só
+`holding_months == 6` passava — e nesse dizia *"em 6 mês(es) a alíquota cai"*
+com `action_deadline` de *"não resgatar nas próximas 24 semanas"*, quando aos
+180 dias falta **um dia** para os 181 que mudam a faixa. Todo caso útil
+(faltando um ou dois meses para o degrau) era descartado em silêncio.
+
+**`harvest_loss` estava invertido em relação à lei.** Não filtrava por classe de
+ativo, e o efeito era duplo: ficava **mudo** em ação/FII/ETF, onde a compensação
+existe — porque o `estimated_ir` só era calculado quando havia taxa anual
+contratada, que a Pluggy não informa para renda variável — e **disparava** em
+renda fixa, onde não existe. A recomendação mandava resgatar realizando
+prejuízo por um benefício fiscal inexistente naquela classe: ação irreversível,
+prejuízo real.
+
+**A alíquota de ganho ignorava a classe.** Tudo passava por `calc_ir_on_cdb`,
+ou seja, pela tabela regressiva: uma ação com 3 meses saía com 22,5% quando o
+devido é 15% linear, e um FII com a regressiva quando o devido é 20%. E a base
+era um rendimento hipotético recalculado da taxa sobre o principal, não o ganho
+real da posição.
+
+**O come-cotas apontava o mês errado em sete dos doze meses do ano.** O rótulo
+vinha de `meses_restantes <= 5 → "maio"`, e de junho a outubro a distância até
+novembro é ≤ 5. A data impressa para maio era a string `"31/{ano}"`, sem mês:
+o usuário lia *"Antes de 31/2026"*.
+
+**A janela do RBT12 incluía o próprio mês de apuração.** Era `data_ref − 330
+dias` até o fim do mês de referência — começava cinco dias depois do 12º mês
+anterior, incluía o mês corrente e alcançava os primeiros dias do seguinte. Com
+R$ 15.000/mês e um junho de R$ 30.000, o RBT12 saía R$ 195.000 (Faixa 2) quando
+o legal era R$ 170.000 (Faixa 1): um mês forte empurrava a si mesmo para cima.
+
+**Crédito PJ sem subcategoria virava despesa.** O default era
+`despesa_outros_pj` para qualquer lançamento sem classificação, inclusive
+crédito. Uma receita não reconhecida pelo classificador reduzia a receita,
+aumentava a despesa e **subestimava o DAS** — a direção que gera multa.
+
+**Estorno maior que a venda virava receita positiva.** `abs()` sobre o total do
+grupo: R$ 2.000 de venda com R$ 5.000 de estorno viravam R$ 3.000 de receita, e
+o DAS era cobrado sobre devoluções.
+
+**O Fator R não existia.** Ver acima — a diferença entre os anexos é de 2,6× na
+primeira faixa, e a folha necessária para decidir já estava no relatório.
+
+**Dois módulos mortos removidos**, com 13 testes que os mantinham verdes:
+`app/fiscal/services/tax_radar.py` e `app/fiscal/services/tax_loss_harvesting.py`
+não eram importados por router, service ou tool nenhum. O segundo calculava
+DARF de 15% sobre qualquer ganho, ignorando a isenção de R$ 20 mil.
+
+**74 testes novos.** Não havia nenhum para `FiscalReportService`,
+`TaxLossHarvester`, `ZeroTaxMode` ou `InvestmentProfiler`.
+
 ## O que NÃO faz
 
 - **Não declara IR** — não preenche nem transmite DIRPF/DASN.
@@ -215,9 +297,9 @@ Saída: `rbt12_anualizado`, `das_aliquota_efetiva` (em %), `das_estimado`,
 
 ## Gaps e limitações
 
-- **Só o Anexo III (Serviços)** é implementado. MEI de comércio (Anexo I) ou
-  indústria (Anexo II) teria alíquota diferente — o relatório assumiria
-  Serviços de qualquer forma.
+- **Anexos III e V (Serviços)** são implementados, com o Fator R decidindo
+  entre eles. MEI de comércio (Anexo I) ou indústria (Anexo II) teria alíquota
+  diferente — o relatório assume Serviços de qualquer forma.
 - **O DAS do MEI real é valor fixo mensal (SIMEI)**, não percentual. O cálculo
   aqui é do Simples Nacional Anexo III — apropriado para ME/EPP, mas para o MEI
   estrito o número correto é a guia fixa. O usuário precisa saber qual regime
@@ -226,12 +308,15 @@ Saída: `rbt12_anualizado`, `das_aliquota_efetiva` (em %), `das_estimado`,
   anual (o warning avisa, mas o cálculo continua com a tabela velha).
 - **Datas do calendário são constantes anuais** — sem fonte automática oficial;
   ~1h de manutenção por ano.
-- **Tax-loss harvesting usa a alíquota do prazo MÉDIO** das posições com ganho,
-  não a de cada posição individualmente — aproximação que erra quando a
-  carteira tem prazos muito dispersos.
-- **A compensação de perdas tem regras por tipo de ativo** que o detector não
-  modela: a recomendação diz "do mesmo tipo no mesmo ano-calendário", mas não
-  verifica se as posições realmente são compensáveis entre si.
+- **A isenção de R$ 20.000 em bolsa é avaliada pela carteira, não pelas vendas
+  do mês.** A Nexa não sabe quanto o usuário já vendeu; a guarda só sabe dizer
+  que a venda das posições com ganho, sozinha, caberia na isenção.
+- **A duração da carteira dos fundos não vem da Pluggy**, então o come-cotas é
+  projetado a 15% (fundo de longo prazo). Fundo de curto prazo sofre 20%.
+- **`unrealized_gain` depende de a fonte informar o saldo atual.** Quando o
+  conector devolve saldo igual ao valor aplicado, o IR estimado cai no
+  rendimento projetado pela taxa contratada — aproximação que só existe para
+  renda fixa.
 - **Depende de dados de investimento via Open Finance** — a cobertura varia por
   corretora, e sem posições conectadas T1/T2 ficam vazios.
 - **MEI caminhoneiro e regimes especiais** não são diferenciados.

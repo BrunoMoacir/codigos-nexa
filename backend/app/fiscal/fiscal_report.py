@@ -15,6 +15,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 from app.core.db.queries import get_transactions_for_user
+from app.tax.parametros_fiscais import BASE_LEGAL_FATOR_R, anexo_por_fator_r
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,25 @@ logger = logging.getLogger(__name__)
 
 # Cada entrada: (limite_RBT12_anual, aliquota_nominal, parcela_deduzir)
 _TableRow = tuple  # (int, float, int)
+
+# Anexo V (Serviços SEM Fator R) — LC 123/2006. A escolha entre III e V não é
+# opcional: depende do Fator R (folha de 12 meses ÷ receita de 12 meses ≥ 28%).
+# O relatório assumia Anexo III sempre, e a diferença na primeira faixa é de
+# 6% para 15,5% — 2,6× — justamente no caso mais comum de quem usaria isto:
+# prestador de serviço com folha pequena.
+_SIMPLES_TABLES_V: dict[int, list[_TableRow]] = {
+    2018: [
+        (180_000,    0.155,        0),
+        (360_000,    0.180,    4_500),
+        (720_000,    0.195,    9_900),
+        (1_800_000,  0.205,   17_100),
+        (3_600_000,  0.230,   62_100),
+        (4_800_000,  0.305,  540_000),
+    ],
+}
+_SIMPLES_TABLES_V[2024] = _SIMPLES_TABLES_V[2018]
+_SIMPLES_TABLES_V[2025] = _SIMPLES_TABLES_V[2018]
+_SIMPLES_TABLES_V[2026] = _SIMPLES_TABLES_V[2018]
 
 _SIMPLES_TABLES: dict[int, list[_TableRow]] = {
     2018: [
@@ -69,30 +89,31 @@ _SIMPLES_TABLES: dict[int, list[_TableRow]] = {
 }
 
 
-def _get_simples_table(year: int) -> list[_TableRow]:
+def _get_simples_table(year: int, anexo: str = "III") -> list[_TableRow]:
     """
-    Retorna a tabela Simples Nacional Anexo III vigente para o ano informado.
+    Tabela do Simples Nacional vigente para o ano e o anexo informados.
 
-    Se o ano não tiver entrada exata, usa a tabela do ano mais recente disponível
-    que seja ≤ year (fallback conservador para anos futuros não mapeados).
+    Ano sem entrada exata → a tabela do ano mais recente ≤ year, com aviso.
     """
-    if year in _SIMPLES_TABLES:
-        return _SIMPLES_TABLES[year]
-    available = sorted(y for y in _SIMPLES_TABLES if y <= year)
+    tabelas = _SIMPLES_TABLES if anexo == "III" else _SIMPLES_TABLES_V
+    if year in tabelas:
+        return tabelas[year]
+    available = sorted(y for y in tabelas if y <= year)
     if available:
         fallback_year = available[-1]
         logger.warning(
-            "Tabela Simples Nacional para %d não cadastrada — usando %d como fallback. "
+            "Tabela Simples Nacional Anexo %s para %d não cadastrada — usando %d. "
             "Atualize _SIMPLES_TABLES em fiscal_report.py.",
-            year, fallback_year,
+            anexo, year, fallback_year,
         )
-        return _SIMPLES_TABLES[fallback_year]
-    # Ano anterior a todos os cadastrados — usa o mais antigo disponível
-    oldest = min(_SIMPLES_TABLES)
-    logger.warning("Usando tabela Simples Nacional de %d para o ano %d.", oldest, year)
-    return _SIMPLES_TABLES[oldest]
+        return tabelas[fallback_year]
+    oldest = min(tabelas)
+    logger.warning(
+        "Usando tabela Simples Nacional Anexo %s de %d para o ano %d.", anexo, oldest, year
+    )
+    return tabelas[oldest]
 
-_SUBCATEGORIES_RECEITA = {"receita_servicos", "receita_produtos"}
+_SUBCATEGORIES_RECEITA = {"receita_servicos", "receita_produtos", "receita_nao_classificada"}
 _SUBCATEGORIES_DESPESA = {
     "despesa_software", "despesa_marketing", "despesa_transporte",
     "despesa_equipamento", "despesa_pessoal_pj", "despesa_imposto",
@@ -102,6 +123,7 @@ _SUBCATEGORIES_DESPESA = {
 _SUBCATEGORY_LABELS = {
     "receita_servicos":    "Receita de Servicos",
     "receita_produtos":    "Receita de Produtos",
+    "receita_nao_classificada": "Receita (nao classificada)",
     "despesa_software":    "Software / SaaS",
     "despesa_marketing":   "Marketing",
     "despesa_transporte":  "Transporte",
@@ -136,10 +158,13 @@ class FiscalReport:
     lucro_estimado: float = 0.0
 
     # DAS — Simples Nacional (Anexo III — Servicos)
-    rbt12_anualizado: float = 0.0   # receita bruta anualizada usada no calculo
+    rbt12_anualizado: float = 0.0   # RBT12 usado para determinar a faixa
     das_aliquota_efetiva: float = 0.0
     das_estimado: float = 0.0
     das_faixa: str = ""
+    das_anexo: str = "III"          # III (com Fator R) ou V (sem)
+    fator_r: Optional[float] = None # folha 12m / receita 12m
+    das_observacao: str = ""
 
     total_transactions: int = 0
 
@@ -212,13 +237,37 @@ class FiscalReportService:
                 df = df.filter(pl.col("date").dt.month() == month)
 
             rows = df.select(["amount", "pj_subcategory"]).to_dicts()
-            return [{"amount": r["amount"], "pj_subcategory": r.get("pj_subcategory") or "despesa_outros_pj"} for r in rows]
+            # O default era `despesa_outros_pj` para QUALQUER lançamento sem
+            # subcategoria, inclusive crédito. Uma receita que o classificador
+            # não reconheceu virava despesa: receita a menos, despesa a mais,
+            # lucro errado nas duas pontas e DAS a MENOR — a direção que gera
+            # multa. O sinal do lançamento é o desempate óbvio.
+            return [
+                {
+                    "amount": r["amount"],
+                    "pj_subcategory": r.get("pj_subcategory") or (
+                        "receita_nao_classificada" if (r["amount"] or 0) > 0
+                        else "despesa_outros_pj"
+                    ),
+                }
+                for r in rows
+            ]
         except Exception as e:
             logger.error("Erro ao buscar transacoes PJ: %s", e)
             return []
 
     def _aggregate(self, report: FiscalReport, rows: list[dict]) -> None:
-        totals: dict[str, list] = {}   # subcategory -> [total, count]
+        """
+        Soma por subcategoria preservando o SINAL do líquido.
+
+        `abs()` era aplicado ao total do grupo, o que funciona enquanto o grupo
+        fecha no sinal esperado — e inverte quando não fecha. Um mês em que os
+        estornos superam as vendas (vendas 2.000, estornos 5.000, líquido
+        −3.000) virava R$ 3.000 de RECEITA, e o DAS era cobrado sobre
+        devoluções. A receita bruta do período não pode ser negativa nem
+        positiva-por-inversão: é o líquido, com piso em zero.
+        """
+        totals: dict[str, list] = {}   # subcategory -> [total_com_sinal, count]
 
         for row in rows:
             sub = row["pj_subcategory"]
@@ -228,76 +277,124 @@ class FiscalReportService:
             totals[sub][0] += amount
             totals[sub][1] += 1
 
+        receita_liquida = 0.0
+        despesa_liquida = 0.0
+
         for sub, (total, count) in sorted(totals.items(), key=lambda x: -abs(x[1][0])):
+            eh_receita = sub in _SUBCATEGORIES_RECEITA
             line = SubcategoryLine(
                 subcategory=sub,
                 label=_SUBCATEGORY_LABELS.get(sub, sub),
-                total=round(abs(total), 2),
+                # Receita mostra o líquido com sinal (negativo = estornos
+                # maiores que as vendas). Despesa é módulo, como sempre foi.
+                total=round(total if eh_receita else abs(total), 2),
                 count=count,
             )
-            if sub in _SUBCATEGORIES_RECEITA:
+            if eh_receita:
                 report.receitas.append(line)
-                report.total_receita += abs(total)
+                receita_liquida += total
             else:
                 report.despesas.append(line)
-                report.total_despesa += abs(total)
+                despesa_liquida += abs(total)
 
-        report.total_receita = round(report.total_receita, 2)
-        report.total_despesa = round(report.total_despesa, 2)
-        report.lucro_estimado = round(report.total_receita - report.total_despesa, 2)
+        report.total_receita = round(max(receita_liquida, 0.0), 2)
+        report.total_despesa = round(despesa_liquida, 2)
+        report.lucro_estimado = round(receita_liquida - despesa_liquida, 2)
 
-    def _fetch_rbt12(self, user_id: str, year: int, month: int) -> float:
+    def _janela_12_meses_anteriores(
+        self, user_id: str, year: int, month: int
+    ) -> tuple[float, float]:
         """
-        Calcula RBT12 real: soma das receitas PJ dos ultimos 12 meses encerrados
-        antes do mes de referencia (inclusive).
+        `(receita_12m, folha_12m)` dos DOZE MESES ANTERIORES ao período de
+        apuração — que é o que a LC 123/2006, art. 18, § 1º manda usar.
+
+        A janela anterior era `data_ref − 330 dias` até o fim do mês de
+        referência: começava cinco dias depois do início do 12º mês anterior,
+        INCLUÍA o próprio mês de apuração e ainda alcançava os primeiros dias
+        do mês seguinte. Consequência prática: um mês forte empurrava a si
+        mesmo para a faixa de cima. Com receita de R$ 15.000/mês e um junho de
+        R$ 30.000, o RBT12 saía R$ 195.000 (Faixa 2) quando o legal era
+        R$ 170.000 (Faixa 1).
+
+        A folha sai da mesma passada porque é o denominador do Fator R, que
+        usa exatamente a mesma janela.
         """
-        import polars as pl
         import datetime
+
+        import polars as pl
 
         try:
             df = get_transactions_for_user(user_id)
             if df.is_empty():
-                return 0.0
+                return 0.0, 0.0
 
-            ref_date = datetime.date(year, month, 1)
-            start_date = ref_date - datetime.timedelta(days=330)  # ~11 meses
+            fim = datetime.date(year, month, 1)                     # exclusivo
+            inicio = fim
+            for _ in range(12):
+                inicio = (inicio - datetime.timedelta(days=1)).replace(day=1)
 
             df = df.with_columns(pl.col("date").cast(pl.Date))
-            df = df.filter(
-                (pl.col("context_type") == "PJ") &
-                (pl.col("amount") > 0) &
-                (pl.col("date") >= start_date) &
-                (pl.col("date") < datetime.date(year, month, 28) + datetime.timedelta(days=4))
+            janela = df.filter(
+                (pl.col("context_type").fill_null("") == "PJ")
+                & (pl.col("date") >= inicio)
+                & (pl.col("date") < fim)
             )
+            if janela.is_empty():
+                return 0.0, 0.0
 
-            total = df.select(pl.col("amount").sum()).item()
-            return float(total) if total else 0.0
-        except Exception as e:
-            logger.warning("Nao foi possivel calcular RBT12 real, usando fallback x12: %s", e)
-            return 0.0
+            receita = janela.filter(pl.col("amount") > 0).select(
+                pl.col("amount").sum()
+            ).item() or 0.0
+            folha = janela.filter(
+                pl.col("pj_subcategory").fill_null("") == "despesa_pessoal_pj"
+            ).select(pl.col("amount").sum()).item() or 0.0
+
+            return float(receita), abs(float(folha))
+        except Exception as exc:
+            logger.warning("Nao foi possivel calcular a janela de 12 meses: %s", exc)
+            return 0.0, 0.0
 
     def _compute_das(self, report: FiscalReport, year: int, month: Optional[int]) -> None:
         """
-        Estima DAS pelo Simples Nacional Anexo III (Servicos).
+        Estima o DAS do Simples Nacional para atividade de serviço.
 
-        Para relatorio mensal: usa RBT12 real (soma dos ultimos 12 meses)
-        para determinar a faixa, depois aplica a aliquota efetiva sobre
-        a receita do mes. Fallback: receita_mes * 12 se historico insuficiente.
-        Para relatorio anual: usa a receita total do ano diretamente.
+        A faixa vem do RBT12 (doze meses ANTERIORES ao período), e a alíquota
+        efetiva incide sobre a receita DO PERÍODO — nunca sobre o RBT12. Esse
+        ponto o código já acertava.
+
+        O que faltava era o **Fator R**: serviço só é Anexo III quando a folha
+        dos mesmos doze meses representa 28% ou mais da receita bruta; abaixo
+        disso é Anexo V, cuja primeira faixa é 15,5% contra 6% — 2,6× mais. O
+        relatório assumia Anexo III em silêncio, e a folha necessária para
+        decidir já estava no próprio relatório, em `despesa_pessoal_pj`.
         """
         if report.total_receita <= 0:
             report.das_estimado = 0.0
             report.das_faixa = "Sem receita"
+            report.das_observacao = (
+                "Sem receita bruta no período — nada a apurar."
+            )
             return
 
         if month is not None:
-            rbt12 = self._fetch_rbt12(report.user_id, year, month)
+            rbt12, folha_12m = self._janela_12_meses_anteriores(report.user_id, year, month)
             if rbt12 <= 0:
-                rbt12 = report.total_receita * 12  # fallback
+                # Primeiro mês de operação: a lei manda proporcionalizar a
+                # receita do mês de início. O ×12 é a mesma ideia.
+                rbt12 = report.total_receita * 12
+                folha_12m = sum(
+                    l.total for l in report.despesas if l.subcategory == "despesa_pessoal_pj"
+                ) * 12
+                report.das_observacao = (
+                    "Histórico de 12 meses insuficiente — RBT12 estimado pela "
+                    "receita do mês × 12."
+                )
         else:
             rbt12 = report.total_receita
+            folha_12m = sum(
+                l.total for l in report.despesas if l.subcategory == "despesa_pessoal_pj"
+            )
 
-        # Obs 2: empresas acima do teto do Simples Nacional
         _TETO_SIMPLES = 4_800_000
         if rbt12 > _TETO_SIMPLES:
             report.rbt12_anualizado = round(rbt12, 2)
@@ -307,11 +404,16 @@ class FiscalReportService:
                 "Fora do Simples Nacional — RBT12 acima de R$ 4.800.000 "
                 "(regime Lucro Presumido ou Real)"
             )
+            report.das_observacao = BASE_LEGAL_FATOR_R
             return
 
         report.rbt12_anualizado = round(rbt12, 2)
 
-        tabela = _get_simples_table(year)
+        anexo, fator_r = anexo_por_fator_r(folha_12m, rbt12)
+        report.das_anexo = anexo
+        report.fator_r = fator_r
+
+        tabela = _get_simples_table(year, anexo)
         aliquota_nominal = 0.0
         parcela_deducao = 0
         faixa_num = 0
@@ -323,12 +425,27 @@ class FiscalReportService:
                 faixa_num = i
                 break
 
-        # Aliquota efetiva = (RBT12 * aliq_nominal - PD) / RBT12
         aliquota_efetiva = max(0.0, (rbt12 * aliquota_nominal - parcela_deducao) / rbt12)
-
-        # DAS sobre a receita do periodo (nao sobre RBT12)
         das = report.total_receita * aliquota_efetiva
 
-        report.das_aliquota_efetiva = round(aliquota_efetiva * 100, 2)  # em %
+        report.das_aliquota_efetiva = round(aliquota_efetiva * 100, 2)
         report.das_estimado = round(das, 2)
-        report.das_faixa = f"Faixa {faixa_num} — Simples Nacional Anexo III"
+        report.das_faixa = f"Faixa {faixa_num} — Simples Nacional Anexo {anexo}"
+
+        if not report.das_observacao:
+            if fator_r is None:
+                report.das_observacao = (
+                    "Sem receita nos 12 meses anteriores para calcular o Fator R — "
+                    f"aplicado o Anexo V, que é o mais conservador. {BASE_LEGAL_FATOR_R}"
+                )
+            else:
+                report.das_observacao = (
+                    f"Fator R = {fator_r:.1%} (folha de R$ {folha_12m:,.2f} sobre "
+                    f"receita de R$ {rbt12:,.2f} nos 12 meses anteriores) → Anexo "
+                    f"{anexo}. {BASE_LEGAL_FATOR_R}"
+                )
+
+        report.das_observacao += (
+            " Atenção: este é o cálculo do Simples Nacional (ME/EPP). O MEI "
+            "estrito recolhe DAS de valor FIXO mensal pelo SIMEI, não percentual."
+        )

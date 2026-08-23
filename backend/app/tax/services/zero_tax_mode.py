@@ -19,12 +19,18 @@ import logging
 from datetime import date
 
 from app.tax.models import InvestmentPosition, TaxOpportunity
+from app.tax.parametros_fiscais import (
+    BASE_LEGAL_COME_COTAS,
+    COME_COTAS_ALIQUOTA_LONGO_PRAZO,
+    proximo_come_cotas,
+)
 from app.tax.services.ir_calculator import calc_breakeven
 
 logger = logging.getLogger(__name__)
 
-_COME_COTAS_MONTHS = [5, 11]  # maio e novembro
-_COME_COTAS_IR_RATE = 0.15    # alíquota mínima aplicada no come-cotas
+#: O come-cotas seguinte, se o usuário trocar, é o que ele deixa de sofrer —
+#: meio ano de diferimento garantido. Era 12 meses no cálculo antigo.
+_MESES_DE_DIFERIMENTO = 6
 
 
 class ZeroTaxMode:
@@ -63,7 +69,17 @@ class ZeroTaxMode:
                 continue
 
             advantage_pct = round(lci_rate - breakeven.lci_breakeven_pct, 4)
-            annual_saving = round(pos.amount * (advantage_pct / 100), 2)
+            vantagem_ano = round(pos.amount * (advantage_pct / 100), 2)
+
+            # Trocar exige RESGATAR o CDB, e o resgate paga IR sobre o ganho
+            # acumulado na alíquota de hoje. Anunciar só a vantagem de taxa
+            # ignora um custo conhecido e que já está calculado na posição —
+            # numa posição com ganho grande ainda na faixa de 22,5%, a troca
+            # pode ser negativa no primeiro ano.
+            custo_resgate = round(pos.estimated_ir, 2)
+            annual_saving = round(vantagem_ano - custo_resgate, 2)
+            if annual_saving <= 0:
+                continue
 
             results.append(
                 TaxOpportunity(
@@ -79,7 +95,9 @@ class ZeroTaxMode:
                     recommended_action=(
                         f"Resgatar o CDB (atenção ao prazo de carência) e aplicar em "
                         f"LCI {best_lci['bank']} {lci_rate:.2f}% a.a. "
-                        f"Ganho adicional estimado: R$ {annual_saving:,.2f}/ano (isento de IR)."
+                        f"Vantagem de taxa: R$ {vantagem_ano:,.2f}/ano (isento de IR). "
+                        f"Menos o IR de R$ {custo_resgate:,.2f} devido no resgate do CDB, "
+                        f"o ganho líquido no primeiro ano é de R$ {annual_saving:,.2f}."
                     ),
                     estimated_tax_saving_brl=annual_saving,
                     confidence="medium",
@@ -88,59 +106,6 @@ class ZeroTaxMode:
 
         return results
 
-    # ── Come-cotas → CDB ─────────────────────────────────────────────
-
-    def _find_come_cotas_switch(
-        self, positions: list[InvestmentPosition], cdi_annual: float
-    ) -> list[TaxOpportunity]:
-        results: list[TaxOpportunity] = []
-        today = date.today()
-        months_to_come_cotas = self._months_to_next_come_cotas(today)
-
-        for pos in positions:
-            if not pos.has_come_cotas or pos.amount <= 0 or pos.annual_rate_pct == 0:
-                continue
-
-            # IR antecipado no próximo come-cotas sobre o ganho estimado
-            period_rate = (1 + pos.annual_rate_pct / 100) ** (months_to_come_cotas / 12) - 1
-            projected_gain = pos.amount * period_rate
-            come_cotas_ir = round(projected_gain * _COME_COTAS_IR_RATE, 2)
-
-            if come_cotas_ir < 100:
-                continue
-
-            # Se esse IR ficasse aplicado mais 12 meses ao CDI, renderia:
-            opportunity_cost = round(come_cotas_ir * cdi_annual, 2)
-
-            deadline_month = "maio" if months_to_come_cotas <= 5 else "novembro"
-            deadline_date = (
-                f"31/{today.year}" if deadline_month == "maio" else f"30/11/{today.year}"
-            )
-
-            results.append(
-                TaxOpportunity(
-                    opportunity_type="avoid_come_cotas",
-                    title=f"Evitar come-cotas — {pos.product_type} {pos.bank_name}",
-                    description=(
-                        f"Fundo com come-cotas: IR de ~R$ {come_cotas_ir:,.2f} será antecipado em {deadline_month}. "
-                        f"Se esse valor permanecesse investido por 12 meses ao CDI, "
-                        f"renderia mais R$ {opportunity_cost:,.2f}."
-                    ),
-                    position_ref=f"{pos.bank_name} — {pos.product_name}",
-                    recommended_action=(
-                        f"Antes de {deadline_date}, avaliar o custo-benefício de migrar para CDB "
-                        f"(sem come-cotas — IR só no resgate). "
-                        "Considere: prazo restante do fundo, carência e tributação da saída."
-                    ),
-                    estimated_tax_saving_brl=opportunity_cost,
-                    confidence="low",
-                    action_deadline=f"Antes de {deadline_date} ({deadline_month} — come-cotas)",
-                )
-            )
-
-        return results
-
-    # ── helpers ──────────────────────────────────────────────────────
 
     def _get_lci_options(self, cdi_annual: float) -> list[dict]:
         try:
@@ -158,10 +123,73 @@ class ZeroTaxMode:
             logger.warning("[ZeroTaxMode] get_lci_options: %s", exc)
             return []
 
-    @staticmethod
-    def _months_to_next_come_cotas(today: date) -> int:
-        for month in sorted(_COME_COTAS_MONTHS):
-            if today.month < month:
-                return month - today.month
-        # próximo ano
-        return (12 - today.month) + _COME_COTAS_MONTHS[0]
+    # ── Come-cotas → CDB ─────────────────────────────────────────────
+
+    def _find_come_cotas_switch(
+        self, positions: list[InvestmentPosition], cdi_annual: float
+    ) -> list[TaxOpportunity]:
+        """
+        Fundo com come-cotas → CDB.
+
+        Três correções sobre a versão anterior:
+
+        1. **O mês estava errado em sete dos doze meses do ano.** O rótulo
+           saía de `meses_restantes <= 5 → "maio"`, e de junho a outubro a
+           distância até novembro é ≤ 5 — então tudo virava "maio". A data
+           impressa para maio era a string `"31/{ano}"`, sem mês: o usuário
+           lia "Antes de 31/2026".
+        2. **O benefício não é economia de imposto, é diferimento.** O IR sai
+           no resgate de qualquer forma; o ganho é o rendimento do dinheiro
+           que não foi antecipado. Vai marcado como `benefit_kind="deferral"`.
+        3. **O horizonte era de 12 meses**, quando o que a troca garante é
+           pular a próxima incidência — meio ano.
+        """
+        results: list[TaxOpportunity] = []
+        today = date.today()
+        data_come_cotas, nome_mes = proximo_come_cotas(today)
+        dias_ate = max((data_come_cotas - today).days, 0)
+
+        for pos in positions:
+            if not pos.has_come_cotas or pos.amount <= 0 or pos.annual_rate_pct == 0:
+                continue
+
+            # Rendimento projetado até a próxima incidência
+            period_rate = (1 + pos.annual_rate_pct / 100) ** (dias_ate / 365) - 1
+            projected_gain = pos.current_balance * period_rate
+            come_cotas_ir = round(projected_gain * COME_COTAS_ALIQUOTA_LONGO_PRAZO, 2)
+
+            if come_cotas_ir < 100:
+                continue
+
+            # Quanto esse IR renderia se continuasse investido até a
+            # incidência SEGUINTE, que é o que a troca garante adiar.
+            ganho_diferimento = round(
+                come_cotas_ir * ((1 + cdi_annual) ** (_MESES_DE_DIFERIMENTO / 12) - 1), 2
+            )
+
+            data_fmt = data_come_cotas.strftime("%d/%m/%Y")
+            results.append(
+                TaxOpportunity(
+                    opportunity_type="avoid_come_cotas",
+                    title=f"Evitar come-cotas — {pos.product_type} {pos.bank_name}",
+                    description=(
+                        f"Fundo com come-cotas: cerca de R$ {come_cotas_ir:,.2f} de IR "
+                        f"serão antecipados em {data_fmt} ({nome_mes}). Migrar para CDB "
+                        f"não elimina esse imposto — adia para o resgate. O ganho é o "
+                        f"rendimento desse valor no meio-tempo: cerca de "
+                        f"R$ {ganho_diferimento:,.2f} em {_MESES_DE_DIFERIMENTO} meses ao CDI."
+                    ),
+                    position_ref=f"{pos.bank_name} — {pos.product_name}",
+                    recommended_action=(
+                        f"Até {data_fmt}, avaliar o custo-benefício de migrar para CDB "
+                        f"(sem come-cotas — IR só no resgate). Considere prazo restante, "
+                        f"carência e o IR devido na saída do fundo. {BASE_LEGAL_COME_COTAS}"
+                    ),
+                    estimated_tax_saving_brl=ganho_diferimento,
+                    benefit_kind="deferral",
+                    confidence="low",
+                    action_deadline=f"Até {data_fmt} ({nome_mes} — come-cotas)",
+                )
+            )
+
+        return results

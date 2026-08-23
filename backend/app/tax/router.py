@@ -90,13 +90,25 @@ def get_tax_optimization(
 
     # Ordena por saving decrescente
     opportunities.sort(key=lambda o: o.estimated_tax_saving_brl, reverse=True)
-    total_saving = round(sum(o.estimated_tax_saving_brl for o in opportunities), 2)
+
+    # Imposto que deixa de ser devido e imposto que só sai mais tarde não são
+    # a mesma coisa. O come-cotas evitado volta no resgate: somar tudo num
+    # "total de economia de imposto" superestima o benefício.
+    total_saving = round(
+        sum(o.estimated_tax_saving_brl for o in opportunities
+            if o.benefit_kind == "tax_saving"), 2
+    )
+    total_deferral = round(
+        sum(o.estimated_tax_saving_brl for o in opportunities
+            if o.benefit_kind == "deferral"), 2
+    )
 
     summary = _build_summary(portfolio, total_ir, opportunities, total_saving)
 
     logger.info(
-        "[tax/optimize] user=%s positions=%d ir_liability=%.2f opportunities=%d saving=%.2f",
-        user_id, len(portfolio), total_ir, len(opportunities), total_saving,
+        "[tax/optimize] user=%s positions=%d ir_liability=%.2f opportunities=%d "
+        "saving=%.2f deferral=%.2f",
+        user_id, len(portfolio), total_ir, len(opportunities), total_saving, total_deferral,
     )
 
     return TaxAnalysisResponse(
@@ -109,6 +121,7 @@ def get_tax_optimization(
         total_estimated_ir_liability=total_ir,
         opportunities=opportunities,
         total_estimated_tax_saving=total_saving,
+        total_estimated_deferral_gain=total_deferral,
         summary=summary,
         data_source="pluggy",
     )

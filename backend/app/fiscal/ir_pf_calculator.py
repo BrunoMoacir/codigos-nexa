@@ -3,7 +3,7 @@ app/fiscal/ir_pf_calculator.py — IRPFCalculator (T1/T2)
 
 Calcula IR de pessoa física sobre rendimentos de investimentos de renda fixa.
 
-Tabela regressiva (Lei 8.981/1995, art. 65):
+Tabela regressiva (Lei 11.033/2004, art. 1º):
   Até 180 dias        → 22,5%
   181 a 360 dias      → 20,0%
   361 a 720 dias      → 17,5%
@@ -23,13 +23,20 @@ import math
 from dataclasses import dataclass
 from typing import Literal
 
+from app.tax.parametros_fiscais import ALIQUOTA_ACIMA_DE_720 as _ALIQUOTA_MINIMA
+from app.tax.parametros_fiscais import TABELA_REGRESSIVA as _TABELA_CANONICA
+
 # ── Tabela regressiva de IR ──────────────────────────────────────────
-# (prazo máximo inclusivo em dias, alíquota)
+# A tabela canônica vive em `app/tax/parametros_fiscais.py`; aqui fica só o
+# alias, para não haver duas listas com semânticas diferentes — foi assim que
+# `tax_loss_harvesting` acabou com uma versão em MESES cujo significado era o
+# oposto e que apagou o detector de hold-longer.
+#
+# A citação anterior deste módulo, "Lei 8.981/1995, art. 65", é de outro
+# regime: a tabela regressiva de renda fixa é da Lei 11.033/2004, art. 1º.
 _IR_BANDS: list[tuple[int, float]] = [
-    (180, 0.225),
-    (360, 0.200),
-    (720, 0.175),
-    (math.inf, 0.150),  # type: ignore[arg-type]
+    *_TABELA_CANONICA,
+    (math.inf, _ALIQUOTA_MINIMA),  # type: ignore[arg-type]
 ]
 
 InvestmentType = Literal[
