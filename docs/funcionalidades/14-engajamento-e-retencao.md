@@ -17,7 +17,9 @@ estilo Spotify).
 
 ### MX.1 — Health Score e Resilience Score (`etl/profiles.py`)
 
-Existem **dois scores**, e a distinção importa.
+Existem **dois scores**, e a distinção importa. (Havia um terceiro, calculado
+inline no `forecast/router.py`, removido em 2026-08-23 — ver a seção de
+correções.)
 
 **`financial_health_score` (0–100) — 3 fatores**, mantido por
 retrocompatibilidade com o banco:
@@ -92,6 +94,18 @@ excluídas do `REDUZIR_CATEGORIA`.
 
 Ciclo completo: geração no início do mês → progresso → conclusão → fechamento
 na virada → badges (incluindo streaks), persistidos em `user_badges`.
+
+**Quarto status: `SEM_DADOS`.** No fechamento, desafio cuja janela não teve
+NENHUMA transação não é julgado — não vira COMPLETED nem FAILED. Sem isso, os
+dois desafios que medem *ausência* de coisa ruim (`SEM_TARIFAS`,
+`REDUZIR_CATEGORIA`) fechavam como vitória quando o banco estava desconectado,
+enquanto os que medem *presença* de coisa boa fechavam como derrota. O notifier
+só emite card para `COMPLETED` e `ACTIVE`, então `SEM_DADOS` não gera
+recompensa nem conta como concluído.
+
+O alvo do `GUARDAR_VALOR` usa a **renda filtrada pelo `IncomeProfiler`**, não a
+soma bruta dos créditos — Pix recebido, estorno e transferência entre contas
+próprias inflavam o denominador e produziam meta inalcançável.
 
 ### MX.4 — Peer Comparison (`app/peers/peer_comparison.py`)
 
@@ -184,6 +198,69 @@ rodada de 6h refaria"* a análise inteira.
 
 ---
 
+### As correções de 2026-08-23
+
+**Havia três health scores, não dois.** Além do `financial_health_score`
+(3 fatores) e do `resilience_score` (6 fatores), o `forecast/router.py`
+calculava um terceiro inline:
+
+```python
+savings_score  = min(70.0, savings_rate * 5.0 * 70.0)
+spending_score = (1.0 - income_ratio) * 30.0
+```
+
+Divergência de até **47 pontos** contra o oficial:
+
+| poupança | 3 fatores | fórmula inline |
+|---|---|---|
+| 2% | 55 | **8** |
+| 10% | 77 | 38 |
+| 20% | 85 | 76 |
+
+O pior não era existir: era *quando* entrava. O inline era calculado e depois
+sobrescrito sempre que o `UserProfileAnalyzer` funcionava — código morto no
+caminho feliz. Ele só chegava ao usuário quando `analyze()` levantava exceção,
+engolida num `logger.debug`. Um erro silencioso mudava o score em meia escala.
+
+E o `profile_type` **nunca** era sobrescrito, então o payload saía com score de
+uma régua e rótulo de outra: poupança de 22% aparecia como "EQUILIBRADO"
+(régua do router) com score de "CONSERVADOR" (régua do analyzer). O rótulo
+`POUPADOR`, que o router emitia acima de 40%, nem existe no vocabulário do
+analyzer.
+
+O `trend` vinha de `income_stability`: renda instável virava "CRESCENTE", muito
+instável virava "DECRESCENTE" — palavras que em todo o resto do produto
+significam direção de **gasto**.
+
+Agora há `_perfil_e_score()`: com o analyzer, usa o resultado dele; sem ele,
+aplica os **mesmos métodos** sobre o que sobrou, em vez de uma segunda fórmula.
+O `except` subiu de `debug` para `warning`.
+
+**O card compartilhável somava unidades diferentes.**
+`negotiation_history.potential_gain` recebe `opp.potential_saving_monthly` —
+valor MENSAL. As outras três fontes do consolidador anualizam; esta somava o
+mensal direto em `annual_savings_brl`:
+
+```
+Otimizador   R$ 1.200,00/ano   (já anual)
+Raio-X       R$   780,00/ano   (65/mês × 12)
+Radar        R$ 1.080,00/ano   (90/mês × 12)
+Negociador   R$   180,00/ano   ← 180/mês SEM ×12
+
+anunciado R$ 3.240,00   |   correto R$ 5.220,00
+```
+
+**E somava a mesma coisa duas vezes.** O Raio-X mede tarifas efetivamente
+cobradas, entre elas `ANUIDADE_CARTAO` e `JUROS_ROTATIVO`; o Negociador estima
+o que se pouparia negociando exatamente essa anuidade e esses juros
+(`ANUIDADE_ALTA`, `JUROS_ROTATIVO_ALTO`). Os dois erros apontavam em direções
+opostas e se mascaravam no total. Ficou o Raio-X, que é medição e não
+estimativa, e a exclusão está declarada na descrição mostrada ao usuário.
+
+**Desconectar o banco ganhava dois dos quatro desafios** — ver `SEM_DADOS`
+acima. O teste que existia afirmava o defeito: passava lista vazia de
+transações e esperava `COMPLETED`.
+
 ## O que NÃO faz
 
 - **Sem dark patterns**: nenhuma notificação de "volte para o app" vazia —
@@ -197,7 +274,11 @@ rodada de 6h refaria"* a análise inteira.
 - **Dois scores coexistem** (`financial_health_score` de 3 fatores e
   `resilience_score` de 6). O primeiro só existe por compatibilidade com o
   banco, mas ainda é o que aparece como "health score" em parte da API —
-  fonte de confusão real.
+  fonte de confusão real. O terceiro, inline no router, foi removido.
+- **`ProfileType` tem dois literais divergentes**: o schema aceita
+  `POUPADOR`, o analyzer só produz `CONSERVADOR | EQUILIBRADO | GASTADOR`. O
+  valor extra deixou de ser emitido, mas o literal segue no schema por
+  compatibilidade com dado já gravado.
 - **As faixas de pontuação são calibradas por julgamento**, não por
   correlação com desfecho financeiro observado. "Poupança ≥ 25% vale 50
   pontos" é uma escolha de produto, não um achado empírico.

@@ -80,7 +80,7 @@ class Challenge:
     target_value: float
     progress_value: float
     pct_progress: float
-    status: str                   # ACTIVE | COMPLETED | FAILED
+    status: str                   # ACTIVE | COMPLETED | FAILED | SEM_DADOS
     metadata: dict
     completed_at: datetime | None = None
 
@@ -310,17 +310,27 @@ class ChallengeService:
         window_start = (month_start - timedelta(days=92)).replace(day=1)
         window_end = month_start - timedelta(days=1)
 
-        monthly_income: dict[str, float] = {}
-        for tx in txns:
-            if not (window_start <= tx["date"] <= window_end) or tx["amount"] <= 0:
-                continue
-            key = _month_key(tx["date"])
-            monthly_income[key] = monthly_income.get(key, 0.0) + tx["amount"]
+        # Renda FILTRADA, não a soma bruta dos créditos.
+        #
+        # Somar todo `amount > 0` conta Pix recebido, estorno e transferência
+        # entre contas do próprio usuário como renda. A meta é 10% disso, então
+        # a inflação do denominador vira uma meta que o usuário não alcança — e
+        # desafio não concluído fecha como FAILED. O `IncomeProfiler` existe
+        # exatamente para separar renda de movimentação (é a base dos
+        # thresholds do resto do produto); só não era usado aqui.
+        renda_por_mes = self._renda_mensal_filtrada(txns, window_start, window_end)
+        if renda_por_mes is None:
+            renda_por_mes = {}
+            for tx in txns:
+                if not (window_start <= tx["date"] <= window_end) or tx["amount"] <= 0:
+                    continue
+                key = _month_key(tx["date"])
+                renda_por_mes[key] = renda_por_mes.get(key, 0.0) + tx["amount"]
 
-        if len(monthly_income) < 2:
+        if len(renda_por_mes) < 2:
             return None
 
-        values = sorted(monthly_income.values())
+        values = sorted(renda_por_mes.values())
         mid = len(values) // 2
         median = values[mid] if len(values) % 2 else (values[mid - 1] + values[mid]) / 2
         target = max(_SAVE_TARGET_FLOOR, round(median * _SAVE_TARGET_INCOME_PCT / 10) * 10)
@@ -393,6 +403,9 @@ class ChallengeService:
             if ch.status == "ACTIVE":
                 # fechamento decide: quem não completou, falhou
                 ch.status = "FAILED"
+            # SEM_DADOS já foi decidido em _update_progress e não vira FAILED:
+            # falhar por falta de dado pune o usuário por algo fora do controle
+            # dele, e completar por falta de dado premia quem desconectou.
             self._persist_update(ch)
 
         logger.info(
@@ -400,6 +413,68 @@ class ChallengeService:
             len(stale), user_id,
             [(c.challenge_type, c.month, c.status) for c in stale],
         )
+
+    @staticmethod
+    def _renda_mensal_filtrada(
+        txns: list[dict], inicio: date, fim: date
+    ) -> dict[str, float] | None:
+        """
+        Renda por mês segundo o `IncomeProfiler`, ou None se ele não puder
+        rodar (aí o chamador cai nos créditos brutos, com o viés conhecido).
+        """
+        try:
+            import polars as pl
+
+            from app.forecast.etl.income_profiler import IncomeProfiler
+
+            linhas = [
+                {"date": t["date"], "amount": t["amount"],
+                 "description": t.get("description") or "",
+                 "category": t.get("category") or "outros"}
+                for t in txns if inicio <= t["date"] <= fim
+            ]
+            if not linhas:
+                return None
+
+            perfil = IncomeProfiler().build(pl.DataFrame(linhas))
+            fontes = getattr(perfil, "sources", None) or getattr(perfil, "income_sources", None)
+            if not fontes:
+                return None
+
+            descricoes = {
+                (getattr(f, "description", "") or "").strip().lower() for f in fontes
+            }
+            if not descricoes:
+                return None
+
+            por_mes: dict[str, float] = {}
+            for t in txns:
+                if not (inicio <= t["date"] <= fim) or t["amount"] <= 0:
+                    continue
+                desc = (t.get("description") or "").strip().lower()
+                if not any(d and d in desc for d in descricoes):
+                    continue
+                chave = _month_key(t["date"])
+                por_mes[chave] = por_mes.get(chave, 0.0) + t["amount"]
+            return por_mes or None
+        except Exception as exc:
+            logger.debug("[ChallengeService] IncomeProfiler indisponível: %s", exc)
+            return None
+
+    @staticmethod
+    def _tem_dado_no_periodo(txns: list[dict], start: date, end: date) -> bool:
+        """
+        Houve QUALQUER transação na janela do desafio?
+
+        Sem isso, os desafios que medem AUSÊNCIA de coisa ruim completavam com
+        dado faltando: sem transações, `_detect_fees` devolve lista vazia,
+        `total = 0`, e SEM_TARIFAS fechava COMPLETED. O mesmo em
+        REDUZIR_CATEGORIA, onde `spent = 0` nunca estoura o teto.
+
+        Quem desconectasse o banco ganhava dois dos quatro desafios do mês —
+        e badge é a moeda de retenção desta feature.
+        """
+        return any(start <= t["date"] <= end for t in txns)
 
     def _update_progress(
         self,
@@ -412,6 +487,19 @@ class ChallengeService:
     ) -> None:
         """Atualiza progress/pct/status de um desafio ACTIVE in-place."""
         now = datetime.now(timezone.utc)
+
+        # Sem dado na janela não há o que julgar. Não é vitória nem derrota:
+        # é ausência de base. `SEM_DADOS` não gera card (o notifier só olha
+        # COMPLETED e ACTIVE) nem conta como concluído.
+        if closing and not self._tem_dado_no_periodo(txns, start, end):
+            ch.status = "SEM_DADOS"
+            ch.pct_progress = 0.0
+            logger.info(
+                "[ChallengeService] desafio %s user=%s mês=%s sem transações na "
+                "janela — fechado como SEM_DADOS",
+                ch.challenge_type, ch.user_id, ch.month,
+            )
+            return
 
         if ch.challenge_type == "SEM_TARIFAS":
             fees = self._detect_fees(txns, start, end)

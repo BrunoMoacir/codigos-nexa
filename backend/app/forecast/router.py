@@ -43,6 +43,33 @@ from app.core.cache import cache_response
 
 limiter = Limiter(key_func=get_remote_address)
 
+
+def _perfil_e_score(
+    analyzer_profile,
+    *,
+    savings_rate_pct: float,
+    income: float,
+    expenses: float,
+) -> tuple[str, int]:
+    """
+    `(profile_type, health_score)` — SEMPRE pela régua do UserProfileAnalyzer.
+
+    Quando o analyzer rodou, usa o resultado dele. Quando falhou, aplica os
+    MESMOS métodos sobre os valores que sobraram, em vez de inventar uma
+    segunda fórmula. É a diferença entre um fallback com menos informação e um
+    fallback com outra régua: o segundo produzia 8 onde o oficial produzia 55.
+    """
+    if analyzer_profile is not None:
+        return analyzer_profile.profile_type, analyzer_profile.financial_health_score
+
+    from app.forecast.etl.profiles import UserProfileAnalyzer
+
+    analyzer = UserProfileAnalyzer()
+    return (
+        analyzer._determine_profile_type(savings_rate_pct),
+        analyzer._calculate_health_score(savings_rate_pct, expenses, income),
+    )
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # IMPORTS: Engine & Processamento
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -314,7 +341,13 @@ async def get_forecast(
                 income_profile=income_profile_obj,
             )
         except Exception as profile_err:
-            logger.debug("Nao foi possivel calcular perfil consolidado: %s", profile_err)
+            # WARNING, não debug: sem o analyzer o score cai no fallback e o
+            # usuário vê um número calculado com menos informação. Isso tem
+            # que aparecer no log.
+            logger.warning(
+                "UserProfileAnalyzer falhou user=%s — health score irá pelo fallback: %s",
+                user_id, profile_err,
+            )
 
         if txns_df is not None and not txns_df.is_empty() and "amount" in txns_df.columns:
             # Get expense transactions (negative amounts) in last 90 days
@@ -352,33 +385,37 @@ async def get_forecast(
             income_ratio = monthly_expenses / monthly_income if monthly_income > 0 else 1.0
             income_ratio = round(min(income_ratio, 1.0), 4)  # cap em 1.0 (nunca negativo)
 
-            # ── 1. PROFILE TYPE — baseado em savings_rate ─────────────
-            # savings_rate > 40% → POUPADOR
-            # savings_rate 5–40% → EQUILIBRADO
-            # savings_rate < 5%  → GASTADOR
-            if savings_rate > 0.40:
-                profile_type_calc = "POUPADOR"
-            elif savings_rate >= 0.05:
-                profile_type_calc = "EQUILIBRADO"
-            else:
-                profile_type_calc = "GASTADOR"
+            # ── 1 e 2. PROFILE TYPE e HEALTH SCORE ────────────────────
+            #
+            # FONTE ÚNICA: UserProfileAnalyzer. Havia aqui uma SEGUNDA fórmula
+            # de health score — `savings_rate*5*70 + (1-income_ratio)*30` — que
+            # divergia da oficial em até 47 pontos (poupança de 2%: 55 pela
+            # oficial, 8 por esta). Ela era calculada e depois SOBRESCRITA
+            # sempre que o analyzer funcionava, então só entrava em produção
+            # quando `UserProfileAnalyzer().analyze()` levantava exceção — que
+            # era engolida num `logger.debug`. Um erro silencioso mudava o
+            # score do usuário em meia escala, sem sinal nenhum.
+            #
+            # O `profile_type` era pior: NUNCA era sobrescrito. O payload saía
+            # com health_score do analyzer e profile_type de outra régua
+            # (POUPADOR acima de 40%, EQUILIBRADO a partir de 5%), enquanto o
+            # analyzer usa CONSERVADOR ≥20% / EQUILIBRADO ≥10% / GASTADOR. Uma
+            # poupança de 22% saía como "EQUILIBRADO" com score de
+            # "CONSERVADOR".
+            profile_type_calc, health_score = _perfil_e_score(
+                analyzer_profile,
+                savings_rate_pct=savings_rate * 100,
+                income=monthly_income,
+                expenses=monthly_expenses,
+            )
 
-            # ── 2. HEALTH SCORE — savings_rate (70%) + gasto/renda (30%) ─
-            # savings_rate: >=20% dá 70 pontos (pontuação máxima nessa frente)
-            # income_ratio: quanto mais baixo melhor (expenses/income)
-            savings_score  = min(70.0, savings_rate * 5.0 * 70.0)  # 0–70 pts
-            spending_score = (1.0 - income_ratio) * 30.0           # 0–30 pts (0 se gasta = renda)
-            health_score   = min(100, max(0, round(savings_score + spending_score)))
-
-            # ── 3. TREND — baseado na estabilidade de renda histórica ────
-            # 0.65 é um bom limiar para ESTÁVEL (renda PJ varia um pouco)
-            income_stability = getattr(income_profile_obj, "income_stability", 1.0) or 0.0
-            if income_stability >= 0.65:
-                trend_calc = "ESTÁVEL"
-            elif income_stability >= 0.4:
-                trend_calc = "CRESCENTE"  # instável mas não crítico
-            else:
-                trend_calc = "DECRESCENTE"  # alta volatilidade
+            # ── 3. TREND — direção do GASTO, do analyzer ──────────────
+            #
+            # Vinha de `income_stability`: renda instável virava "CRESCENTE",
+            # muito instável virava "DECRESCENTE". Em todo o resto do produto
+            # essas palavras significam direção de GASTO (ver trend_detector),
+            # e aqui carregavam volatilidade de RENDA com o mesmo nome.
+            trend_calc = getattr(analyzer_profile, "trend", None) or "ESTÁVEL"
 
             # ── 4. BURN RATE ALERT — baseado em expenses / income ─────────
             # < 60% = NORMAL | 60-80% = ATTENTION | 80-100% = WARNING | > 100% = CRITICAL
@@ -409,7 +446,7 @@ async def get_forecast(
             income_profile_dict = {}
             profile_data = runner_result.get("profile", {})
 
-        if analyzer_profile is not None:
+        if analyzer_profile is not None and "health_score" not in profile_data:
             profile_data["health_score"] = analyzer_profile.financial_health_score
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

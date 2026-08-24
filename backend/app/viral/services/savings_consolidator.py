@@ -14,13 +14,27 @@ Retorna lista de SavingsSource + total_annual_savings_brl.
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
-
 from datetime import date
+
+from sqlalchemy import bindparam
 
 from app.viral.models import SavingsSource
 
 logger = logging.getLogger(__name__)
+
+_MESES_NO_ANO = 12
+
+# `negotiation_history.potential_gain` recebe `opp.potential_saving_monthly`
+# — valor MENSAL (ver o INSERT em app/negotiator/router.py). As outras três
+# fontes deste consolidador anualizam; esta somava o mensal direto no campo
+# `annual_savings_brl`, subestimando a contribuição do Negociador em 12×.
+
+# Dupla contagem: o Raio-X (F5) mede tarifas EFETIVAMENTE cobradas, entre elas
+# ANUIDADE_CARTAO e JUROS_ROTATIVO. O Negociador estima o que se pouparia
+# negociando exatamente essa mesma anuidade e esses mesmos juros. É o mesmo
+# dinheiro visto duas vezes — e o total vai num card que o usuário PUBLICA.
+# Fica o Raio-X, que é medição e não estimativa.
+_TRIGGERS_JA_CONTADOS_NO_RAIO_X = ("ANUIDADE_ALTA", "JUROS_ROTATIVO_ALTO")
 
 
 class SavingsConsolidator:
@@ -117,21 +131,26 @@ class SavingsConsolidator:
                         "FROM negotiation_history "
                         "WHERE user_id = :uid "
                         "  AND (result_status IS NULL OR result_status != 'recusado')"
-                    ),
-                    {"uid": user_id},
+                        "  AND trigger_type NOT IN :sobrepostos"
+                    ).bindparams(bindparam("sobrepostos", expanding=True)),
+                    {"uid": user_id, "sobrepostos": list(_TRIGGERS_JA_CONTADOS_NO_RAIO_X)},
                 ).fetchone()
 
-            total = float(row[0]) if row else 0.0
+            mensal = float(row[0]) if row else 0.0
+            anual = round(mensal * _MESES_NO_ANO, 2)
 
             return SavingsSource(
                 name="Negociador",
                 module="negotiator",
-                annual_savings_brl=round(total, 2),
+                annual_savings_brl=anual,
                 amount_type="estimated_potential",
                 description=(
                     f"Potencial de ganho identificado em negociações com seus bancos: "
-                    f"R$ {total:,.2f} (anuidades, juros e tarifas). Potencial estimado — sujeito a negociação."
-                ) if total > 0 else "Nenhuma negociação pendente.",
+                    f"R$ {mensal:,.2f}/mês (projeção anual: R$ {anual:,.2f}). "
+                    f"Anuidade e juros de rotativo não entram aqui — já estão no Raio-X "
+                    f"de Tarifas, e contar duas vezes inflaria o total. "
+                    f"Potencial estimado — sujeito a negociação."
+                ) if anual > 0 else "Nenhuma negociação pendente.",
             )
         except Exception as exc:
             logger.warning("[SavingsConsolidator] negotiator user=%s: %s", user_id, exc)

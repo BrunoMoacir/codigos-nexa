@@ -120,11 +120,55 @@ class TestProgresso:
         assert ch.pct_progress == pytest.approx(48.4)
 
     def test_sem_tarifas_completa_no_fechamento(self):
+        """
+        Conta ATIVA e sem tarifas no mês — a vitória de verdade.
+
+        A versão anterior deste teste passava lista VAZIA de transações e
+        afirmava COMPLETED, que era exatamente o defeito: sem dado,
+        `_detect_fees` devolve lista vazia, `total = 0` e o desafio fechava
+        como vitória. Quem desconectasse o banco ganhava. Ver
+        `test_sem_dado_na_janela_nao_e_vitoria`.
+        """
         ch = _challenge("SEM_TARIFAS", 0.0)
-        _svc._update_progress(ch, [], self._start, self._end, 100.0, closing=True)
+        txns = [
+            _tx(date(2026, 7, 5), 5_000.0, "SALARIO EMPRESA"),
+            _tx(date(2026, 7, 12), -320.0, "SUPERMERCADO", "Mercado"),
+            _tx(date(2026, 7, 20), -89.9, "IFOOD", "Delivery"),
+        ]
+        _svc._update_progress(ch, txns, self._start, self._end, 100.0, closing=True)
         assert ch.status == "COMPLETED"
         assert ch.pct_progress == 100.0
         assert ch.completed_at is not None
+
+    @pytest.mark.parametrize("ctype,meta", [
+        ("SEM_TARIFAS", None),
+        ("REDUZIR_CATEGORIA", {"category": "Delivery"}),
+        ("GUARDAR_VALOR", None),
+        ("SUBIR_SCORE", {"baseline": 50}),
+    ])
+    def test_sem_dado_na_janela_nao_e_vitoria(self, ctype, meta):
+        """
+        Fechamento sem NENHUMA transação: nem COMPLETED nem FAILED.
+
+        Os desafios que mediam AUSÊNCIA de coisa ruim (SEM_TARIFAS,
+        REDUZIR_CATEGORIA) completavam com dado faltando — dois dos quatro do
+        mês entregues a quem desconectou o banco, e badge é a moeda de
+        retenção da feature. Os que mediam PRESENÇA de coisa boa falhavam,
+        punindo por algo fora do controle do usuário.
+        """
+        ch = _challenge(ctype, 100.0, meta)
+        _svc._update_progress(ch, [], self._start, self._end, 100.0, closing=True)
+        assert ch.status == "SEM_DADOS"
+        assert ch.completed_at is None
+
+    def test_sem_dados_nao_gera_card_de_conclusao(self):
+        """
+        `SEM_DADOS` não pode virar recompensa: o notifier só emite card para
+        COMPLETED (e progresso para ACTIVE).
+        """
+        ch = _challenge("SEM_TARIFAS", 0.0)
+        _svc._update_progress(ch, [], self._start, self._end, 100.0, closing=True)
+        assert ch.status not in ("COMPLETED", "ACTIVE")
 
     def test_reduzir_categoria_falha_ao_estourar_teto(self):
         ch = _challenge("REDUZIR_CATEGORIA", 425.0, {"category": "Delivery"})
