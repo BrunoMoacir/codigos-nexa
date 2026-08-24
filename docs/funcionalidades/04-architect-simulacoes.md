@@ -289,6 +289,46 @@ Conectores em `app/architect/connectors/`: `bacen.py` (SELIC/SGS),
 `consortium_rate_provider.py`. Todos seguem o padrão multi-layer fallback:
 API viva → tabela fixa versionada em `data/architect/`.
 
+#### A correção de 2026-08-24: a unidade da fonte secundária de SELIC
+
+A cadeia de fallback protegia contra a fonte ficar **fora do ar**. Não protegia
+contra a fonte **responder com o número errado**.
+
+A fonte secundária de SELIC era a série SGS **4390**, comentada no código como
+"SELIC over anualizada (% a.a.)". A 4390 é *Selic acumulada no mês*, em **% ao
+mês**. Consulta de 24/08/2026:
+
+| série | nome | valor | unidade |
+|---|---|---|---|
+| 432 | Taxa SELIC meta | 14,00 | % a.a. |
+| 4189 | Selic acumulada no mês **anualizada** base 252 | 13,95 | % a.a. |
+| 4390 | Selic acumulada no mês | 0,78 | % a.m. |
+| 11 / 12 | Selic / CDI diária | 0,05166 | % a.d. |
+
+O `/100` transformava 0,78 em `0,0078` e servia isso como taxa anual — uma
+SELIC de 0,78% ao ano, dezoito vezes menor que a real — sempre que a série 432
+desse timeout. Sem valor do dinheiro no tempo, todo VPL colapsa: no conselho de
+compra o ganho de parcelar R$ 3.000 em 12x caía de R$ 164 para R$ 10 e a
+recomendação invertia de "parcele" para "pague à vista". O mesmo número desconta
+os fluxos do Architect e alimenta o comparador de Tesouro, poupança vs CDI, o
+motor de oportunidades e o construtor de evidência da Defesa.
+
+Duas mudanças:
+
+1. **Série 4189** no lugar da 4390 — mesma unidade da 432, sem conversão.
+2. **Banda de plausibilidade** `[2%, 50%] a.a.` em qualquer SELIC servida, na
+   primária e na secundária. Fora dela, `ConnectorError`, e a cadeia segue para
+   o próximo nível em vez de propagar o número.
+
+A banda é rede, não prova: ela recusa uma leitura mensal enquanto a SELIC anual
+estiver abaixo de 26,8% a.a. (onde `1,02^12 − 1` cruza os 2% mensais) e recusa
+uma leitura diária em qualquer regime — mas um mensal com SELIC acima disso
+passaria. A correção é a série certa; a banda é para o dia em que alguém trocar
+a série de novo. Ver `tests/architect/test_unidade_da_selic.py`.
+
+> Nota: a série 4390 continua correta onde é usada como mensal — o σ de 0,3298
+> p.p. do `macro_scenario.py` (tabela na seção 12) é dela, e é mensal mesmo.
+
 ---
 
 ## Como funciona (técnico)

@@ -84,7 +84,7 @@ class TestBaseConnectorFallbackChain:
         connector = _fresh_connector(BacenConnector)
         with (
             patch.object(connector, "fetch_rates",           side_effect=ConnectorError("BCB fora")),
-            patch.object(connector, "fetch_rates_secondary", side_effect=Exception("série 4390 fora")),
+            patch.object(connector, "fetch_rates_secondary", side_effect=Exception("série 4189 fora")),
         ):
             result = connector.get_rates()
         # Hardcoded do BacenConnector é 0.1475
@@ -113,12 +113,18 @@ class TestBaseConnectorFallbackChain:
 
 
 # ─────────────────────────────────────────────────────────────────────
-# BacenConnector — fonte secundária: SGS série 4390
+# BacenConnector — fonte secundária: SGS série 4189
 # ─────────────────────────────────────────────────────────────────────
 
 class TestBacenConnectorSecondary:
 
-    def test_secondary_parses_selic_4390(self):
+    def test_secondary_parses_selic_4189(self):
+        """
+        14.75 é um valor que a 4189 produz de verdade (% a.a.). Enquanto esta
+        fonte era a série 4390 — % a.m., faixa de 0,7 a 1,3 — este teste passava
+        com o mesmo 14.75 e não dizia nada sobre a unidade.
+        Ver tests/architect/test_unidade_da_selic.py.
+        """
         connector = _fresh_connector(BacenConnector)
         mock_resp = _mock_bcb_response("14.75")
         with patch("httpx.Client") as mock_client_cls:
@@ -138,7 +144,7 @@ class TestBacenConnectorSecondary:
         connector = _fresh_connector(BacenConnector)
         mock_resp = _mock_bcb_response("14.75")
         with patch("httpx.Client") as mock_client_cls:
-            # Primeira chamada (primária, série 432) falha; segunda (secundária, série 4390) sucede
+            # Primeira chamada (primária, série 432) falha; segunda (secundária, série 4189) sucede
             mock_client_cls.return_value.__enter__.return_value.get.side_effect = [
                 httpx.ConnectError("timeout"),
                 mock_resp,
@@ -155,7 +161,7 @@ class TestBacenConnectorTR:
     """
     fetch_rates() busca SELIC (432) e TR (226) na mesma chamada — ver nota de
     acoplamento no docstring do módulo bacen.py. get_tr_monthly() usa .get()
-    defensivo porque fetch_rates_secondary() (série 4390) só cobre SELIC.
+    defensivo porque fetch_rates_secondary() (série 4189) só cobre SELIC.
     """
 
     def test_fetch_rates_retorna_selic_e_tr(self):
@@ -230,7 +236,7 @@ class TestBacenConnectorTR:
             assert connector.get_tr_monthly() == pytest.approx(0.001)
 
     def test_get_tr_monthly_usa_fallback_defensivo_quando_secundaria_nao_tem_tr(self):
-        """fetch_rates_secondary() (série 4390) só cobre SELIC — get_tr_monthly()
+        """fetch_rates_secondary() (série 4189) só cobre SELIC — get_tr_monthly()
         não pode lançar KeyError quando o resultado veio por esse caminho."""
         connector = _fresh_connector(BacenConnector)
         with (

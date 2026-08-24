@@ -261,6 +261,36 @@ estimativa, e a exclusão está declarada na descrição mostrada ao usuário.
 acima. O teste que existia afirmava o defeito: passava lista vazia de
 transações e esperava `COMPLETED`.
 
+### A revalidação de 2026-08-24
+
+As quatro correções acima seguem travadas (mutações M1–M4, todas pegas: 15, 2,
+1 e 5 testes falham ao reverter cada uma). Três coisas a mais foram verificadas
+em vez de supostas:
+
+**As outras três fontes do consolidador estão na unidade certa** — o
+Negociador era o único caso, e agora está medido, não presumido:
+
+| fonte | campo | unidade na origem | o consolidador faz |
+|---|---|---|---|
+| F2 Optimizer | `best_card.net_gain_expected` | **anual** (todo consumidor divide por 12) | usa direto ✅ |
+| F5 Raio-X | `savings_opportunity` | **mensal** | × 12 ✅ |
+| OPP Radar | `top_gain_brl` ← `top.monthly_gain_brl` | **mensal** | × 12 ✅ |
+| F13 Negociador | `potential_gain` ← `potential_saving_monthly` | **mensal** | × 12 (corrigido) |
+
+**`SEM_DADOS` não vaza por nenhuma porta lateral.** `_close_past_months` só
+converte `ACTIVE` em `FAILED` e preserva `SEM_DADOS`; `_completed_months`, que
+alimenta streak e badge, conta apenas `COMPLETED`. O comentário de contrato em
+`health_score/router.py` (`ChallengeItem.status`) ainda listava três estados —
+era o que o cliente lê — e passou a listar os quatro.
+
+**O que não é de engajamento e apareceu aqui:** o teste instável de
+`tests/purchase/` que ficou registrado na rodada anterior tinha causa real, e é
+de conector — ver "A correção de 2026-08-24" em
+[04-architect-simulacoes.md](04-architect-simulacoes.md#10-taxas-vivas-e-fallback).
+A SELIC vinha da série SGS 4390 (% ao **mês**) tratada como % ao ano quando a
+série 432 dava timeout: `0,0078` no lugar de `0,14`. Não tem nada a ver com o
+estado compartilhado do banco, que era a suspeita anterior.
+
 ## O que NÃO faz
 
 - **Sem dark patterns**: nenhuma notificação de "volte para o app" vazia —

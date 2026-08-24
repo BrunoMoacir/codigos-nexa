@@ -90,7 +90,9 @@ class ChallengeResponse(BaseModel):
     target_value: float
     progress_value: float
     pct_progress: float
-    status: str              # ACTIVE | COMPLETED | FAILED
+    # SEM_DADOS: o mês fechou sem NENHUMA transação na janela. Não é
+    # vitória nem derrota — é ausência de base. Ver ChallengeService.
+    status: str              # ACTIVE | COMPLETED | FAILED | SEM_DADOS
     metadata: dict = {}
     completed_at: Optional[str] = None
 
