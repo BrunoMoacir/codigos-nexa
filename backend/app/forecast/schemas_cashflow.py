@@ -15,7 +15,7 @@ MUDANÇAS v2.1:
     ✅ Compatível com CashflowProjector atualizado
 
 USAGE:
-    from app.schemas.cashflow import (
+    from app.forecast.schemas_cashflow import (
         CashflowProjectionPoint,
         CashflowProjectionResponse,
         CashflowSummaryResponse
@@ -278,7 +278,7 @@ def convert_cashflow_to_response(
         CashflowProjectionResponse pronto para serialização JSON
     
     Example:
-        >>> from app.cashflow import CashflowProjector
+        >>> from app.forecast.cashflow import CashflowProjector
         >>> 
         >>> projector = CashflowProjector(horizon_days=30)
         >>> projection_df = projector.project(df, shadow_df)
@@ -332,7 +332,7 @@ def convert_cashflow_to_response(
 
 def convert_projection_summary_to_response(
     projection_df: "pl.DataFrame",  # type: ignore
-    summary: "ProjectionSummary"  # type: ignore (from app.cashflow.projector)
+    summary: "ProjectionSummary"  # type: ignore (from app.forecast.cashflow.projector)
 ) -> CashflowProjectionResponse:
     """
     Converte ProjectionSummary (dataclass) para CashflowProjectionResponse.
@@ -347,7 +347,7 @@ def convert_projection_summary_to_response(
         CashflowProjectionResponse
     
     Example:
-        >>> from app.cashflow import project_cashflow
+        >>> from app.forecast.cashflow import project_cashflow
         >>> 
         >>> projection_df, summary = project_cashflow(df, shadow_df, 30)
         >>> response = convert_projection_summary_to_response(projection_df, summary)

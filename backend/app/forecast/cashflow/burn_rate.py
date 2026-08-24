@@ -537,7 +537,7 @@ def analyze_burn_rate(
     Helper para uso direto sem instanciar BurnRateAnalyzer.
 
     Example:
-        >>> from app.cashflow.burn_rate import analyze_burn_rate
+        >>> from app.forecast.cashflow.burn_rate import analyze_burn_rate
         >>> report = analyze_burn_rate(df, monthly_income=5000.0)
         >>> report.alert_level
         'OK'

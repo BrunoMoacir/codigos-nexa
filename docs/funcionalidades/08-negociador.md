@@ -68,6 +68,41 @@ Zero de propósito — não há economia mensurável a prometer, apenas poder de
 barganha para limites e taxas futuras. O banco citado é o **mais frequente nas
 tarifas do usuário**, ou o genérico "seu banco principal".
 
+> **Correção de 2026-08-24: este gatilho nunca disparou.** Os dois chamadores
+> do F13 — `negotiator/router.py` e a ferramenta `get_negotiation_script` do
+> agente — tinham cópias idênticas de um helper que fazia
+> `from app.profile.user_profile_analyzer import UserProfileAnalyzer`.
+> `app.profile` **não existe** no projeto. Três erros na mesma linha e meia: o
+> módulo (o analisador vive em `app.forecast.etl.profiles`), o parâmetro
+> (`analyze()` recebe `df, income_profile, committed_pct` — nunca `user_id`) e
+> o campo (é `financial_health_score`). O `ModuleNotFoundError` caía no
+> `except` e o score voltava **50 para todo mundo, sempre** — abaixo do piso de
+> 70, então `HEALTH_SCORE_ALTO` estava morto para 100% dos usuários, inclusive
+> os de score 90.
+>
+> O 50 fabricado não parava aí: entrava no prompt do Claude ("Health Score
+> Nexa: 50/100"), no roteiro de emergência ("meu score é 50/100 — perfil de
+> baixo risco", que é o que o usuário levaria ao gerente), no
+> `estimated_success_pct` (exatamente 50 para todos) e no `confidence_score`
+> do relatório, como um termo constante de 0,15.
+>
+> `app/negotiator/health_score.py` passa a ser a fonte única, com a renda
+> filtrada pelo `IncomeProfiler`, e devolve **`None`** — não 50 — quando o
+> perfil não pode ser calculado: sem score o gatilho não dispara, o roteiro
+> omite o argumento de score e o termo de confiança vale zero. O relatório
+> ganha `user_profile_analyzer` em `data_sources` só quando o score foi
+> realmente calculado — é o marcador que teria denunciado o import quebrado.
+>
+> **O card viral não muda:** `HEALTH_SCORE_ALTO` nasce com
+> `potential_saving_monthly = 0.0`, então a soma do `SavingsConsolidator` é a
+> mesma. Ver `tests/negotiator/test_score_real.py`.
+>
+> A guarda estrutural é `tests/test_imports_apontam_para_modulos_que_existem.py`:
+> varre a AST de todo `app/` e falha se algum `from app.X import` apontar para
+> módulo inexistente — inclusive dentro de `try/except`, que é onde este erro
+> se escondeu. Um import assim não quebra a importação do módulo: falha em
+> runtime, em silêncio, no caminho que o usuário percorre.
+
 ### Gatilho 4 — Cheque especial
 
 `_detect_cheque_especial` aplica a mesma lógica de janela de 3 meses sobre
@@ -155,3 +190,6 @@ configurada, o template funcional é usado.
   gatilho, agregando todos os usuários e todas as instituições.
 - **Sem LLM configurado**, o roteiro sai de template: funcional, mas menos
   personalizado.
+- **Sem Score Nexa calculável**, `HEALTH_SCORE_ALTO` não é oferecido. É
+  deliberado: a oportunidade inteira É a frase "seu score é X/100, use isso
+  para negociar" — sem X medido, não há o que afirmar ao gerente.

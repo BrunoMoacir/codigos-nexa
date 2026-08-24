@@ -11,7 +11,7 @@ INTEGRAÇÃO:
     - Consumido pelo frontend para alertas
 
 USAGE:
-    from app.schemas.safe_to_spend import (
+    from app.forecast.schemas_safe_to_spend import (
         SafeToSpendResponse,
         SafeToSpendDetailedResponse
     )
@@ -210,7 +210,7 @@ class SafeToSpendDetailedResponse(BaseModel):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def convert_safe_to_spend_to_basic_response(
-    result: "SafeToSpendResult"  # type: ignore (from app.cashflow.safe_to_spend)
+    result: "SafeToSpendResult"  # type: ignore (from app.forecast.cashflow.safe_to_spend)
 ) -> SafeToSpendResponse:
     """
     Converte SafeToSpendResult para SafeToSpendResponse (básico).
@@ -222,7 +222,7 @@ def convert_safe_to_spend_to_basic_response(
         SafeToSpendResponse com campos essenciais
     
     Example:
-        >>> from app.cashflow import SafeToSpendCalculator
+        >>> from app.forecast.cashflow import SafeToSpendCalculator
         >>> 
         >>> calculator = SafeToSpendCalculator()
         >>> result = calculator.calculate(projection_df, 30)
@@ -252,7 +252,7 @@ def convert_safe_to_spend_to_detailed_response(
         SafeToSpendDetailedResponse com todos os detalhes
     
     Example:
-        >>> from app.cashflow import SafeToSpendCalculator
+        >>> from app.forecast.cashflow import SafeToSpendCalculator
         >>> 
         >>> calculator = SafeToSpendCalculator(safety_buffer_pct=0.15)
         >>> result = calculator.calculate(projection_df, 30)

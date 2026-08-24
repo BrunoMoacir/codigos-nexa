@@ -193,9 +193,16 @@ def test_router_no_transactions_returns_404():
 
 
 def test_router_no_opportunities_returns_empty_report():
-    """Sem oportunidades detectadas → NegotiationReport com scripts=[]."""
+    """
+    Sem oportunidades detectadas → NegotiationReport com scripts=[].
+
+    O mock era de `_get_health_score`, o helper local que importava
+    `app.profile` (módulo inexistente) e devolvia 50 para todo mundo — mockar
+    a integração quebrada é parte de por que ela sobreviveu. Agora aponta para
+    a fonte única. Ver tests/negotiator/test_score_real.py.
+    """
     with patch("app.core.db.queries.get_transactions_for_user", return_value=_transactions_df()):
-        with patch("app.negotiator.router._get_health_score", return_value=50):
+        with patch("app.negotiator.router.score_nexa", return_value=50):
             detector_mock = MagicMock()
             detector_mock.detect.return_value = []
             with patch("app.negotiator.router.NegotiationOpportunityDetector", return_value=detector_mock):
@@ -212,7 +219,7 @@ def test_router_with_opportunities_calls_script_generator():
     script = _mock_script(opp)
 
     with patch("app.core.db.queries.get_transactions_for_user", return_value=_transactions_df()):
-        with patch("app.negotiator.router._get_health_score", return_value=72):
+        with patch("app.negotiator.router.score_nexa", return_value=72):
             detector_mock = MagicMock()
             detector_mock.detect.return_value = [opp]
             generator_mock = MagicMock()

@@ -11,7 +11,7 @@ INTEGRAÇÃO:
     - Consumido pelo CashflowProjector
 
 USAGE:
-    from app.schemas.shadow_invoice import (
+    from app.forecast.schemas_shadow_invoice import (
         ShadowInvoiceResponse,
         ShadowInvoiceListResponse
     )
@@ -230,7 +230,7 @@ def convert_shadow_df_to_response(
         ShadowInvoiceListResponse pronto para serialização JSON
     
     Example:
-        >>> from app.etl import run_shadow_invoice_detection
+        >>> from app.subscriptions.shadow_invoices import run_shadow_invoice_detection
         >>> shadow_df = run_shadow_invoice_detection(df)
         >>> response = convert_shadow_df_to_response(shadow_df)
         >>> print(response.total_count)

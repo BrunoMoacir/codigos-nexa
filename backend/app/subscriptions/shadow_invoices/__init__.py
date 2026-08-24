@@ -11,7 +11,7 @@ COMPONENTES:
     - runner: Orquestra os detectores
 
 USAGE:
-    from app.etl.shadow_invoices import run_shadow_invoice_detection
+    from app.subscriptions.shadow_invoices import run_shadow_invoice_detection
     
     shadow_df = run_shadow_invoice_detection(transactions_df)
 """

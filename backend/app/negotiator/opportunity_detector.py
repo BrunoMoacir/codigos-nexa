@@ -67,7 +67,7 @@ class NegotiationOpportunityDetector:
 
     Usage:
         detector = NegotiationOpportunityDetector()
-        opportunities = detector.detect(transactions_df, health_score=75)
+        opportunities = detector.detect(transactions_df, health_score=score_nexa(df))
     """
 
     def __init__(self, fee_detector: FeeDetector | None = None) -> None:
@@ -76,7 +76,7 @@ class NegotiationOpportunityDetector:
     def detect(
         self,
         transactions_df: pl.DataFrame,
-        health_score: int,
+        health_score: Optional[int],
         reference_date: Optional[date] = None,
     ) -> list[NegotiationOpportunity]:
         """
@@ -84,7 +84,11 @@ class NegotiationOpportunityDetector:
 
         Args:
             transactions_df: Histórico de transações limpas do usuário.
-            health_score:    Score atual do usuário (0-100).
+            health_score:    Score Nexa atual do usuário (0-100), ou None quando
+                             o perfil não pôde ser calculado — ver
+                             `negotiator/health_score.score_nexa`. Sem score,
+                             o gatilho HEALTH_SCORE_ALTO não dispara: ele
+                             afirma ao gerente um número que teria de ser medido.
             reference_date:  Data de referência (padrão: hoje). Útil para testes.
 
         Returns:
@@ -120,7 +124,10 @@ class NegotiationOpportunityDetector:
         opportunities.extend(cheque_opps)
 
         # ── Trigger 4: Health score alto sem outros triggers ──────────
-        if health_score >= _MIN_HEALTH_SCORE_FOR_BARGAIN and not opportunities:
+        tem_barganha = (
+            health_score is not None and health_score >= _MIN_HEALTH_SCORE_FOR_BARGAIN
+        )
+        if tem_barganha and not opportunities:
             opp = self._detect_score_only(all_fees, health_score, ref, market_rate)
             if opp:
                 opportunities.append(opp)
@@ -128,8 +135,8 @@ class NegotiationOpportunityDetector:
         # Ordena por economia potencial (maior primeiro)
         opportunities.sort(key=lambda o: o.potential_saving_monthly, reverse=True)
         logger.info(
-            "NegotiationOpportunityDetector | %d oportunidade(s) detectada(s) | health_score=%d",
-            len(opportunities), health_score,
+            "NegotiationOpportunityDetector | %d oportunidade(s) detectada(s) | health_score=%s",
+            len(opportunities), health_score if health_score is not None else "indisponível",
         )
         return opportunities
 
@@ -140,7 +147,7 @@ class NegotiationOpportunityDetector:
     def _detect_juros_rotativo(
         self,
         fees: list[FeeEntry],
-        health_score: int,
+        health_score: Optional[int],
         ref: date,
         market_rate: float,
     ) -> list[NegotiationOpportunity]:
@@ -201,7 +208,7 @@ class NegotiationOpportunityDetector:
     def _detect_anuidade_alta(
         self,
         fees: list[FeeEntry],
-        health_score: int,
+        health_score: Optional[int],
         ref: date,
     ) -> list[NegotiationOpportunity]:
         """
@@ -259,7 +266,7 @@ class NegotiationOpportunityDetector:
     def _detect_score_only(
         self,
         fees: list[FeeEntry],
-        health_score: int,
+        health_score: Optional[int],
         ref: date,
         market_rate: float,
     ) -> Optional[NegotiationOpportunity]:
@@ -267,8 +274,12 @@ class NegotiationOpportunityDetector:
         Quando o health score é alto mas não há tarifas excessivas detectadas,
         gera oportunidade genérica de renegociação de limites/taxas futuras.
         Só ativado se score >= 70 (threshold mais alto que o mínimo geral).
+
+        Sem score não dispara: a oportunidade inteira É a afirmação "seu score
+        é X/100, use isso para negociar". Enquanto o score voltava 50 fixo por
+        um import quebrado, este caminho estava morto para 100% dos usuários.
         """
-        if health_score < 70:
+        if health_score is None or health_score < 70:
             return None
 
         good_payer_months = self._count_good_payer_months(fees, ref)
@@ -304,7 +315,7 @@ class NegotiationOpportunityDetector:
     def _detect_cheque_especial(
         self,
         fees: list[FeeEntry],
-        health_score: int,
+        health_score: Optional[int],
         ref: date,
         cheque_market_rate: float,
     ) -> list[NegotiationOpportunity]:

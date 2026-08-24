@@ -741,7 +741,7 @@ def suggest_budget(
     Convenience wrapper — gera sugestão de orçamento sem instanciar BudgetAdvisor.
 
     Example:
-        >>> from app.cashflow.budget_advisor import suggest_budget
+        >>> from app.budget.budget_advisor import suggest_budget
         >>> suggestion = suggest_budget(df, monthly_income=8000.0)
         >>> suggestion.summary_text
         "Com base nos últimos 3 meses: Essenciais: 58% (ideal 50%) — acima..."

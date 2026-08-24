@@ -345,7 +345,7 @@ def calculate_safe_to_spend(
     Função helper que encapsula SafeToSpendCalculator.
     
     Útil para imports diretos:
-        from app.cashflow.safe_to_spend import calculate_safe_to_spend
+        from app.forecast.cashflow.safe_to_spend import calculate_safe_to_spend
     
     Args:
         projection_df: DataFrame com projeção de cashflow

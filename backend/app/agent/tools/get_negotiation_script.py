@@ -4,6 +4,7 @@ import logging
 from langchain_core.tools import tool
 
 from app.core.db.queries import get_transactions_for_user
+from app.negotiator.health_score import score_nexa
 from app.negotiator.opportunity_detector import NegotiationOpportunityDetector
 from app.negotiator.script_generator import NegotiationScriptGenerator
 
@@ -37,8 +38,9 @@ def get_negotiation_script(user_id: str, bank_name: str = "") -> str:
             "Conecte sua conta bancária via Open Finance para obter essa análise."
         )
 
-    # Health score
-    health_score = _get_health_score(user_id, transactions_df)
+    # Fonte única — a cópia local importava `app.profile`, que não existe,
+    # e o except devolvia 50 para todo usuário.
+    health_score = score_nexa(transactions_df)
 
     # Detectar oportunidades
     detector = NegotiationOpportunityDetector()
@@ -49,17 +51,23 @@ def get_negotiation_script(user_id: str, bank_name: str = "") -> str:
         opportunities = [o for o in opportunities if o.bank_name.lower() == bank_lower]
 
     if not opportunities:
+        trecho = (
+            f" (Score Nexa: {health_score}/100)" if health_score is not None else ""
+        )
         return (
-            f"Não detectei oportunidades de negociação no momento "
-            f"(Score Nexa: {health_score}/100). "
+            f"Não detectei oportunidades de negociação no momento{trecho}. "
             "Continue sem juros rotativos para aumentar seu poder de barganha nos próximos meses."
         )
 
     # Gerar scripts
     generator = NegotiationScriptGenerator()
+    cabecalho_score = (
+        f"Score Nexa: {health_score}/100 | " if health_score is not None
+        else "Score Nexa indisponível | "
+    )
     lines = [
-        f"=== ROTEIRO DE NEGOCIAÇÃO BANCÁRIA ===",
-        f"Score Nexa: {health_score}/100 | {len(opportunities)} oportunidade(s) detectada(s)",
+        "=== ROTEIRO DE NEGOCIAÇÃO BANCÁRIA ===",
+        f"{cabecalho_score}{len(opportunities)} oportunidade(s) detectada(s)",
         "",
     ]
 
@@ -96,11 +104,4 @@ def get_negotiation_script(user_id: str, bank_name: str = "") -> str:
     return "\n".join(lines)
 
 
-def _get_health_score(user_id: str, transactions_df) -> int:
-    try:
-        from app.profile.user_profile_analyzer import UserProfileAnalyzer
-        profile = UserProfileAnalyzer().analyze(transactions_df, user_id=user_id)
-        return profile.health_score
-    except Exception as exc:
-        logger.warning("[Tool] get_negotiation_script | health score indisponível: %s", exc)
-        return 50
+

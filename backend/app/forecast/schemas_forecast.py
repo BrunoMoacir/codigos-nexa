@@ -11,7 +11,7 @@ INTEGRAÇÃO:
     - Retorna análise consolidada para dashboards
 
 USAGE:
-    from app.schemas.forecast import (
+    from app.forecast.schemas_forecast import (
         ForecastResponse,
         FinancialHealthResponse,
         MonthlyForecastResponse
@@ -396,7 +396,7 @@ def convert_user_profile_to_health(
         FinancialHealthResponse pronto para serialização JSON
     
     Example:
-        >>> from app.etl import UserProfileAnalyzer
+        >>> from app.forecast.etl import UserProfileAnalyzer
         >>> 
         >>> analyzer = UserProfileAnalyzer()
         >>> profile = analyzer.analyze(df)

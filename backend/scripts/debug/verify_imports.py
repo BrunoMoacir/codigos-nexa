@@ -39,7 +39,6 @@ DIRS_TO_CHECK = [
     "app/analysis",
     "app/cashflow",
     "app/core",
-    "app/domain",
     "app/etl",
     "app/integrations",
     "app/schemas",

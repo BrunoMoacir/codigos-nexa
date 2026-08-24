@@ -52,7 +52,10 @@ class NegotiationOpportunity(BaseModel):
     )
 
     # Contexto do usuário para argumentação
-    health_score: int = Field(ge=0, le=100)
+    # None = o perfil não pôde ser calculado. Não existe "score neutro": um
+    # número inventado atravessa portão de detecção, prompt do gerador e texto
+    # do roteiro como se tivesse sido medido. Ver negotiator/health_score.py.
+    health_score: Optional[int] = Field(default=None, ge=0, le=100)
     months_as_good_payer: int = Field(
         default=0,
         description="Meses consecutivos sem juros rotativos detectados (proxy de bom pagador)",

@@ -40,7 +40,7 @@ Gere um roteiro de negociação bancária com base nos dados abaixo.
 Banco: {bank_name}
 Produto: {product}
 Trigger: {trigger}
-Health Score Nexa: {health_score}/100
+Health Score Nexa: {health_score}
 Meses como bom pagador (sem juros rotativos): {months_as_good_payer}
 {fee_line}
 {market_line}
@@ -69,6 +69,7 @@ Diretrizes:
 - key_arguments deve ter entre 3 e 5 itens
 - Use valores em R$ e % concretos quando disponíveis nos dados
 - estimated_success_pct deve refletir o health_score e meses como bom pagador
+  (quando o score não foi calculado, use só os meses como bom pagador)
 - recommended_channel: prefira APP_CHAT (gera registro escrito) exceto para produtos de crédito complexos
 - warnings pode ser lista vazia [] se não houver ressalvas
 - NÃO inclua nada fora do JSON
@@ -138,7 +139,12 @@ class NegotiationScriptGenerator:
             bank_name=opp.bank_name,
             product=opp.product,
             trigger=opp.trigger.value,
-            health_score=opp.health_score,
+            # "não calculado" em vez de "None/100": o prompt vira argumento de
+            # negociação, e o modelo não pode citar um score que não existe.
+            health_score=(
+                f"{opp.health_score}/100" if opp.health_score is not None
+                else "não calculado (não citar score na argumentação)"
+            ),
             months_as_good_payer=opp.months_as_good_payer,
             fee_line=fee_line,
             market_line=market_line,
@@ -203,10 +209,16 @@ class NegotiationScriptGenerator:
                 f"Olá, gostaria de falar com um gerente sobre meu {product} no {bank}."
             ),
             key_arguments=[
-                f"Sou cliente há pelo menos {months} meses sem atrasos.",
-                f"Meu score de relacionamento é {score}/100 — perfil de baixo risco.",
-                "Pesquisei alternativas no mercado e encontrei condições mais vantajosas.",
-                "Gostaria de resolver isso mantendo minha conta no banco.",
+                arg for arg in (
+                    f"Sou cliente há pelo menos {months} meses sem atrasos.",
+                    # Sem score calculado, este argumento sai do roteiro: mandar o
+                    # usuário afirmar ao gerente um número que a Nexa não mediu é
+                    # pior que um argumento a menos.
+                    (f"Meu score de relacionamento é {score}/100 — perfil de baixo risco."
+                     if score is not None else None),
+                    "Pesquisei alternativas no mercado e encontrei condições mais vantajosas.",
+                    "Gostaria de resolver isso mantendo minha conta no banco.",
+                ) if arg
             ],
             target_ask=f"Redução ou isenção das cobranças referentes a {product}.",
             fallback_ask="Ao menos uma revisão do contrato nos próximos 30 dias.",
@@ -216,7 +228,8 @@ class NegotiationScriptGenerator:
             ),
             recommended_channel=NegotiationChannel.APP_CHAT,
             best_time="terça ou quarta-feira, manhã (9h-11h)",
-            estimated_success_pct=max(40, min(80, score)),
+            # Sem score, fica na base da faixa em vez de herdar um 50 fabricado.
+            estimated_success_pct=max(40, min(80, score)) if score is not None else 40,
             generated_by="fallback",
             warnings=["Roteiro gerado localmente — serviço de IA temporariamente indisponível."],
         )

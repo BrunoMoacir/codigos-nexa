@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from app.core.security import get_current_user, require_owner
 from app.core.database import get_db
 from sqlalchemy.orm import Session
+from app.negotiator.health_score import score_nexa
 from app.negotiator.models import NegotiationReport, NegotiationRequest
 from app.negotiator.opportunity_detector import NegotiationOpportunityDetector
 from app.negotiator.script_generator import NegotiationScriptGenerator
@@ -96,7 +97,10 @@ async def generate_negotiation_script(
         )
 
     # ── 2. Buscar health score ────────────────────────────────────
-    health_score = _get_health_score(request.user_id, transactions_df)
+    # Fonte única — ver negotiator/health_score.py. Havia aqui uma cópia de
+    # `_get_health_score` que importava `app.profile`, módulo inexistente:
+    # o except devolvia 50 para todo usuário, sempre.
+    health_score = score_nexa(transactions_df)
 
     # ── 3. Detectar oportunidades ────────────────────────────────
     detector = NegotiationOpportunityDetector()
@@ -120,8 +124,19 @@ async def generate_negotiation_script(
                 "Continue mantendo um bom histórico financeiro para aumentar seu poder de barganha."
             ),
             confidence_score=0.5,
-            data_sources=["transactions_clean", "fee_detector"],
-            warnings=["Sem oportunidades detectadas com os dados disponíveis."],
+            # Mesmo marcador do relatório completo: sem ele, o dia em que o
+            # perfil parar de ser calculado passa despercebido de novo.
+            data_sources=(
+                ["transactions_clean", "fee_detector"]
+                + (["user_profile_analyzer"] if health_score is not None else [])
+            ),
+            warnings=(
+                ["Sem oportunidades detectadas com os dados disponíveis."]
+                + ([] if health_score is not None else [
+                    "Score Nexa indisponível — negociação proativa por bom "
+                    "histórico não pôde ser avaliada."
+                ])
+            ),
         )
 
     # ── 4. Gerar scripts para cada oportunidade ──────────────────
@@ -160,6 +175,10 @@ async def generate_negotiation_script(
 
     summary = _build_summary(opportunities, total_saving, health_score)
     warnings.extend(calibrated_notes)
+    if health_score is None:
+        warnings.append(
+            "Score Nexa indisponível — os roteiros não usam score como argumento."
+        )
 
     return NegotiationReport(
         user_id=request.user_id,
@@ -167,7 +186,12 @@ async def generate_negotiation_script(
         scripts=scripts,
         summary=summary,
         confidence_score=confidence,
-        data_sources=["transactions_clean", "fee_detector", "bacen_sgs_credito", "claude-haiku-4-5-20251001"],
+        # `user_profile_analyzer` só entra quando o score foi REALMENTE
+        # calculado — é o marcador que teria denunciado o import quebrado.
+        data_sources=[
+            "transactions_clean", "fee_detector", "bacen_sgs_credito",
+            "claude-haiku-4-5-20251001",
+        ] + (["user_profile_analyzer"] if health_score is not None else []),
         warnings=list(dict.fromkeys(warnings)),  # deduplica mantendo ordem
     )
 
@@ -331,26 +355,20 @@ def update_negotiation_result(
 # HELPERS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def _get_health_score(user_id: str, transactions_df) -> int:
-    """Calcula health score via UserProfileAnalyzer. Fallback: 50."""
-    try:
-        from app.profile.user_profile_analyzer import UserProfileAnalyzer
-        profile = UserProfileAnalyzer().analyze(transactions_df, user_id=user_id)
-        return profile.health_score
-    except Exception as exc:
-        logger.warning("[API] F13 health score indisponível: %s", exc)
-        return 50
-
-
-def _compute_confidence(health_score: int, n_opportunities: int, n_transactions: int) -> float:
+def _compute_confidence(
+    health_score: Optional[int], n_opportunities: int, n_transactions: int
+) -> float:
     """
     Confiança do relatório:
     - n_transactions >= 90 (3 meses de dados) → base alta
     - health_score bem calculado → bom sinal
     - pelo menos 1 oportunidade detectada → plena confiança
+
+    Sem score, o termo vale ZERO — não 0,15. Enquanto o score voltava 50 fixo,
+    todo relatório carregava esse 0,15 como se fosse informação.
     """
     base = min(n_transactions / 90, 1.0) * 0.5   # até 0.5 por volume de dados
-    score_factor = (health_score / 100) * 0.3     # até 0.3 pelo health score
+    score_factor = (health_score / 100) * 0.3 if health_score is not None else 0.0
     opp_factor = 0.2 if n_opportunities > 0 else 0.0
     return round(min(base + score_factor + opp_factor, 1.0), 2)
 
@@ -385,14 +403,23 @@ def _persist_negotiation(user_id: str, opp) -> None:
         logger.warning("[API] F13 persist_negotiation falhou: %s", exc)
 
 
-def _build_summary(opportunities, total_saving: float, health_score: int) -> str:
+def _build_summary(
+    opportunities, total_saving: float, health_score: Optional[int]
+) -> str:
     n = len(opportunities)
     banks = ", ".join(dict.fromkeys(o.bank_name for o in opportunities))
     saving_str = f"R$ {total_saving:.2f}/mês" if total_saving > 0 else "condições melhores"
 
+    if health_score is None:
+        trecho_score = "Não consegui calcular seu Score Nexa desta vez."
+    else:
+        trecho_score = (
+            f"Seu Score Nexa é {health_score}/100 — "
+            + ("ótimo poder de barganha." if health_score >= 70 else "bom perfil para negociar.")
+        )
+
     return (
         f"Encontrei {n} oportunidade(s) de negociação com {banks}. "
         f"Economia potencial estimada: {saving_str}. "
-        f"Seu Score Nexa é {health_score}/100 — "
-        + ("ótimo poder de barganha." if health_score >= 70 else "bom perfil para negociar.")
+        + trecho_score
     )
