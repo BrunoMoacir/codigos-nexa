@@ -337,6 +337,51 @@ entre produtos: consignado < cheque especial < rotativo. É invariante da
 estrutura do crédito (desconto em folha × dívida sem garantia) e pega uma troca
 de códigos que passa por todas as faixas individuais.
 
+### Duas subverificações devolviam lista vazia desde sempre (2026-08-24)
+
+Achado na revalidação do agente de IA, não numa auditoria da Defesa. Duas
+linhas, nos dois detectores mais usados:
+
+```
+tied_sale_detector.py:270        for entry in report.entries
+wrongful_charge_detector.py:449  detect_new_fees(user_id, report.entries)
+```
+
+`BankCostReport` não tem `.entries` — a lista de tarifas individuais chama-se
+`fees_detected`. Nos dois casos o `AttributeError` caía num `except` que
+devolve `[]`, então **`D1._check_fee_analyzer` e `D2._check_new_fees` nunca
+produziram um achado**, para nenhum usuário. Como o `get_defense_analysis`
+agrega D1–D4 e o dossiê D5 consome os achados, a ausência aparecia como
+"nenhuma irregularidade detectada".
+
+Medido depois da correção, com extrato contendo seguro prestamista pontual e
+uma TED avulsa: D1 passa a apontar o seguro (venda casada, o caso-símbolo do
+detector) e D2 a TED.
+
+### "Sem histórico" não é "primeira vez"
+
+Corrigir o atributo trouxe à tona o defeito seguinte, e este era pior que o
+silêncio. `detect_new_fees` devolvia **toda `FeeEntry`** cujo par
+(banco, tipo) não estivesse em `bank_fee_history` — sem agrupar. Uma tarifa
+mensal de R$ 34,90 cobrada em seis meses virava:
+
+```
+🆕 6 tarifa(s) nova(s) sem histórico anterior:
+  • Nubank — PACOTE_SERVICOS: R$ 34,90     (×6, a mesma cobrança mensal)
+  → Exija do banco comprovante do contrato...
+```
+
+Duas afirmações falsas de uma vez — o número e o "primeira vez" — numa feature
+que redige carta, reclamação no PROCON e modelo de JEC. A ausência em
+`bank_fee_history` é fato sobre os **nossos registros**, não sobre o
+comportamento do banco.
+
+Agora `detect_new_fees` devolve **uma entrada por par** e exclui pares que
+aparecem em mais de um mês da janela analisada: se a evidência que já temos em
+mãos mostra a cobrança se repetindo, "primeira vez" está errado
+independentemente do histórico persistido. Ver
+`tests/defense/test_subverificacoes_de_tarifa.py`.
+
 ## Gaps e limitações
 
 - **⚠️ Bloqueador de lançamento**: D5/D6 têm código pronto, mas os templates

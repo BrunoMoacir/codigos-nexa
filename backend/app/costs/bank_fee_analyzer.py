@@ -203,8 +203,24 @@ class BankFeeAnalyzer:
     @staticmethod
     def detect_new_fees(user_id: str, current_fees: list[FeeEntry]) -> list[FeeEntry]:
         """
-        Retorna as tarifas em current_fees cujo (bank_name, fee_type) nunca
-        apareceu antes no histórico desse usuário.
+        Tarifas cujo (bank_name, fee_type) é NOVO para este usuário.
+
+        Uma entrada por par, não uma por lançamento, e apenas para pares que
+        NÃO se repetem ao longo dos meses da janela analisada.
+
+        O que isto corrigiu, e por quê importa: a versão anterior devolvia toda
+        `FeeEntry` cujo par não estivesse em `bank_fee_history`. Uma tarifa
+        mensal de R$ 34,90 cobrada em seis meses virava **seis** "tarifas novas
+        sem histórico anterior" — e quem consome isso é a Defesa do Consumidor
+        (D2d), que escreve "cobrou pela primeira vez" e manda o usuário exigir
+        comprovante do banco. Duas afirmações falsas de uma vez: o número e o
+        "primeira vez".
+
+        A ausência em `bank_fee_history` é um fato sobre os NOSSOS registros,
+        não sobre o comportamento do banco. Se o mesmo par aparece em mais de um
+        mês do extrato analisado, a evidência que já temos em mãos contradiz
+        "primeira vez" — então ele não entra, independentemente do histórico
+        persistido.
 
         Deve ser chamado ANTES de persist_snapshot() para que o histórico
         consultado ainda não contenha o período atual.
@@ -229,10 +245,24 @@ class BankFeeAnalyzer:
                 ).fetchall()
 
             known = {(r[0], r[1]) for r in rows}
-            return [
-                fee for fee in current_fees
-                if (fee.bank_name, fee.fee_type.value) not in known
-            ]
+
+            # Meses distintos em que cada par aparece na janela analisada.
+            meses_por_par: dict[tuple[str, str], set[str]] = defaultdict(set)
+            for fee in current_fees:
+                par = (fee.bank_name, fee.fee_type.value)
+                meses_por_par[par].add(fee.transaction_date.strftime("%Y-%m"))
+
+            novas: list[FeeEntry] = []
+            vistos: set[tuple[str, str]] = set()
+            for fee in current_fees:
+                par = (fee.bank_name, fee.fee_type.value)
+                if par in known or par in vistos:
+                    continue
+                if len(meses_por_par[par]) > 1:
+                    continue  # recorrente na própria janela — não é "primeira vez"
+                vistos.add(par)
+                novas.append(fee)
+            return novas
 
         except Exception as exc:
             logger.warning("BankFeeAnalyzer | detect_new_fees falhou: %s", exc)

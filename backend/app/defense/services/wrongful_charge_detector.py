@@ -446,7 +446,12 @@ class WrongfulChargeDetector:
                 return []
 
             report = BankFeeAnalyzer().analyze(df, user_id=user_id)
-            new_fees = BankFeeAnalyzer.detect_new_fees(user_id, report.entries)
+            # `BankCostReport.entries` não existe — a lista de tarifas
+            # individuais chama-se `fees_detected`. O AttributeError caía no
+            # `except` deste método, que devolve [], então esta subverificação
+            # NUNCA produziu um achado. Mesmo defeito que estava nas tools
+            # `detect_abusive_fees`/`detect_wrongful_charges` do agente.
+            new_fees = BankFeeAnalyzer.detect_new_fees(user_id, report.fees_detected)
 
             # Exclui tipos cobertos pelo D1 (seguro embutido)
             d1_types = {"SEGURO_EMBUTIDO", "SEGURO_PRESTAMISTA", "TARIFA_CADASTRO"}

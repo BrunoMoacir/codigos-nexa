@@ -335,6 +335,36 @@ levante. Mais a vinculação de identidade ponta a ponta pelo grafo, o thread po
 dono, o apagamento da memória, o corte de histórico em 2.500 formatos de sessão,
 e os quatro comportamentos do endpoint.
 
+### A revalidação (2026-08-24)
+
+As onze correções seguem travadas (mutações M1–M11, todas pegas). A varredura
+das 31 tools contra extrato real, repetida, não achou mais nenhuma caindo no
+`except`. Três coisas a mais:
+
+**A vinculação de identidade funciona nas duas formas de chamada** que o
+`ToolNode` usa — dicionário de argumentos e `tool_call` completo. O schema
+continua exigindo `user_id`, então o modelo ainda precisa mandar algum valor
+(o do prefixo); o servidor o descarta e usa o autenticado.
+
+**Os quatro retornos curtos são degradações honestas**, não silêncio:
+`get_spending_alerts` sem alerta crítico, `get_expert_card_analysis` sem
+`ANTHROPIC_API_KEY`, `get_leverage_simulation` pedindo os parâmetros que
+faltam, `get_defense_analysis` sem irregularidade.
+
+**Mas `get_defense_analysis` discordava de `detect_wrongful_charges` sobre o
+mesmo usuário** — um dizia "nenhuma irregularidade", o outro listava seis. Os
+dois caminhos usam motores diferentes, e o defeito estava no auditado: a mesma
+linha `report.entries` que eu tinha corrigido nas duas tools do agente estava
+também em `tied_sale_detector.py` e `wrongful_charge_detector.py`, engolida
+pelo `except` de cada subverificação. Corrigir isso revelou que
+`detect_new_fees` inflava uma tarifa mensal em seis "tarifas novas". Detalhes
+em [10-defesa-do-consumidor.md](10-defesa-do-consumidor.md) e
+[06-raio-x-de-custos.md](06-raio-x-de-custos.md).
+
+A lição para a próxima rodada: eu corrigi os **consumidores** do atributo
+errado e não varri a **família**. Duas linhas idênticas ficaram de pé na camada
+que a API `/defense` e o dossiê D5 usam.
+
 ## O que NÃO faz
 
 - **Não executa transações** — nenhuma das 31 tools movimenta dinheiro; todas

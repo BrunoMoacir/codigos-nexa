@@ -267,7 +267,12 @@ class TiedSaleDetector:
 
             report = BankFeeAnalyzer().analyze(df, user_id=user_id)
             findings = []
-            for entry in report.entries:
+            # `BankCostReport.entries` não existe — a lista de tarifas
+            # individuais chama-se `fees_detected`. O AttributeError caía no
+            # `except` deste método, que devolve [], então esta subverificação
+            # NUNCA produziu um achado. Mesmo defeito que estava nas tools
+            # `detect_abusive_fees`/`detect_wrongful_charges` do agente.
+            for entry in report.fees_detected:
                 fee_key = entry.fee_type.value
                 if fee_key not in _TIED_FEE_TYPES:
                     continue

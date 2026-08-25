@@ -159,6 +159,15 @@ Dois jobs complementares, e a distinção entre eles é o ponto:
 `detect_new_fees` compara as tarifas atuais contra o histórico do usuário para
 identificar cobrança nova sem precedente — é o insumo do detector D2 (doc 10).
 
+**Correção de 2026-08-24 — uma entrada por par, e recorrente não conta.** A
+função devolvia toda `FeeEntry` cujo par (banco, tipo) não estivesse em
+`bank_fee_history`, sem agrupar: uma tarifa mensal cobrada em seis meses saía
+como seis "tarifas novas". Como o consumidor é a Defesa do Consumidor, que
+escreve "cobrou pela primeira vez" e manda exigir comprovante, o erro chegava
+ao usuário como acusação. Agora devolve uma entrada por par e ignora pares
+presentes em mais de um mês da janela analisada — a ausência no histórico
+persistido é fato sobre os nossos registros, não sobre o banco.
+
 ---
 
 ## Como funciona (técnico)
