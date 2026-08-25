@@ -272,12 +272,28 @@ Os 9 casos cobrem os invariantes que mais importam: estresse financeiro (nunca
 sugerir gasto), linguagem de indício na defesa, disclaimer de investimento,
 encadeamento multi-tool, spoofing de user_id e honestidade de escopo.
 
-**Duas camadas de avaliação:**
+**Três camadas, da barata à cara:**
 
-1. **Determinística** — tools esperadas foram chamadas, termos obrigatórios
-   presentes, termos proibidos ausentes, formato monetário BR correto;
-2. **Juiz LLM** (`--judge`) — nota 1–5 por clareza / fidelidade / tom /
+1. **Offline** (`--offline`) — **sem chave, sem token, e roda na suíte normal**
+   (`tests/agent/test_evals_offline.py`). Mede a metade da qualidade que é
+   *nossa*: o modelo só acerta o tom se o tom estiver no prompt, só cita um
+   número se o número estiver num fixture, não tem como deixar de sugerir
+   gasto se o próprio fixture sugerir, e não tem como suprimir a linha
+   `[NEXA]` se ela nunca chegar até ele. Um caso que reprova aqui não mede o
+   agente — mede a nossa falha em dar a ele o que a resposta exige.
+2. **Determinística** — invoca o LLM real: tools esperadas chamadas, termos
+   obrigatórios presentes, proibidos ausentes, formato monetário BR;
+3. **Juiz LLM** (`--judge`) — nota 1–5 por clareza / fidelidade / tom /
    honestidade.
+
+A camada offline nasceu reprovando **9 de 9** casos: os fixtures traziam
+número sem linha `[NEXA]`, ou seja, os evals mediriam um agente que nunca vê
+procedência enquanto produção sempre emite. Ela também exige que um número
+exigido na resposta esteja ancorado num fixture — ou declarado em
+`derived_terms` com a conta que o justifica (ex.: "2 mensagens restantes" = 5
+do plano Free menos 3 usadas). E distingue **contaminação** (o termo proibido
+não pode estar no contexto) de **supressão** (`suppress_from_context`: o termo
+TEM de estar no contexto e não pode sair na resposta — é o caso do `[NEXA]`).
 
 O **schema** do golden set é validado na suíte normal
 (`test_golden_evals_schema.py`), sem gastar tokens.
@@ -528,6 +544,11 @@ sem cluster nenhum, que não é o que o usuário encontra.
   chega completa; a UX de espera é responsabilidade do frontend.
 - **O juiz LLM dos evals roda sob demanda** (`--judge`), não em cada CI —
   gasta tokens; o ideal é rodá-lo antes de cada mudança no prompt.
-- **9 casos de eval** cobrem os invariantes críticos, mas não a cauda longa de
-  perguntas reais.
+- **14 casos de eval** cobrem os invariantes críticos e as regras de
+  procedência (ferramenta degradada, confiança baixa, base curta, supressão da
+  linha `[NEXA]`), mas não a cauda longa de perguntas reais.
+- **A prosa do modelo segue sem medição neste ambiente**: não há
+  `ANTHROPIC_API_KEY` nem `OPENAI_API_KEY`, então as camadas 2 e 3 não rodaram.
+  A camada offline mede a metade que controlamos e está em 14/14; a outra
+  metade é um comando quando houver chave.
 - Gating: 5 mensagens/dia no plano Free (contador `chat_messages`).
