@@ -31,12 +31,33 @@ alembic==1.13.1
 # ── ETL e processamento de dados ──────────────────────────────────────────────
 polars==1.0.0
 duckdb==1.4.4
+# NOTA (2026-08-24): este arquivo NÃO resolve por inteiro, e isso é anterior a
+# esta rodada. `numpy==1.26.4` conflita com SALib 1.5.2 (exige numpy>=2.0), e
+# langchain 0.2.16 exige numpy<2.0 — SALib e langchain 0.2.x são mutuamente
+# exclusivos. O ambiente instalado roda numpy 2.4.6, montado à mão. Resolver
+# isso é uma rodada de dependências, não de agente; fica registrado.
 numpy==1.26.4
 pyarrow==23.0.1
 
 # ── AI / LLM ──────────────────────────────────────────────────────────────────
-langgraph==0.2.28
+# langgraph 0.2.28 + langgraph-checkpoint-redis 0.0.1 é INSATISFAZÍVEL:
+# o checkpointer exige langgraph>=0.2.70, então `pip install -r` falhava com
+# ResolutionImpossible. Era por isso que o pacote nunca estava instalado em
+# dev — e o agente caía silenciosamente para MemorySaver (memória por
+# processo, perdida a cada deploy). Ver app/agent/graph.py::_build_checkpointer.
+#
+# ATENÇÃO OPERAÇÃO: o checkpointer indexa com RediSearch e exige **Redis
+# Stack** (módulo search >= 2.6). Um Redis gerenciado comum conecta, responde
+# ao PING e não serve — o agente detecta e loga ERROR em produção.
+langgraph==0.2.76
+langgraph-checkpoint==2.1.2
 langgraph-checkpoint-redis==0.0.1
+# Persistência de conversa no MESMO Postgres do app. O checkpointer Redis exige
+# Redis STACK (RediSearch), que boa parte dos Redis gerenciados não tem — sem
+# esta linha o agente cai para MemorySaver, que não é persistência: some no
+# deploy, é por processo e cresce sem teto. Ver _build_checkpointer.
+langgraph-checkpoint-postgres==2.0.21
+psycopg[binary,pool]>=3.2,<4
 langchain==0.2.16
 langchain-anthropic==0.1.23
 langchain-openai==0.1.25
@@ -55,7 +76,7 @@ httpx==0.26.0
 requests==2.33.0
 
 # ── Cache e rate-limit ────────────────────────────────────────────────────────
-redis==5.0.1
+redis==5.3.1  # exigido por langgraph-checkpoint-redis
 slowapi==0.1.9
 
 # ── Scheduler ─────────────────────────────────────────────────────────────────

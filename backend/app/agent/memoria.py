@@ -47,17 +47,51 @@ def thread_id_de(user_id: str, session_id: Optional[str] = None) -> str:
 
 def _threads_do_usuario(checkpointer, user_id: str) -> list[str]:
     """
-    Threads conhecidos do titular: o base e todos os `user_id::*`.
+    Threads do titular: o base e todos os `user_id::*`.
 
-    Só o MemorySaver expõe o dicionário; para backends que não expõem, resta o
-    thread base — ver a limitação declarada em `esquecer_conversas`.
+    O prefixo existe justamente para tornar a enumeração possível. Cada backend
+    responde de um jeito:
+      - MemorySaver expõe o dicionário `storage`;
+      - Postgres tem a tabela `checkpoints` — dá para varrer por prefixo;
+      - Redis não permite varrer sem SCAN, então resta o que já se conhece.
     """
     prefixo = f"{user_id}{_SEPARADOR}"
     conhecidos = {user_id}
+
     storage = getattr(checkpointer, "storage", None)
     if isinstance(storage, dict):
         conhecidos |= {t for t in storage if t == user_id or str(t).startswith(prefixo)}
+
+    conhecidos |= _threads_no_postgres(checkpointer, user_id, prefixo)
     return sorted(conhecidos)
+
+
+def _threads_no_postgres(checkpointer, user_id: str, prefixo: str) -> set[str]:
+    """
+    Varre a tabela `checkpoints` por `user_id` e `user_id::*`.
+
+    Sem isto, um titular que conversou em várias sessões teria só o thread base
+    apagado — e o resto do histórico (perguntas dele e todo retorno de
+    ferramenta) sobreviveria à eliminação do art. 18 VI.
+    """
+    pool = getattr(checkpointer, "conn", None)
+    if pool is None or not hasattr(pool, "connection"):
+        return set()
+    try:
+        with pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT thread_id FROM checkpoints"
+                " WHERE thread_id = %s OR thread_id LIKE %s",
+                (user_id, prefixo.replace("%", r"\%") + "%"),
+            )
+            linhas = cur.fetchall()
+        return {
+            (linha["thread_id"] if isinstance(linha, dict) else linha[0])
+            for linha in linhas
+        }
+    except Exception as exc:
+        logger.warning("[Agent] não foi possível enumerar threads no Postgres: %s", exc)
+        return set()
 
 
 def esquecer_conversas(user_id: str) -> dict:

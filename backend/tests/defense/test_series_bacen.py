@@ -115,7 +115,18 @@ class TestOCatalogoDoBacenConfirmaCadaSerie:
 
 @pytest.fixture(scope="module")
 def taxas_vivas() -> dict[str, float]:
-    return BacenCreditConnector(timeout_seconds=_TIMEOUT).fetch_rates()
+    """
+    Taxas vivas do BACEN, ou pula — mesma regra do `_get_json` acima.
+
+    A fixture propagava a exceção, então uma indisponibilidade do BACEN
+    (visto: HTTP 502) virava suíte vermelha por algo que não é do projeto.
+    O que estes testes verificam é a PLAUSIBILIDADE do valor publicado; sem
+    valor publicado não há o que verificar.
+    """
+    try:
+        return BacenCreditConnector(timeout_seconds=_TIMEOUT).fetch_rates()
+    except Exception as exc:
+        pytest.skip(f"BACEN inacessível: {type(exc).__name__}: {str(exc)[:120]}")
 
 
 class TestOValorPublicadoHojeEPlausivel:

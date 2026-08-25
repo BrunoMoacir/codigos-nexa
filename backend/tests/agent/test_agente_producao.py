@@ -525,18 +525,16 @@ class TestCheckpointerObservavel:
 
         get_agent()
         tipo, motivo = checkpointer_em_uso()
-        assert tipo in {"redis", "memoria"}
-        if tipo == "memoria":
-            assert motivo, "queda para memória sem motivo registrado"
+        # "postgres" entrou na cadeia depois: Redis Stack → Postgres → memória.
+        assert tipo in {"redis", "postgres", "memoria"}
+        if tipo != "redis":
+            assert motivo, "Redis não usado e sem motivo registrado"
 
-    def test_o_motivo_distingue_pacote_ausente_de_redis_fora(self):
-        import inspect
-
-        from app.agent import graph
-
-        fonte = inspect.getsource(graph._build_checkpointer)
-        assert "ImportError" in fonte
-        assert "Redis inacessível" in fonte
+    # A distinção entre "pacote ausente", "Redis fora" e "Redis sem RediSearch"
+    # era verificada aqui por inspeção do TEXTO da função — frágil (quebra ao
+    # mover código) e fraco (não prova comportamento). Está coberta de verdade
+    # em tests/agent/test_checkpointer.py::TestMotivosDeFallback, que força
+    # cada um dos três cenários e lê o motivo registrado.
 
 
 # ── 8. O registro é a fonte única, e o teste tem de olhar para ele ─────────

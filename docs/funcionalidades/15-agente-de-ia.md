@@ -191,11 +191,48 @@ else:                                          prompt_kwarg = {"messages_modifie
   deploy), Redis fora (incidente), URL de exemplo (configuração) — logando em
   ERROR quando `APP_ENV=production`. Antes os três caíam no mesmo
   `except Exception` com um `logger.warning` único no startup do singleton.
-  Em 2026-08-24 o pacote `langgraph-checkpoint-redis` estava declarado em
-  `requirements.txt` e `pyproject.toml` e **não instalado**, então a cadeia caía
-  sempre em `MemorySaver`: memória por processo, perdida a cada deploy e sem
-  limite de crescimento por `thread_id`. Com `WEB_CONCURRENCY > 1` — que o
-  `Dockerfile.railway` prevê — isso significa perder contexto entre turnos.
+  A cadeia é **Redis Stack → Postgres → memória**, nesta ordem.
+
+### Por que a memória de conversa nunca existiu — três camadas de motivo
+
+O pacote `langgraph-checkpoint-redis` estava declarado em `requirements.txt` e
+não instalado, e a cadeia caía sempre em `MemorySaver`. Investigado até o fim,
+eram três causas empilhadas, cada uma escondendo a seguinte:
+
+**1. `requirements.txt` era insatisfazível.** `langgraph==0.2.28` com
+`langgraph-checkpoint-redis==0.0.1`, que exige `langgraph>=0.2.70`.
+`pip install -r requirements.txt` terminava em `ResolutionImpossible` — o
+pacote não era instalável, em ambiente nenhum. Corrigido para `0.2.76`; o
+upgrade passou pela suíte inteira sem quebrar nada.
+
+**2. `RedisSaver(conn)` passava o cliente na posição da URL.** A assinatura é
+`RedisSaver(redis_url=None, *, redis_client=None, connection_args=None)`. Só
+dava para descobrir com o pacote instalado — ou seja, nunca.
+
+**3. O checkpointer exige Redis STACK**, não Redis comum: indexa os checkpoints
+com RediSearch (módulo `search` >= 2.6). Um Redis gerenciado comum conecta,
+responde ao PING e falha só no `setup()`. O código agora pergunta antes
+(`MODULE LIST`) e o motivo diz exatamente o que falta.
+
+### Postgres é o degrau que faltava
+
+Redis Stack é exigência de infra que muitos ambientes não atendem. Em vez de a
+alternativa ser memória, o agente cai para o **mesmo Postgres que o app já
+usa** (`langgraph-checkpoint-postgres`) — sem infra nova, com persistência
+real e compartilhada entre workers:
+
+```
+processo 1:  "minha meta é 20 mil"        → agente responde
+             (agente descartado, como num deploy)
+processo 2:  "qual era mesmo minha meta?" → 4 mensagens no thread;
+                                            a primeira pergunta sobreviveu
+```
+
+O motivo pelo qual o Redis não foi usado continua registrado mesmo com o
+Postgres assumindo — é o que a operação precisa para corrigir a infra. E a
+enumeração por prefixo torna o apagamento LGPD **completo** neste backend:
+`esquecer_conversas` varre a tabela `checkpoints` por `user_id` e `user_id::*`,
+apaga todas as sessões do titular e não toca nas de outros.
 - `chat_messages` no banco guarda o histórico do usuário. **Apagar conversa é
   apagar as duas coisas**: `DELETE /chat/history` limpa as linhas E chama
   `esquecer_conversas`, que apaga os threads do checkpointer (o endpoint devolve

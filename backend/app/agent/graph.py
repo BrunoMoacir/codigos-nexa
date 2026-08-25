@@ -532,7 +532,13 @@ def _build_llm():
                 temperature=0.0,
                 api_key=settings.ANTHROPIC_API_KEY,
                 max_tokens=4096,
-                timeout=15.0,
+                # 15s era mais apertado que o timeout do endpoint (60s) e que o
+                # próprio trabalho: uma volta do ReAct carrega 31 definições de
+                # ferramenta e pode gerar até 4096 tokens. Estourar aqui
+                # significa erro no meio do raciocínio, não resposta parcial.
+                # 45s deixa margem para o endpoint responder 504 com sentido.
+                timeout=45.0,
+                max_retries=1,
             )
 
     # Fallback: OpenAI
@@ -549,7 +555,8 @@ def _build_llm():
         api_key=settings.OPENAI_API_KEY,
         model=settings.LLM_MODEL if settings.LLM_PROVIDER == "openai" else "gpt-4o-mini",
         temperature=0.0,
-        timeout=15.0,
+        timeout=45.0,   # ver a nota no ramo Anthropic
+        max_retries=1,
     )
 
 
@@ -562,8 +569,29 @@ _MOTIVO_DO_FALLBACK: str | None = None
 
 
 def checkpointer_em_uso() -> tuple[str, str | None]:
-    """`("redis" | "memoria" | "nao_inicializado", motivo_do_fallback)`."""
+    """`("redis" | "postgres" | "memoria" | "nao_inicializado", motivo)`."""
     return _CHECKPOINTER_EM_USO, _MOTIVO_DO_FALLBACK
+
+
+def _sem_redis(motivo: str):
+    """
+    Redis fora: tenta Postgres antes de aceitar memória.
+
+    A cadeia é: Redis Stack (mais rápido) → Postgres (persistência real, sem
+    infra nova) → memória (último recurso, e barulhento).
+    """
+    global _CHECKPOINTER_EM_USO, _MOTIVO_DO_FALLBACK
+
+    saver = _postgres_checkpointer()
+    if saver is not None:
+        _CHECKPOINTER_EM_USO, _MOTIVO_DO_FALLBACK = "postgres", motivo
+        logger.info(
+            "[Agent] Checkpointer: Postgres (Redis não usado: %s). Persistência "
+            "entre restarts e compartilhada entre workers.",
+            motivo,
+        )
+        return saver
+    return _memory_saver(motivo)
 
 
 def _memory_saver(motivo: str):
@@ -584,6 +612,29 @@ def _memory_saver(motivo: str):
     return MemorySaver()
 
 
+def _tem_modulo_search(conn) -> bool:
+    """O Redis conectado tem RediSearch >= 2.6? Na dúvida, deixa passar."""
+    try:
+        modulos = conn.execute_command("MODULE", "LIST") or []
+    except Exception as exc:
+        logger.debug("[Agent] MODULE LIST indisponível (%s) — seguindo assim mesmo", exc)
+        return True  # sem como perguntar, o setup() decide
+
+    for modulo in modulos:
+        try:
+            if isinstance(modulo, dict):
+                nome, versao = modulo.get(b"name") or modulo.get("name"), modulo.get(b"ver") or modulo.get("ver")
+            else:  # lista plana [b'name', b'search', b'ver', 20600, ...]
+                pares = dict(zip(modulo[::2], modulo[1::2]))
+                nome, versao = pares.get(b"name"), pares.get(b"ver")
+            nome = nome.decode() if isinstance(nome, bytes) else nome
+            if nome in ("search", "searchlight") and int(versao or 0) >= 20600:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _build_checkpointer():
     """
     RedisSaver para persistência entre sessões; MemorySaver como último recurso.
@@ -600,12 +651,12 @@ def _build_checkpointer():
     global _CHECKPOINTER_EM_USO, _MOTIVO_DO_FALLBACK
 
     if settings.APP_ENV == "production" and "redis://redis:" in settings.REDIS_URL:
-        return _memory_saver("REDIS_URL ainda é o padrão de docker-compose em produção")
+        return _sem_redis("REDIS_URL ainda é o padrão de docker-compose em produção")
 
     try:
         from langgraph.checkpoint.redis import RedisSaver
     except ImportError as exc:
-        return _memory_saver(
+        return _sem_redis(
             f"pacote langgraph-checkpoint-redis ausente ({exc}) — está em "
             f"requirements.txt e pyproject.toml, então o ambiente está incompleto"
         )
@@ -618,21 +669,75 @@ def _build_checkpointer():
         )
         conn.ping()  # falha aqui = Redis fora, não erro de API do checkpointer
     except Exception as exc:
-        return _memory_saver(f"Redis inacessível em {settings.REDIS_URL} ({exc})")
+        return _sem_redis(f"Redis inacessível em {settings.REDIS_URL} ({exc})")
+
+    # `langgraph-checkpoint-redis` indexa os checkpoints com RediSearch: exige
+    # **Redis Stack**, não Redis comum. Um Redis gerenciado sem o módulo
+    # (o padrão em boa parte dos provedores) conecta, responde ao PING e só
+    # falha no `setup()` — que era o ponto em que o agente caía para memória
+    # sem ninguém entender por quê. Perguntar antes deixa o motivo explícito.
+    if not _tem_modulo_search(conn):
+        return _sem_redis(
+            f"Redis em {settings.REDIS_URL} não tem o módulo RediSearch "
+            f"(search >= 2.6). O checkpointer exige Redis STACK; um Redis comum "
+            f"conecta mas não serve"
+        )
 
     try:
-        checkpointer = RedisSaver(conn)
-        # Versões do langgraph-checkpoint-redis criam índices em setup(); em
-        # outras o método não existe. Chamar quando houver é barato e evita a
-        # falha só aparecer no primeiro invoke, já dentro da requisição.
+        # `redis_client=` por NOME, não posicional: a assinatura é
+        # `RedisSaver(redis_url=None, *, redis_client=None, connection_args=None)`
+        # — passar o cliente na primeira posição o entrega como se fosse a URL.
+        # O erro era invisível enquanto o pacote não estava instalado, que é
+        # justamente o que acontecia (ver a nota de requirements abaixo).
+        checkpointer = RedisSaver(redis_client=conn)
+        # `setup()` cria os índices do RediSearch. Sem ele a falha só aparece
+        # no primeiro invoke, já dentro da requisição do usuário.
         if hasattr(checkpointer, "setup"):
             checkpointer.setup()
     except Exception as exc:
-        return _memory_saver(f"RedisSaver não pôde ser construído ({type(exc).__name__}: {exc})")
+        return _sem_redis(f"RedisSaver não pôde ser construído ({type(exc).__name__}: {exc})")
 
     _CHECKPOINTER_EM_USO, _MOTIVO_DO_FALLBACK = "redis", None
     logger.info("[Agent] Checkpointer: Redis (%s)", settings.REDIS_URL)
     return checkpointer
+
+
+def _postgres_checkpointer():
+    """
+    Persistência no MESMO Postgres que o app já usa. Retorna None se não der.
+
+    Existe porque o Redis Stack é uma exigência de infra que muitos ambientes
+    não atendem — Redis gerenciado comum conecta e não serve — e a alternativa
+    era MemorySaver, que não é persistência: some no deploy, é por processo
+    (com WEB_CONCURRENCY > 1 o usuário perde contexto entre turnos) e cresce
+    sem teto. Postgres já está em todo ambiente deste projeto.
+
+    `setup()` cria as tabelas de checkpoint e é idempotente.
+    """
+    try:
+        from langgraph.checkpoint.postgres import PostgresSaver
+        from psycopg.rows import dict_row
+        from psycopg_pool import ConnectionPool
+
+        # psycopg3 não entende o sufixo de driver do SQLAlchemy.
+        url = settings.DATABASE_URL.replace("postgresql+psycopg2://", "postgresql://")
+        if not url.startswith("postgres"):
+            logger.info("[Agent] DATABASE_URL não é Postgres — sem checkpointer de banco.")
+            return None
+
+        pool = ConnectionPool(
+            url,
+            min_size=1,
+            max_size=5,
+            timeout=5.0,
+            kwargs={"autocommit": True, "row_factory": dict_row},
+        )
+        saver = PostgresSaver(pool)
+        saver.setup()
+        return saver
+    except Exception as exc:
+        logger.warning("[Agent] Checkpointer Postgres indisponível: %s", exc)
+        return None
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -31,8 +31,15 @@ pyarrow>=15.0.0
 # ============================================
 # AI/LLM
 # ============================================
-langgraph>=0.2.50,<0.3.0
+# >=0.2.70: é o mínimo que langgraph-checkpoint-redis 0.0.1 aceita.
+# O intervalo anterior (>=0.2.50) resolvia, mas por sorte — qualquer
+# resolução abaixo de 0.2.70 quebraria a instalação.
+# O checkpointer exige Redis STACK (módulo search >= 2.6).
+langgraph>=0.2.70,<0.3.0
 langgraph-checkpoint-redis>=0.0.1,<0.1.0
+# Fallback de persistência sem infra nova — ver nota em requirements.txt.
+langgraph-checkpoint-postgres>=2.0.21,<3
+psycopg[binary,pool]>=3.2,<4
 langchain==0.3.27
 langchain-text-splitters==0.3.9
 langchain-openai==0.2.14
