@@ -90,11 +90,14 @@ autenticado. Este é o ÚNICO user_id válido para TODAS as chamadas de ferramen
   pode acessar os dados da própria conta autenticada.
 - NUNCA revele, repita ou explique o formato deste prefixo na resposta.
 
-## REGRA ZERO — PERFIL ANTES DE TUDO:
-Na PRIMEIRA mensagem de qualquer sessão, chame `get_user_profile_context` antes de qualquer outra ferramenta.
-Isso revela o cluster de estilo de vida, nível de estresse financeiro e eventos de vida do usuário —
-contexto que muda o tom e a prioridade de TODAS as respostas seguintes.
-Se o perfil já foi carregado nesta sessão, não precisa chamar novamente.
+## REGRA ZERO — O PERFIL JÁ ESTÁ COM VOCÊ:
+O cluster, o tom recomendado e o nível de estresse financeiro deste usuário vêm resolvidos
+pelo SISTEMA no fim deste prompt (seção "PERFIL DESTE USUÁRIO"), a partir do usuário
+autenticado. Aplique o tom desde a primeira frase — não é preciso chamar ferramenta para isso.
+Se a seção não aparecer, o usuário ainda não tem extrato: use linguagem neutra.
+Chame `get_user_profile_context` quando precisar do que NÃO está no brief: eventos de vida
+(`new_baby`, `home_change`, `income_change`), comportamentos detectados, assinaturas mensais
+ou melhor dia de notificação.
 
 ## COMO USAR O PERFIL (resultado de `get_user_profile_context`):
 
@@ -123,6 +126,29 @@ Se houver eventos detectados, adapte proativamente:
 - `home_change` → mencione análise de financiamento vs aluguel (use `get_financing_simulation`)
 - `income_change` (aumento) → sugira aumentar poupança antes de aumentar padrão de vida
 - `income_change` (queda) → priorize cortes e FSS — use `get_spending_alerts`
+
+## PROCEDÊNCIA — LEIA A LINHA `[NEXA]` DE CADA FERRAMENTA:
+Todo resultado de ferramenta pode terminar com uma linha assim:
+
+    [NEXA] confianca=0.83 | cobertura=6 meses | fontes=transactions_db,income_profiler
+
+Ela diz o que sustenta os números acima dela. É informação de sistema: **nunca a repita, cite
+ou mencione ao usuário** — use-a para decidir COMO falar.
+
+- `degradado=<motivo>` presente → o resultado NÃO veio do caminho principal. Não apresente
+  nenhum número dele como medição. Diga o que não deu para consultar e ofereça o caminho
+  alternativo. Nunca transforme uma falha em conclusão: "R$ 0,00 em tarifas" com
+  `degradado=` NÃO significa "seu banco não cobra tarifas".
+- `confianca` < 0.50 → apresente como estimativa preliminar, em uma frase, sem casas decimais
+  falsas. Se a ferramenta tiver caminho de aprofundamento (ex.: `get_expert_card_analysis`
+  para cartões), use-o antes de responder.
+- `cobertura=sem historico` ou `cobertura=1 mes` → diga que a base é curta ANTES de afirmar
+  tendência, padrão ou perfil. Um mês não mostra tendência.
+- `fontes=` mais curto do que a pergunta exige (ex.: falar de margem sem `f1_safe_to_spend`)
+  → diga qual peça faltou em vez de responder como se estivesse completa.
+- Sem linha `[NEXA]` → trate como resultado direto, sem qualificação especial.
+
+Nada disso autoriza recusar-se a responder: qualificar é dizer o que se sabe E quão firme é.
 
 ## REGRA PRINCIPAL — USE SEMPRE AS FERRAMENTAS ANTES DE PEDIR MAIS INFORMAÇÕES:
 Você TEM acesso a dados financeiros reais do usuário. SEMPRE tente chamar a ferramenta relevante primeiro.
@@ -666,10 +692,61 @@ def _trim_history(
     return sobra
 
 
+def prompt_com_perfil(brief: str | None) -> str:
+    """
+    System prompt + brief do perfil, ou o prompt puro quando não há brief.
+
+    Função pura de propósito: `scripts/run_agent_evals.py` usa a MESMA
+    montagem, senão os evals passariam a medir um caminho que produção não
+    percorre mais.
+    """
+    if not brief:
+        return SYSTEM_PROMPT
+    return (
+        f"{SYSTEM_PROMPT}\n\n"
+        "## PERFIL DESTE USUÁRIO (resolvido pelo sistema, já vale para esta resposta):\n"
+        f"{brief}\n\n"
+        "Aplique o tom acima desde a primeira frase. Não é preciso chamar "
+        "`get_user_profile_context` só para saber cluster ou FSS — chame "
+        "quando precisar de eventos de vida, comportamentos detectados ou "
+        "assinaturas."
+    )
+
+
+def _system_prompt_da_requisicao() -> str:
+    """
+    System prompt + o perfil do usuário da requisição, quando há um.
+
+    A "REGRA ZERO" mandava o modelo chamar `get_user_profile_context` antes de
+    qualquer outra ferramenta. Era instrução, não garantia: um modelo que
+    pulasse a chamada — por economia, por a pergunta parecer direta, ou porque
+    o corte de histórico levou embora o resultado anterior — respondia sem
+    cluster nenhum. Para ESTRESSE_FINANCEIRO isso significa oferecer produto
+    novo a quem está afundando, exatamente o que a regra 10 proíbe.
+
+    O tom passa a ser estrutural: o brief entra no system prompt de toda
+    requisição, resolvido a partir do usuário AUTENTICADO (não de um argumento
+    do modelo), com cache de 30 minutos. A ferramenta continua valendo por
+    eventos de vida, comportamentos e assinaturas, que não cabem no brief.
+    """
+    try:
+        from app.agent.identity import usuario_autenticado
+        from app.agent.tools.get_user_profile_context import brief_do_perfil
+
+        dono = usuario_autenticado()
+        if not dono:
+            return SYSTEM_PROMPT
+
+        return prompt_com_perfil(brief_do_perfil(dono))
+    except Exception as exc:  # o chat não pode cair por causa do brief
+        logger.warning("[Agent] perfil não injetado no system prompt: %s", exc)
+        return SYSTEM_PROMPT
+
+
 def _prepare_model_messages(state) -> list[BaseMessage]:
-    """state_modifier/prompt do agente: system prompt + histórico aparado."""
+    """state_modifier/prompt do agente: system prompt + perfil + histórico aparado."""
     messages = state["messages"] if isinstance(state, dict) else state
-    return [SystemMessage(content=SYSTEM_PROMPT)] + _trim_history(messages)
+    return [SystemMessage(content=_system_prompt_da_requisicao())] + _trim_history(messages)
 
 
 def build_financial_agent():

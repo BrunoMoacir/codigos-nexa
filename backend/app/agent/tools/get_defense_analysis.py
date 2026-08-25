@@ -1,6 +1,7 @@
 # app/agent/tools/get_defense_analysis.py
 import logging
 
+from app.agent.procedencia import com_procedencia, degradada
 from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
@@ -61,9 +62,10 @@ def get_defense_analysis(user_id: str, detectors: str = "d1,d2,d3,d4") -> str:
 
     except Exception as exc:
         logger.error("[Tool] get_defense_analysis setup error: %s", exc)
-        return (
+        return degradada(
             "Erro ao carregar detectores de defesa do consumidor. "
-            "Verifique se o módulo defense está instalado corretamente."
+            "Verifique se o módulo defense está instalado corretamente.",
+            "detectores_indisponiveis",
         )
 
     lines = [
@@ -81,7 +83,11 @@ def get_defense_analysis(user_id: str, detectors: str = "d1,d2,d3,d4") -> str:
         ]
         if errors:
             lines += ["", f"(Alguns detectores retornaram erro: {'; '.join(errors)})"]
-        return "\n".join(lines)
+        return com_procedencia(
+            "\n".join(lines),
+            fontes=[f"defense_{k}" for k in sorted(selected) if not any(e.startswith(k) for e in errors)],
+            degradado="detector_falhou" if errors else None,
+        )
 
     total = sum(f.amount_disputed for f in all_findings)
     high   = [f for f in all_findings if f.severity == "high"]
@@ -126,4 +132,8 @@ def get_defense_analysis(user_id: str, detectors: str = "d1,d2,d3,d4") -> str:
     if errors:
         lines += ["", f"(Detectores com erro: {'; '.join(errors)})"]
 
-    return "\n".join(lines)
+    return com_procedencia(
+        "\n".join(lines),
+        fontes=[f"defense_{k}" for k in sorted(selected) if not any(e.startswith(k) for e in errors)],
+        degradado="detector_falhou" if errors else None,
+    )

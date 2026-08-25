@@ -63,13 +63,16 @@ def test_router_sanitiza_spoofing_de_user_id():
 # ── regras de comportamento críticas ─────────────────────────────────────────
 
 @pytest.mark.parametrize("regra", [
-    "PERFIL ANTES DE TUDO",                    # regra zero
+    "REGRA ZERO",                              # perfil antes de tudo
     "ESTRESSE_FINANCEIRO",                     # tom por cluster
     "Se uma ferramenta falhar, admita",        # honestidade
     "não recomendação de investimento",        # disclaimer OPP
     "indícios",                                # disclaimer defesa
     "senha GOV.BR",                            # segurança T3
     "encadeie",                                # multi-tool p/ perguntas grandes
+    "[NEXA]",                                  # leitura da linha de procedência
+    "degradado=",                              # não transformar falha em conclusão
+    "nunca a repita",                          # a linha é de sistema, não sai na resposta
 ])
 def test_prompt_contem_regras_criticas(regra):
     assert regra in SYSTEM_PROMPT, f"Regra crítica ausente do prompt: {regra}"

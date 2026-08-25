@@ -9,6 +9,7 @@ em cada mensagem do chat.
 """
 
 import logging
+from app.agent.procedencia import com_procedencia, degradada
 from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,11 @@ def _populate_fss(profile, transactions_df) -> None:
         profile.fss = result["fss"]
         profile.fss_level = result["fss_level"]
         profile.fss_signals = result.get("fss_signals", [])
+        # `fss_confidence` era calculado pelo FSSCalculator e descartado aqui.
+        # O FSS muda o tom de TODA resposta do agente e saía igual para 3 meses
+        # de base e para 1 dia — o agente afirmava "você está em ALERTA" com a
+        # mesma segurança nos dois casos.
+        profile.fss_confidence = result.get("fss_confidence")
     except Exception as exc:
         logger.debug("[Tool] FSSCalculator indisponível para profile_context: %s", exc)
 
@@ -111,24 +117,86 @@ def get_user_profile_context(user_id: str) -> str:
         profile = ConsumptionProfiler().build(transactions_df)
         _populate_fss(profile, transactions_df)
 
-        text = _format_profile(user_id, profile)
+        text = com_procedencia(
+            _format_profile(user_id, profile),
+            fontes=["transactions_db", "consumption_profiler", "fss_calculator"],
+            confianca=getattr(profile, "fss_confidence", None),
+            cobertura_meses=_meses_de_extrato(transactions_df),
+        )
         _set_cached(user_id, text)
         return text
 
     except Exception as exc:
         logger.error("[Tool] get_user_profile_context erro: %s", exc, exc_info=True)
-        return (
+        return degradada(
             "Não foi possível carregar o perfil comportamental agora. "
             "Prossiga com linguagem neutra e, se necessário, peça ao usuário "
-            "que informe renda e principais categorias de gasto."
+            "que informe renda e principais categorias de gasto.",
+            "perfil_indisponivel",
         )
 
 
+def brief_do_perfil(user_id: str) -> str | None:
+    """
+    Versão compacta do perfil, para ir junto do system prompt.
+
+    A "Regra Zero" (chamar `get_user_profile_context` antes de tudo) era uma
+    instrução e nada mais: se o modelo pulasse a chamada — por economia, por
+    uma pergunta que parecesse direta, ou porque o histórico foi aparado — a
+    adaptação de tom por cluster simplesmente não acontecia. Para
+    ESTRESSE_FINANCEIRO isso significa responder a quem está afundando com
+    sugestão de produto novo, que é exatamente o que o prompt proíbe.
+
+    O brief resolve o TOM de forma estrutural. A ferramenta continua existindo
+    e valendo a pena: ela traz eventos de vida, comportamentos detectados,
+    assinaturas e melhor dia de notificação, que não cabem aqui.
+
+    Returns:
+        Três a cinco linhas, ou None quando não há perfil (aí o agente segue
+        com linguagem neutra, como já fazia).
+    """
+    try:
+        texto = _get_cached(user_id) or get_user_profile_context.func(user_id)
+    except Exception as exc:
+        logger.warning("[Agent] brief do perfil indisponível para %s: %s", user_id, exc)
+        return None
+
+    if not texto or "Cluster:" not in texto:
+        return None
+
+    guardar = ("Cluster:", "Tom recomendado:", "Estresse Financeiro:",
+               "Confiança do FSS:", "→ BASE CURTA:", "→ Priorize redução")
+    linhas = [
+        l.strip() for l in texto.splitlines()
+        if any(l.strip().startswith(m) or m in l for m in guardar)
+    ]
+    return "\n".join(linhas) if linhas else None
+
+
+def _meses_de_extrato(transactions_df) -> float:
+    """Meses distintos presentes no extrato — a base do perfil."""
+    import polars as pl
+
+    coluna = next(
+        (c for c in ("transaction_date", "date") if c in transactions_df.columns), None
+    )
+    if coluna is None:
+        return 0.0
+    try:
+        return float(len(
+            transactions_df.select(pl.col(coluna).cast(pl.Date).dt.strftime("%Y-%m"))
+            .to_series().drop_nulls().unique()
+        ))
+    except Exception:
+        return 0.0
+
+
 def _no_data_response(user_id: str) -> str:
-    return (
+    return degradada(
         f"Perfil de {user_id}: sem transações conectadas ainda. "
         "Use linguagem neutra e instrua o usuário a conectar uma conta "
-        "bancária via Open Finance para análise personalizada."
+        "bancária via Open Finance para análise personalizada.",
+        "sem_transacoes",
     )
 
 
@@ -149,6 +217,18 @@ def _format_profile(user_id: str, profile) -> str:
         f"Estresse Financeiro: {fss_emoji} {profile.fss_level} "
         f"(FSS {profile.fss:.0f}/100)"
     )
+    # O FSS muda o TOM de toda resposta. Com base curta ele continua sendo o
+    # melhor palpite que temos, mas o agente não pode afirmá-lo como fato — e
+    # até aqui saía igual para 3 meses de extrato e para 1 dia.
+    fss_conf = getattr(profile, "fss_confidence", None)
+    if fss_conf is not None:
+        lines.append(f"  Confiança do FSS: {fss_conf:.0%}")
+        if fss_conf < 0.5:
+            lines.append(
+                "  → BASE CURTA: trate o nível de estresse como indício, não como "
+                "diagnóstico. Não abra a resposta por ele; se precisar mencionar, "
+                "diga que há poucos meses de histórico."
+            )
     if profile.fss_level in ("ALERTA", "CRITICO"):
         lines.append("  → Priorize redução de gastos e estabilidade antes de recomendar novos produtos.")
     elif profile.fss_level == "ATENCAO":

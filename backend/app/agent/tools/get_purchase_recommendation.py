@@ -2,6 +2,7 @@
 import logging
 from typing import Optional
 
+from app.agent.procedencia import com_procedencia, degradada
 from langchain_core.tools import tool
 
 from app.purchase.models import PurchaseRequest
@@ -123,14 +124,20 @@ def get_purchase_recommendation(
 
         lines += [
             "",
-            f"Confiança da análise: {result.confidence_score:.0%}",
-            f"Fontes: {', '.join(result.data_sources) if result.data_sources else 'dados informados pelo usuário'}",
+
         ]
 
-        return "\n".join(lines)
+        return com_procedencia(
+            "\n".join(lines),
+            fontes=result.data_sources or ["input_do_usuario"],
+            confianca=result.confidence_score,
+        )
 
     except ValueError as exc:
-        return f"Não foi possível analisar a compra: {exc}"
+        return degradada(f"Não foi possível analisar a compra: {exc}", "entrada_invalida")
     except Exception as exc:
         logger.error("[Tool] get_purchase_recommendation erro: %s", exc, exc_info=True)
-        return "Desculpe, ocorreu um erro interno ao analisar a compra. Tente novamente."
+        return degradada(
+            "Desculpe, ocorreu um erro interno ao analisar a compra. Tente novamente.",
+            "excecao_no_advisor",
+        )

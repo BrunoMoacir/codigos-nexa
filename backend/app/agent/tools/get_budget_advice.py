@@ -3,6 +3,7 @@
 Tool: get_budget_advice
 Gera sugestões de orçamento baseadas na regra 50/30/20 (M1.3).
 """
+from app.agent.procedencia import com_procedencia, degradada
 from langchain_core.tools import tool
 from typing import Optional
 import logging
@@ -142,7 +143,18 @@ def get_budget_advice(
 
         lines.append(f"📝 {suggestion.summary_text}")
 
-        return "\n".join(lines)
+        fontes = ["budget_advisor"]
+        if not transactions_df.is_empty():
+            fontes.append("transactions_db")
+        if renda_estimada:
+            fontes.append("income_profiler")
+
+        return com_procedencia(
+            "\n".join(lines),
+            fontes=fontes,
+            confianca=getattr(suggestion, "confidence", None),
+            cobertura_meses=getattr(suggestion, "history_months", None),
+        )
 
     except Exception as e:
         logger.error("[Tool] get_budget_advice erro: %s", e, exc_info=True)
@@ -154,10 +166,11 @@ def get_budget_advice(
         essenciais = monthly_income * 0.50
         desejos    = monthly_income * 0.30
         poupanca   = monthly_income * 0.20
-        return (
+        return degradada(
             f"📋 **Plano 50/30/20 para renda de R$ {monthly_income:,.0f}/mês:**\n\n"
             f"🏠 Essenciais (moradia, alimentação, saúde, transporte): até R$ {essenciais:,.0f}/mês\n"
             f"🎯 Desejos (lazer, assinaturas, vestuário): até R$ {desejos:,.0f}/mês\n"
             f"💰 Poupança e investimentos: R$ {poupanca:,.0f}/mês\n\n"
-            "Para uma análise com seus dados reais, as transações precisam estar disponíveis."
+            "Para uma análise com seus dados reais, as transações precisam estar disponíveis.",
+            "advisor_falhou",
         )

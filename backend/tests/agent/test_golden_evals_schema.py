@@ -78,3 +78,44 @@ def test_checks_deterministicos_pegam_violacoes():
         case, "Sua margem é R$ 87,40 por dia.", ["get_financial_forecast"]
     )
     assert ok == []
+
+
+def test_casos_de_cluster_trazem_o_brief_do_perfil(golden):
+    """
+    O cluster e o FSS chegam ao modelo pelo system prompt (o sistema injeta a
+    partir do usuário autenticado), não por chamada de ferramenta. Um caso que
+    afirma invariante de tom sem `profile_brief` mediria um agente sem cluster
+    nenhum — que não é o que o usuário encontra.
+    """
+    for case in golden["cases"]:
+        if "estresse" in case["id"] or "cluster" in case["id"]:
+            assert case.get("profile_brief"), f"{case['id']}: sem profile_brief"
+            assert "Cluster:" in case["profile_brief"], case["id"]
+
+
+def test_o_harness_monta_o_prompt_como_producao():
+    """
+    Se o eval montar o system prompt de outro jeito, ele deixa de medir o
+    agente que está no ar.
+    """
+    import sys
+
+    from langchain_core.messages import HumanMessage
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    from run_agent_evals import _build_eval_agent, build_prompt_modifier
+
+    from app.agent.graph import SYSTEM_PROMPT, prompt_com_perfil
+
+    brief = "Cluster: ESTRESSE_FINANCEIRO\nTom recomendado: empático"
+
+    # O que o harness realmente entrega ao modelo, não só o que ele poderia.
+    saida = build_prompt_modifier(brief)({"messages": [HumanMessage(content="oi")]})
+    assert saida[0].content == prompt_com_perfil(brief)
+    assert brief in saida[0].content and SYSTEM_PROMPT in saida[0].content
+    assert isinstance(saida[1], HumanMessage)
+
+    sem_perfil = build_prompt_modifier(None)({"messages": [HumanMessage(content="oi")]})
+    assert sem_perfil[0].content == SYSTEM_PROMPT
+
+    assert _build_eval_agent({}, brief) is not None

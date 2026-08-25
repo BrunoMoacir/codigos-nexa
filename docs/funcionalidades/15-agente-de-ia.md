@@ -365,6 +365,94 @@ A lição para a próxima rodada: eu corrigi os **consumidores** do atributo
 errado e não varri a **família**. Duas linhas idênticas ficaram de pé na camada
 que a API `/defense` e o dossiê D5 usam.
 
+## Qualidade — o que o agente sabe sobre o que ele sabe (2026-08-24)
+
+Duas lacunas que sobreviveram à auditoria e à revalidação. Nenhuma era bug: as
+duas eram o agente operando com menos informação do que o sistema tinha.
+
+### Toda ferramenta declara a própria procedência
+
+As 31 tools devolviam prosa livre, e o modelo tinha de **adivinhar pelo texto**
+o que era medição. Estas três frases são idênticas para quem só lê texto:
+
+```
+"Tarifas identificadas: R$ 174,50"   ← medido, 6 meses de extrato
+"Tarifas identificadas: R$ 0,00"     ← medido, sem tarifas
+"Tarifas identificadas: R$ 0,00"     ← o detector não rodou
+```
+
+A terceira vira *"seu banco não cobra tarifas"*, que é falso.
+
+Uma ferramenta já resolvia isso e resolvia bem: `get_card_optimization` emite
+`[META] confidence_score` e `[META] dados_insuficientes`, e o prompt escala
+para o especialista abaixo de 0,50. `app/agent/procedencia.py` generaliza o
+padrão num formato único, anexado ao resultado:
+
+```
+[NEXA] confianca=0.83 | cobertura=6 meses | fontes=transactions_db,income_profiler
+```
+
+`fontes` lista quem **realmente respondeu** nesta chamada — é o marcador que
+expôs as quatro integrações mortas do F7. `degradado=<motivo>` marca todo
+resultado que saiu de um caminho de fallback, inclusive quando o texto parece
+completo.
+
+O system prompt ganhou a seção **PROCEDÊNCIA**, com o que fazer em cada caso:
+`degradado` presente → não apresentar número como medição e nunca transformar
+falha em conclusão; `confianca < 0,50` → estimativa preliminar, e usar o
+caminho de aprofundamento quando houver; `cobertura=1 mes` → dizer que a base é
+curta antes de afirmar tendência. E: a linha é de sistema, o agente **nunca a
+repete ao usuário**.
+
+Aplicada nas oito ferramentas onde a distinção muda a resposta —
+`get_user_profile_context`, `get_financial_forecast`, `get_budget_advice`,
+`get_bank_cost_analysis`, `get_purchase_recommendation`, `detect_abusive_fees`,
+`detect_wrongful_charges`, `get_defense_analysis`.
+
+### O FSS diz em que base se apoia
+
+`fss_confidence` era calculado pelo `FSSCalculator` desde a rodada de
+inteligência comportamental e **descartado por todos os consumidores** — o
+agente afirmava "você está em ALERTA de estresse financeiro" com a mesma
+segurança para três meses de extrato e para um dia. Agora chega ao modelo:
+
+```
+Estresse Financeiro: ⚠️ ATENCAO (FSS 35/100)
+  Confiança do FSS: 30%
+  → BASE CURTA: trate o nível de estresse como indício, não como diagnóstico.
+```
+
+### A Regra Zero deixou de depender de o modelo lembrar
+
+Era uma instrução: *"chame `get_user_profile_context` antes de qualquer outra
+ferramenta"*. Se o modelo pulasse — por economia, por a pergunta parecer
+direta, ou porque o corte de histórico levou o resultado anterior — a adaptação
+de tom por cluster simplesmente não acontecia. Para `ESTRESSE_FINANCEIRO` isso
+significa oferecer produto novo a quem está afundando, exatamente o que a regra
+10 proíbe.
+
+Agora o brief entra no system prompt de toda requisição
+(`graph.prompt_com_perfil`), resolvido a partir do **usuário autenticado** — o
+mesmo contexto da vinculação de identidade, sem caminho para o modelo
+influenciar:
+
+```
+## PERFIL DESTE USUÁRIO (resolvido pelo sistema, já vale para esta resposta):
+Cluster: ESTRESSE_FINANCEIRO
+Tom recomendado: em pressão financeira — seja empático, priorize cortes urgentes...
+Estresse Financeiro: 🔴 ALERTA (FSS 61/100)
+Confiança do FSS: 100%
+```
+
+São +570 caracteres por turno e **elimina uma chamada de ferramenta
+obrigatória** — na prática, mais barato e mais rápido. A ferramenta continua
+valendo por eventos de vida, comportamentos detectados e assinaturas, que não
+cabem no brief. Cache de 30 min, e falha no brief nunca derruba o chat.
+
+O harness de evals usa a **mesma** montagem (`build_prompt_modifier`), e os
+casos do golden set trazem `profile_brief` — senão os evals mediriam um agente
+sem cluster nenhum, que não é o que o usuário encontra.
+
 ## O que NÃO faz
 
 - **Não executa transações** — nenhuma das 31 tools movimenta dinheiro; todas
@@ -376,6 +464,13 @@ que a API `/defense` e o dossiê D5 usam.
 
 ## Gaps e limitações
 
+- **A `confianca` da linha `[NEXA]` não é probabilidade calibrada** — é a
+  fração do que a ferramenta prometeu e conseguiu entregar, ponderada por
+  cobertura de extrato. Está declarado no código para ninguém ler como
+  estatística.
+- **23 das 31 tools ainda não emitem `[NEXA]`** — as oito cobertas são aquelas
+  em que a distinção entre medição e fallback muda a resposta. As demais
+  seguem o padrão quando ganharem números com procedência a declarar.
 - **A defesa contra prompt injection cobre o vetor do `user_id`** em quatro
   camadas, sendo a 4ª determinística no argumento da ferramenta. Não há filtro
   genérico contra outras instruções adversariais no corpo da mensagem — a

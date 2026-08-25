@@ -54,11 +54,36 @@ Responda APENAS JSON válido:
 {{"clareza": n, "fidelidade": n, "tom": n, "honestidade": n, "justificativa": "1-2 frases"}}"""
 
 
-def _build_eval_agent(fixtures: dict[str, str]):
-    """Agente com as tools reais substituídas por fixtures (mesmo nome/descrição)."""
+def build_prompt_modifier(perfil: str | None = None):
+    """
+    O montador de system prompt do eval — o MESMO de produção.
+
+    Exposto (sem underscore) para que o teste possa afirmar a igualdade. Se o
+    harness montar o prompt de outro jeito, o eval deixa de medir o agente que
+    está no ar, e isso é invisível numa inspeção rápida.
+    """
+    from langchain_core.messages import SystemMessage
+
+    from app.agent.graph import _trim_history, prompt_com_perfil
+
+    def _modifier(state):
+        messages = state["messages"] if isinstance(state, dict) else state
+        return [SystemMessage(content=prompt_com_perfil(perfil))] + _trim_history(messages)
+
+    return _modifier
+
+
+def _build_eval_agent(fixtures: dict[str, str], perfil: str | None = None):
+    """
+    Agente com as tools reais substituídas por fixtures (mesmo nome/descrição).
+
+    `perfil` reproduz o brief que o sistema injeta no system prompt em
+    produção (ver `graph.prompt_com_perfil`). Sem ele, o eval mediria um agente
+    sem cluster nenhum — que não é o que o usuário encontra.
+    """
     from langchain_core.tools import StructuredTool
 
-    from app.agent.graph import AGENT_TOOLS, _prepare_model_messages
+    from app.agent.graph import AGENT_TOOLS
     from langgraph.prebuilt import create_react_agent
     import inspect
 
@@ -85,7 +110,7 @@ def _build_eval_agent(fixtures: dict[str, str]):
     llm = _build_llm()
     signature = inspect.signature(create_react_agent)
     kwarg = ("prompt" if "prompt" in signature.parameters else "state_modifier")
-    return create_react_agent(llm, tools=eval_tools, **{kwarg: _prepare_model_messages})
+    return create_react_agent(llm, tools=eval_tools, **{kwarg: build_prompt_modifier(perfil)})
 
 
 def _deterministic_checks(case: dict, answer: str, tools_called: list[str]) -> list[str]:
@@ -147,7 +172,7 @@ def main() -> None:
     report, det_failures_total, judge_scores = [], 0, []
 
     for case in cases:
-        agent = _build_eval_agent(case["tool_fixtures"])
+        agent = _build_eval_agent(case["tool_fixtures"], case.get("profile_brief"))
         result = agent.invoke({
             "messages": [HumanMessage(content=f"[user_id=eval_user] {case['user_message']}")]
         })

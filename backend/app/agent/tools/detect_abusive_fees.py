@@ -1,6 +1,7 @@
 # app/agent/tools/detect_abusive_fees.py
 import logging
 
+from app.agent.procedencia import com_procedencia, degradada
 from langchain_core.tools import tool
 
 from app.costs.bank_fee_analyzer import BankFeeAnalyzer
@@ -39,7 +40,10 @@ def detect_abusive_fees(user_id: str) -> str:
         report = BankFeeAnalyzer().analyze(transactions_df, user_id=user_id)
     except Exception as exc:
         logger.error("[Tool] detect_abusive_fees | erro na análise: %s", exc)
-        return "Erro ao analisar tarifas. Tente novamente em alguns instantes."
+        return degradada(
+            "Erro ao analisar tarifas. Tente novamente em alguns instantes.",
+            "analise_falhou",
+        )
 
     # ── Filtrar tipos suspeitos ───────────────────────────────────────
     ABUSIVE_TYPES = {
@@ -68,7 +72,12 @@ def detect_abusive_fees(user_id: str) -> str:
             "",
             "Continue monitorando — novas cobranças aparecem na próxima análise mensal.",
         ]
-        return "\n".join(lines)
+        return com_procedencia(
+            "\n".join(lines),
+            fontes=report.data_sources,
+            confianca=report.confidence_score,
+            cobertura_meses=report.analysis_months,
+        )
 
     # Venda casada / seguros embutidos
     if abusive_entries:
@@ -105,4 +114,9 @@ def detect_abusive_fees(user_id: str) -> str:
         ]
 
     lines += ["", "Fonte: análise de transações Pluggy + catálogo FeeType Nexa."]
-    return "\n".join(lines)
+    return com_procedencia(
+        "\n".join(lines),
+        fontes=report.data_sources,
+        confianca=report.confidence_score,
+        cobertura_meses=report.analysis_months,
+    )

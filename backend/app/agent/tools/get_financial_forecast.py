@@ -5,6 +5,7 @@ Retorna o diagnóstico financeiro completo do usuário:
   - Cashflow, safe-to-spend, saúde financeira (via UserProfileAnalyzer)
   - Cluster de estilo de vida, FSS e eventos de vida (via ConsumptionProfiler)
 """
+from app.agent.procedencia import com_procedencia, degradada
 from langchain_core.tools import tool
 from typing import Optional
 import logging
@@ -27,6 +28,45 @@ def _primeiro_df_nao_vazio(*candidatos) -> pl.DataFrame:
         if isinstance(candidato, pl.DataFrame) and not candidato.is_empty():
             return candidato
     return pl.DataFrame()
+
+
+_FONTES_ESPERADAS = (
+    "transactions_db", "f1_safe_to_spend", "income_profiler",
+    "user_profile_analyzer", "cashflow_projector",
+)
+
+
+def _cobertura_meses(transactions_df: pl.DataFrame) -> float:
+    """Meses distintos de extrato que sustentam o diagnóstico."""
+    if transactions_df.is_empty():
+        return 0.0
+    coluna = next((c for c in ("transaction_date", "date") if c in transactions_df.columns), None)
+    if coluna is None:
+        return 0.0
+    try:
+        meses = (
+            transactions_df.select(pl.col(coluna).cast(pl.Date).dt.strftime("%Y-%m"))
+            .to_series()
+            .drop_nulls()
+            .unique()
+        )
+        return float(len(meses))
+    except Exception:
+        return 0.0
+
+
+def _confianca(fontes: list[str], transactions_df: pl.DataFrame) -> float:
+    """
+    Quanto do diagnóstico está de pé: fontes vivas × cobertura de extrato.
+
+    Não é calibração estatística — é a fração do que a ferramenta prometeu que
+    ela conseguiu entregar nesta chamada, ponderada por três meses de histórico
+    como referência de "base suficiente". Declarado aqui para ninguém ler como
+    probabilidade.
+    """
+    vivas = len(set(fontes) & set(_FONTES_ESPERADAS)) / len(_FONTES_ESPERADAS)
+    base = min(1.0, _cobertura_meses(transactions_df) / 3.0)
+    return round(vivas * 0.6 + base * 0.4, 2)
 
 
 @tool
@@ -58,16 +98,18 @@ def get_financial_forecast(
         result = get_runner().run_from_db(user_id=user_id, horizon_days=horizon_days)
 
         if result is None:
-            return (
+            return degradada(
                 "Ainda não há transações conectadas para este usuário. "
                 "Para ver o diagnóstico financeiro real, conecte uma conta bancária via Open Finance "
-                "na seção 'Conectar conta' do aplicativo."
+                "na seção 'Conectar conta' do aplicativo.",
+                "sem_transacoes",
             )
 
         if not result or result.get("status") != "success":
-            return (
+            return degradada(
                 "Não consegui carregar dados financeiros para este usuário no momento. "
-                "Verifique se há transações conectadas via Open Finance."
+                "Verifique se há transações conectadas via Open Finance.",
+                "pipeline_sem_sucesso",
             )
 
         proj           = result.get("projections", {})
@@ -91,10 +133,16 @@ def get_financial_forecast(
             txns_data.get("clean_df"),
         )
 
+        # Fontes que REALMENTE responderam nesta chamada. É o marcador que
+        # expôs as quatro integrações mortas do F7: uma fonte que some da lista
+        # é uma fonte que caiu.
+        fontes: list[str] = ["transactions_db"]
+
         lines = ["📊 **Diagnóstico Financeiro Nexa**", ""]
 
         # ── Safe-to-spend ──────────────────────────────────────────────────
         if safe:
+            fontes.append("f1_safe_to_spend")
             lines.append("💰 **Margem disponível para gastar:**")
             lines.append(f"   • Este mês: R$ {safe.safe_to_spend_total:,.2f}")
             lines.append(f"   • Por dia com segurança: R$ {safe.safe_to_spend_daily:,.2f}")
@@ -105,6 +153,7 @@ def get_financial_forecast(
         if monthly_income:
             lines.append(f"💵 Renda declarada: R$ {monthly_income:,.0f}/mês")
         elif income_profile and income_profile.confidence >= 0.5:
+            fontes.append("income_profiler")
             lines.append(
                 f"💵 Renda estimada: R$ {income_profile.monthly_net_income:,.0f}/mês "
                 f"(padrão {income_profile.income_pattern.value}, "
@@ -120,6 +169,7 @@ def get_financial_forecast(
                     transactions_df,
                     income_profile=income_profile,
                 )
+                fontes.append("user_profile_analyzer")
                 score        = fin_profile.financial_health_score
                 trend        = fin_profile.trend
                 profile_type = getattr(fin_profile, "profile_type", "EQUILIBRADO")
@@ -138,6 +188,7 @@ def get_financial_forecast(
             and not (isinstance(cf, pl.DataFrame) and cf.is_empty())
         )
         if cf_has_data:
+            fontes.append("cashflow_projector")
             lines.append("📈 **Projeção de Cashflow (30 dias):**")
             if hasattr(cf, "ending_balance"):
                 lines.append(f"   • Saldo esperado ao fim: R$ {cf.ending_balance:,.2f}")
@@ -234,16 +285,24 @@ def get_financial_forecast(
                 logger.debug("[Tool] ConsumptionProfiler indisponível: %s", beh_exc)
 
         if len(lines) <= 2:
-            return (
+            return degradada(
                 "Diagnóstico calculado, mas sem dados históricos suficientes para montar o relatório completo. "
-                "Conecte mais contas bancárias via Open Finance para uma análise mais precisa."
+                "Conecte mais contas bancárias via Open Finance para uma análise mais precisa.",
+                "historico_insuficiente",
+                fontes=fontes,
             )
 
-        return "\n".join(lines)
+        return com_procedencia(
+            "\n".join(lines),
+            fontes=fontes,
+            confianca=_confianca(fontes, transactions_df),
+            cobertura_meses=_cobertura_meses(transactions_df),
+        )
 
     except Exception as e:
         logger.error("[Tool] get_financial_forecast erro: %s", e, exc_info=True)
-        return (
+        return degradada(
             "Não consegui acessar os dados financeiros agora. "
-            "Tente novamente ou informe sua renda e gastos mensais para uma análise manual."
+            "Tente novamente ou informe sua renda e gastos mensais para uma análise manual.",
+            "excecao_no_pipeline",
         )

@@ -2,6 +2,7 @@
 import logging
 from datetime import date, timedelta
 
+from app.agent.procedencia import com_procedencia, degradada
 from langchain_core.tools import tool
 
 from app.costs.bank_fee_analyzer import BankFeeAnalyzer
@@ -41,7 +42,10 @@ def detect_wrongful_charges(user_id: str) -> str:
         report = BankFeeAnalyzer().analyze(transactions_df, user_id=user_id)
     except Exception as exc:
         logger.error("[Tool] detect_wrongful_charges | erro: %s", exc)
-        return "Erro ao analisar cobranças. Tente novamente."
+        return degradada(
+            "Erro ao analisar cobranças. Tente novamente.",
+            "analise_falhou",
+        )
 
     # ── 1. Tarifas novas (sem histórico — apareceram pela primeira vez) ──
     # `BankCostReport` não tem `.entries` — a lista de tarifas individuais
@@ -68,7 +72,12 @@ def detect_wrongful_charges(user_id: str) -> str:
             "Dica: revise sua fatura mensalmente — cobranças indevidas tendem a "
             "aparecer após cancelamentos ou mudanças de plano.",
         ]
-        return "\n".join(lines)
+        return com_procedencia(
+            "\n".join(lines),
+            fontes=report.data_sources,
+            confianca=report.confidence_score,
+            cobertura_meses=report.analysis_months,
+        )
 
     # Tarifas novas
     if new_fees:
@@ -116,7 +125,12 @@ def detect_wrongful_charges(user_id: str) -> str:
         "Fonte: análise de transações Pluggy + histórico bank_fee_history Nexa.",
     ]
 
-    return "\n".join(lines)
+    return com_procedencia(
+        "\n".join(lines),
+        fontes=report.data_sources,
+        confianca=report.confidence_score,
+        cobertura_meses=report.analysis_months,
+    )
 
 
 def _detect_stale_bank_charges(user_id: str, df) -> list[str]:

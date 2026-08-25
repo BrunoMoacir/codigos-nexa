@@ -1,6 +1,7 @@
 # app/agent/tools/get_bank_cost_analysis.py
 import logging
 
+from app.agent.procedencia import com_procedencia, degradada
 from langchain_core.tools import tool
 
 from app.costs.bank_fee_analyzer import BankFeeAnalyzer
@@ -39,7 +40,10 @@ def get_bank_cost_analysis(user_id: str) -> str:
         report = BankFeeAnalyzer().analyze(transactions_df, user_id=user_id)
     except Exception as exc:
         logger.error("[Tool] get_bank_cost_analysis | erro: %s", exc, exc_info=True)
-        return "Desculpe, ocorreu um erro interno ao analisar seus custos bancários."
+        return degradada(
+            "Desculpe, ocorreu um erro interno ao analisar seus custos bancários.",
+            "analise_falhou",
+        )
 
     # ── Formatar saída para o LLM ────────────────────────────────
     lines = [
@@ -86,10 +90,13 @@ def get_bank_cost_analysis(user_id: str) -> str:
         for w in report.warnings:
             lines.append(f"- {w}")
 
-    lines += [
-        "",
-        f"Confiança da análise: {report.confidence_score:.0%}",
-        f"Fonte: {', '.join(report.data_sources)}",
-    ]
-
-    return "\n".join(lines)
+    # A confiança e as fontes saíam como prosa, no meio de outras linhas de
+    # prosa: o modelo não tinha como distinguir "R$ 0,00 medido" de "R$ 0,00
+    # porque o detector não rodou". Agora vão na linha [NEXA], que o system
+    # prompt sabe ler.
+    return com_procedencia(
+        "\n".join(lines),
+        fontes=report.data_sources,
+        confianca=report.confidence_score,
+        cobertura_meses=report.analysis_months,
+    )
