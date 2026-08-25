@@ -138,7 +138,14 @@ def _is_token_revoked(jti: str) -> bool:
       - Trade-off consciente: bloquear todos os usuários quando Redis cai é
         pior para disponibilidade do que aceitar tokens recentemente revogados
         por um curto período.
-      - Mitigação: TTL máximo de 24h garante expiração natural dos tokens.
+      - Mitigação, por tipo de token — e o segundo caso é o que importa:
+          * ACCESS  expira em ACCESS_TOKEN_EXPIRE_MINUTES (30 min). Janela curta.
+          * REFRESH expira em REFRESH_TOKEN_EXPIRE_DAYS (14 DIAS), e a rotação
+            o revoga pelo tempo restante dele. Com Redis fora, um refresh
+            vazado E JÁ ROTACIONADO segue aceito por até duas semanas — é a
+            janela real do fail-open, não 30 minutos.
+        (Este docstring dizia "TTL máximo de 24h garante expiração natural",
+         o que estava errado por um fator de 14 justamente no caso perigoso.)
       - Monitore alertas de Redis para detectar janelas de fail-open.
     """
     from app.core.cache import get_redis
@@ -241,16 +248,25 @@ def validate_user_id(user_id: str) -> str:
     Raises:
         HTTPException 422 se o formato for inválido.
     """
-    # Backwards-compatible: aceitar tanto UUID v4 quanto identificadores simples
-    # usados em testes (ex: 'u1', 'user_123'). Identificadores simples podem conter
-    # letras, dígitos, hífen e underscore. Se desejar apenas UUIDs em produção,
-    # altere essa função para forçar o UUID.
-    if _UUID_RE.match(user_id) or _SIMPLE_ID_RE.match(user_id):
+    # EM PRODUÇÃO: só UUID v4. Fora dela, identificadores simples ('u1',
+    # 'demo-ana') continuam valendo porque fixtures e seeds dependem deles.
+    #
+    # O comentário anterior dizia "se desejar apenas UUIDs em produção, altere
+    # essa função" — e a doc de segurança já afirmava que a validação era de
+    # UUID v4. Ficava valendo o mais frouxo nos dois ambientes. A metade da
+    # PROPRIEDADE (comparar com o usuário do token) sempre funcionou e está
+    # medida; era a de FORMATO que não era o que estava escrito.
+    if _UUID_RE.match(user_id):
+        return user_id
+
+    from app.core.config import settings
+
+    if settings.APP_ENV != "production" and _SIMPLE_ID_RE.match(user_id):
         return user_id
 
     raise HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        detail="user_id inválido. Use UUID v4 ou identificador simples.",
+        detail="user_id inválido. Use UUID v4.",
     )
 
 

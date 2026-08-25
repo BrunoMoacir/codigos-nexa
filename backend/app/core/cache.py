@@ -37,8 +37,31 @@ _REDIS_RETRY_COOLDOWN = 30.0
 _redis_retry_after: float = 0.0  # timestamp Unix; 0 = nunca falhou
 
 
+def _urls_a_tentar() -> list[str]:
+    """
+    URLs de Redis a tentar, em ordem.
+
+    Em DESENVOLVIMENTO, quando `REDIS_URL` aponta para o hostname do
+    docker-compose (`redis://redis:...`) e o processo não está num container, o
+    nome não resolve e todo o Redis some — inclusive a **blacklist de tokens**.
+    Medido em 2026-08-25: `get_redis()` devolvia None, `_is_token_revoked`
+    devolvia False para tudo, logout não revogava e o reuso de refresh (que a
+    doc chama de "indício de vazamento") não era detectado. E havia um Redis
+    rodando em localhost o tempo todo.
+
+    O fallback vale SÓ fora de produção: em produção, um Redis que não resolve
+    é incidente e tem de aparecer como tal, não ser contornado.
+    """
+    urls = [settings.REDIS_URL]
+    if settings.APP_ENV != "production" and "://redis:" in settings.REDIS_URL:
+        urls.append(settings.REDIS_URL.replace("://redis:", "://127.0.0.1:"))
+    return urls
+
+
 def get_redis() -> Optional[redis_lib.Redis]:
     global _redis_client, _redis_retry_after
+
+    ultimo_erro: Exception | None = None
 
     # Cliente já conectado e saudável
     if _redis_client is not None:
@@ -48,23 +71,37 @@ def get_redis() -> Optional[redis_lib.Redis]:
     if time.monotonic() < _redis_retry_after:
         return None
 
-    try:
-        client = redis_lib.from_url(
-            settings.REDIS_URL,
-            decode_responses=True,
-            socket_connect_timeout=1,
-            socket_timeout=1,
-        )
-        client.ping()
-        _redis_client = client
-        _redis_retry_after = 0.0
-        logger.info("[Cache] Redis conectado: %s", settings.REDIS_URL)
-    except Exception as e:
-        _redis_client = None
-        _redis_retry_after = time.monotonic() + _REDIS_RETRY_COOLDOWN
-        logger.warning(
-            "[Cache] Redis indisponível (%s) — retry em %.0fs.", e, _REDIS_RETRY_COOLDOWN
-        )
+    for url in _urls_a_tentar():
+        try:
+            client = redis_lib.from_url(
+                url,
+                decode_responses=True,
+                socket_connect_timeout=1,
+                socket_timeout=1,
+            )
+            client.ping()
+            _redis_client = client
+            _redis_retry_after = 0.0
+            if url != settings.REDIS_URL:
+                logger.info(
+                    "[Cache] Redis conectado em %s (REDIS_URL=%s não resolve fora do "
+                    "docker). Fallback de DESENVOLVIMENTO apenas.",
+                    url, settings.REDIS_URL,
+                )
+            else:
+                logger.info("[Cache] Redis conectado: %s", url)
+            return _redis_client
+        except Exception as e:
+            ultimo_erro = e
+
+    _redis_client = None
+    _redis_retry_after = time.monotonic() + _REDIS_RETRY_COOLDOWN
+    logger.warning(
+        "[Cache] Redis indisponível (%s) — retry em %.0fs. "
+        "Sem Redis, a revogação de token fica em fail-open: logout não revoga "
+        "e reuso de refresh não é detectado.",
+        ultimo_erro, _REDIS_RETRY_COOLDOWN,
+    )
     return _redis_client
 
 

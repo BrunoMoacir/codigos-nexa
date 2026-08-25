@@ -342,9 +342,34 @@ class TestAuth:
         )
         assert resp.status_code == 401
 
-    def test_logout(self, client, H):
-        resp = client.post(f"{BASE}/auth/logout", headers=H)
-        assert resp.status_code == 204
+    def test_logout(self, client, test_user):
+        """
+        Logout com token PRÓPRIO, e verificando que ele realmente morre.
+
+        Este teste usava o token compartilhado da sessão (`H`). Enquanto a
+        revogação estava quebrada — `REDIS_URL` apontando para o hostname do
+        docker-compose, `get_redis()` devolvendo None, `_is_token_revoked`
+        devolvendo False para tudo — deslogar não tinha efeito e os ~50 testes
+        seguintes seguiam usando o mesmo token. Com a revogação funcionando,
+        todos passariam a receber 401: o arquivo estava verde por causa do
+        defeito.
+        """
+        token = client.post(f"{BASE}/auth/token", data={
+            "username": test_user["email"], "password": test_user["password"],
+        }).json().get("access_token", "")
+        assert token, "login não devolveu token"
+        proprio = {"Authorization": f"Bearer {token}"}
+
+        assert client.post(f"{BASE}/auth/logout", headers=proprio).status_code == 204
+
+        # O que o logout promete: o token para de valer.
+        from app.core.cache import get_redis
+
+        if get_redis() is not None:
+            depois = client.get(f"{BASE}/transactions/{test_user['user_id']}", headers=proprio)
+            assert depois.status_code == 401, (
+                f"token seguiu válido após logout ({depois.status_code})"
+            )
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

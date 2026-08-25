@@ -91,3 +91,40 @@ def _isolate_live_product_catalog(tmp_path_factory):
         pass
     yield
     mp.undo()
+
+
+@pytest.fixture(autouse=True)
+def _cache_limpo_por_teste():
+    """
+    Cada teste começa sem cache de resposta no Redis.
+
+    Enquanto `REDIS_URL` apontava para o hostname do docker-compose, nada
+    cacheava fora do container e a suíte passava por isso. Ao consertar a
+    conexão (que era o que mantinha a REVOGAÇÃO DE TOKEN inerte — ver
+    `app/core/cache.py::_urls_a_tentar`), os endpoints com
+    `@cache_response(ttl=1800)` passaram a servir HIT entre testes: o mock não
+    era chamado, e um teste que espera 404 recebia o 200 cacheado do teste
+    anterior.
+
+    Apaga só as chaves `nexa:cache:*` — a blacklist de token (`nexa:blacklist:*`)
+    fica de pé, porque há teste que depende dela justamente para verificar que o
+    logout revoga.
+    """
+    from app.core.cache import get_redis
+
+    cliente = get_redis()
+    if cliente is None:
+        yield
+        return
+
+    def _limpar():
+        try:
+            chaves = list(cliente.scan_iter("nexa:cache:*", count=500))
+            if chaves:
+                cliente.delete(*chaves)
+        except Exception:
+            pass  # cache é otimização; teste não pode quebrar por causa dele
+
+    _limpar()
+    yield
+    _limpar()

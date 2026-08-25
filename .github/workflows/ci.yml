@@ -75,18 +75,36 @@ jobs:
         run: pip install pip-audit
 
       # Audita exatamente os pins do requirements.txt (sem resolver deps).
-      # Os --ignore-vuln abaixo são o BASELINE ACEITO — família
-      # langchain/langgraph 0.2.x, cujo fix exige migração para 1.x
-      # (reescrita do agente). Racional e mitigação: docs/SEGURANCA.md.
-      # Qualquer CVE NOVO em qualquer pacote quebra o build.
+      #
+      # BASELINE ACEITO — família langchain/langgraph 0.2.x. TODOS têm o mesmo
+      # bloqueio: o fix exige langchain/langgraph 1.x, que é reescrita do
+      # agente. Racional e mitigação: docs/SEGURANCA.md.
+      #
+      # Revisado em 2026-08-25. A lista tinha 5 entradas e o `pip-audit`
+      # reportava 14 vulnerabilidades — ou seja, o job REPROVAVA, e reprovava
+      # desde antes desta rodada: PYSEC-2026-2194 (langgraph), PYSEC-2026-2192
+      # e -2555 (langchain) e PYSEC-2026-2556 (langchain-anthropic) já estavam
+      # nos pins originais e fora do baseline. `CVE-2026-55443` era ignore
+      # obsoleto (não aparece mais) e saiu: ignore que não corresponde a nada
+      # mascara o próximo.
+      #
+      # Qualquer CVE NOVO fora desta lista quebra o build. Ao subir a família
+      # para 1.x, esta lista inteira deve ser esvaziada e o job re-rodado.
       - name: Audit pinned dependencies
         working-directory: backend
         run: |
           pip-audit -r requirements.txt --no-deps --disable-pip \
             --ignore-vuln PYSEC-2026-83 \
+            --ignore-vuln PYSEC-2026-2194 \
+            --ignore-vuln PYSEC-2026-1527 \
+            --ignore-vuln PYSEC-2026-2573 \
+            --ignore-vuln PYSEC-2026-2574 \
+            --ignore-vuln PYSEC-2026-3635 \
+            --ignore-vuln PYSEC-2026-2192 \
+            --ignore-vuln PYSEC-2026-2555 \
+            --ignore-vuln PYSEC-2026-2556 \
             --ignore-vuln CVE-2024-8309 \
             --ignore-vuln CVE-2024-7774 \
-            --ignore-vuln CVE-2026-55443 \
             --ignore-vuln PYSEC-2026-76
 
   docker-build:

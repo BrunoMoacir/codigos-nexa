@@ -108,7 +108,7 @@ Uma dependency única substitui o padrão repetido em todos os routers:
 
 ```python
 def require_owner(user_id: str, current_user: str = Depends(get_current_user)) -> str:
-    validate_user_id(user_id)                     # UUID v4 bem formado
+    validate_user_id(user_id)                     # UUID v4 em produção
     if current_user != user_id:
         raise HTTPException(403, "Acesso negado")
     return user_id
@@ -124,6 +124,26 @@ plano nunca remove a proteção IDOR por acidente.
 Recursos aninhados (ex.: registro de negociação) verificam o dono do objeto,
 não só o `user_id` da URL. **31 testes dedicados**
 (`test_security_hardening.py`) cobrem IDOR, timing, rotação e headers.
+
+**Medido em 2026-08-25, na superfície inteira**: token de um usuário pedindo
+dados de outro em **todas as 44 rotas GET com `{user_id}`** → 401/403 em
+44 de 44, zero vazamento. Virou teste
+(`test_seguranca_lgpd.py::TestIDORNaSuperficieInteira`), com guarda
+anti-vacuidade: se a sonda passar a testar menos de 40 rotas, ela reprova.
+
+Uma varredura irmã exige dependência de autenticação em **toda** rota que não
+esteja numa allowlist de públicas — cada entrada com o motivo escrito
+(login, webhooks assinados, health, catálogos). A primeira versão desse teste
+era **vazia**: iterava `app.routes`, que traz wrappers de inclusão preguiçosa,
+e inspecionava três rotas, todas públicas. Agora desce nos wrappers e alcança
+134.
+
+Nessa varredura apareceu `app/retention/router.py`: `GET
+/retention/cancellation-impact/{user_id}` **sem dependência de autenticação
+nenhuma**, com dado fabricado por `hash(user_id) % 5000`, e um
+`POST /retention/pause-account` que respondia *"conta pausada com sucesso"*
+sem fazer nada. Não estava montado — estava a um `include_router` de distância.
+Removido.
 
 ---
 
@@ -173,8 +193,37 @@ Em desenvolvimento, os mesmos casos apenas emitem warning. É a diferença entre
 
 ## LGPD (`app/privacy/`)
 
-**Portabilidade (art. 18, V)** — `GET /privacy/export/{user_id}`: percorre um
-**inventário estático de tabelas** e monta o export. Regra explícita no código:
+### O inventário é DESCOBERTO do banco (correção de 2026-08-25)
+
+Era uma lista mantida à mão, com a instrução "ao adicionar uma tabela nova com
+`user_id`, inclua-a aqui". Medido, ela errava **nos dois sentidos ao mesmo
+tempo**:
+
+| fora do inventário, com dado do titular | no inventário, inexistente |
+|---|---|
+| `auth_tokens` — **2851 linhas** | `daily_digest_log` |
+| `rejected_transactions` — **200 linhas** | `notification_delivery_log` |
+| `shadow_invoices` — 4 | `push_subscriptions` |
+| `user_subscriptions` — 3 | `user_settings` |
+| `architect_simulation_feedback`, `pluggy_sync_jobs` | `bank_fee_trends` (sem `user_id`) |
+
+`rejected_transactions` guarda descrição e valor de transações recusadas pelo
+ETL — dado financeiro pessoal sobrevivendo à eliminação do art. 18 VI. E as
+cinco inexistentes falhavam no `DELETE`, caíam no `except` e viravam
+`skipped`, indistinguíveis de uma falha real.
+
+`inventario_de_dados()` agora **descobre** toda tabela com coluna `user_id` via
+`sqlalchemy.inspect` (Postgres e SQLite). O que não deve ser apagado fica em
+`_NAO_APAGAR`, com motivo escrito — hoje vazia. `users` sai por último, e o que
+falha por chave estrangeira volta para uma segunda passada em vez de ser
+pulado. O que sobrar loga em **ERROR**, não debug: ali ficou dado do titular.
+
+O teste `test_toda_tabela_com_user_id_entra_no_inventario` é a guarda: uma
+tabela nova entra sozinha, e excluí-la exige dizer por quê.
+
+**Portabilidade (art. 18, V)** — `GET /privacy/export/{user_id}`: percorre o
+**mesmo inventário descoberto** e monta o export. Exportar menos do que se
+apaga esconderia dado do titular dele mesmo. Regra explícita no código:
 **nunca exportar o hash de senha**. Tabelas indisponíveis são puladas com log
 de debug, não quebram o export.
 
@@ -211,14 +260,35 @@ carrega IP e `request_id`.
   seguem válidos até expirar (janela ≤ 30 min) — revogar tudo exigiria claim
   `iat` + verificação por request (anotado como melhoria).
 - **Blacklist depende do Redis**: com Redis fora, `revoke_token` loga o
-  problema mas o logout não revoga de fato. A mitigação é o access de 30 min.
+  problema mas o logout não revoga de fato. A janela real do fail-open, por
+  tipo de token: **access 30 min; refresh 14 DIAS** — a rotação revoga o
+  refresh pelo tempo restante dele, então um refresh vazado e já rotacionado
+  segue aceito por até duas semanas. O docstring dizia "TTL máximo de 24h",
+  errado por um fator de 14 justamente no caso perigoso. Corrigido em
+  2026-08-25.
+- **Consertar a revogação derrubou 54 testes de integração** — que passavam
+  justamente por causa do defeito: `test_logout` deslogava o token
+  **compartilhado** da sessão e, como deslogar não tinha efeito, os ~50 testes
+  seguintes continuavam usando o mesmo token. Agora o logout usa token próprio
+  e verifica que ele **morre** — antes só conferia o 204, que é a metade que
+  não importa.
+- **Fora do docker, a revogação estava inteiramente inerte**: `REDIS_URL`
+  aponta para o hostname do compose (`redis://redis:6379`), que não resolve, e
+  `_is_token_revoked` devolvia `False` para tudo — logout não revogava e reuso
+  de refresh não era detectado, com um Redis rodando em localhost o tempo todo.
+  `get_redis` passa a tentar `127.0.0.1` como fallback **apenas fora de
+  produção**: em produção um Redis que não resolve é incidente e tem de
+  aparecer como tal.
 - **Criptografia em repouso é a do banco** (Postgres/disco) — não há
   criptografia por campo além dos tokens hasheados.
 - **Verificação de e-mail é soft** — o login funciona sem verificar
   (`email_verified` existe; bloquear features para não-verificados é 1 linha no
   gating).
-- **O `erase` é `DELETE` por inventário estático** — uma tabela nova precisa ser
-  adicionada ao inventário manualmente, ou os dados sobrevivem à eliminação.
-  Risco real de manutenção.
+- **`pip-audit` audita só os pins DIRETOS** (`--no-deps`), não a árvore
+  resolvida. E o baseline de `--ignore-vuln` cobria 5 de 9 CVEs reportados, com
+  um ignore obsoleto: o job **reprovava**, e reprovava desde antes da auditoria
+  de 2026-08-25. Baseline revisado (12 IDs, todos da família
+  langchain/langgraph 0.2.x, cujo fix exige a migração para 1.x) e o
+  comentário agora diz quando a lista deve ser esvaziada.
 - **Sem observabilidade** (Sentry/Prometheus) — o audit loga, mas erro de
   produção não alerta ninguém; recomendado antes da beta.

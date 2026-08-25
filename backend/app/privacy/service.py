@@ -1,19 +1,38 @@
 """
 app/privacy/service.py — Export e eliminação de dados do titular (LGPD).
 
-Inventário de dados pessoais/financeiros por tabela, chaveado por user_id.
-Ao adicionar uma tabela nova com user_id, INCLUA-A AQUI — este inventário
-é o contrato de portabilidade e de eliminação do produto.
+O inventário é DESCOBERTO do banco, não mantido à mão.
+
+Era uma lista escrita por pessoas, com a instrução "ao adicionar uma tabela
+nova com user_id, INCLUA-A AQUI". Medido em 2026-08-25, a lista errava nos dois
+sentidos ao mesmo tempo:
+
+    fora do inventário, com dado do titular    no inventário, inexistentes
+    ────────────────────────────────────────   ─────────────────────────────
+    auth_tokens               2851 linhas      daily_digest_log
+    rejected_transactions      200 linhas      notification_delivery_log
+    shadow_invoices              4 linhas      push_subscriptions
+    user_subscriptions           3 linhas      user_settings
+    architect_simulation_feedback              bank_fee_trends (sem user_id)
+    pluggy_sync_jobs
+
+`rejected_transactions` guarda descrição e valor de transações recusadas pelo
+ETL — dado financeiro pessoal sobrevivendo ao art. 18 VI. Um contrato de
+eliminação não pode depender de alguém lembrar.
 
 Design:
-  - Export: SELECT * das tabelas do inventário → dict {tabela: [linhas]}.
-  - Eliminação: DELETE por user_id em cada tabela, na ordem do inventário,
-    e por fim o próprio registro em users. Cada tabela falha isolada
-    (tabela pode não existir em um ambiente) sem abortar o processo — o
-    resultado reporta o que foi apagado.
-  - Sem soft-delete: eliminação LGPD é eliminação. O que precisa
-    sobreviver por obrigação legal (trilha de auditoria) não contém PII
-    em claro (emails são mascarados desde a auditoria 2026-07).
+  - **Descoberta**: toda tabela com coluna `user_id` entra, via
+    `sqlalchemy.inspect` (funciona em Postgres e SQLite). O que NÃO deve ser
+    apagado fica numa allowlist explícita e curta, com o motivo escrito.
+  - **Ordem**: `_ORDEM_PREFERIDA` resolve dependências conhecidas e `users`
+    vai por último; o resto vem depois, em ordem alfabética. Violação de FK
+    não é falha silenciosa — a tabela volta para uma segunda passada.
+  - Export: SELECT * das tabelas descobertas → dict {tabela: [linhas]}.
+  - Cada tabela falha isolada (ambiente sem alguma tabela) sem abortar o
+    processo — o resultado reporta o que foi apagado e o que ficou.
+  - Sem soft-delete: eliminação LGPD é eliminação. O que precisa sobreviver
+    por obrigação legal (trilha de auditoria) não contém PII em claro
+    (emails são mascarados desde a auditoria 2026-07).
 """
 
 from __future__ import annotations
@@ -24,32 +43,83 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
-# Inventário: (tabela, coluna de chave do titular)
-# users por último — apagar a conta só depois dos dados dependentes.
-_DATA_INVENTORY: list[tuple[str, str]] = [
-    ("transactions_clean",        "user_id"),
-    ("context_overrides",         "user_id"),
-    ("account_balances",          "user_id"),
-    ("pluggy_items",              "user_id"),
-    ("financial_goals",           "user_id"),
-    ("health_score_history",      "user_id"),
-    ("user_badges",               "user_id"),
-    ("user_challenges",           "user_id"),
-    ("user_settings",             "user_id"),
-    ("negotiation_history",       "user_id"),
-    ("opportunity_snapshots",     "user_id"),
-    ("bank_fee_history",          "user_id"),
-    ("bank_fee_trends",           "user_id"),
-    ("notification_delivery_log", "user_id"),
-    ("daily_digest_log",          "user_id"),
-    ("push_subscriptions",        "user_id"),
-    ("chat_messages",             "user_id"),
-    ("architect_simulations",     "user_id"),
-    ("architect_simulation_metrics", "user_id"),
-    ("optimization_reports",      "user_id"),
-    ("recommendation_feedback",   "user_id"),
-    ("users",                     "user_id"),
-]
+# Tabelas que têm `user_id` e NÃO devem ser apagadas. Curta de propósito: cada
+# entrada é uma exceção ao contrato de eliminação e precisa de motivo escrito.
+_NAO_APAGAR: dict[str, str] = {
+    # (vazia hoje — nenhuma tabela com user_id precisa sobreviver à eliminação;
+    #  a trilha de auditoria não guarda user_id em claro)
+}
+
+# Ordem para as tabelas conhecidas: dependentes antes das referenciadas.
+# O que não estiver aqui entra depois, em ordem alfabética, e uma segunda
+# passada resolve o que tiver falhado por chave estrangeira.
+_ORDEM_PREFERIDA: tuple[str, ...] = (
+    "transactions_clean",
+    "rejected_transactions",
+    "context_overrides",
+    "account_balances",
+    "shadow_invoices",
+    "pluggy_sync_jobs",
+    "pluggy_items",
+    "financial_goals",
+    "health_score_history",
+    "user_badges",
+    "user_challenges",
+    "negotiation_history",
+    "opportunity_snapshots",
+    "bank_fee_history",
+    "chat_messages",
+    "architect_simulation_feedback",
+    "architect_simulation_metrics",
+    "architect_simulations",
+    "optimization_reports",
+    "recommendation_feedback",
+    "auth_tokens",
+    "user_subscriptions",
+)
+
+_COLUNA_DO_TITULAR = "user_id"
+
+
+def inventario_de_dados() -> list[tuple[str, str]]:
+    """
+    `[(tabela, coluna)]` de tudo que guarda dado do titular, descoberto do banco.
+
+    É o contrato de portabilidade E de eliminação. Descobrir em vez de manter à
+    mão é o ponto: a lista escrita à mão errava nos dois sentidos (ver o
+    docstring do módulo).
+
+    `users` sai por último — apagar a conta só depois dos dados dependentes.
+    """
+    from sqlalchemy import inspect
+
+    from app.core.database import engine
+
+    try:
+        inspetor = inspect(engine)
+        tabelas = set(inspetor.get_table_names())
+    except Exception as exc:
+        logger.error("[Privacy] não foi possível inspecionar o banco: %s", exc)
+        return []
+
+    com_titular = set()
+    for tabela in tabelas:
+        if tabela in _NAO_APAGAR:
+            continue
+        try:
+            colunas = {c["name"] for c in inspetor.get_columns(tabela)}
+        except Exception:
+            continue
+        if _COLUNA_DO_TITULAR in colunas:
+            com_titular.add(tabela)
+
+    conhecidas = [t for t in _ORDEM_PREFERIDA if t in com_titular]
+    resto = sorted(com_titular - set(conhecidas) - {"users"})
+    ordenadas = conhecidas + resto
+    if "users" in com_titular:
+        ordenadas.append("users")
+
+    return [(t, _COLUNA_DO_TITULAR) for t in ordenadas]
 
 
 @dataclass
@@ -85,10 +155,10 @@ def export_user_data(user_id: str) -> dict:
     }
 
     with SessionLocal() as db:
-        for table, key_col in _DATA_INVENTORY:
+        for table, key_col in inventario_de_dados():
             try:
                 rows = db.execute(
-                    text(f"SELECT * FROM {table} WHERE {key_col} = :uid"),  # noqa: S608 — tabela/coluna vêm do inventário estático
+                    text(f"SELECT * FROM {table} WHERE {key_col} = :uid"),  # noqa: S608 — nome vem do inspetor do banco
                     {"uid": user_id},
                 )
                 columns = list(rows.keys())
@@ -122,11 +192,11 @@ def erase_user_data(user_id: str) -> ErasureResult:
 
     result = ErasureResult(user_id=user_id)
 
-    for table, key_col in _DATA_INVENTORY:
+    def _apagar(table: str, key_col: str) -> tuple[bool, Exception | None]:
         try:
             with SessionLocal() as db:
                 res = db.execute(
-                    text(f"DELETE FROM {table} WHERE {key_col} = :uid"),  # noqa: S608 — inventário estático
+                    text(f"DELETE FROM {table} WHERE {key_col} = :uid"),  # noqa: S608 — nome vem do inspetor do banco
                     {"uid": user_id},
                 )
                 db.commit()
@@ -135,9 +205,36 @@ def erase_user_data(user_id: str) -> ErasureResult:
             result.rows_deleted += deleted
             if deleted:
                 result.tables_purged += 1
+            return True, None
         except Exception as exc:
-            logger.debug("[Privacy] erase %s indisponível: %s", table, exc)
-            result.skipped.append(table)
+            return False, exc
+
+    # Primeira passada, na ordem preferida.
+    pendentes: list[tuple[str, str, Exception]] = []
+    for table, key_col in inventario_de_dados():
+        ok, exc = _apagar(table, key_col)
+        if not ok:
+            pendentes.append((table, key_col, exc))
+
+    # Segunda passada: o que falhou pode ter falhado por chave estrangeira de
+    # uma tabela que só foi apagada depois. Repetir enquanto houver progresso é
+    # a diferença entre resolver a ordem e desistir em silêncio.
+    while pendentes:
+        restantes: list[tuple[str, str, Exception]] = []
+        for table, key_col, exc in pendentes:
+            ok, novo_exc = _apagar(table, key_col)
+            if not ok:
+                restantes.append((table, key_col, novo_exc))
+        if len(restantes) == len(pendentes):
+            break
+        pendentes = restantes
+
+    for table, _key, exc in pendentes:
+        # Nível ERROR, não debug: aqui sobrou dado do titular. A tabela pode
+        # simplesmente não existir neste ambiente — e é por isso que o motivo
+        # vai junto, em vez de um "indisponível" genérico.
+        logger.error("[Privacy] erase NÃO concluído em %s: %s", table, exc)
+        result.skipped.append(table)
 
     # Estado derivado fora do banco relacional: dedup de notificações (DuckDB)
     try:
