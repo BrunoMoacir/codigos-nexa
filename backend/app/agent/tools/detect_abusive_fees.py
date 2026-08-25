@@ -49,12 +49,15 @@ def detect_abusive_fees(user_id: str) -> str:
     }
 
     abusive_entries = [
-        fee for fee in report.entries
+        fee for fee in report.fees_detected
         if fee.fee_type.value in ABUSIVE_TYPES
     ]
 
     # ── Tarifas novas (apareceram sem histórico) ─────────────────────
-    new_fees = BankFeeAnalyzer.detect_new_fees(user_id, report.entries)
+    # `BankCostReport` não tem `.entries` — a lista de tarifas individuais
+    # chama-se `fees_detected` (ver app/costs/models.py). O AttributeError
+    # subia da tool para o agente: D1 e D2 nunca produziram um achado.
+    new_fees = BankFeeAnalyzer.detect_new_fees(user_id, report.fees_detected)
     new_fee_keys = {(f.bank_name, f.fee_type.value) for f in new_fees}
 
     lines = ["=== DETECTOR DE TARIFAS ABUSIVAS (D1) ===", ""]

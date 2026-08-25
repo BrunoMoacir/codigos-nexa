@@ -42,8 +42,31 @@ def _prod_mode_env():
         else:
             os.environ[key] = value
 
+# Marcadores de que a tool caiu no próprio `except` — "len(result) > 50" e
+# `any(kw in result)` com "Dados insuficientes" na lista aceitavam qualquer um
+# deles. Ver tests/agent/test_agente_producao.py para a versão com extrato real.
+_MARCAS_DE_FALHA = (
+    "não consegui acessar",
+    "não consegui carregar",
+    "não foi possível",
+    "erro ao",
+    "traceback",
+    "attributeerror",
+    "typeerror",
+    "keyerror",
+)
+
+
+def _sem_marca_de_falha(resultado: str, tool: str) -> str:
+    baixo = resultado.lower()
+    achadas = [m for m in _MARCAS_DE_FALHA if m in baixo]
+    assert not achadas, f"{tool} devolveu texto de falha {achadas}: {resultado[:160]}"
+    return resultado
+
+
 def test_get_budget_advice_real():
     result = get_budget_advice.invoke({"user_id": USER_ID, "monthly_income": 10000.0})
+    _sem_marca_de_falha(result, "get_budget_advice")
     assert isinstance(result, str)
     assert len(result) > 50
     assert "Limite sugerido" in result or "Orçamento" in result or "R$" in result
@@ -54,14 +77,16 @@ def test_get_card_optimization_real():
         "monthly_income": 15000.0,
         "safe_to_spend": 5000.0
     })
+    _sem_marca_de_falha(result, "get_card_optimization")
     assert isinstance(result, str)
     assert len(result) > 50
 
 def test_get_financial_forecast_real():
     result = get_financial_forecast.invoke({"user_id": USER_ID})
+    _sem_marca_de_falha(result, "get_financial_forecast")
     assert isinstance(result, str)
     assert len(result) > 50
-    assert any(kw in result for kw in ["Burn Rate", "R$", "transações", "Dados insuficientes"])
+    assert any(kw in result for kw in ["Burn Rate", "R$", "transações"])
 
 def test_get_financing_simulation_real():
     result = get_financing_simulation.invoke({
@@ -70,27 +95,32 @@ def test_get_financing_simulation_real():
         "target_amount": 500000.0,
         "down_payment": 100000.0
     })
+    _sem_marca_de_falha(result, "get_financing_simulation")
     assert isinstance(result, str)
     assert len(result) > 50
 
 def test_get_fiscal_report_real():
     result = get_fiscal_report.invoke({"user_id": USER_ID})
+    _sem_marca_de_falha(result, "get_fiscal_report")
     assert isinstance(result, str)
     assert len(result) > 50
     # Usually contains something about PJ or Simples Nacional or something
     
 def test_get_goals_summary_real():
     result = get_goals_summary.invoke({"user_id": USER_ID})
+    _sem_marca_de_falha(result, "get_goals_summary")
     assert isinstance(result, str)
     assert len(result) > 50
 
 def test_get_peer_comparison_real():
     result = get_peer_comparison.invoke({"user_id": USER_ID, "monthly_income": 15000.0})
+    _sem_marca_de_falha(result, "get_peer_comparison")
     assert isinstance(result, str)
     assert len(result) > 50
 
 def test_get_spending_alerts_real():
     result = get_spending_alerts.invoke({"user_id": USER_ID})
+    _sem_marca_de_falha(result, "get_spending_alerts")
     assert isinstance(result, str)
     assert len(result) > 50
 
@@ -104,6 +134,7 @@ def test_get_timing_scenarios_real():
         "asset_type": "IMOVEL",
         "financing_months": 120,
     })
+    _sem_marca_de_falha(result, "get_timing_scenarios")
     assert isinstance(result, str)
     assert len(result) > 50
     assert any(kw in result for kw in ["Timing", "meses", "Comprar", "R$", "Esperar", "Dados insuficientes"])
@@ -116,6 +147,7 @@ def test_get_leverage_simulation_real():
         "monthly_rent": 1800.0,
         "consortium_months": 180,
     })
+    _sem_marca_de_falha(result, "get_leverage_simulation")
     assert isinstance(result, str)
     assert len(result) > 50
     assert any(kw in result for kw in ["Alavancagem", "VIÁVEL", "NÃO VIÁVEL", "consórcio", "R$", "Dados insuficientes"])
@@ -129,6 +161,7 @@ def test_get_purchase_recommendation_real():
         "installments": 10,
         "monthly_income": 8000.0,
     })
+    _sem_marca_de_falha(result, "get_purchase_recommendation")
     assert isinstance(result, str)
     assert len(result) > 50
     assert any(kw in result for kw in ["ANÁLISE DE COMPRA", "Recomendação", "opção", "R$", "Não foi possível"])
@@ -136,6 +169,7 @@ def test_get_purchase_recommendation_real():
 
 def test_get_bank_cost_analysis_real():
     result = get_bank_cost_analysis.invoke({"user_id": USER_ID})
+    _sem_marca_de_falha(result, "get_bank_cost_analysis")
     assert isinstance(result, str)
     assert len(result) > 50
     assert any(kw in result for kw in ["CUSTOS BANCÁRIOS", "tarifa", "banco", "R$", "Não encontrei histórico"])
@@ -143,6 +177,7 @@ def test_get_bank_cost_analysis_real():
 
 def test_get_negotiation_script_real():
     result = get_negotiation_script.invoke({"user_id": USER_ID})
+    _sem_marca_de_falha(result, "get_negotiation_script")
     assert isinstance(result, str)
     assert len(result) > 50
     assert any(kw in result for kw in ["ROTEIRO", "banco", "oportunidade", "Score", "Não detectei", "Não encontrei"])

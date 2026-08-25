@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 @tool
 def get_budget_advice(
     user_id: str,
-    monthly_income: float,
+    monthly_income: Optional[float] = None,
 ) -> str:
     """
     Gera um plano de orçamento personalizado baseado na regra 50/30/20.
@@ -28,13 +28,26 @@ def get_budget_advice(
 
     Args:
         user_id: ID do usuário (obrigatório).
-        monthly_income: Renda mensal do usuário em reais (obrigatório).
+        monthly_income: Renda mensal em reais. OPCIONAL — informe apenas se o
+            usuário declarou um valor. Deixe em branco para a Nexa estimar a
+            renda pelo extrato (IncomeProfiler). NUNCA invente um valor.
     """
-    logger.info("[Tool] get_budget_advice para %s, renda=R$%.0f", user_id, monthly_income)
+    # `monthly_income` era OBRIGATÓRIO, e o fallback do IncomeProfiler logo
+    # abaixo está atrás de `if not monthly_income` — ou seja, era inalcançável:
+    # o modelo tinha de mandar algum número, e o prompt nunca disse para mandar
+    # zero. Na prática, o plano 50/30/20 saía sobre uma renda que o LLM
+    # escolheu, com o rótulo "baseada nos seus gastos reais" em cima.
+    logger.info(
+        "[Tool] get_budget_advice para %s, renda declarada=%s",
+        user_id, f"R${monthly_income:.0f}" if monthly_income else "não informada",
+    )
+    renda_declarada = bool(monthly_income and monthly_income > 0)
     try:
         from app.budget.budget_advisor import BudgetAdvisor
         from app.runner import get_runner
         import polars as pl
+
+        renda_estimada = False
 
         # Buscar transações REAIS do DuckDB
         transactions_df = pl.DataFrame()
@@ -46,11 +59,20 @@ def get_budget_advice(
 
             # Tentar pegar renda real do perfil se não foi informada
             income_profile = result.get("analysis", {}).get("income_profile")
-            if not monthly_income and income_profile and income_profile.confidence >= 0.5:
+            if not renda_declarada and income_profile and income_profile.confidence >= 0.5:
                 monthly_income = income_profile.monthly_net_income
+                renda_estimada = True
                 logger.info("[Tool] Renda estimada pelo IncomeProfiler: R$ %.0f", monthly_income)
         else:
             logger.warning("[Tool] Sem dados no DuckDB para user=%s", user_id)
+
+        if not monthly_income or monthly_income <= 0:
+            return (
+                "FALHA: não há renda para montar o 50/30/20 — o usuário não "
+                "declarou nenhuma e o extrato não permitiu estimar com "
+                "confiança. PERGUNTE a renda mensal líquida ao usuário e chame "
+                "de novo. Não invente um valor."
+            )
 
         advisor = BudgetAdvisor()
         suggestion = advisor.suggest(
@@ -58,11 +80,23 @@ def get_budget_advice(
             monthly_income=monthly_income,
         )
 
-        data_source = "💾 *Análise baseada nos seus gastos reais*" if not transactions_df.is_empty() else "📊 *Análise teórica (sem transações conectadas)*"
+        # O rótulo dizia respeito só às TRANSAÇÕES: com gastos reais e uma renda
+        # que o modelo informou, saía "baseada nos seus gastos reais" — e a
+        # renda, que define todos os limites, podia ser um chute. Agora as duas
+        # procedências aparecem separadas.
+        origem_gastos = (
+            "gastos reais do seu extrato" if not transactions_df.is_empty()
+            else "sem transações conectadas (análise teórica)"
+        )
+        origem_renda = (
+            "renda informada por você" if renda_declarada
+            else "renda estimada pelo seu extrato" if renda_estimada
+            else "renda não confirmada"
+        )
 
         lines = [
             f"📋 **Plano de Orçamento 50/30/20 — Renda: R$ {monthly_income:,.0f}/mês**",
-            data_source,
+            f"💾 *Base: {origem_gastos} · {origem_renda}*",
             "",
         ]
 
@@ -73,26 +107,36 @@ def get_budget_advice(
             "poupanca": "💰 Poupança / Investimentos (20%)",
         }
 
+        # Os nomes abaixo eram SEIS invenções — `on_track`, `actual_spent`,
+        # `recommended_limit`, `pct_of_income`, `suggested_cuts`,
+        # `suggested_limit`/`current_spending`/`potential_saving`. O
+        # `AttributeError` no primeiro deles caía no `except` da tool, que
+        # devolvia o 50/30/20 genérico. Resultado: a análise dos gastos reais
+        # prometida no docstring NUNCA chegou ao usuário — a tool sempre
+        # respondeu com o template. Os nomes reais estão em
+        # `app/budget/budget_advisor.py` (GroupSummary, BudgetCut).
+        icone_por_status = {"WITHIN": "✅", "OVER": "⚠️", "UNDER": "🔽"}
+
         for g in suggestion.group_summary:
-            label  = group_labels.get(g.group, g.group)
-            status = "✅" if g.on_track else "⚠️"
+            label = group_labels.get(g.group, g.group)
+            icone = icone_por_status.get(g.status, "•")
             lines.append(
-                f"{status} {label}: "
-                f"R$ {g.actual_spent:,.0f} gastos / "
-                f"R$ {g.recommended_limit:,.0f} recomendado "
-                f"({g.pct_of_income:.0%} da renda)"
+                f"{icone} {label}: "
+                f"R$ {g.current_amount:,.0f} gastos / "
+                f"R$ {g.suggested_amount:,.0f} recomendado "
+                f"({g.current_pct:.0%} da renda)"
             )
 
         lines.append("")
 
         # Cortes sugeridos
-        if suggestion.suggested_cuts:
+        if suggestion.actionable_cuts:
             lines.append("✂️ **Onde reduzir:**")
-            for cut in suggestion.suggested_cuts[:3]:
+            for cut in suggestion.actionable_cuts[:3]:
                 lines.append(
-                    f"   • {cut.category}: gastar R$ {cut.suggested_limit:,.0f} "
-                    f"ao invés de R$ {cut.current_spending:,.0f} "
-                    f"(economia: R$ {cut.potential_saving:,.0f}/mês)"
+                    f"   • {cut.category}: gastar R$ {cut.suggested:,.0f} "
+                    f"ao invés de R$ {cut.current:,.0f} "
+                    f"(economia: R$ {cut.saving:,.0f}/mês)"
                 )
             lines.append("")
 
@@ -102,6 +146,11 @@ def get_budget_advice(
 
     except Exception as e:
         logger.error("[Tool] get_budget_advice erro: %s", e, exc_info=True)
+        if not monthly_income or monthly_income <= 0:
+            return (
+                "FALHA: não consegui montar o orçamento e não tenho renda para "
+                "o plano genérico. PERGUNTE a renda mensal líquida ao usuário."
+            )
         essenciais = monthly_income * 0.50
         desejos    = monthly_income * 0.30
         poupanca   = monthly_income * 0.20

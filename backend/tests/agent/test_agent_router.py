@@ -134,32 +134,11 @@ def test_delete_history_returns_count():
     assert "deleted_count" in data
 
 
-# ── Inventário de ferramentas (F11 — 14 tools) ───────────────────────────────
-
-def test_all_14_agent_tools_importable():
-    """Todas as 14 ferramentas do agente devem ser importáveis e ter método invoke."""
-    from app.agent.tools.get_bank_cost_analysis import get_bank_cost_analysis
-    from app.agent.tools.get_budget_advice import get_budget_advice
-    from app.agent.tools.get_card_optimization import get_card_optimization
-    from app.agent.tools.get_financial_forecast import get_financial_forecast
-    from app.agent.tools.get_financing_simulation import get_financing_simulation
-    from app.agent.tools.get_fiscal_report import get_fiscal_report
-    from app.agent.tools.get_goals_summary import get_goals_summary
-    from app.agent.tools.get_leverage_simulation import get_leverage_simulation
-    from app.agent.tools.get_negotiation_script import get_negotiation_script
-    from app.agent.tools.get_peer_comparison import get_peer_comparison
-    from app.agent.tools.get_purchase_recommendation import get_purchase_recommendation
-    from app.agent.tools.get_spending_alerts import get_spending_alerts
-    from app.agent.tools.get_timing_scenarios import get_timing_scenarios
-    from app.agent.tools.get_user_profile_context import get_user_profile_context
-
-    tools = [
-        get_bank_cost_analysis, get_budget_advice, get_card_optimization,
-        get_financial_forecast, get_financing_simulation, get_fiscal_report,
-        get_goals_summary, get_leverage_simulation, get_negotiation_script,
-        get_peer_comparison, get_purchase_recommendation, get_spending_alerts,
-        get_timing_scenarios, get_user_profile_context,
-    ]
-    assert len(tools) == 14
-    for tool in tools:
-        assert hasattr(tool, "invoke"), f"Ferramenta {tool} não tem método invoke"
+# ── Inventário de ferramentas ────────────────────────────────────────────────
+# O teste que existia aqui escrevia 14 imports à mão e afirmava
+# `assert len(tools) == 14` sobre a própria lista — tautologia, com o número
+# parado em 14 enquanto o registro chegava a 31, e sem nunca olhar
+# `AGENT_TOOLS`. Dava para apagar uma tool do registro, sumir do agente, e ele
+# passava. Substituído por `TestRegistroDeFerramentas` em
+# tests/agent/test_agente_producao.py, que confere o registro contra os
+# arquivos em disco.

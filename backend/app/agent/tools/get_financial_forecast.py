@@ -15,6 +15,20 @@ import polars as pl
 logger = logging.getLogger(__name__)
 
 
+def _primeiro_df_nao_vazio(*candidatos) -> pl.DataFrame:
+    """
+    Primeiro DataFrame não-nulo e não-vazio, ou um DataFrame vazio.
+
+    Existe para que ninguém volte a escrever `df_a or df_b`: em polars isso
+    levanta TypeError, e dentro de um `try/except` amplo o erro vira uma
+    mensagem genérica de indisponibilidade.
+    """
+    for candidato in candidatos:
+        if isinstance(candidato, pl.DataFrame) and not candidato.is_empty():
+            return candidato
+    return pl.DataFrame()
+
+
 @tool
 def get_financial_forecast(
     user_id: str,
@@ -61,12 +75,20 @@ def get_financial_forecast(
         analysis       = result.get("analysis", {})
         income_profile = analysis.get("income_profile")
 
-        # Extrai transactions_df do resultado — já está em memória, sem I/O extra
+        # Extrai transactions_df do resultado — já está em memória, sem I/O extra.
+        #
+        # NÃO usar `a or b` aqui: `or` chama __bool__ e polars levanta
+        # "the truth value of a DataFrame is ambiguous". O except desta tool
+        # engolia o TypeError e devolvia "Não consegui acessar os dados
+        # financeiros agora" para TODO usuário que tivesse transações — o
+        # pipeline rodava inteiro e completo (safe-to-spend, burn rate,
+        # cashflow) e o resultado morria nesta linha. A tool só funcionava
+        # para quem NÃO tinha dados, porque aí os `.get()` devolvem None e o
+        # `or` nunca tocava um DataFrame.
         txns_data      = result.get("transactions", {})
-        transactions_df: pl.DataFrame = (
-            txns_data.get("pf_pj_classified_df")
-            or txns_data.get("clean_df")
-            or pl.DataFrame()
+        transactions_df: pl.DataFrame = _primeiro_df_nao_vazio(
+            txns_data.get("pf_pj_classified_df"),
+            txns_data.get("clean_df"),
         )
 
         lines = ["📊 **Diagnóstico Financeiro Nexa**", ""]

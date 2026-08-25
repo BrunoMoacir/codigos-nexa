@@ -60,6 +60,13 @@ class ErasureResult:
     rows_deleted: int = 0
     details: dict[str, int] = field(default_factory=dict)
     skipped: list[str] = field(default_factory=list)
+    # Threads do checkpointer do agente esquecidos. `chat_messages` guarda o
+    # texto que a UI mostra; o checkpointer guarda a conversa que o LLM relê —
+    # perguntas do titular MAIS todo resultado de ferramenta (renda, saldo,
+    # tarifas, dívidas). Apagar as 22 tabelas e deixar isso de pé não é
+    # eliminação. Ver app/agent/memoria.py.
+    agent_threads_cleared: int = 0
+    agent_memory_error: str | None = None
 
 
 def export_user_data(user_id: str) -> dict:
@@ -111,6 +118,8 @@ def erase_user_data(user_id: str) -> ErasureResult:
     from app.core.database import SessionLocal
     from sqlalchemy import text
 
+    from app.agent.memoria import esquecer_conversas
+
     result = ErasureResult(user_id=user_id)
 
     for table, key_col in _DATA_INVENTORY:
@@ -142,10 +151,25 @@ def erase_user_data(user_id: str) -> ErasureResult:
     except Exception as exc:
         logger.debug("[Privacy] erase notification_state indisponível: %s", exc)
 
+    # Estado do agente conversacional (checkpointer do LangGraph). Fica fora do
+    # Postgres e guarda a cópia mais rica dos dados do titular: as perguntas
+    # dele e o retorno de cada ferramenta chamada na conversa.
+    memoria = esquecer_conversas(user_id)
+    result.agent_threads_cleared = memoria["apagados"]
+    result.agent_memory_error = memoria["erro"]
+    if memoria["erro"]:
+        # Diferente das tabelas ausentes (debug): aqui sobrou dado pessoal.
+        logger.error(
+            "[Privacy] Memória do agente NÃO eliminada para user=%s: %s",
+            user_id, memoria["erro"],
+        )
+
     result.erased_at = datetime.now(timezone.utc).isoformat()
     logger.info(
-        "[Privacy] Eliminação concluída user=%s: %d linhas em %d tabelas (skipped=%d)",
-        user_id, result.rows_deleted, result.tables_purged, len(result.skipped),
+        "[Privacy] Eliminação concluída user=%s: %d linhas em %d tabelas "
+        "(skipped=%d, threads do agente=%d)",
+        user_id, result.rows_deleted, result.tables_purged,
+        len(result.skipped), result.agent_threads_cleared,
     )
     return result
 

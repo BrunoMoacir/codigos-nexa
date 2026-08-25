@@ -12,7 +12,6 @@ from fastapi import APIRouter
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 from app.api.v1.routes import bank_simulation
-from app.api.v1.routes import analyze
 from app.api.v1.routes import auth
 from app.api.v1.routes import pluggy
 from app.api.v1.routes import reconnect
@@ -110,7 +109,6 @@ router = APIRouter()
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 router.include_router(bank_simulation.router)
-router.include_router(analyze.router)
 router.include_router(auth.router)
 router.include_router(pluggy.router, prefix="/pluggy", tags=["Pluggy Analytics"])
 router.include_router(reconnect.router)

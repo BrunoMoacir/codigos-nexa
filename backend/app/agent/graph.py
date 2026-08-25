@@ -37,9 +37,10 @@ Ferramentas disponíveis:
 """
 import inspect
 import logging
-from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 from app.core.config import settings
+from app.agent.identity import vincular_ao_usuario
 
 from app.agent.tools.get_user_profile_context import get_user_profile_context
 from app.agent.tools.get_card_optimization import get_card_optimization
@@ -144,13 +145,16 @@ USE QUANDO o usuário perguntar sobre:
 - "Qual minha saúde financeira / score?"
 - Qualquer pergunta geral sobre a situação financeira
 
-### `get_budget_advice(user_id, monthly_income)`
+### `get_budget_advice(user_id, monthly_income=None)`
 USE QUANDO o usuário perguntar sobre:
 - "Como está meu orçamento?"
 - "Estou gastando bem?" / "Posso gastar mais em X?"
 - "Como dividir meu salário?"
 - "Regra 50/30/20" ou planejamento de gastos
-- Se o usuário MENCIONAR uma renda (ex: "minha renda é R$ 8.500"), USE IMEDIATAMENTE esta tool.
+- Se o usuário MENCIONAR uma renda (ex: "minha renda é R$ 8.500"), passe em `monthly_income`.
+- Se NÃO mencionou, OMITA `monthly_income`: a Nexa estima a renda pelo extrato.
+  NUNCA invente um valor de renda para preencher o parâmetro — os três limites
+  do 50/30/20 saem dele, e um chute contamina o plano inteiro.
 
 ### `get_card_optimization(user_id, monthly_income=None, safe_to_spend=None, monthly_spend=None)`
 **FLUXO COM ESPECIALISTA:** Esta ferramenta retorna campos `[META]` no resultado:
@@ -431,6 +435,7 @@ Não encadeie mais do que o necessário: 2–3 ferramentas por resposta é o tet
 5. **Nunca exiba JSON ou dados brutos** — sempre converta para texto amigável.
 6. Se a ferramenta retornar dados insuficientes, proponha ações concretas (conectar banco, informar renda, etc.).
 7. **Se uma ferramenta falhar, admita** — diga o que não conseguiu consultar e ofereça o caminho alternativo. NUNCA invente números que a ferramenta não retornou: todo valor em R$ na sua resposta deve vir de uma ferramenta ou da mensagem do usuário.
+7b. **A regra acima vale também para o que você MANDA para a ferramenta.** Nenhum argumento numérico (renda, poupança mensal, valor de compra) pode ser estimado por você: ou o usuário disse, ou o parâmetro fica de fora e a Nexa deriva do extrato, ou você pergunta. Um argumento inventado produz um resultado que parece medido.
 8. **Formate dinheiro sempre como R$ 1.234,56** e taxas como "1,49% a.m." — padrão brasileiro.
 9. **Disclaimers obrigatórios (uma linha, sem juridiquês)**: comparações de investimento → "isso é análise educacional, não recomendação de investimento"; achados de defesa do consumidor (D1–D6) → fale em "indícios" e nunca prometa vitória ("você tem direito a R$ X" é proibido); direitos esquecidos → a Nexa nunca pede senha GOV.BR.
 10. **Respeite o tom do cluster SEMPRE** — especialmente ESTRESSE_FINANCEIRO: nessa situação, nenhuma resposta pode sugerir novo gasto, novo cartão ou novo produto pago.
@@ -522,33 +527,86 @@ def _build_llm():
     )
 
 
+# Qual checkpointer o processo está realmente usando. `build_financial_agent()`
+# preenche; `checkpointer_em_uso()` lê. Existe porque a diferença entre Redis e
+# MemorySaver é invisível em runtime e muda o produto: com MemorySaver a memória
+# da conversa é POR PROCESSO e morre no deploy.
+_CHECKPOINTER_EM_USO: str = "nao_inicializado"
+_MOTIVO_DO_FALLBACK: str | None = None
+
+
+def checkpointer_em_uso() -> tuple[str, str | None]:
+    """`("redis" | "memoria" | "nao_inicializado", motivo_do_fallback)`."""
+    return _CHECKPOINTER_EM_USO, _MOTIVO_DO_FALLBACK
+
+
+def _memory_saver(motivo: str):
+    """MemorySaver + registro do porquê, no nível de log que o ambiente merece."""
+    global _CHECKPOINTER_EM_USO, _MOTIVO_DO_FALLBACK
+    from langgraph.checkpoint.memory import MemorySaver
+
+    _CHECKPOINTER_EM_USO, _MOTIVO_DO_FALLBACK = "memoria", motivo
+    # Em produção isso NÃO é um detalhe: a memória do chat passa a ser por
+    # processo (com WEB_CONCURRENCY > 1 o usuário perde contexto entre turnos),
+    # some a cada deploy e cresce sem teto por thread_id.
+    nivel = logger.error if settings.APP_ENV == "production" else logger.warning
+    nivel(
+        "[Agent] Checkpointer em MEMÓRIA (%s). Sem persistência entre restarts, "
+        "por processo, e sem limite de crescimento por thread_id.",
+        motivo,
+    )
+    return MemorySaver()
+
+
 def _build_checkpointer():
     """
-    Tenta usar RedisSaver para persistência entre sessões.
-    Cai para MemorySaver se Redis não estiver disponível rapidamente.
+    RedisSaver para persistência entre sessões; MemorySaver como último recurso.
+
+    A cadeia distingue os três motivos de queda, porque exigem ações diferentes:
+      - pacote ausente  → bug de deploy (`langgraph-checkpoint-redis` está
+                          declarado em requirements.txt e pyproject.toml)
+      - Redis fora      → incidente de infraestrutura
+      - URL de exemplo  → configuração incompleta
+
+    Antes os três caíam no mesmo `except Exception` com um `logger.warning`
+    único no startup do singleton, e nada mais no sistema sabia a diferença.
     """
-    # Se estamos no ambiente de produção e o REDIS_URL é o padrão de docker-compose, não tente conectar, caia direto
+    global _CHECKPOINTER_EM_USO, _MOTIVO_DO_FALLBACK
+
     if settings.APP_ENV == "production" and "redis://redis:" in settings.REDIS_URL:
-        logger.warning("[Agent] REDIS_URL padrão detectado em produção. Usando MemorySaver.")
-        from langgraph.checkpoint.memory import MemorySaver
-        return MemorySaver()
+        return _memory_saver("REDIS_URL ainda é o padrão de docker-compose em produção")
 
     try:
         from langgraph.checkpoint.redis import RedisSaver
-        from redis import Redis
-        # Usamos timeout rápido para não travar a thread
-        conn = Redis.from_url(settings.REDIS_URL, socket_connect_timeout=2.0, socket_timeout=2.0)
-        conn.ping()  # Garante que a conexão existe antes de passar pro checkpointer
-        checkpointer = RedisSaver(conn)
-        logger.info("[Agent] Checkpointer: Redis conectado (%s)", settings.REDIS_URL)
-        return checkpointer
-    except Exception as e:
-        logger.warning(
-            "[Agent] Redis indisponível (%s) — usando MemorySaver (sem persistência entre restarts).",
-            e,
+    except ImportError as exc:
+        return _memory_saver(
+            f"pacote langgraph-checkpoint-redis ausente ({exc}) — está em "
+            f"requirements.txt e pyproject.toml, então o ambiente está incompleto"
         )
-        from langgraph.checkpoint.memory import MemorySaver
-        return MemorySaver()
+
+    try:
+        from redis import Redis
+
+        conn = Redis.from_url(
+            settings.REDIS_URL, socket_connect_timeout=2.0, socket_timeout=2.0
+        )
+        conn.ping()  # falha aqui = Redis fora, não erro de API do checkpointer
+    except Exception as exc:
+        return _memory_saver(f"Redis inacessível em {settings.REDIS_URL} ({exc})")
+
+    try:
+        checkpointer = RedisSaver(conn)
+        # Versões do langgraph-checkpoint-redis criam índices em setup(); em
+        # outras o método não existe. Chamar quando houver é barato e evita a
+        # falha só aparecer no primeiro invoke, já dentro da requisição.
+        if hasattr(checkpointer, "setup"):
+            checkpointer.setup()
+    except Exception as exc:
+        return _memory_saver(f"RedisSaver não pôde ser construído ({type(exc).__name__}: {exc})")
+
+    _CHECKPOINTER_EM_USO, _MOTIVO_DO_FALLBACK = "redis", None
+    logger.info("[Agent] Checkpointer: Redis (%s)", settings.REDIS_URL)
+    return checkpointer
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -560,16 +618,52 @@ def _build_checkpointer():
 _MAX_HISTORY_MESSAGES = 24
 
 
-def _trim_history(messages: list[BaseMessage], max_messages: int = _MAX_HISTORY_MESSAGES) -> list[BaseMessage]:
-    """Mantém as últimas `max_messages` mensagens, descartando ToolMessages
-    órfãs no início do corte (resultado de tool sem o AIMessage que a chamou
-    quebraria o contrato da API do LLM)."""
+def _trim_history(
+    messages: list[BaseMessage], max_messages: int = _MAX_HISTORY_MESSAGES
+) -> list[BaseMessage]:
+    """
+    Últimas `max_messages` mensagens, cortadas em FRONTEIRA DE TURNO.
+
+    A versão anterior descartava só `ToolMessage` órfãs no início do corte.
+    Isso resolve metade do problema: o que sobra pode começar com um
+    `AIMessage`, e a API da Anthropic — provedor padrão deste agente — exige
+    que a primeira mensagem tenha role "user". O `langchain-anthropic` repassa
+    a ordem sem reordenar nem injetar nada.
+
+    Medido em 4.000 sessões longas com turnos de tamanho realista (0 a 3 tool
+    calls, como o próprio system prompt instrui), a regra antiga entregava
+    `AIMessage` como primeira mensagem em **77,6%** dos casos. Com turnos
+    uniformes de 4 mensagens o corte sempre caía em `Human`, porque 24 é
+    divisível por 4 — o que escondia o problema em qualquer teste simétrico.
+
+    A regra nova: avança até o primeiro `HumanMessage` da janela. Isso garante
+    de uma vez que a conversa começa com "user" E que nenhuma `ToolMessage`
+    fica sem o `AIMessage` que a pediu — as tool calls de um turno vivem todas
+    depois do `Human` que as originou.
+    """
     if len(messages) <= max_messages:
         return list(messages)
-    trimmed = list(messages[-max_messages:])
-    while trimmed and isinstance(trimmed[0], ToolMessage):
-        trimmed.pop(0)
-    return trimmed
+
+    janela = list(messages[-max_messages:])
+
+    for i, msg in enumerate(janela):
+        if isinstance(msg, HumanMessage):
+            return janela[i:]
+
+    # Nenhum turno inteiro coube na janela (turno único muito longo). Recua até
+    # o último `Human` do histórico: passar do teto é melhor do que mandar uma
+    # conversa que o provedor recusa.
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], HumanMessage):
+            return list(messages[i:])
+
+    # Sem nenhum `Human` no histórico — não deveria acontecer, já que toda
+    # conversa começa por um. Devolve sem ToolMessage órfã e deixa o provedor
+    # decidir, em vez de mandar lista vazia.
+    sobra = janela
+    while sobra and isinstance(sobra[0], ToolMessage):
+        sobra = sobra[1:]
+    return sobra
 
 
 def _prepare_model_messages(state) -> list[BaseMessage]:
@@ -582,7 +676,11 @@ def build_financial_agent():
     """
     Constrói o agente LangGraph ReAct com todas as ferramentas financeiras disponíveis.
     """
-    tools = AGENT_TOOLS
+    # O `user_id` de toda tool passa a vir do usuário autenticado da
+    # requisição, não do argumento que o modelo escolheu. `AGENT_TOOLS` fica
+    # cru de propósito: é o registro que os evals reaproveitam, e chamar tool
+    # direto em teste não tem requisição para vincular.
+    tools = [vincular_ao_usuario(t) for t in AGENT_TOOLS]
 
     # 2. LLM — Claude (preferencial) ou OpenAI (fallback)
     llm = _build_llm()

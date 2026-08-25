@@ -44,12 +44,15 @@ def detect_wrongful_charges(user_id: str) -> str:
         return "Erro ao analisar cobranças. Tente novamente."
 
     # ── 1. Tarifas novas (sem histórico — apareceram pela primeira vez) ──
-    new_fees = BankFeeAnalyzer.detect_new_fees(user_id, report.entries)
+    # `BankCostReport` não tem `.entries` — a lista de tarifas individuais
+    # chama-se `fees_detected` (ver app/costs/models.py). O AttributeError
+    # subia da tool para o agente: D1 e D2 nunca produziram um achado.
+    new_fees = BankFeeAnalyzer.detect_new_fees(user_id, report.fees_detected)
 
     # ── 2. Duplicatas no mesmo mês (mesmo banco + mesmo fee_type, mais de 1x) ──
     from collections import Counter
     fee_count: Counter = Counter()
-    for entry in report.entries:
+    for entry in report.fees_detected:
         fee_count[(entry.bank_name, entry.fee_type.value)] += 1
     duplicates = [(bank, ftype, cnt) for (bank, ftype), cnt in fee_count.items() if cnt > 1]
 
