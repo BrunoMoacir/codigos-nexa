@@ -14,6 +14,7 @@ from slowapi.errors import RateLimitExceeded
 from app.api.v1.router import router as api_router
 from app.api.v1.routes.dashboard import router as dashboard_router
 from app.core.config import settings
+from app.core.observabilidade import iniciar_observabilidade
 from app.core.database import Base, engine
 from app.core import audit
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,6 +40,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+iniciar_observabilidade()
 logger.info("Starting Nexa API")
 logger.info("APP_ENV: %s", os.getenv("APP_ENV", "not set"))
 logger.info("DATABASE_URL configured: %s", bool(os.getenv("DATABASE_URL")))

@@ -155,6 +155,14 @@ class Settings(BaseSettings):
     VAPID_PRIVATE_KEY: str = ""
     VAPID_CLAIMS_EMAIL: str = "mailto:noreply@nexa.app"
 
+    # ── Observabilidade ───────────────────────────────────────────────────
+    # Vazio = desligado. O SDK já estava instalado e nunca era inicializado:
+    # o audit registrava eventos de negócio, mas erro de produção não alertava
+    # ninguém. `send_default_pii=False` é o padrão e fica explícito: os dados
+    # deste produto são extrato bancário, não podem ir para telemetria.
+    SENTRY_DSN: str = ""
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.0
+
     @model_validator(mode="after")
     def _validate_production_secrets(self) -> "Settings":
         if self.APP_ENV == "production":

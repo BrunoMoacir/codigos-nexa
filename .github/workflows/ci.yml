@@ -105,7 +105,13 @@ jobs:
             --ignore-vuln PYSEC-2026-2556 \
             --ignore-vuln CVE-2024-8309 \
             --ignore-vuln CVE-2024-7774 \
-            --ignore-vuln PYSEC-2026-76
+            --ignore-vuln PYSEC-2026-76 \
+            --ignore-vuln PYSEC-2026-1325
+      # PYSEC-2026-1325 (ecdsa): pip-audit não lista versão de correção — é
+      # limitação conhecida de implementação em Python puro. O `ecdsa` entra
+      # por `python-jose`, e este projeto assina com **HS256 (HMAC)**: o
+      # caminho ECDSA nunca é exercitado. Reavaliar se ALGORITHM mudar para
+      # ES256/ES384 em app/core/security.py.
 
       # O passo acima audita só os pins DIRETOS (`--no-deps`). A árvore
       # RESOLVIDA tinha 156 CVEs em 33 pacotes quando isto foi medido

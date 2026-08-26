@@ -320,3 +320,127 @@ class TestCatracaDeVulnerabilidades:
                   / "scripts" / "audit_arvore_completa.py").read_text(encoding="utf-8")
         assert "--atualizar-base" in script
         assert "sys.exit(1)" in script, "catraca que não reprova não é catraca"
+
+
+# ── 4. Encerrar todas as sessões ───────────────────────────────────────────
+
+class TestLogoutAll:
+    """
+    `/auth/logout-all` usa o MESMO corte do reset de senha, sem exigir troca:
+    quem perdeu o celular não precisa mudar a senha para expulsar o aparelho.
+
+    Duas coisas que o `/logout` comum não faz: alcança o refresh (14 dias
+    contra 30 min do access) e não tem fail-open — a blacklist por `jti`
+    depende do Redis e aceita tokens revogados enquanto ele estiver fora.
+    """
+
+    @pytest.fixture
+    def cliente(self):
+        from fastapi.testclient import TestClient
+
+        from app.main import app
+
+        return TestClient(app, raise_server_exceptions=False)
+
+    @pytest.fixture
+    def dois_aparelhos(self, cliente):
+        email = f"todos_{uuid.uuid4().hex[:8]}@nexa.test"
+        senha = "SenhaForte@2024"
+        resp = cliente.post(f"{BASE}/auth/register", json={"email": email, "password": senha})
+        if resp.status_code != 201:
+            pytest.skip(f"registro indisponível ({resp.status_code})")
+        login_throttle.limpar(email)
+        entrar = lambda: cliente.post(  # noqa: E731
+            f"{BASE}/auth/token", data={"username": email, "password": senha}
+        ).json()
+        return {"user_id": resp.json()["user_id"], "a": entrar(), "b": entrar()}
+
+    def test_derruba_o_outro_aparelho_tambem(self, cliente, dois_aparelhos):
+        uid = dois_aparelhos["user_id"]
+        ha = {"Authorization": f"Bearer {dois_aparelhos['a']['access_token']}"}
+        hb = {"Authorization": f"Bearer {dois_aparelhos['b']['access_token']}"}
+
+        assert cliente.get(f"{BASE}/transactions/{uid}", headers=hb).status_code != 401
+
+        time.sleep(1.1)   # `iat` tem granularidade de segundo
+        assert cliente.post(f"{BASE}/auth/logout-all", headers=ha).status_code == 204
+
+        assert cliente.get(f"{BASE}/transactions/{uid}", headers=ha).status_code == 401
+        assert cliente.get(f"{BASE}/transactions/{uid}", headers=hb).status_code == 401, (
+            "o outro aparelho continuou dentro"
+        )
+
+    def test_derruba_o_refresh_do_outro_aparelho(self, cliente, dois_aparelhos):
+        """A metade que importa: sem isso, B volta no próximo refresh."""
+        ha = {"Authorization": f"Bearer {dois_aparelhos['a']['access_token']}"}
+        refresh_b = {"refresh_token": dois_aparelhos["b"]["refresh_token"]}
+
+        time.sleep(1.1)
+        assert cliente.post(f"{BASE}/auth/logout-all", headers=ha).status_code == 204
+        assert cliente.post(f"{BASE}/auth/refresh", json=refresh_b).status_code == 401
+
+    def test_exige_autenticacao(self, cliente):
+        assert cliente.post(f"{BASE}/auth/logout-all").status_code == 401
+
+
+# ── 5. Observabilidade sem vazar extrato ───────────────────────────────────
+
+class TestObservabilidade:
+    """
+    O `sentry-sdk` estava instalado e nunca era inicializado. Ligar telemetria
+    num produto que processa extrato bancário exige que o que sai seja
+    controlado — senão a captura de erro vira o vazamento.
+    """
+
+    def test_desligado_sem_dsn(self):
+        from app.core.observabilidade import iniciar_observabilidade
+
+        assert iniciar_observabilidade() is False
+
+    @pytest.mark.parametrize("campo", [
+        "password", "senha", "token", "access_token", "refresh_token",
+        "authorization", "secret", "api_key", "cpf", "hashed_password", "email",
+    ])
+    def test_campo_sensivel_nao_sai(self, campo):
+        from app.core.observabilidade import _limpar
+
+        limpo = _limpar({"request": {"data": {campo: "valor-secreto"}}}, None)
+        assert limpo["request"]["data"][campo] == "[removido]"
+
+    def test_o_prefixo_do_agente_e_removido_de_texto_livre(self):
+        from app.core.observabilidade import _limpar
+
+        limpo = _limpar({"message": "[user_id=abc123] falhou ao consultar"}, None)
+        assert "abc123" not in limpo["message"]
+
+    def test_dado_util_sobrevive(self):
+        """Scrub que apaga tudo não é observabilidade."""
+        from app.core.observabilidade import _limpar
+
+        limpo = _limpar({"request": {"data": {"amount": 100, "status": "erro"}}}, None)
+        assert limpo["request"]["data"] == {"amount": 100, "status": "erro"}
+
+    def test_limpeza_aninhada(self):
+        from app.core.observabilidade import _limpar
+
+        limpo = _limpar({"a": [{"b": {"password": "x", "ok": 1}}]}, None)
+        assert limpo["a"][0]["b"]["password"] == "[removido]"
+        assert limpo["a"][0]["b"]["ok"] == 1
+
+    def test_falha_na_limpeza_descarta_o_evento(self):
+        """Na dúvida, não envia."""
+        from app.core.observabilidade import _limpar
+
+        class _Explode(dict):
+            def items(self):
+                raise RuntimeError("boom")
+
+        assert _limpar(_Explode(), None) is None
+
+    def test_pii_padrao_do_sdk_fica_desligado(self):
+        import inspect as _inspect
+
+        from app.core import observabilidade
+
+        fonte = _inspect.getsource(observabilidade.iniciar_observabilidade)
+        assert "send_default_pii=False" in fonte

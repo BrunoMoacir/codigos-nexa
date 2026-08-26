@@ -208,8 +208,10 @@ O refresh é a metade que importa: ele vive **14 dias**, e sem o corte a sessão
 voltaria no próximo `/auth/refresh` — derrubar só o access daria meia hora de
 alívio e devolveria a conta ao invasor.
 
-`encerrar_sessoes(db, user_id)` expõe o mesmo corte para um futuro "sair de
-todos os dispositivos". Diferente da blacklist por `jti`, este corte vive no
+**`POST /auth/logout-all`** aciona o mesmo corte sem exigir troca de senha:
+quem perdeu o celular não precisa mudar a senha para expulsar o aparelho.
+Medido com dois aparelhos — o access de ambos e o refresh do outro vão a 401.
+Diferente do `/logout`, que revoga só o token da requisição pelo `jti`. Diferente da blacklist por `jti`, este corte vive no
 banco e **não tem fail-open**: não depende do Redis.
 
 Limite honesto: `iat` tem granularidade de segundo, então um token emitido no
@@ -242,11 +244,23 @@ resolvida tinha **156 vulnerabilidades em 33 pacotes** quando isto foi medido
 — urllib3, tornado, cryptography, aiohttp, pillow, setuptools — todas
 invisíveis ali.
 
-Corrigir os 33 é uma rodada de dependências, não de segurança de aplicação.
 `scripts/audit_arvore_completa.py` compara a contagem com
-`security_baseline.json` e **falha se subir**: não se paga a dívida hoje, não
-se contrai a próxima. Ao corrigir dependências, `--atualizar-base` trava o
-ganho.
+`security_baseline.json` e **falha se subir**. E a dívida foi paga em boa
+parte: vinte pacotes subidos (aiohttp, cryptography, pillow, tornado, urllib3,
+setuptools, sentry-sdk e outros) levaram **156 → 33**, com os 3457 testes
+passando.
+
+Os 17 que subiram e **não eram dependências diretas** ganharam pins numa seção
+própria do `requirements.txt`. Sem isso, um `pip install -r` limpo
+reinstalaria as versões vulneráveis — e foi justamente por não estarem escritos
+ali que ficaram invisíveis ao `--no-deps`.
+
+Dos 33 restantes, ~28 são a família langchain/langgraph 0.2.x (o baseline
+declarado, atrás da migração para 1.x); o resto é `protobuf` (salto de major,
+não avaliado), `pip` (a ferramenta, não runtime) e `ecdsa`
+(`PYSEC-2026-1325`, **sem versão de correção publicada** — entra por
+`python-jose`, e este projeto assina com **HS256/HMAC**, então o caminho ECDSA
+nunca é exercitado; reavaliar se `ALGORITHM` mudar para ES256).
 
 ---
 
@@ -347,5 +361,22 @@ carrega IP e `request_id`.
   de 2026-08-25. Baseline revisado (12 IDs, todos da família
   langchain/langgraph 0.2.x, cujo fix exige a migração para 1.x) e o
   comentário agora diz quando a lista deve ser esvaziada.
-- **Sem observabilidade** (Sentry/Prometheus) — o audit loga, mas erro de
-  produção não alerta ninguém; recomendado antes da beta.
+### Observabilidade (`core/observabilidade.py`, 2026-08-25)
+
+O `sentry-sdk` estava instalado e **nunca era inicializado** — e ainda por cima
+com CVE. O audit registrava eventos de negócio, mas exceção em produção não
+alertava ninguém.
+
+Ligar telemetria num produto que processa extrato bancário exige três coisas,
+e é o que separa observabilidade de vazamento:
+
+- **`send_default_pii=False`** — sem isso o SDK anexa corpo de requisição,
+  cookies e cabeçalhos: seria enviar transação bancária a um terceiro;
+- **scrub explícito** dos campos que este produto conhece (senha, token, CPF,
+  e-mail, hash) e do prefixo `[user_id=...]` que o agente injeta em texto
+  livre. Falha no scrub **descarta o evento** — na dúvida, não envia;
+- **desligado por padrão**: sem `SENTRY_DSN` nada é inicializado e nada sai da
+  máquina. Não existe "modo de teste" que envia por acidente.
+
+Falta ainda métrica (Prometheus) — o `prometheus-fastapi-instrumentator` está
+no ambiente e também não é usado.

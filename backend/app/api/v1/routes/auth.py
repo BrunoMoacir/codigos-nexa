@@ -13,6 +13,7 @@ from app.core.security import (
     decode_refresh_token,
     revoke_token,
     get_current_token_data,
+    get_current_user,
     TokenData,
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
@@ -407,6 +408,42 @@ async def resend_verification(
             logger_auth.exception("resend-verification: envio falhou (resposta segue 202)")
 
     return {"message": "Se o e-mail estiver cadastrado, enviamos um novo link de confirmação."}
+
+
+@router.post("/logout-all", status_code=status.HTTP_204_NO_CONTENT)
+async def logout_all_devices(
+    request: Request,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Encerra TODAS as sessões do usuário, em todo dispositivo.
+
+    Diferente de `/logout`, que revoga só o token da requisição pelo `jti`:
+    aqui o corte é `users.sessions_valid_from`, e todo token já emitido —
+    access e refresh, deste e de qualquer outro aparelho — passa a ser
+    recusado por `security.sessao_invalidada`.
+
+    Duas propriedades que o logout comum não tem:
+      * alcança o REFRESH, que vive 14 dias (o access morre em 30 min sozinho);
+      * vive no banco, então NÃO tem fail-open — a blacklist por `jti` depende
+        do Redis e aceita tokens revogados enquanto ele estiver fora.
+
+    É o mesmo mecanismo que o reset de senha aciona. Aqui ele fica disponível
+    sem exigir troca de senha: quem perdeu o celular não precisa mudar a senha
+    para expulsar o aparelho.
+    """
+    from app.core.db.users import encerrar_sessoes
+
+    if not encerrar_sessoes(db, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Não foi possível encerrar as sessões. Tente novamente.",
+        )
+
+    ip = request.client.host if request.client else "unknown"
+    req_id = getattr(request.state, "request_id", None)
+    audit.log_logout(user_id=current_user, ip=ip, request_id=req_id)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
