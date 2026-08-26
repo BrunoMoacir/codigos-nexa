@@ -14,3 +14,9 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     email_verified = Column(Boolean, default=False, nullable=False, server_default="false")
     email_verified_at = Column(DateTime(timezone=True), nullable=True)
+    # Corte de sessão: todo token emitido ANTES deste instante é rejeitado.
+    # É o que faltava para "trocar a senha derruba as sessões abertas" — sem
+    # isso, um access roubado sobrevivia à troca por até 30 min e um refresh
+    # roubado por até 14 DIAS, que é a janela que importa.
+    # Nulo = nunca houve corte (contas antigas seguem valendo).
+    sessions_valid_from = Column(DateTime(timezone=True), nullable=True)

@@ -87,6 +87,7 @@ def get_user_by_id(db: Session, user_id: str) -> Optional[Dict[str, Any]]:
                 "hashed_password": user.hashed_password,
                 "full_name": user.full_name,
                 "is_active": bool(getattr(user, "is_active", True)),
+                "sessions_valid_from": getattr(user, "sessions_valid_from", None),
             }
         return _get_user_by_id_duckdb(user_id)
     except Exception as e:
@@ -143,17 +144,67 @@ def create_user(db: Session, email: str, hashed_password: str, full_name: Option
 
 
 def update_user_password(db: Session, user_id: str, hashed_password: str) -> bool:
-    """Atualiza a senha (fluxo de reset). Retorna False se o usuário não existe."""
+    """
+    Atualiza a senha E derruba todas as sessões abertas.
+
+    As duas coisas na MESMA transação, de propósito: trocar a senha sem cortar
+    as sessões deixava um token roubado sobreviver ao reset — access por até 30
+    min, refresh por até 14 DIAS. Quem troca a senha porque desconfia de invasão
+    espera exatamente o contrário.
+
+    `sessions_valid_from` é comparado com o claim `iat` de cada token em
+    `security.sessao_invalidada`, sem custo extra por request.
+
+    Retorna False se o usuário não existe.
+    """
+    from datetime import datetime, timezone
+
     try:
         rows = (
             db.query(User)
             .filter(User.user_id == user_id)
-            .update({User.hashed_password: hashed_password}, synchronize_session=False)
+            .update(
+                {
+                    User.hashed_password: hashed_password,
+                    User.sessions_valid_from: datetime.now(timezone.utc),
+                },
+                synchronize_session=False,
+            )
         )
         db.commit()
         return rows > 0
     except Exception as e:
         logger.error("update_user_password falhou user=%s: %s", user_id, e)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return False
+
+
+def encerrar_sessoes(db: Session, user_id: str) -> bool:
+    """
+    Invalida todo token já emitido para o usuário (corte de sessão).
+
+    Usado pelo reset de senha e disponível para "sair de todos os
+    dispositivos". Diferente da blacklist por `jti`, que revoga UM token e
+    depende do Redis, este corte vive no banco e não tem fail-open.
+    """
+    from datetime import datetime, timezone
+
+    try:
+        rows = (
+            db.query(User)
+            .filter(User.user_id == user_id)
+            .update(
+                {User.sessions_valid_from: datetime.now(timezone.utc)},
+                synchronize_session=False,
+            )
+        )
+        db.commit()
+        return rows > 0
+    except Exception as e:
+        logger.error("encerrar_sessoes falhou user=%s: %s", user_id, e)
         try:
             db.rollback()
         except Exception:

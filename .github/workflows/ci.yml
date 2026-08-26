@@ -107,6 +107,17 @@ jobs:
             --ignore-vuln CVE-2024-7774 \
             --ignore-vuln PYSEC-2026-76
 
+      # O passo acima audita só os pins DIRETOS (`--no-deps`). A árvore
+      # RESOLVIDA tinha 156 CVEs em 33 pacotes quando isto foi medido
+      # (2026-08-25) — urllib3, tornado, cryptography, aiohttp, pillow,
+      # setuptools — todos invisíveis ali. Corrigir os 33 é uma rodada de
+      # dependências; o que esta catraca faz é impedir que o número CRESÇA.
+      - name: Audit transitive tree (ratchet)
+        working-directory: backend
+        run: |
+          pip install -r requirements.txt
+          python3 scripts/audit_arvore_completa.py
+
   docker-build:
     name: Docker Build
     runs-on: ubuntu-latest

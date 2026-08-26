@@ -41,6 +41,7 @@ class TokenData(BaseModel):
     user_id: Optional[str] = None
     jti: Optional[str] = None
     exp: Optional[int] = None
+    iat: Optional[int] = None
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
@@ -57,6 +58,11 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
     to_encode.update({
         "exp": expire,
+        # `iat` é o que permite revogação EM MASSA: comparado com
+        # `users.sessions_valid_from`, derruba de uma vez toda sessão aberta
+        # antes de uma troca de senha. Sem ele só havia revogação individual
+        # (por `jti`), que exige saber qual token revogar.
+        "iat": int(datetime.now(timezone.utc).timestamp()),
         "jti": str(uuid.uuid4()),  # ID único do token — usado para revogação
         "type": "access",
     })
@@ -76,6 +82,7 @@ def create_refresh_token(user_id: str) -> str:
     payload = {
         "sub": user_id,
         "exp": expire,
+        "iat": int(datetime.now(timezone.utc).timestamp()),
         "jti": str(uuid.uuid4()),
         "type": "refresh",
     }
@@ -106,7 +113,10 @@ def decode_refresh_token(token: str) -> TokenData:
     if jti and _is_token_revoked(jti):
         raise invalid
 
-    return TokenData(user_id=payload["sub"], jti=jti, exp=payload.get("exp"))
+    return TokenData(
+        user_id=payload["sub"], jti=jti,
+        exp=payload.get("exp"), iat=payload.get("iat"),
+    )
 
 
 def revoke_token(jti: str, expires_in_seconds: int) -> None:
@@ -163,6 +173,35 @@ def _is_token_revoked(jti: str) -> bool:
         return False
 
 
+def sessao_invalidada(iat: Optional[int], corte) -> bool:
+    """
+    O token foi emitido antes do corte de sessão do usuário?
+
+    Custo zero por request: `get_current_user` já carrega a linha do usuário
+    para checar `is_active`. A doc de segurança listava esta revogação global
+    como "anotada como melhoria" porque "exigiria claim iat + verificação por
+    request" — a verificação já estava sendo paga.
+
+    Comparação estrita, sem folga. Uma tolerância de 1 segundo — que esta
+    função teve na primeira versão — abre um buraco de um segundo inteiro no
+    corte, e o único caso que ela "protegia" (token emitido no mesmo segundo do
+    corte) é justamente o token novo, legítimo, que precisa continuar valendo.
+
+    Limite honesto: `iat` tem granularidade de SEGUNDO. Um token emitido em
+    10:00:00,05 e um corte em 10:00:00,90 dão `iat == corte` e o token
+    sobrevive — sub-segundo, inevitável com esse claim, e sem consequência
+    prática diante de uma sessão de 30 minutos.
+    """
+    if iat is None or corte is None:
+        return False
+    try:
+        if corte.tzinfo is None:
+            corte = corte.replace(tzinfo=timezone.utc)
+        return iat < int(corte.timestamp())
+    except Exception:
+        return False
+
+
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
@@ -193,7 +232,7 @@ async def get_current_user(
         # /auth/refresh. (Tokens antigos sem claim 'type' seguem aceitos.)
         if payload.get("type") == "refresh":
             raise credentials_exception
-        token_data = TokenData(user_id=user_id, jti=jti)
+        token_data = TokenData(user_id=user_id, jti=jti, iat=payload.get("iat"))
     except JWTError:
         raise credentials_exception
 
@@ -209,6 +248,13 @@ async def get_current_user(
     user = get_user_by_id(db, token_data.user_id)
     if user is None or not user.get("is_active", True):
         raise credentials_exception
+
+    if sessao_invalidada(token_data.iat, user.get("sessions_valid_from")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sessão encerrada. Faça login novamente.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     return token_data.user_id
 

@@ -189,6 +189,65 @@ em produção** — o comentário explica: em dev não há TLS e o header
 Em desenvolvimento, os mesmos casos apenas emitem warning. É a diferença entre
 "o dev pode trabalhar" e "a produção não sobe insegura".
 
+### Trocar a senha derruba as sessões abertas (2026-08-25)
+
+Era o gap declarado: *"revogar tudo exigiria claim `iat` + verificação por
+request"*. A verificação **já estava sendo paga** — `get_current_user` carrega
+a linha do usuário para checar `is_active`. O custo real era uma coluna.
+
+`users.sessions_valid_from` é o corte: todo token com `iat` anterior a ele é
+recusado. `update_user_password` grava senha e corte **na mesma transação**.
+
+```
+                antes do reset   depois
+  access token       ok            401
+  refresh token      ok            401
+```
+
+O refresh é a metade que importa: ele vive **14 dias**, e sem o corte a sessão
+voltaria no próximo `/auth/refresh` — derrubar só o access daria meia hora de
+alívio e devolveria a conta ao invasor.
+
+`encerrar_sessoes(db, user_id)` expõe o mesmo corte para um futuro "sair de
+todos os dispositivos". Diferente da blacklist por `jti`, este corte vive no
+banco e **não tem fail-open**: não depende do Redis.
+
+Limite honesto: `iat` tem granularidade de segundo, então um token emitido no
+mesmo segundo do corte sobrevive. Sub-segundo, irrelevante diante de uma
+sessão de 30 min — e a primeira versão desta comparação tinha uma tolerância
+de 1 segundo que abria um buraco de um segundo inteiro, removida.
+
+### Bloqueio de login por CONTA (`core/login_throttle.py`)
+
+O rate limit do login é 10/min **por IP**. Isso não segura credential stuffing
+distribuído: mil IPs testando dez senhas por minuto na mesma conta passam
+inteiros por baixo, e cada requisição parece normal.
+
+Segunda camada: **8 falhas em 15 min bloqueiam a conta** (429). Três decisões:
+
+1. **A contagem é pelo e-mail SUBMETIDO, exista a conta ou não**, e a resposta
+   é a mesma. Se só contas reais bloqueassem, o bloqueio responderia "esse
+   e-mail existe" — o oráculo que o hash fictício de senha existe para evitar.
+2. **O e-mail nunca vira chave em claro no Redis** — vai o SHA-256.
+3. **O TTL é fixado na PRIMEIRA falha e não renovado.** Renovar a cada
+   tentativa deixaria um atacante manter a conta bloqueada para sempre: o
+   bloqueio viraria negação de serviço contra o dono.
+
+Fail-open quando o Redis cai, como a blacklist — o limite por IP continua de pé.
+
+### Catraca de CVE na árvore transitiva
+
+O job `security-audit` audita só os pins **diretos** (`--no-deps`). A árvore
+resolvida tinha **156 vulnerabilidades em 33 pacotes** quando isto foi medido
+— urllib3, tornado, cryptography, aiohttp, pillow, setuptools — todas
+invisíveis ali.
+
+Corrigir os 33 é uma rodada de dependências, não de segurança de aplicação.
+`scripts/audit_arvore_completa.py` compara a contagem com
+`security_baseline.json` e **falha se subir**: não se paga a dívida hoje, não
+se contrai a próxima. Ao corrigir dependências, `--atualizar-base` trava o
+ganho.
+
 ---
 
 ## LGPD (`app/privacy/`)
@@ -256,9 +315,7 @@ carrega IP e `request_id`.
 
 - **Sem 2FA/MFA** — mitigado parcialmente por verificação de e-mail e rotação
   de refresh; TOTP/passkeys é o próximo degrau natural.
-- **Revogação global pós-reset**: access tokens JWT emitidos ANTES do reset
-  seguem válidos até expirar (janela ≤ 30 min) — revogar tudo exigiria claim
-  `iat` + verificação por request (anotado como melhoria).
+- ~~Revogação global pós-reset~~ — **feito em 2026-08-25**. Ver abaixo.
 - **Blacklist depende do Redis**: com Redis fora, `revoke_token` loga o
   problema mas o logout não revoga de fato. A janela real do fail-open, por
   tipo de token: **access 30 min; refresh 14 DIAS** — a rotação revoga o

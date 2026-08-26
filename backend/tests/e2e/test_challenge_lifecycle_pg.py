@@ -86,7 +86,16 @@ def pg_engine():
 
     with _engine.connect() as con:
         version = con.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        assert version == "f7a2d94c6b18"   # head único (+ shadow_invoices)
+        # A propriedade é "o schema está no head", não "o head é esta string".
+        # Fixar a revisão fazia toda migração nova quebrar este teste e ensinava
+        # a atualizar um valor mágico em vez de verificar a coisa — e ainda
+        # esconderia um head duplicado, que é o problema de verdade.
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+
+        heads = ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
+        assert len(heads) == 1, f"grafo de migração ramificado: {heads}"
+        assert version == heads[0], f"schema em {version}, head é {heads[0]}"
         tables = {
             r[0] for r in con.execute(text(
                 "SELECT table_name FROM information_schema.tables"

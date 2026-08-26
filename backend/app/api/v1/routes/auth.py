@@ -163,12 +163,32 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
     ip = request.client.host if request.client else "unknown"
     req_id = getattr(request.state, "request_id", None)
 
+    # Segunda camada, POR CONTA. O @limiter acima é por IP e não segura
+    # credential stuffing distribuído: mil IPs testando dez senhas por minuto
+    # na mesma conta passam inteiros por baixo dele. Ver core/login_throttle.py
+    # — a contagem é pelo e-mail SUBMETIDO, exista ele ou não, para o bloqueio
+    # não virar oráculo de existência de conta.
+    from app.core import login_throttle
+
+    if login_throttle.esta_bloqueada(form_data.username):
+        audit.log_login_failure(
+            email=form_data.username, ip=ip, reason="account_throttled", request_id=req_id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "Muitas tentativas de login. Aguarde alguns minutos ou "
+                "redefina sua senha."
+            ),
+        )
+
     user = get_user_by_email(db, form_data.username)
     if not user:
         # Executa verify_password com hash fictício para equalizar tempo de resposta.
         # Sem isso, o tempo de retorno quando o email não existe é visivelmente menor,
         # permitindo enumeração de usuários cadastrados (timing attack).
         verify_password(form_data.password, _DUMMY_HASH)
+        login_throttle.registrar_falha(form_data.username)
         audit.log_login_failure(
             email=form_data.username,
             ip=ip,
@@ -182,6 +202,7 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
         )
 
     if not verify_password(form_data.password, user["hashed_password"]):
+        login_throttle.registrar_falha(form_data.username)
         audit.log_login_failure(
             email=form_data.username,
             ip=ip,
@@ -199,6 +220,7 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
         data={"sub": user["user_id"]}, expires_delta=access_token_expires
     )
 
+    login_throttle.limpar(form_data.username)
     audit.log_login_success(user_id=user["user_id"], ip=ip, request_id=req_id)
 
     return {
@@ -231,6 +253,18 @@ async def refresh_access_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Usuário inexistente ou inativo",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # O corte de sessão vale para o refresh também — e aqui é onde mais importa:
+    # o refresh vive 14 dias, contra 30 min do access. Trocar a senha sem isto
+    # derrubaria a sessão por meia hora e a devolveria no próximo refresh.
+    from app.core.security import sessao_invalidada
+
+    if sessao_invalidada(token_data.iat, user.get("sessions_valid_from")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sessão encerrada. Faça login novamente.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
