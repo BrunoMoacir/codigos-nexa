@@ -1,6 +1,6 @@
 <div align="center">
 
-# NEXA AI
+# HIVE
 
 ### **Seu Dinheiro. Seu Lado.**
 
@@ -10,10 +10,10 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.128-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://postgresql.org)
-[![Tests](https://img.shields.io/badge/Tests-2.189%20coletados-success?style=flat-square)](backend/tests/)
+[![Tests](https://img.shields.io/badge/Tests-3.477%20passando-success?style=flat-square)](backend/tests/)
 [![License](https://img.shields.io/badge/License-Proprietary-red?style=flat-square)](LICENSE)
 
-[Como Construímos Valor](#-como-a-nexa-constrói-valor) •
+[Como Construímos Valor](#-como-a-hive-constrói-valor) •
 [Funcionalidades](#-funcionalidades) •
 [O Que Está Pronto vs O Que Falta](#-o-que-está-pronto-vs-o-que-falta) •
 [Planos](#-planos-e-monetização) •
@@ -30,7 +30,7 @@
 
 - [Visão Geral](#-visão-geral)
 - [O Problema](#-o-problema)
-- [Como a Nexa Constrói Valor](#-como-a-nexa-constrói-valor)
+- [Como a HIVE Constrói Valor](#-como-a-hive-constrói-valor)
 - [As Duas Superfícies do Produto](#-as-duas-superfícies-do-produto)
 - [Funcionalidades](#-funcionalidades)
   - [Motor Core de Análise](#motor-core-de-análise)
@@ -46,7 +46,7 @@
 - [Segurança e LGPD](#-segurança-e-lgpd)
 - [Planos e Monetização](#-planos-e-monetização)
 - [O Que Está Pronto vs O Que Falta](#-o-que-está-pronto-vs-o-que-falta)
-- [Diferencial Competitivo](#-diferencial-competitivo)
+- [Posição Competitiva](#-posição-competitiva)
 - [Estratégias de Crescimento](#-estratégias-de-crescimento)
 - [Arquitetura Técnica](#-arquitetura-técnica)
 - [Endpoints da API](#-endpoints-da-api)
@@ -60,11 +60,22 @@
 
 ## 🎯 Visão Geral
 
-A **Nexa AI** é uma plataforma de inteligência financeira pessoal que combina **Open Finance**, **Machine Learning** e **IA conversacional** para revelar quanto os bancos lucram com você — e transformar essa informação em ações concretas de economia, recuperação e otimização.
+A **HIVE** é uma plataforma de inteligência financeira pessoal que combina **Open Finance**, **Machine Learning** e **IA conversacional** para revelar quanto os bancos lucram com você — e transformar essa informação em ações concretas de economia, recuperação e otimização.
 
 > **Não somos outro banco. Somos o advogado contra todos os bancos.**
 
-A Nexa cobra do usuário, não do banco. Essa é a única estrutura de receita que garante neutralidade total: nenhuma recomendação é comissionada, nenhum produto é empurrado.
+A HIVE cobra do usuário, não do banco. Essa é a única estrutura de receita que garante neutralidade total: nenhuma recomendação é comissionada, nenhum produto é empurrado.
+
+> **📄 Estado real do projeto:** notas por camada, posição competitiva contra a
+> safra 2025–2026, economia unitária, cenários de crescimento, avaliação e plano
+> de 90 dias em **[docs/RELATORIO-PROJETO.md](docs/RELATORIO-PROJETO.md)**.
+> É o documento a ler antes de decidir qualquer coisa sobre este produto.
+
+> **Sobre o nome.** A marca é **HIVE**. O código, os testes, as chaves de cache
+> (`nexa:*`), o nome do banco de dados e a documentação de funcionalidades ainda
+> usam a marca anterior. Renomear identificadores é migração de dados e
+> infraestrutura, não trabalho de produto — e não precisa acontecer antes de o
+> aplicativo existir.
 
 ---
 
@@ -82,7 +93,7 @@ O brasileiro médio perde por ano, sem perceber:
 
 ---
 
-## ✅ Como a Nexa Constrói Valor
+## ✅ Como a HIVE Constrói Valor
 
 O produto opera um **loop de valor contínuo** em cinco etapas. Cada funcionalidade existe para alimentar uma delas:
 
@@ -128,7 +139,7 @@ Agente LangGraph ReAct com **31 ferramentas** conectadas a todos os módulos do 
 |:---|:---|:---|:---:|
 | F1 | **ETL Pipeline + Cashflow** — 8 estágios, projeção 30 dias, safe-to-spend | Sabe exatamente quanto pode gastar hoje sem comprometer contas futuras | ✅ |
 | F2 | **Card Optimizer** — catálogo curado de 81 cartões (37 emissores, 11 programas de fidelidade valorados), multi-card, custo de oportunidade | Recupera R$ 50–200/mês em cashback/pontos que estava deixando na mesa | ✅ |
-| F3 | **Nexa Architect** — financiamento vs consórcio vs investir, VPL + Monte Carlo | Decisões de dezenas de milhares de reais com intervalo de confiança de 95% | ✅ |
+| F3 | **HIVE Architect** — financiamento vs consórcio vs investir, VPL + Monte Carlo | Decisões de dezenas de milhares de reais com intervalo de confiança de 95% | ✅ |
 | F4 | **PF/PJ Classifier** — Random Forest + regras, relatório fiscal MEI | MEI separa gastos pessoais e da empresa automaticamente; base do relatório DAS | ✅ |
 | F5 | **Raio-X de Custos** — tarifas detectadas, benchmark de 16 bancos | Vê cada tarifa cobrada e se está acima da média de mercado | ✅ |
 | F7 | **Modo Compra Inteligente** — Pix, débito, crédito ou parcelado? | Veredito instantâneo da melhor forma de pagamento para cada compra | ✅ |
@@ -175,7 +186,7 @@ Endpoints: `GET /defense/{user_id}`, `/defense/{user_id}/dossier`, `/defense/{us
 | R2.c | **Sazonalidade Fiscal** — IR, DAS/DASN-SIMEI, IPVA/IPTU, 13º, lucro FGTS, personalizado por perfil MEI/CLT | Nunca mais multa por perder prazo fiscal | ✅ |
 
 > **Nota T3 (atualizada 2026-07-18):** consultas reais implementadas em dois níveis, ambas exclusivamente por canais oficiais e validadas ao vivo:
-> - **SVR (consulta assistida):** `GET /rights/{user_id}/svr/captcha` + `POST /rights/{user_id}/svr/check` usam a consulta pública oficial do BACEN (a mesma do site) — o usuário responde o desafio de segurança oficial no app e a Nexa informa na hora se existe valor em seu nome. O montante e o resgate seguem no portal com login GOV.BR. CPF/data de nascimento não são persistidos; logs só registram CPF mascarado.
+> - **SVR (consulta assistida):** `GET /rights/{user_id}/svr/captcha` + `POST /rights/{user_id}/svr/check` usam a consulta pública oficial do BACEN (a mesma do site) — o usuário responde o desafio de segurança oficial no app e a HIVE informa na hora se existe valor em seu nome. O montante e o resgate seguem no portal com login GOV.BR. CPF/data de nascimento não são persistidos; logs só registram CPF mascarado.
 > - **Restituição IRPF (consulta autorizada):** `POST /rights/{user_id}/ir/check` consulta a API oficial Consulta Restituição do SERPRO com o token de Autorização de Compartilhamento que o próprio usuário gera no e-CAC (LGPD art. 7º/11º), decriptando valor, situação e banco (RSA PKCS#1). Requer contrato SERPRO em produção (`SERPRO_CONSUMER_KEY/SECRET`); sem credenciais, o endpoint degrada para o passo a passo de habilitação.
 > - **FGTS e PIS/PASEP:** sem API pública para terceiros — permanecem orientativos.
 > - O antigo mock de `app/fiscal/rights_monitor/` (valores fabricados por hash do CPF) **foi removido**; a visão fiscal agora aponta para os fluxos reais acima, sem inventar valores.
@@ -202,8 +213,8 @@ Endpoints: `GET /defense/{user_id}`, `/defense/{user_id}/dossier`, `/defense/{us
 
 | ID | Funcionalidade | Valor / mecânica | Status |
 |:---|:---|:---|:---:|
-| V1 | **Placar de Economia Compartilhável** — card SVG com o total economizado | "Economizei R$ 4.200 contra os bancos com a @NexaAI" → CAC zero | ✅ |
-| V2 | **Nexa Wrapped anual** — relatório "Seu Banco vs Você" com SVG compartilhável | Quanto cada banco lucrou com você no ano; viralização estilo Spotify Wrapped | ✅ |
+| V1 | **Placar de Economia Compartilhável** — card SVG com o total economizado | "Economizei R$ 4.200 contra os bancos com a @hive" → CAC zero | ✅ |
+| V2 | **HIVE Wrapped anual** — relatório "Seu Banco vs Você" com SVG compartilhável | Quanto cada banco lucrou com você no ano; viralização estilo Spotify Wrapped | ✅ |
 | V3 | **Ranking público de bancos abusivos** — relatório trimestral anonimizado | Autoridade de marca + imprensa | 📅 |
 
 Endpoints: `GET /viral/savings-card/{user_id}[/svg]`, `GET /viral/wrapped/{user_id}/{year}[/svg]`.
@@ -331,7 +342,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 
 ## 💼 Planos e Monetização
 
-> **A Nexa cobra do usuário, não do banco.** Isso garante neutralidade total — e é o que justifica pagar: um consultor comissionado nunca mandaria você sair do banco que o comissiona.
+> **A HIVE cobra do usuário, não do banco.** Isso garante neutralidade total — e é o que justifica pagar: um consultor comissionado nunca mandaria você sair do banco que o comissiona.
 
 | Plano | Preço | O que entrega | Valor que justifica o preço |
 |:---|:---:|:---|:---|
@@ -341,7 +352,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 
 **Status de implementação (2026-07-18):** billing e gating **implementados** em `app/billing/` — Stripe Checkout/Portal/webhook assinado (fail-closed em produção), tabela `user_subscriptions` (Alembic), hierarquia Free/Pro/Total e limites de uso (5 msgs IA/dia e 3 Compra Inteligente/mês no Free; Negociador 1/mês no Pro) com contadores Redis + fallback em memória. Gates aplicados: Defesa e Otimizador de IR exigem **Total**; Radar de Oportunidades e Raio-X exigem **Pro**. **Dark launch:** `BILLING_ENFORCEMENT_ENABLED=false` por padrão — violações são apenas logadas (`would_block`); ligar a flag em produção ativa os 402 com contexto de upgrade. Falta apenas: criar Products/Prices no dashboard Stripe e preencher as chaves no `.env`.
 
-### Unit Economics Target
+### Unit Economics — alvo vs. chão real
 
 | Métrica | Target |
 |:---|:---:|
@@ -351,6 +362,32 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 | LTV:CAC | > 4:1 |
 | Margem bruta | 75%+ |
 | Payback | < 3 meses |
+
+**O que os targets acima não mostram:** acessar o Open Finance sem ser
+instituição autorizada exige um agregador, e o plano de dados da Pluggy parte de
+**R$ 2.500/mês**. Com infra e e-mail, o custo mensal **antes do primeiro
+usuário** é de ~R$ 3.000.
+
+| Plano | Preço | Contribuição líquida | Ponto de equilíbrio |
+|:---|---:|---:|---:|
+| Pro | R$ 19,90 | R$ 17,22 | 174 assinantes |
+| Total | R$ 39,90 | R$ 35,92 | 84 assinantes |
+| Mistura 80/20 | — | R$ 20,96 | **143 assinantes** |
+
+> **143 assinantes pagam a empresa inteira.** É meta de beta fechado, não de
+> campanha de marketing.
+
+> ⚠️ **A armadilha do Free.** O plano gratuito permite 1 banco conectado, e cada
+> conexão viva é um item cobrado pela Pluggy acima do mínimo — **usuário
+> gratuito tem custo marginal recorrente e receita zero**. Com 10 mil gratuitos
+> conectados, o agregador vira a maior linha da empresa. Resolve-se no desenho
+> do plano, não no orçamento.
+
+> 💰 **Preço está defasado.** O Pierre cobra R$ 39/mês no plano intermediário e
+> R$ 199/mês no superior, por um produto que faz menos. Recomendação (com plano
+> anual, que hoje não existe): **Pro R$ 29,90 · Total R$ 59,90 · anual R$ 249 /
+> R$ 499**. Racional completo em
+> [RELATORIO-PROJETO.md § 5](docs/RELATORIO-PROJETO.md#5-modelo-de-negócio-e-economia-unitária).
 
 ---
 
@@ -368,7 +405,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 | **Retenção** | Scheduler com 6 jobs, daily digest, entrega email/in-app/push, PWA com widget instalável e Web Push VAPID, checkout-context, revisão de compras |
 | **Viral** | Placar de economia (SVG) e Wrapped anual (SVG) |
 | **IA** | Agente ReAct com 31 ferramentas, memória Redis, perfil comportamental (8 clusters), life events |
-| **Plataforma** | Auth JWT + refresh rotativo, IDOR hardening, LGPD export/erase, rate limiting, audit log, pip-audit no CI, 2.189 testes coletados |
+| **Plataforma** | Auth JWT + refresh rotativo, IDOR hardening, LGPD export/erase, rate limiting, audit log, pip-audit no CI, 3.498 testes coletados (79% de cobertura) |
 
 ### 🚧 Falta (em ordem de prioridade de negócio)
 
@@ -379,45 +416,92 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 | **Validação jurídica (D5)** | Revisão por advogado dos templates de petição JEC e cartas | Código pronto; lançar sem revisão gera risco de responsabilidade por orientação incorreta | Advogado parceiro |
 | **Contrato SERPRO (produção)** | A consulta real de restituição IRPF funciona em trial; produção exige contratar a API Consulta Restituição na Loja SERPRO (consumer key/secret + chave do e-CNPJ) | Sem o contrato, o `POST /rights/{user_id}/ir/check` degrada para o passo a passo de habilitação | Contratação SERPRO (custo por consulta) |
 | **UI da consulta SVR assistida** | Tela no app exibindo o captcha oficial do BACEN (endpoints prontos no backend) | O "existe dinheiro em seu nome?" em tempo real é o maior hook de conversão do produto | Frontend oficial |
-| ~~Conta de usuário completa~~ | ✅ Reset de senha + verificação de e-mail implementados (2026-07-18, tokens de uso único + anti-enumeração) — falta só a UI das telas | Frontend oficial |
+| ~~Conta de usuário completa~~ | ✅ Reset de senha + verificação de e-mail implementados (2026-07-18, tokens de uso único + anti-enumeração) — falta só a UI das telas | Recuperação de conta é requisito de confiança para quem entrega o extrato | Frontend oficial |
 | **App mobile nativo** | Widget de homescreen nativo, push FCM | PWA cobre o essencial, mas retenção diária de massa exige mobile nativo | Time mobile |
-| **R4.a Relatório trimestral** | Consolidado automático por email | Reforço de valor percebido a cada 3 meses | Scheduler (pronto) — só falta o job |
-| **R5 Anti-churn** | Tela de cancelamento com impacto calculado, modo pausa, win-back | Reduz churn no momento crítico | Billing primeiro |
+| **R4.a Relatório trimestral** | ⚠️ **O job existe e nunca roda** — `app/jobs/quarterly_report.py` está escrito e testado, mas não está registrado em `app/core/scheduler.py` (que importa 9 jobs e ignora este) | Reforço de valor percebido a cada 3 meses | Duas linhas de `add_job` — mas só faz sentido com usuários e cobrança |
+| **R5 Anti-churn** | ⚠️ **Mesma situação** — `app/jobs/win_back.py` escrito, testado e nunca agendado. Falta ainda a tela de cancelamento com impacto calculado e o modo pausa | Reduz churn no momento crítico | Billing primeiro |
 | **V3 Ranking de bancos abusivos** | Relatório trimestral público anonimizado | Autoridade de marca + imprensa | Massa de dados D1–D3 |
 | **F6 Sweep automático** | Mover sobra para investimento automaticamente | "Piloto automático" — valor passivo | Open Finance fase 4 (iniciação de pagamento) |
 | **F8 Radar — cauda longa** | ✅ varredura completa do diretório Open Finance implementada (2026-07): todos os participantes com renda fixa publicada entram no catálogo diário. Restante: fontes fora do Open Finance (corretoras não participantes, catálogo ANBIMA) | Cobertura além dos participantes do Open Finance | Fontes adicionais |
 | **F9/F10** | Portabilidade de crédito assistida (execução), pagamento otimizado | D6 simula; falta executar | Validação jurídica + APIs |
 | **F12 Modo Família** | Até 4 membros | Aumenta ARPU e lock-in | Modelo multi-usuário |
-| **Nexa Score exportável** | Score como bureau de crédito alternativo | Vetor de escala fase 3 | Massa crítica de usuários |
+| **HIVE Score exportável** | Score como bureau de crédito alternativo | Vetor de escala fase 3 | Massa crítica de usuários |
 | **B2B2C** | Venda como benefício corporativo | CAC próximo de zero em escala | Produto estável + billing |
 | **Expansão México** | Adaptar ETL e conectores (Ley Fintech) | Valuation "LatAm" 2–3× | Modelo provado no Brasil |
 
 ---
 
-## 🏆 Diferencial Competitivo
+## 🏆 Posição Competitiva
 
-| Dimensão | Nexa | Bancos | Apps de Controle | Comparadores |
-|:---|:---:|:---:|:---:|:---:|
-| **Modelo de receita** | Assinatura do usuário | Tarifas + spread | Freemium / comissão | Comissão de banco |
-| **Neutralidade** | ✅ Total | ❌ Conflito | ⚠️ Parcial | ❌ Conflito |
-| **Ação automática** | ✅ Contesta, negocia, gera dossiê | ❌ | ❌ Só visualiza | ❌ Só compara |
-| **Open Finance nativo** | ✅ Multi-banco | ⚠️ Só o próprio | ⚠️ Manual | ⚠️ Parcial |
-| **Base legal integrada** | ✅ CDC, BACEN, STJ | ❌ | ❌ | ❌ |
-| **IA conversacional** | ✅ 31 ferramentas | ❌ | ❌ | ❌ |
-| **Defesa do consumidor** | ✅ D1–D6 | ❌ | ❌ | ❌ |
-| **Perfil comportamental** | ✅ 8 clusters adaptativos | ❌ | ❌ | ❌ |
+> Revisado em **agosto/2026** contra a safra recente de produtos. Análise
+> completa em **[RELATORIO-PROJETO.md](docs/RELATORIO-PROJETO.md)**.
 
-### Por que não é copiável
+### A safra 2025–2026
 
-> **1. Neutralidade estrutural** — Bancos nunca vão recomendar o concorrente. Apps que ganham comissão não podem ser neutros. A Nexa cobra do usuário — a única estrutura que garante trabalhar exclusivamente para quem paga.
+Entre 2025 e 2026 surgiu no Brasil uma geração de produtos de finanças pessoais
+nativos de IA sobre Open Finance. O mais relevante é o **Pierre**, da CloudWalk
+(InfinitePay) — lançado em julho/2025, adquirido um mês depois, hoje com **165
+mil usuários**, 1,2 milhão de mensagens e 70+ milhões de transações
+processadas. Planos: Free · **R$ 39/mês** · **R$ 199/mês**.
+
+Ao lado dele: **Muuney** (dashboard + alertas no WhatsApp), **Jota**
+(assistente no WhatsApp com Pix e suporte a PJ) e **Magie** (banking
+conversacional). Fora do Brasil, a mesma safra: Copilot Money (US$ 95/ano),
+Monarch (US$ 99,99/ano), Cleo, Rocket Money.
+
+> ### ⚠️ A correção que isso impõe
+>
+> Versões anteriores deste README tratavam o **consultor conversacional** como
+> diferencial. **Não é mais.** O Pierre faz exatamente isso, é brasileiro, roda
+> sobre Open Finance e está financiado por uma das fintechs mais capitalizadas
+> do país. Uma disputa por distribuição contra a CloudWalk não é uma disputa
+> que a HIVE ganha.
+>
+> A camada de conversa virou **requisito de entrada**. O diferencial é a
+> **defesa do consumidor bancário**, que nenhum deles faz.
+
+### A comparação real
+
+| Capacidade | HIVE | Pierre | Muuney · Jota | Mobills · Organizze | App do banco | Advogado |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|
+| Categoriza gastos | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| Open Finance multi-banco | ✅ | ✅ | ✅ | ✅ | ⚠️ só o próprio | — |
+| Consultor conversacional | ✅ 31 tools | ✅ multiagente | ✅ WhatsApp | ❌ | ⚠️ chatbot | humano |
+| Projeta fluxo de caixa | ✅ | ✅ | ⚠️ | ⚠️ básico | ❌ | ❌ |
+| Sinaliza gasto fora do padrão | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Detecta tarifa indevida** | ✅ | ❌ | ❌ | ❌ | ❌ | manual |
+| **Confere juros contra o BACEN** | ✅ | ❌ | ❌ | ❌ | ❌ | manual |
+| **Base legal (CDC, BACEN, STJ)** | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Dossiê para PROCON / JEC** | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Roteiro de negociação** | ✅ | ❌ | ❌ | ❌ | ❌ | substitui |
+| **Dinheiro esquecido (SVR)** | ✅ | ❌ | ❌ | ❌ | ❌ | cobra por isso |
+| Simulação sem viés (Monte Carlo) | ✅ | ❌ | ❌ | ❌ | ⚠️ viesado | ❌ |
+| Otimiza IR e calendário fiscal | ✅ | ❌ | ❌ | ❌ | ❌ | contador |
+| Separa PF/PJ para MEI | ✅ | ❌ | ⚠️ Jota | ❌ | ❌ | contador |
+| **Usuários reais** | **0** | 165 mil | — | milhões | dezenas de milhões | o mercado |
+| **Marca e capital** | **0** | CloudWalk | independente | alta | alta | OAB |
+
+As linhas **em negrito** são as únicas onde a HIVE está sozinha. Elas são a
+empresa. O resto é paridade competitiva contra quem tem marca, capital e
+usuários.
+
+### O que sustenta a diferença
+
+> **1. Neutralidade estrutural** — Bancos nunca vão recomendar o concorrente. Apps que ganham comissão não podem ser neutros. A HIVE cobra do usuário — a única estrutura que garante trabalhar exclusivamente para quem paga.
 
 > **2. Flywheel de dados** — Cada novo usuário melhora o benchmark de tarifas (`bank_fee_trends`) e os detectores de abuso. Meses de dados históricos que nenhum concorrente replica retroativamente.
 
-> **3. Complexidade técnica** — 20+ módulos de análise, ETL de 8 estágios, catálogo curado de 81 cartões com 11 programas de fidelidade valorados, Monte Carlo, agente ReAct com 31 ferramentas, 8 clusters comportamentais, 6 detectores de defesa do consumidor e scheduler de inteligência proativa. Não é um wrapper de API.
+> **3. Profundidade, não wrapper** — 31 módulos de análise, ETL de 8 estágios, catálogo curado de 81 cartões de 37 emissores, Monte Carlo, agente ReAct com 31 ferramentas, 7 perfis comportamentais, 6 detectores de defesa e scheduler proativo. Reconstruir isso custa de R$ 700 mil a R$ 1,3 milhão.
 
-> **4. Confiança do usuário** — Uma vez que o usuário confia na Nexa como seu advogado, o custo de troca é altíssimo.
+> **4. Confiança do usuário** — Uma vez que o usuário confia na HIVE como seu advogado, o custo de troca é altíssimo.
 
-> **5. Nexa Score como bureau alternativo** — Com massa crítica, o score baseado em fluxo de caixa real vira selo de qualidade que força bancos a baixarem juros.
+> **5. HIVE Score como bureau alternativo** — Com massa crítica, o score baseado em fluxo de caixa real vira selo de qualidade que força bancos a baixarem juros.
+
+### O que a comparação **não** resolve
+
+Nada acima muda o fato de que a HIVE tem **zero usuários**. A tabela mede
+capacidade instalada, não posição de mercado — e capacidade instalada sem
+distribuição vale uma fração do que custou construir.
 
 ---
 
@@ -425,7 +509,7 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 
 ### 1. B2B2C — Bem-Estar Financeiro Corporativo
 
-O CAC no B2C financeiro é R$ 80–150/usuário. O canal B2B2C muda a economia do negócio: vender a Nexa como benefício corporativo (estilo Gympass para finanças). O RH distribui o app — uma venda = 10.000–50.000 usuários com CAC ~zero.
+O CAC no B2C financeiro é R$ 80–150/usuário. O canal B2B2C muda a economia do negócio: vender a HIVE como benefício corporativo (estilo Gympass para finanças). O RH distribui o app — uma venda = 10.000–50.000 usuários com CAC ~zero.
 
 | Aspecto | Detalhe |
 |:---|:---|
@@ -433,13 +517,13 @@ O CAC no B2C financeiro é R$ 80–150/usuário. O canal B2B2C muda a economia d
 | **Pricing** | R$ 5–15/funcionário/mês → empresa de 10.000 = R$ 100k–150k MRR por contrato |
 | **Efeito colateral** | Funcionário conecta contas pessoais; ao sair da empresa, migra para plano individual |
 
-### 2. Nexa Score — Bureau de Crédito Alternativo
+### 2. HIVE Score — Bureau de Crédito Alternativo
 
-O Serasa olha o passado (inadimplência); a Nexa olha o presente (fluxo de caixa real). Fase 1: gamificação interna (✅ base pronta — health score + badges). Fase 2: score exportável que o usuário mostra ao pedir crédito. Fase 3: instituições consultam mediante pagamento — receita sem quebrar neutralidade (o usuário decide compartilhar).
+O Serasa olha o passado (inadimplência); a HIVE olha o presente (fluxo de caixa real). Fase 1: gamificação interna (✅ base pronta — health score + badges). Fase 2: score exportável que o usuário mostra ao pedir crédito. Fase 3: instituições consultam mediante pagamento — receita sem quebrar neutralidade (o usuário decide compartilhar).
 
-### 3. Nexa Wrapped — Viralização Orgânica
+### 3. HIVE Wrapped — Viralização Orgânica
 
-✅ **Gerador já implementado** (`/viral/wrapped/{user_id}/{year}/svg`). Todo dezembro (e trimestralmente para Pro/Total): quanto cada banco ganhou com você, top tarifas evitáveis, total economizado pela Nexa, evolução do score. Benchmark Spotify: ~20% de share rate; conversão esperada de 3–5% dos alcançados.
+✅ **Gerador já implementado** (`/viral/wrapped/{user_id}/{year}/svg`). Todo dezembro (e trimestralmente para Pro/Total): quanto cada banco ganhou com você, top tarifas evitáveis, total economizado pela HIVE, evolução do score. Benchmark Spotify: ~20% de share rate; conversão esperada de 3–5% dos alcançados.
 
 ### 4. Expansão LatAm — Playbook Mexicano
 
@@ -611,7 +695,7 @@ México: Open Banking regulado (Ley Fintech 2018), 60M sub-bancarizados, concent
 | `POST` | `/api/v1/push/*` | Inscrição Web Push (VAPID) |
 | `GET` | `/api/v1/peers/compare/{user_id}` · `/budget/{user_id}` | Benchmark e orçamento 50/30/20 |
 | `GET` | `/api/v1/viral/savings-card/{user_id}[/svg]` | Placar de economia compartilhável |
-| `GET` | `/api/v1/viral/wrapped/{user_id}/{year}[/svg]` | Nexa Wrapped anual |
+| `GET` | `/api/v1/viral/wrapped/{user_id}/{year}[/svg]` | HIVE Wrapped anual |
 
 ### IA, Privacidade e Fiscal
 
@@ -744,9 +828,17 @@ pytest tests/ --cov=app --cov-report=html # com coverage
 pytest tests/opportunities/ -v            # por feature
 ```
 
-**2.189 testes coletados** — suíte mantida 100% verde como política do projeto. Cobertura por área: optimizer, architect, cashflow/ETL, opportunities, notifications (filtro + life events), seasonality, purchase, health_score, peers, fiscal, agent, e2e (seeded e fresh) e **31 testes dedicados de segurança** (`test_security_hardening.py`).
+**3.498 testes coletados · 3.477 passando · 21 pulados · 0 falhas · 79% de cobertura** — suíte mantida 100% verde como política do projeto. Cobertura por área: optimizer, architect, cashflow/ETL, opportunities, notifications (filtro + life events), seasonality, purchase, health_score, peers, fiscal, agent, e2e (seeded e fresh) e **64 testes dedicados de segurança** (`test_seguranca_sessao.py`, `test_seguranca_lgpd.py`).
 
-CI via GitHub Actions: testes + `pip-audit` (CVE novo quebra o build).
+> **Cobertura não é atestado.** 79% mede o que foi *executado*, não o que foi
+> *verificado*. As auditorias de 2026 encontraram dezenas de testes que passavam
+> sobre código quebrado — por isso cada correção passa a ser validada por
+> **mutação**: quebra-se o código de propósito e exige-se que um teste específico
+> falhe. A distribuição também importa: `app/jobs` está a **25%**, o pior módulo
+> do projeto — e é a camada que roda de madrugada sem ninguém olhando.
+
+CI via GitHub Actions: testes + `pip-audit` nos pins diretos + catraca de CVE na
+árvore transitiva (o número só pode descer).
 
 ---
 
@@ -818,14 +910,14 @@ curl -X POST http://localhost:8000/api/v1/architect/simulate \
 - [x] **Billing + gating Free/Pro/Total** (Stripe, dark launch — falta só chaves + flip da flag)
 - [ ] **Frontend oficial** (substituir protótipo)
 - [ ] Validação jurídica e lançamento do D5
-- [ ] R4.a relatório trimestral · R5 anti-churn
+- [ ] R4.a relatório trimestral · R5 anti-churn (⚠️ jobs escritos e nunca agendados)
 - [ ] Lançamento público do Wrapped (dezembro)
 
 ### Fase 3 — Escala (2027)
 
 - [ ] App mobile nativo (widget homescreen, FCM)
 - [ ] F6 sweep automático · F8 radar 200+ instituições · F12 modo família
-- [ ] Nexa Score exportável → bureau alternativo
+- [ ] HIVE Score exportável → bureau alternativo
 - [ ] B2B2C — primeiros contratos corporativos
 - [ ] V3 ranking público de bancos
 
@@ -840,6 +932,7 @@ curl -X POST http://localhost:8000/api/v1/architect/simulate \
 
 | Arquivo | Conteúdo |
 |:---|:---|
+| **[RELATORIO-PROJETO.md](docs/RELATORIO-PROJETO.md)** | **Relatório de projeto** — notas por camada, posição competitiva (Pierre, Muuney, Jota, Mobills, Organizze), economia unitária, crescimento, avaliação, riscos e plano de 90 dias |
 | [funcionalidades/](docs/funcionalidades/README.md) | **Documentação completa de todas as funcionalidades** — o que cada uma faz, o que NÃO faz e gaps, técnica e em palavras simples (18 domínios) |
 | [ROADMAP.md](docs/ROADMAP.md) | Roadmap de produto auditado contra o código |
 | [MUDANÇAS.md](docs/MUDANÇAS.md) | Mapa técnico de cada mudança por camada |
@@ -854,14 +947,14 @@ curl -X POST http://localhost:8000/api/v1/architect/simulate \
 
 <div align="center">
 
-### Nexa AI
+### HIVE
 
-**20+ módulos implementados · 31 ferramentas de IA · 17 tipos de alerta proativo · 2.189 testes**
+**31 módulos implementados · 31 ferramentas de IA · 17 tipos de alerta proativo · 3.477 testes passando**
 
 *Trabalhar para você, não para o banco.*
 
 ---
 
-**Julho 2026 · Confidencial**
+**Agosto 2026 · Confidencial**
 
 </div>
