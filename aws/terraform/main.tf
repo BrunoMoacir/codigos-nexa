@@ -40,7 +40,7 @@ resource "aws_s3_bucket" "nexa_storage" {
 resource "random_id" "bucket_suffix" {
   byte_length = 4
 }
-
+  
 # 4. SQS Queue (Para processamento de jobs assíncronos - Fase 3)
 resource "aws_sqs_queue" "jobs_queue" {
   name                       = "${var.project_name}-jobs-queue"
