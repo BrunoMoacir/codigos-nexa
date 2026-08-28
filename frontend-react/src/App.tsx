@@ -14,6 +14,7 @@ import { ConnectionsPage } from './pages/ConnectionsPage';
 import { GoalsPage } from './pages/GoalsPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { WidgetPage } from './pages/WidgetPage';
+import { ContactPage } from './pages/ContactPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -59,6 +60,8 @@ function App() {
           <Route path="/connections" element={<ConnectionsPage />} />
           <Route path="/profile"     element={<ProfilePage />} />
           <Route path="/widget"      element={<WidgetPage />} />
+
+          <Route path="/contact" element={<ContactPage />} />
 
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
