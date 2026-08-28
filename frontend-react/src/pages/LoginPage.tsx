@@ -3,6 +3,30 @@ import { useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../api/client';
 
+// ─── Scramble text hook ───────────────────────────────────────────────────────
+const SCRAMBLE_CHARS = '!#$%&*+<=>?@^~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+function useScramble(target: string, delay = 300) {
+  const [display, setDisplay] = useState(() => target.split('').map(() => SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)]).join(''));
+  useEffect(() => {
+    const locked = new Array(target.length).fill(false);
+    let frame = 0;
+    const totalFrames = 55;
+    const tid = setTimeout(() => {
+      const id = setInterval(() => {
+        frame++;
+        const lockUntil = Math.floor((frame / totalFrames) * target.length);
+        for (let i = 0; i < lockUntil; i++) locked[i] = true;
+        setDisplay(target.split('').map((ch, i) =>
+          locked[i] ? ch : SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)]
+        ).join(''));
+        if (frame >= totalFrames) { clearInterval(id); setDisplay(target); }
+      }, 35);
+    }, delay);
+    return () => clearTimeout(tid);
+  }, [target, delay]);
+  return display;
+}
+
 // ─── Canvas de Colmeia ───────────────────────────────────────────────────────
 const HoneycombCanvas: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -15,12 +39,12 @@ const HoneycombCanvas: React.FC = () => {
     if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
     const DPR = Math.min(window.devicePixelRatio || 1, 2);
-    const SIZE = 22;
+    const SIZE = 28;
     const GAP = 5;
     const SQRT3 = Math.sqrt(3);
-    const GLOW_R = 150;
-    const WAVE_SPEED = 260;
-    const WAVE_WIDTH = 50;
+    const GLOW_R = 200;
+    const WAVE_SPEED = 300;
+    const WAVE_WIDTH = 65;
 
     type Hex = { cx: number; cy: number; phase: number };
     let hexes: Hex[] = [];
@@ -95,15 +119,15 @@ const HoneycombCanvas: React.FC = () => {
 
         drawHex(h.cx, h.cy, s);
         ctx.fillStyle = total > 0.02
-          ? `rgba(212,168,32,${total * 0.2})`
-          : `rgba(243,239,234,${baseA * 0.35})`;
+          ? `rgba(212,168,32,${total * 0.28})`
+          : `rgba(243,239,234,${baseA * 0.4})`;
         ctx.fill();
 
         drawHex(h.cx, h.cy, s);
         ctx.strokeStyle = total > 0.02
-          ? `rgba(212,168,32,${0.05 + total * 0.7})`
-          : `rgba(243,239,234,${baseA})`;
-        ctx.lineWidth = total > 0.15 ? 1.2 : 0.55;
+          ? `rgba(212,168,32,${0.08 + total * 0.85})`
+          : `rgba(243,239,234,${baseA * 1.4})`;
+        ctx.lineWidth = total > 0.15 ? 1.4 : 0.65;
         ctx.stroke();
       }
 
@@ -152,22 +176,9 @@ const css = `
     0%   { background-position: 200% center; }
     100% { background-position: -200% center; }
   }
-  @keyframes neon-pulse {
-    0%, 100% {
-      text-shadow:
-        0 0 8px rgba(212,168,32,0.9),
-        0 0 24px rgba(212,168,32,0.5),
-        0 0 56px rgba(212,168,32,0.25),
-        0 0 100px rgba(212,168,32,0.1);
-    }
-    50% {
-      text-shadow:
-        0 0 4px rgba(248,224,96,1),
-        0 0 16px rgba(212,168,32,0.8),
-        0 0 40px rgba(212,168,32,0.4),
-        0 0 80px rgba(212,168,32,0.2),
-        0 0 140px rgba(212,168,32,0.08);
-    }
+  @keyframes scramble-cursor {
+    0%,100% { opacity: 1; }
+    50%      { opacity: 0; }
   }
   @keyframes lp-fadeUp {
     from { opacity: 0; transform: translateY(22px); }
@@ -234,7 +245,7 @@ const css = `
     display: grid;
     grid-template-columns: 1fr 400px;
     min-height: 100vh;
-    padding: 52px 48px 52px 64px;
+    padding: 52px 36px 52px 48px;
     gap: 0;
     align-items: center;
   }
@@ -273,7 +284,7 @@ const css = `
     flex-direction: column;
     justify-content: space-between;
     min-height: calc(100vh - 104px);
-    padding-right: 60px;
+    padding-right: 44px;
     animation: lp-fadeUp 0.7s cubic-bezier(.16,1,.3,1) both;
   }
 
@@ -288,8 +299,9 @@ const css = `
     font-weight: 900;
     letter-spacing: 0.2em;
     color: #D4A820;
-    animation: neon-pulse 2.8s ease-in-out infinite;
+    font-variant-numeric: tabular-nums;
     line-height: 1;
+    font-family: 'Satoshi', monospace;
   }
 
   .lp-hero { flex: 1; display: flex; flex-direction: column; justify-content: center; }
@@ -322,7 +334,7 @@ const css = `
     font-size: 0.95rem;
     font-weight: 400;
     line-height: 1.8;
-    color: rgba(243,239,234,0.52);
+    color: rgba(243,239,234,0.68);
     max-width: 340px;
   }
 
@@ -457,8 +469,8 @@ const css = `
     width: 100%;
     padding: 13px;
     background: transparent;
-    color: rgba(243,239,234,0.75);
-    border: 1px solid rgba(243,239,234,0.15);
+    color: #D4A820;
+    border: 1px solid rgba(212,168,32,0.22);
     border-radius: 10px;
     font-family: inherit;
     font-size: 0.85rem;
@@ -467,12 +479,11 @@ const css = `
     text-align: center;
     text-decoration: none;
     cursor: pointer;
-    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    transition: border-color 0.15s, background 0.15s;
   }
   .lp-btn-register:hover {
-    border-color: rgba(212,168,32,0.4);
-    color: #D4A820;
-    background: rgba(212,168,32,0.04);
+    border-color: rgba(212,168,32,0.5);
+    background: rgba(212,168,32,0.06);
   }
 
   @media (max-width: 860px) {
@@ -490,6 +501,7 @@ export const LoginPage: React.FC = () => {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const hiveText = useScramble('HIVE', 400);
 
   // CSS var para cursor glow
   useEffect(() => {
@@ -527,7 +539,7 @@ export const LoginPage: React.FC = () => {
                 <polygon points="90,10 12,55 12,145 90,190 105,181 105,19" fill="#D4A820"/>
                 <polygon points="100,16 110,22 110,178 100,184" fill="#090500"/>
               </svg>
-              <span className="lp-logo-word">HIVE</span>
+              <span className="lp-logo-word">{hiveText}</span>
             </div>
 
             <div className="lp-hero">
@@ -547,8 +559,8 @@ export const LoginPage: React.FC = () => {
           {/* ── DIREITO — form ── */}
           <div className="lp-right">
             <div className="lp-card">
-              <div className="lp-card-title">Entre no HIVE</div>
-              <div className="lp-card-sub">Seus dados financeiros, sem filtro.</div>
+              <div className="lp-card-title">Acesso ao painel</div>
+              <div className="lp-card-sub">Entre com seus dados para continuar.</div>
 
               <form onSubmit={handleLogin}>
                 <div className="lp-fields">
@@ -570,7 +582,6 @@ export const LoginPage: React.FC = () => {
                 </button>
               </form>
 
-              <div className="lp-note">Ao entrar você aceita os Termos de Uso.</div>
               <div className="lp-separator" />
               <Link to="/register" className="lp-btn-register">Criar uma conta</Link>
             </div>
