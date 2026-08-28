@@ -7,24 +7,33 @@ import { API_BASE_URL } from '../api/client';
 const SLOT_CHARS = ['$', '¥', '€', '%', '+', '#', '8', '4', '2', '1', '9', '6', '3', '7', '0', '5'];
 
 const SlotLetter: React.FC<{ char: string; delay: number }> = ({ char, delay }) => {
+  const outerRef = useRef<HTMLSpanElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const chars = [...SLOT_CHARS, char];
 
   useEffect(() => {
-    const el = trackRef.current;
-    if (!el) return;
+    const outer = outerRef.current;
+    const track = trackRef.current;
+    if (!outer || !track) return;
+    // Lê a altura real em px depois do render para calcular o offset exato
     const tid = setTimeout(() => {
-      el.style.transition = 'transform 1.1s cubic-bezier(0.16, 1, 0.3, 1)';
-      el.style.transform = `translateY(-${(chars.length - 1) * 100}%)`;
+      const h = outer.getBoundingClientRect().height;
+      if (h > 0) {
+        track.style.transition = 'transform 1.2s cubic-bezier(0.16, 1, 0.3, 1)';
+        track.style.transform = `translateY(-${(chars.length - 1) * h}px)`;
+      }
     }, delay);
     return () => clearTimeout(tid);
   }, [chars.length, delay]);
 
   return (
-    <span style={{ overflow: 'hidden', display: 'inline-block', height: '1em', verticalAlign: 'top' }}>
-      <div ref={trackRef} style={{ display: 'flex', flexDirection: 'column', willChange: 'transform' }}>
+    <span
+      ref={outerRef}
+      style={{ overflow: 'hidden', display: 'inline-block', height: '1em', verticalAlign: 'top', lineHeight: 1 }}
+    >
+      <div ref={trackRef} style={{ lineHeight: 1, willChange: 'transform' }}>
         {chars.map((c, i) => (
-          <span key={i} style={{ display: 'block', height: '1em', lineHeight: '1em', textAlign: 'center' }}>{c}</span>
+          <span key={i} style={{ display: 'block', height: '1em', lineHeight: 1, textAlign: 'center' }}>{c}</span>
         ))}
       </div>
     </span>
