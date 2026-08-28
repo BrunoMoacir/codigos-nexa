@@ -152,6 +152,23 @@ const css = `
     0%   { background-position: 200% center; }
     100% { background-position: -200% center; }
   }
+  @keyframes neon-pulse {
+    0%, 100% {
+      text-shadow:
+        0 0 8px rgba(212,168,32,0.9),
+        0 0 24px rgba(212,168,32,0.5),
+        0 0 56px rgba(212,168,32,0.25),
+        0 0 100px rgba(212,168,32,0.1);
+    }
+    50% {
+      text-shadow:
+        0 0 4px rgba(248,224,96,1),
+        0 0 16px rgba(212,168,32,0.8),
+        0 0 40px rgba(212,168,32,0.4),
+        0 0 80px rgba(212,168,32,0.2),
+        0 0 140px rgba(212,168,32,0.08);
+    }
+  }
   @keyframes lp-fadeUp {
     from { opacity: 0; transform: translateY(22px); }
     to   { opacity: 1; transform: translateY(0); }
@@ -215,9 +232,9 @@ const css = `
     position: relative;
     z-index: 2;
     display: grid;
-    grid-template-columns: 1fr 420px;
+    grid-template-columns: 1fr 400px;
     min-height: 100vh;
-    padding: 52px 72px 52px 64px;
+    padding: 52px 48px 52px 64px;
     gap: 0;
     align-items: center;
   }
@@ -270,12 +287,8 @@ const css = `
     font-size: 2.2rem;
     font-weight: 900;
     letter-spacing: 0.2em;
-    background: linear-gradient(90deg, #C89010 0%, #F8E060 25%, #D4A820 50%, #F8E060 75%, #C89010 100%);
-    background-size: 400% auto;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    animation: shimmer 4s linear infinite;
+    color: #D4A820;
+    animation: neon-pulse 2.8s ease-in-out infinite;
     line-height: 1;
   }
 
@@ -345,20 +358,22 @@ const css = `
 
   .lp-card {
     width: 100%;
-    background: rgba(16, 13, 9, 0.92);
-    border: 1px solid rgba(212,168,32,0.13);
+    background: rgba(16, 13, 9, 0.94);
+    border: 1px solid rgba(212,168,32,0.28);
     border-radius: 20px;
     padding: 36px 30px 30px;
     position: relative;
     overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(212,168,32,0.06), 0 8px 40px rgba(0,0,0,0.5), 0 0 60px rgba(212,168,32,0.04);
   }
-  /* Linha dourada topo do card — conecta com a divider */
+  /* Linha dourada topo — mais visível */
   .lp-card::before {
     content: '';
     position: absolute;
-    top: 0; left: 10%; right: 10%;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(212,168,32,0.7), transparent);
+    top: 0; left: 8%; right: 8%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(212,168,32,0.85), transparent);
+    border-radius: 0 0 2px 2px;
   }
 
   .lp-card-title {
@@ -532,8 +547,8 @@ export const LoginPage: React.FC = () => {
           {/* ── DIREITO — form ── */}
           <div className="lp-right">
             <div className="lp-card">
-              <div className="lp-card-title">Acesso ao painel</div>
-              <div className="lp-card-sub">Entre com seus dados para continuar.</div>
+              <div className="lp-card-title">Entre no HIVE</div>
+              <div className="lp-card-sub">Seus dados financeiros, sem filtro.</div>
 
               <form onSubmit={handleLogin}>
                 <div className="lp-fields">
