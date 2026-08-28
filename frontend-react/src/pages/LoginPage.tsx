@@ -492,6 +492,16 @@ const css = `
   }
   .lp-separator { height: 1px; background: rgba(243,239,234,0.07); margin: 18px 0; }
 
+  .lp-help-link {
+    font-size: 0.72rem;
+    color: rgba(243,239,234,0.35);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.15s;
+    white-space: nowrap;
+  }
+  .lp-help-link:hover { color: #D4A820; }
+
   .lp-btn-register {
     display: block;
     width: 100%;
@@ -594,7 +604,10 @@ export const LoginPage: React.FC = () => {
           {/* ── DIREITO — form ── */}
           <div className="lp-right">
             <div className="lp-card">
-              <div className="lp-card-title">Acesso ao painel</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <div className="lp-card-title" style={{ marginBottom: 0 }}>Acesso ao painel</div>
+                <a href="/contact" className="lp-help-link">Precisa de ajuda?</a>
+              </div>
               <div className="lp-card-sub">Entre com seus dados para continuar.</div>
 
               <form onSubmit={handleLogin}>

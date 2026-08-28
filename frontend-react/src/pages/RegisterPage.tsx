@@ -213,7 +213,7 @@ const css = `
     position: relative;
     z-index: 2;
     display: grid;
-    grid-template-columns: 1fr 420px;
+    grid-template-columns: 1fr 500px;
     min-height: 100vh;
     max-width: 1280px;
     margin: 0 auto;
@@ -225,7 +225,7 @@ const css = `
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    padding: 52px 48px 52px 80px;
+    padding: 40px 32px 40px 56px;
     animation: rp-up 0.6s cubic-bezier(.16,1,.3,1) both;
   }
 
@@ -246,7 +246,7 @@ const css = `
     display: flex;
     flex-direction: column;
     gap: 0;
-    margin: 48px 0;
+    margin: 22px 0;
   }
   .rp-step-row {
     display: flex;
@@ -288,15 +288,15 @@ const css = `
   }
   .rp-step-vline {
     width: 1px;
-    height: 44px;
+    height: 26px;
     background: rgba(243,239,234,0.08);
     transition: background 0.4s ease;
     margin: 4px 0;
   }
   .rp-step-vline.done { background: rgba(212,168,32,0.35); }
   .rp-step-info {
-    padding-top: 4px;
-    padding-bottom: 44px;
+    padding-top: 3px;
+    padding-bottom: 22px;
   }
   .rp-step-name {
     font-size: 0.8rem;
@@ -322,10 +322,10 @@ const css = `
     display: flex;
     flex-direction: column;
     justify-content: center;
-    padding-bottom: 32px;
+    padding-bottom: 12px;
   }
   .rp-ctx-num {
-    font-size: 4.5rem;
+    font-size: 3rem;
     font-weight: 900;
     letter-spacing: -0.06em;
     color: transparent;
@@ -335,7 +335,7 @@ const css = `
     user-select: none;
   }
   .rp-ctx-title {
-    font-size: clamp(1.6rem, 2.5vw, 2.2rem);
+    font-size: clamp(1.25rem, 2vw, 1.65rem);
     font-weight: 900;
     letter-spacing: -0.04em;
     line-height: 1.15;
@@ -346,13 +346,13 @@ const css = `
   .rp-ctx-bullets {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 7px;
   }
   .rp-ctx-bullet {
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     color: rgba(243,239,234,0.62);
     line-height: 1.5;
   }
@@ -377,7 +377,7 @@ const css = `
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 48px 80px 48px 24px;
+    padding: 36px 40px 36px 16px;
     animation: rp-up 0.6s cubic-bezier(.16,1,.3,1) 0.1s both;
   }
 
@@ -386,7 +386,7 @@ const css = `
     background: rgba(16, 13, 9, 0.95);
     border: 1px solid rgba(212,168,32,0.28);
     border-radius: 20px;
-    padding: 28px 26px 26px;
+    padding: 22px 22px 20px;
     position: relative;
     overflow: hidden;
     box-shadow: 0 0 0 1px rgba(212,168,32,0.05), 0 8px 40px rgba(0,0,0,0.55);
@@ -412,7 +412,7 @@ const css = `
     font-weight: 800;
     color: #F3EFEA;
     letter-spacing: -0.025em;
-    margin-bottom: 20px;
+    margin-bottom: 12px;
   }
 
   /* ── Google button ── */
@@ -432,7 +432,7 @@ const css = `
     color: rgba(243,239,234,0.82);
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
-    margin-bottom: 16px;
+    margin-bottom: 10px;
   }
   .rp-google:hover { background: rgba(243,239,234,0.1); border-color: rgba(243,239,234,0.2); }
 
@@ -440,7 +440,7 @@ const css = `
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-bottom: 16px;
+    margin-bottom: 10px;
     font-size: 0.65rem;
     font-weight: 600;
     letter-spacing: 0.08em;
@@ -454,7 +454,7 @@ const css = `
   }
 
   /* ── Fields ── */
-  .rp-fields { display: flex; flex-direction: column; gap: 11px; margin-bottom: 16px; }
+  .rp-fields { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
   .rp-row2   { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .rp-field-label {
     display: block;
