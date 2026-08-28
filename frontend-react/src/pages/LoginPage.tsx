@@ -136,7 +136,6 @@ const HoneycombCanvas: React.FC = () => {
 // ─── CSS ─────────────────────────────────────────────────────────────────────
 const css = `
   @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,800,900&display=swap');
-
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   .lp-root {
@@ -146,206 +145,315 @@ const css = `
     color: #F3EFEA;
     position: relative;
     overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: center;
   }
 
-  /* Cursor glow suave */
+  /* ── Shimmer animation ── */
+  @keyframes shimmer {
+    0%   { background-position: 200% center; }
+    100% { background-position: -200% center; }
+  }
+  @keyframes lp-fadeUp {
+    from { opacity: 0; transform: translateY(22px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse-ring {
+    0%,100% { opacity: 0.18; transform: translate(-50%,-50%) scale(1); }
+    50%      { opacity: 0.07; transform: translate(-50%,-50%) scale(1.06); }
+  }
+
+  /* ── Cursor glow ── */
   .lp-root::after {
     content: '';
     position: fixed;
-    width: 520px;
-    height: 520px;
+    width: 600px; height: 600px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(212,168,32,0.055) 0%, transparent 65%);
+    background: radial-gradient(circle, rgba(212,168,32,0.06) 0%, transparent 65%);
     transform: translate(var(--cx,-9999px), var(--cy,-9999px)) translate(-50%,-50%);
-    pointer-events: none;
-    z-index: 1;
-    transition: transform 0.06s linear;
+    pointer-events: none; z-index: 1;
+    transition: transform 0.08s linear;
   }
 
-  /* Layout centralizado */
+  /* ── Marca d'água HIVE enorme — une as duas colunas ── */
+  .lp-wm {
+    position: fixed;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: min(52vw, 520px);
+    font-weight: 900;
+    letter-spacing: -0.06em;
+    color: transparent;
+    -webkit-text-stroke: 1px rgba(212,168,32,0.04);
+    pointer-events: none;
+    z-index: 0;
+    user-select: none;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  /* ── Anel pulsante atrás do form ── */
+  .lp-ring {
+    position: fixed;
+    width: 520px; height: 520px;
+    border-radius: 50%;
+    border: 1px solid rgba(212,168,32,0.1);
+    left: 72%; top: 50%;
+    transform: translate(-50%,-50%);
+    pointer-events: none;
+    z-index: 0;
+    animation: pulse-ring 4s ease-in-out infinite;
+  }
+  .lp-ring::before {
+    content: '';
+    position: absolute;
+    inset: 40px;
+    border-radius: 50%;
+    border: 1px solid rgba(212,168,32,0.06);
+  }
+
+  /* ── Layout ── */
   .lp-layout {
     position: relative;
     z-index: 2;
     display: grid;
-    grid-template-columns: 1fr 400px;
-    width: 100%;
-    max-width: 1020px;
+    grid-template-columns: 1fr 420px;
     min-height: 100vh;
-    padding: 56px 52px;
-    gap: 56px;
+    padding: 52px 72px 52px 64px;
+    gap: 0;
     align-items: center;
+  }
+
+  /* Linha vertical de conexão entre os dois lados */
+  .lp-divider {
+    position: absolute;
+    left: calc(50% + 20px);
+    top: 12%;
+    height: 76%;
+    width: 1px;
+    background: linear-gradient(to bottom,
+      transparent 0%,
+      rgba(212,168,32,0.2) 25%,
+      rgba(212,168,32,0.2) 75%,
+      transparent 100%
+    );
+    z-index: 2;
+    pointer-events: none;
+  }
+  /* Nó dourado no meio da linha */
+  .lp-divider::after {
+    content: '';
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%,-50%);
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: #D4A820;
+    box-shadow: 0 0 10px rgba(212,168,32,0.6);
   }
 
   /* ── ESQUERDO ── */
   .lp-left {
     display: flex;
     flex-direction: column;
-    gap: 40px;
+    justify-content: space-between;
+    min-height: calc(100vh - 104px);
+    padding-right: 60px;
+    animation: lp-fadeUp 0.7s cubic-bezier(.16,1,.3,1) both;
   }
 
+  /* Logo com shimmer */
   .lp-logo {
     display: flex;
     align-items: center;
     gap: 14px;
-    animation: lp-fadeUp 0.6s cubic-bezier(.16,1,.3,1) both;
   }
   .lp-logo-word {
-    font-size: 1.6rem;
+    font-size: 1.1rem;
     font-weight: 900;
-    letter-spacing: 0.18em;
-    color: #D4A820;
-    line-height: 1;
+    letter-spacing: 0.28em;
+    background: linear-gradient(90deg, #C89010 0%, #F8E060 25%, #D4A820 50%, #F8E060 75%, #C89010 100%);
+    background-size: 400% auto;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: shimmer 4s linear infinite;
+  }
+  .lp-logo-badge {
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: rgba(212,168,32,0.55);
+    text-transform: uppercase;
+    border: 1px solid rgba(212,168,32,0.2);
+    border-radius: 4px;
+    padding: 2px 7px;
+    margin-left: 4px;
   }
 
-  .lp-hero {
-    animation: lp-fadeUp 0.75s cubic-bezier(.16,1,.3,1) 0.1s both;
-  }
+  .lp-hero { flex: 1; display: flex; flex-direction: column; justify-content: center; }
 
   .lp-headline {
-    font-size: clamp(3.2rem, 5.2vw, 5.4rem);
+    font-size: clamp(3.8rem, 6vw, 6.5rem);
     font-weight: 900;
-    line-height: 0.93;
-    letter-spacing: -0.04em;
+    line-height: 0.9;
+    letter-spacing: -0.05em;
     text-transform: uppercase;
     color: #F3EFEA;
-    margin-bottom: 24px;
+    margin-bottom: 32px;
   }
+
+  /* "FILTRO." com shimmer de ouro */
   .lp-headline em {
     font-style: normal;
-    color: #D4A820;
     display: block;
+    background: linear-gradient(100deg, #C89010 0%, #F8E060 30%, #D4A820 55%, #F8E060 78%, #C89010 100%);
+    background-size: 400% auto;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: shimmer 3.5s linear infinite;
     position: relative;
     width: fit-content;
   }
-  .lp-headline em::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    bottom: -6px;
-    width: 100%;
-    height: 3px;
-    background: rgba(212,168,32,0.35);
-    border-radius: 2px;
-  }
 
   .lp-sub {
-    font-size: 0.93rem;
+    font-size: 0.95rem;
     font-weight: 400;
-    line-height: 1.75;
-    color: rgba(243,239,234,0.55);
-    max-width: 380px;
+    line-height: 1.8;
+    color: rgba(243,239,234,0.52);
+    max-width: 340px;
+  }
+
+  .lp-tags {
+    display: flex;
+    gap: 8px;
+    margin-top: 28px;
+  }
+  .lp-tag {
+    font-size: 0.63rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(243,239,234,0.3);
+    border: 1px solid rgba(243,239,234,0.1);
+    border-radius: 20px;
+    padding: 4px 10px;
   }
 
   .lp-footer {
-    font-size: 0.7rem;
-    color: rgba(243,239,234,0.38);
+    font-size: 0.68rem;
+    color: rgba(243,239,234,0.28);
     letter-spacing: 0.04em;
-    animation: lp-fadeUp 0.75s cubic-bezier(.16,1,.3,1) 0.3s both;
   }
 
-  /* ── DIREITO — form ── */
+  /* ── DIREITO ── */
   .lp-right {
     display: flex;
     align-items: center;
-    animation: lp-fadeUp 0.75s cubic-bezier(.16,1,.3,1) 0.15s both;
+    justify-content: flex-end;
+    animation: lp-fadeUp 0.7s cubic-bezier(.16,1,.3,1) 0.12s both;
   }
 
   .lp-card {
     width: 100%;
-    background: #131008;
-    border: 1px solid rgba(243,239,234,0.11);
+    background: rgba(16, 13, 9, 0.92);
+    border: 1px solid rgba(212,168,32,0.13);
     border-radius: 20px;
-    padding: 32px 28px;
+    padding: 36px 30px 30px;
+    position: relative;
+    overflow: hidden;
+  }
+  /* Linha dourada topo do card — conecta com a divider */
+  .lp-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 20%; right: 20%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(212,168,32,0.45), transparent);
   }
 
   .lp-card-title {
-    font-size: 1.2rem;
+    font-size: 1.25rem;
     font-weight: 800;
     color: #F3EFEA;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.025em;
     margin-bottom: 5px;
   }
   .lp-card-sub {
     font-size: 0.78rem;
-    color: rgba(243,239,234,0.5);
-    margin-bottom: 24px;
+    color: rgba(243,239,234,0.45);
+    margin-bottom: 26px;
     font-weight: 400;
   }
 
-  /* Fields */
-  .lp-fields { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+  .lp-fields { display: flex; flex-direction: column; gap: 14px; margin-bottom: 22px; }
   .lp-field-label {
     display: block;
-    font-size: 0.67rem;
+    font-size: 0.65rem;
     font-weight: 700;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: rgba(243,239,234,0.55);
-    margin-bottom: 6px;
+    color: rgba(243,239,234,0.5);
+    margin-bottom: 7px;
   }
   .lp-input {
     width: 100%;
-    padding: 12px 14px;
-    background: rgba(243,239,234,0.05);
+    padding: 12px 16px;
+    background: rgba(243,239,234,0.04);
     color: #F3EFEA;
-    border: 1px solid rgba(243,239,234,0.12);
+    border: 1px solid rgba(243,239,234,0.1);
     border-radius: 10px;
     font-family: inherit;
     font-size: 0.9rem;
     outline: none;
     transition: border-color 0.15s, background 0.15s;
   }
-  .lp-input::placeholder { color: rgba(243,239,234,0.28); }
+  .lp-input::placeholder { color: rgba(243,239,234,0.25); }
   .lp-input:focus {
-    border-color: rgba(212,168,32,0.55);
-    background: rgba(212,168,32,0.04);
+    border-color: rgba(212,168,32,0.5);
+    background: rgba(212,168,32,0.03);
   }
 
-  /* Botão principal */
   .lp-btn {
     width: 100%;
     padding: 14px;
-    background: #D4A820;
+    background: linear-gradient(135deg, #C89010, #D4A820, #E8C030);
+    background-size: 200% auto;
     color: #0A0800;
     border: none;
     border-radius: 10px;
     font-family: inherit;
     font-size: 0.85rem;
     font-weight: 900;
-    letter-spacing: 0.09em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     cursor: pointer;
-    transition: background 0.15s, transform 0.12s;
-    margin-bottom: 12px;
+    transition: background-position 0.3s, transform 0.12s, box-shadow 0.2s;
+    margin-bottom: 14px;
+    box-shadow: 0 4px 20px rgba(212,168,32,0.2);
   }
-  .lp-btn:hover:not(:disabled) { background: #EAC02C; transform: translateY(-1px); }
+  .lp-btn:hover:not(:disabled) {
+    background-position: right center;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 28px rgba(212,168,32,0.35);
+  }
   .lp-btn:active:not(:disabled) { transform: translateY(0); }
   .lp-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .lp-note {
     text-align: center;
-    font-size: 0.67rem;
-    color: rgba(243,239,234,0.35);
+    font-size: 0.65rem;
+    color: rgba(243,239,234,0.3);
     line-height: 1.65;
   }
+  .lp-separator { height: 1px; background: rgba(243,239,234,0.07); margin: 18px 0; }
 
-  .lp-separator {
-    height: 1px;
-    background: rgba(243,239,234,0.08);
-    margin: 18px 0;
-  }
-
-  /* Botão criar conta */
   .lp-btn-register {
     display: block;
     width: 100%;
     padding: 13px;
     background: transparent;
-    color: rgba(243,239,234,0.85);
-    border: 1px solid rgba(243,239,234,0.18);
+    color: rgba(243,239,234,0.75);
+    border: 1px solid rgba(243,239,234,0.15);
     border-radius: 10px;
     font-family: inherit;
     font-size: 0.85rem;
@@ -359,26 +467,15 @@ const css = `
   .lp-btn-register:hover {
     border-color: rgba(212,168,32,0.4);
     color: #D4A820;
-    background: rgba(212,168,32,0.05);
+    background: rgba(212,168,32,0.04);
   }
 
-  /* Animações */
-  @keyframes lp-fadeUp {
-    from { opacity: 0; transform: translateY(20px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-
-  /* Mobile */
   @media (max-width: 860px) {
-    .lp-root { align-items: flex-start; }
-    .lp-layout {
-      grid-template-columns: 1fr;
-      padding: 36px 24px 48px;
-      gap: 44px;
-      min-height: 100vh;
-    }
-    .lp-left { gap: 28px; }
-    .lp-headline { font-size: clamp(2.8rem, 11vw, 4rem); }
+    .lp-layout { grid-template-columns: 1fr; padding: 36px 24px 48px; gap: 44px; }
+    .lp-left { min-height: auto; padding-right: 0; gap: 28px; justify-content: flex-start; }
+    .lp-divider, .lp-ring { display: none; }
+    .lp-headline { font-size: clamp(3rem, 12vw, 4.2rem); }
+    .lp-right { justify-content: stretch; }
   }
 `;
 
@@ -410,18 +507,26 @@ export const LoginPage: React.FC = () => {
       <div className="lp-root">
         <HoneycombCanvas />
 
+        {/* Marca d'água HIVE gigante — une as duas colunas */}
+        <div className="lp-wm" aria-hidden="true">HIVE</div>
+
+        {/* Anel pulsante no lado do form */}
+        <div className="lp-ring" aria-hidden="true" />
+
         <div className="lp-layout">
+          {/* Linha vertical de conexão */}
+          <div className="lp-divider" aria-hidden="true" />
+
           {/* ── ESQUERDO ── */}
           <div className="lp-left">
-
-            {/* Logo */}
             <div className="lp-logo">
-              <svg width="28" height="32" viewBox="0 0 180 200" fill="none">
+              <svg width="26" height="29" viewBox="0 0 180 200" fill="none">
                 <polygon points="90,10 168,55 168,145 90,190 12,145 12,55" fill="#7A5002"/>
                 <polygon points="90,10 12,55 12,145 90,190 105,181 105,19" fill="#D4A820"/>
                 <polygon points="100,16 110,22 110,178 100,184" fill="#090500"/>
               </svg>
               <span className="lp-logo-word">HIVE</span>
+              <span className="lp-logo-badge">Beta</span>
             </div>
 
             <div className="lp-hero">
@@ -431,9 +536,13 @@ export const LoginPage: React.FC = () => {
                 <em>filtro.</em>
               </h1>
               <p className="lp-sub">
-                Conecte suas contas e veja tudo que o banco
-                não te conta sobre o seu próprio dinheiro.
+                Conecte suas contas e veja tudo que o banco não te conta sobre o seu próprio dinheiro.
               </p>
+              <div className="lp-tags">
+                <span className="lp-tag">Open Finance</span>
+                <span className="lp-tag">IA Financeira</span>
+                <span className="lp-tag">Real time</span>
+              </div>
             </div>
 
             <div className="lp-footer">© 2025 HIVE · Todos os direitos reservados</div>
@@ -466,12 +575,8 @@ export const LoginPage: React.FC = () => {
               </form>
 
               <div className="lp-note">Ao entrar você aceita os Termos de Uso.</div>
-
               <div className="lp-separator" />
-
-              <Link to="/register" className="lp-btn-register">
-                Criar uma conta
-              </Link>
+              <Link to="/register" className="lp-btn-register">Criar uma conta</Link>
             </div>
           </div>
         </div>
