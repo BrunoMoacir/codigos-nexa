@@ -245,7 +245,7 @@ const css = `
     display: grid;
     grid-template-columns: 1fr 400px;
     min-height: 100vh;
-    padding: 52px 36px 52px 48px;
+    padding: 52px 28px 52px 36px;
     gap: 0;
     align-items: center;
   }
@@ -284,7 +284,7 @@ const css = `
     flex-direction: column;
     justify-content: space-between;
     min-height: calc(100vh - 104px);
-    padding-right: 44px;
+    padding-right: 32px;
     animation: lp-fadeUp 0.7s cubic-bezier(.16,1,.3,1) both;
   }
 
@@ -425,10 +425,18 @@ const css = `
     transition: border-color 0.15s, background 0.15s;
   }
   .lp-input::placeholder { color: rgba(243,239,234,0.25); }
-  .lp-input:focus {
-    border-color: rgba(212,168,32,0.5);
-    background: rgba(212,168,32,0.03);
+  .lp-input:focus { border-color: rgba(212,168,32,0.5); background: rgba(212,168,32,0.03); }
+  .lp-input.err { border-color: rgba(240,122,100,0.55); background: rgba(240,122,100,0.04); }
+  .lp-field-err {
+    font-size: 0.7rem;
+    color: #F07A64;
+    margin-top: 5px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 5px;
   }
+  .lp-field-err::before { content: '↑'; font-size: 0.6rem; }
 
   .lp-btn {
     width: 100%;
@@ -501,6 +509,7 @@ export const LoginPage: React.FC = () => {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errs, setErrs] = useState({ email: false, password: false });
   const hiveText = useScramble('HIVE', 400);
 
   // CSS var para cursor glow
@@ -515,6 +524,9 @@ export const LoginPage: React.FC = () => {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    const newErrs = { email: !loginEmail.trim(), password: !loginPassword.trim() };
+    setErrs(newErrs);
+    if (newErrs.email || newErrs.password) return;
     navigate('/dashboard');
   };
 
@@ -566,15 +578,25 @@ export const LoginPage: React.FC = () => {
                 <div className="lp-fields">
                   <div>
                     <label className="lp-field-label">E-mail</label>
-                    <input className="lp-input" type="email" placeholder="seu@email.com"
-                      value={loginEmail} onChange={e => setLoginEmail(e.target.value)}
-                      autoComplete="email" disabled={loading} />
+                    <input
+                      className={`lp-input${errs.email ? ' err' : ''}`}
+                      type="email" placeholder="seu@email.com"
+                      value={loginEmail}
+                      onChange={e => { setLoginEmail(e.target.value); if (errs.email) setErrs(p => ({...p, email: false})); }}
+                      autoComplete="email" disabled={loading}
+                    />
+                    {errs.email && <div className="lp-field-err">Preencha o e-mail</div>}
                   </div>
                   <div>
                     <label className="lp-field-label">Senha</label>
-                    <input className="lp-input" type="password" placeholder="••••••••"
-                      value={loginPassword} onChange={e => setLoginPassword(e.target.value)}
-                      autoComplete="current-password" disabled={loading} />
+                    <input
+                      className={`lp-input${errs.password ? ' err' : ''}`}
+                      type="password" placeholder="••••••••"
+                      value={loginPassword}
+                      onChange={e => { setLoginPassword(e.target.value); if (errs.password) setErrs(p => ({...p, password: false})); }}
+                      autoComplete="current-password" disabled={loading}
+                    />
+                    {errs.password && <div className="lp-field-err">Preencha a senha</div>}
                   </div>
                 </div>
                 <button type="submit" className="lp-btn" disabled={loading}>
