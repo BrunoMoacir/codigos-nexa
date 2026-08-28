@@ -291,7 +291,7 @@ const css = `
     align-items: center;
     gap: 5px;
   }
-  .rp-field-err::before { content: '↑'; font-size: 0.6rem; }
+  .rp-field-err::before { content: none; }
 
   /* ── Botões ── */
   .rp-btn {

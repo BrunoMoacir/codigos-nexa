@@ -456,7 +456,7 @@ const css = `
     align-items: center;
     gap: 5px;
   }
-  .lp-field-err::before { content: '↑'; font-size: 0.6rem; }
+  .lp-field-err::before { content: none; }
 
   .lp-btn {
     width: 100%;
