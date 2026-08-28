@@ -35,7 +35,7 @@ function App() {
             borderRadius: '12px',
             border: '1px solid rgba(212,168,32,0.2)',
             fontSize: '0.85rem',
-            fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
+            fontFamily: "'Satoshi', system-ui, sans-serif",
           },
           success: { iconTheme: { primary: '#2EC8A4', secondary: '#0C0A08' } },
           error:   { iconTheme: { primary: '#F07A64', secondary: '#0C0A08' } },

@@ -9,10 +9,10 @@ interface AppShellProps {
 }
 
 const css = `
-  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap');
+  @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,800,900&display=swap');
 
   .hs {
-    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-family: 'Satoshi', system-ui, sans-serif;
     min-height: 100vh;
     background: #0E0C0A;
     color: #F3EFEA;

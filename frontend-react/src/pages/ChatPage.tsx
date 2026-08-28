@@ -320,7 +320,7 @@ export const ChatPage: React.FC = () => {
         {showWelcome ? (
           <div className="cp-welcome">
             <div className="cp-welcome-title">
-              Oi! <span>👋</span><br />Como posso te ajudar hoje?
+              Oi! Como posso<br />te ajudar hoje?
             </div>
             <div className="cp-welcome-chips">
               {SUGGESTIONS.map((s, i) => (
