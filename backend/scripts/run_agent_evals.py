@@ -271,12 +271,25 @@ SYSTEM_PROMPT_CLUSTERS = (
 
 
 def _judge(case: dict, answer: str) -> dict | None:
+    """
+    Nota 1-5 por rubrica.
+
+    O `profile_brief` entra no contexto do juiz porque a rubrica pede
+    explicitamente "TOM: adequado ao cluster indicado nos dados?" — e o cluster
+    NÃO está nos fixtures, está no brief que o sistema injeta no system prompt.
+    Sem ele o juiz punia o agente por seguir o cluster que não conseguia ver:
+    o caso URBANO_FOODIE levou tom=2 por "sugerir gastos em restaurante/
+    delivery apesar de cluster desconhecido", que é exatamente a adaptação que
+    o prompt manda fazer.
+    """
     from app.agent.graph import _build_llm
 
     llm = _build_llm()
     prompt = JUDGE_RUBRIC.format(judge_focus=case.get("judge_focus", "qualidade geral"))
     content = (
-        f"{prompt}\n\n=== DADOS DAS FERRAMENTAS ===\n{json.dumps(case['tool_fixtures'], ensure_ascii=False, indent=1)}"
+        f"{prompt}\n\n=== PERFIL DO USUÁRIO (o mesmo que o agente recebeu) ===\n"
+        f"{case.get('profile_brief') or 'nenhum — usuário sem extrato, tom neutro'}"
+        f"\n\n=== DADOS DAS FERRAMENTAS ===\n{json.dumps(case['tool_fixtures'], ensure_ascii=False, indent=1)}"
         f"\n\n=== PERGUNTA DO USUÁRIO ===\n{case['user_message']}\n\n=== RESPOSTA ===\n{answer}"
     )
     raw = llm.invoke(content).content

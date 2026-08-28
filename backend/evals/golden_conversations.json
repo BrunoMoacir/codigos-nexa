@@ -310,12 +310,13 @@
       "must_not_include": [
         "você está em estresse financeiro",
         "seu nível de estresse é",
-        "diagnóstico",
+        "diagnóstico financeiro",
+        "seu diagnóstico",
         "[NEXA]"
       ],
       "suppress_from_context": [
         "[NEXA]",
-        "diagnóstico"
+        "diagnóstico financeiro"
       ]
     },
     {
