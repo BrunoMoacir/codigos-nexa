@@ -3,29 +3,33 @@ import { useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../api/client';
 
-// ─── Scramble text hook ───────────────────────────────────────────────────────
-const SCRAMBLE_CHARS = '!#$%&*+<=>?@^~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-function useScramble(target: string, delay = 300) {
-  const [display, setDisplay] = useState(() => target.split('').map(() => SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)]).join(''));
+// ─── Slot-machine letter (ticker financeiro) ─────────────────────────────────
+const SLOT_CHARS = ['$', '¥', '€', '%', '+', '#', '8', '4', '2', '1', '9', '6', '3', '7', '0', '5'];
+
+const SlotLetter: React.FC<{ char: string; delay: number }> = ({ char, delay }) => {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const chars = [...SLOT_CHARS, char];
+
   useEffect(() => {
-    const locked = new Array(target.length).fill(false);
-    let frame = 0;
-    const totalFrames = 55;
+    const el = trackRef.current;
+    if (!el) return;
     const tid = setTimeout(() => {
-      const id = setInterval(() => {
-        frame++;
-        const lockUntil = Math.floor((frame / totalFrames) * target.length);
-        for (let i = 0; i < lockUntil; i++) locked[i] = true;
-        setDisplay(target.split('').map((ch, i) =>
-          locked[i] ? ch : SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)]
-        ).join(''));
-        if (frame >= totalFrames) { clearInterval(id); setDisplay(target); }
-      }, 35);
+      el.style.transition = 'transform 1.1s cubic-bezier(0.16, 1, 0.3, 1)';
+      el.style.transform = `translateY(-${(chars.length - 1) * 100}%)`;
     }, delay);
     return () => clearTimeout(tid);
-  }, [target, delay]);
-  return display;
-}
+  }, [chars.length, delay]);
+
+  return (
+    <span style={{ overflow: 'hidden', display: 'inline-block', height: '1em', verticalAlign: 'top' }}>
+      <div ref={trackRef} style={{ display: 'flex', flexDirection: 'column', willChange: 'transform' }}>
+        {chars.map((c, i) => (
+          <span key={i} style={{ display: 'block', height: '1em', lineHeight: '1em', textAlign: 'center' }}>{c}</span>
+        ))}
+      </div>
+    </span>
+  );
+};
 
 // ─── Canvas de Colmeia ───────────────────────────────────────────────────────
 const HoneycombCanvas: React.FC = () => {
@@ -297,11 +301,13 @@ const css = `
   .lp-logo-word {
     font-size: 2.2rem;
     font-weight: 900;
-    letter-spacing: 0.2em;
+    letter-spacing: 0.18em;
     color: #D4A820;
     font-variant-numeric: tabular-nums;
     line-height: 1;
-    font-family: 'Satoshi', monospace;
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 0.04em;
   }
 
   .lp-hero { flex: 1; display: flex; flex-direction: column; justify-content: center; }
@@ -510,7 +516,6 @@ export const LoginPage: React.FC = () => {
   const [loginPassword, setLoginPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errs, setErrs] = useState({ email: false, password: false });
-  const hiveText = useScramble('HIVE', 400);
 
   // CSS var para cursor glow
   useEffect(() => {
@@ -551,7 +556,11 @@ export const LoginPage: React.FC = () => {
                 <polygon points="90,10 12,55 12,145 90,190 105,181 105,19" fill="#D4A820"/>
                 <polygon points="100,16 110,22 110,178 100,184" fill="#090500"/>
               </svg>
-              <span className="lp-logo-word">{hiveText}</span>
+              <span className="lp-logo-word">
+                {'HIVE'.split('').map((ch, i) => (
+                  <SlotLetter key={i} char={ch} delay={400 + i * 130} />
+                ))}
+              </span>
             </div>
 
             <div className="lp-hero">
