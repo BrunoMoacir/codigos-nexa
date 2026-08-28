@@ -423,7 +423,7 @@ export const RegisterPage: React.FC = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading] = useState(false);
 
   useEffect(() => {
     const mm = (e: MouseEvent) => {
@@ -434,46 +434,9 @@ export const RegisterPage: React.FC = () => {
     return () => window.removeEventListener('mousemove', mm);
   }, []);
 
-  const handleCreateAccount = async (e: React.FormEvent) => {
+  const handleCreateAccount = (e: React.FormEvent) => {
     e.preventDefault();
-    // Sem campos preenchidos: pula pro fluxo diretamente
-    if (!email.trim() && !name.trim() && !password) { setStep(2); return; }
-    setLoading(true);
-    const tid = toast.loading('Criando sua conta…');
-    try {
-      const res = await fetch(`${API_BASE_URL}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, full_name: name }),
-      });
-      if (res.ok) {
-        const body = new URLSearchParams();
-        body.append('username', email);
-        body.append('password', password);
-        const loginRes = await fetch(`${API_BASE_URL}/auth/token`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body,
-        });
-        if (loginRes.ok) {
-          const data = await loginRes.json();
-          localStorage.setItem('jwt_token', data.access_token);
-          localStorage.setItem('user_id', data.user_id);
-          localStorage.setItem('user_email', email);
-          localStorage.setItem('user_name', name);
-          localStorage.setItem('nexa_data_origin', 'real');
-        }
-        toast.success('Conta criada!', { id: tid });
-        setStep(2);
-      } else {
-        const err = await res.json().catch(() => ({}));
-        toast.error(err.detail || 'Erro ao criar conta — avançando mesmo assim.', { id: tid });
-        setStep(2);
-      }
-    } catch {
-      toast.error('Sem conexão — avançando para demonstração.', { id: tid });
-      setStep(2);
-    } finally { setLoading(false); }
+    setStep(2);
   };
 
   const stepDot = (n: number) => {
@@ -548,11 +511,8 @@ export const RegisterPage: React.FC = () => {
                         autoComplete="new-password" disabled={loading} />
                     </div>
                   </div>
-                  <button type="submit" className="rp-btn" disabled={loading}>
-                    {loading ? 'Criando…' : 'Continuar'}
-                  </button>
-                  <button type="button" className="rp-btn-outline" onClick={() => setStep(2)} disabled={loading}>
-                    Pular e ver o fluxo →
+                  <button type="submit" className="rp-btn">
+                    Continuar
                   </button>
                 </form>
               </>
@@ -602,7 +562,7 @@ export const RegisterPage: React.FC = () => {
                   Sua conta está pronta. Agora você tem acesso à inteligência financeira que os bancos não querem que você tenha.
                 </p>
                 <button className="rp-btn" onClick={() => navigate('/chat')}>
-                  Entrar no HIVE
+                  Entrar no HIVE →
                 </button>
               </div>
             )}

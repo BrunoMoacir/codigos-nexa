@@ -402,37 +402,9 @@ export const LoginPage: React.FC = () => {
     return () => window.removeEventListener('mousemove', mm);
   }, []);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!loginEmail || !loginPassword) { toast.error('Preencha e-mail e senha.'); return; }
-    setLoading(true);
-    const tid = toast.loading('Entrando…');
-    try {
-      const body = new URLSearchParams();
-      body.append('username', loginEmail);
-      body.append('password', loginPassword);
-      const res = await fetch(`${API_BASE_URL}/auth/token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body,
-      });
-      if (res.ok) {
-        const data = await res.json();
-        localStorage.setItem('jwt_token', data.access_token);
-        localStorage.setItem('user_id', data.user_id);
-        localStorage.setItem('user_email', loginEmail);
-        localStorage.setItem('nexa_data_origin', 'real');
-        localStorage.setItem('nexa_data_origin_updated_at', new Date().toISOString());
-        if (data.full_name) localStorage.setItem('user_name', data.full_name);
-        toast.success('Bem-vindo ao HIVE', { id: tid });
-        setTimeout(() => navigate('/chat'), 400);
-      } else {
-        const err = await res.json().catch(() => ({}));
-        toast.error(err.detail || 'Credenciais inválidas', { id: tid });
-      }
-    } catch {
-      toast.error('Erro de conexão', { id: tid });
-    } finally { setLoading(false); }
+    navigate('/chat');
   };
 
   return (

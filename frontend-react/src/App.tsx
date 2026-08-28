@@ -21,11 +21,6 @@ const queryClient = new QueryClient({
   },
 });
 
-const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const isAuthenticated = !!localStorage.getItem('jwt_token');
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return <>{children}</>;
-};
 
 function App() {
   return (
@@ -52,21 +47,21 @@ function App() {
           <Route path="/register" element={<RegisterPage />} />
 
           {/* HIVE — 3 abas principais */}
-          <Route path="/chat"      element={<AuthGuard><ChatPage /></AuthGuard>} />
-          <Route path="/feed"      element={<AuthGuard><FeedPage /></AuthGuard>} />
-          <Route path="/organizar" element={<AuthGuard><OrganizarPage /></AuthGuard>} />
+          <Route path="/chat"      element={<ChatPage />} />
+          <Route path="/feed"      element={<FeedPage />} />
+          <Route path="/organizar" element={<OrganizarPage />} />
 
           {/* Páginas legadas mantidas */}
-          <Route path="/home"        element={<AuthGuard><HomePage /></AuthGuard>} />
-          <Route path="/dashboard"   element={<AuthGuard><DashboardPage /></AuthGuard>} />
-          <Route path="/goals"       element={<AuthGuard><GoalsPage /></AuthGuard>} />
-          <Route path="/strategies"  element={<AuthGuard><StrategiesPage /></AuthGuard>} />
-          <Route path="/connections" element={<AuthGuard><ConnectionsPage /></AuthGuard>} />
-          <Route path="/profile"     element={<AuthGuard><ProfilePage /></AuthGuard>} />
-          <Route path="/widget"      element={<AuthGuard><WidgetPage /></AuthGuard>} />
+          <Route path="/home"        element={<HomePage />} />
+          <Route path="/dashboard"   element={<DashboardPage />} />
+          <Route path="/goals"       element={<GoalsPage />} />
+          <Route path="/strategies"  element={<StrategiesPage />} />
+          <Route path="/connections" element={<ConnectionsPage />} />
+          <Route path="/profile"     element={<ProfilePage />} />
+          <Route path="/widget"      element={<WidgetPage />} />
 
-          <Route path="/" element={<Navigate to="/chat" replace />} />
-          <Route path="*" element={<Navigate to="/chat" replace />} />
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>
