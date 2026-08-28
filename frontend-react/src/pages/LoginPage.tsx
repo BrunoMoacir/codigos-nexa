@@ -267,26 +267,16 @@ const css = `
     gap: 14px;
   }
   .lp-logo-word {
-    font-size: 1.1rem;
+    font-size: 2.2rem;
     font-weight: 900;
-    letter-spacing: 0.28em;
+    letter-spacing: 0.2em;
     background: linear-gradient(90deg, #C89010 0%, #F8E060 25%, #D4A820 50%, #F8E060 75%, #C89010 100%);
     background-size: 400% auto;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
     animation: shimmer 4s linear infinite;
-  }
-  .lp-logo-badge {
-    font-size: 0.58rem;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    color: rgba(212,168,32,0.55);
-    text-transform: uppercase;
-    border: 1px solid rgba(212,168,32,0.2);
-    border-radius: 4px;
-    padding: 2px 7px;
-    margin-left: 4px;
+    line-height: 1;
   }
 
   .lp-hero { flex: 1; display: flex; flex-direction: column; justify-content: center; }
@@ -340,8 +330,8 @@ const css = `
   }
 
   .lp-footer {
-    font-size: 0.68rem;
-    color: rgba(243,239,234,0.28);
+    font-size: 0.72rem;
+    color: rgba(243,239,234,0.48);
     letter-spacing: 0.04em;
   }
 
@@ -366,9 +356,9 @@ const css = `
   .lp-card::before {
     content: '';
     position: absolute;
-    top: 0; left: 20%; right: 20%;
+    top: 0; left: 10%; right: 10%;
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(212,168,32,0.45), transparent);
+    background: linear-gradient(90deg, transparent, rgba(212,168,32,0.7), transparent);
   }
 
   .lp-card-title {
@@ -441,8 +431,8 @@ const css = `
 
   .lp-note {
     text-align: center;
-    font-size: 0.65rem;
-    color: rgba(243,239,234,0.3);
+    font-size: 0.75rem;
+    color: rgba(243,239,234,0.45);
     line-height: 1.65;
   }
   .lp-separator { height: 1px; background: rgba(243,239,234,0.07); margin: 18px 0; }
@@ -514,19 +504,15 @@ export const LoginPage: React.FC = () => {
         <div className="lp-ring" aria-hidden="true" />
 
         <div className="lp-layout">
-          {/* Linha vertical de conexão */}
-          <div className="lp-divider" aria-hidden="true" />
-
           {/* ── ESQUERDO ── */}
           <div className="lp-left">
             <div className="lp-logo">
-              <svg width="26" height="29" viewBox="0 0 180 200" fill="none">
+              <svg width="32" height="36" viewBox="0 0 180 200" fill="none">
                 <polygon points="90,10 168,55 168,145 90,190 12,145 12,55" fill="#7A5002"/>
                 <polygon points="90,10 12,55 12,145 90,190 105,181 105,19" fill="#D4A820"/>
                 <polygon points="100,16 110,22 110,178 100,184" fill="#090500"/>
               </svg>
               <span className="lp-logo-word">HIVE</span>
-              <span className="lp-logo-badge">Beta</span>
             </div>
 
             <div className="lp-hero">
@@ -538,11 +524,6 @@ export const LoginPage: React.FC = () => {
               <p className="lp-sub">
                 Conecte suas contas e veja tudo que o banco não te conta sobre o seu próprio dinheiro.
               </p>
-              <div className="lp-tags">
-                <span className="lp-tag">Open Finance</span>
-                <span className="lp-tag">IA Financeira</span>
-                <span className="lp-tag">Real time</span>
-              </div>
             </div>
 
             <div className="lp-footer">© 2025 HIVE · Todos os direitos reservados</div>
