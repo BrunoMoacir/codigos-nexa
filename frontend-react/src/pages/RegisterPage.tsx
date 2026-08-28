@@ -561,7 +561,7 @@ export const RegisterPage: React.FC = () => {
                 <p className="rp-success-sub">
                   Sua conta está pronta. Agora você tem acesso à inteligência financeira que os bancos não querem que você tenha.
                 </p>
-                <button className="rp-btn" onClick={() => navigate('/chat')}>
+                <button className="rp-btn" onClick={() => navigate('/dashboard')}>
                   Entrar no HIVE →
                 </button>
               </div>

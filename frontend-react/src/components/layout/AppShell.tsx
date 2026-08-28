@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-export type HiveTab = 'chat' | 'feed' | 'organizar';
+export type HiveTab = 'dashboard' | 'chat' | 'feed' | 'organizar';
 
 interface AppShellProps {
   current: HiveTab;
@@ -224,6 +224,15 @@ const css = `
   }
 `;
 
+const IconDashboard = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <rect x="2" y="2" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+    <rect x="8.5" y="2" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+    <rect x="2" y="8.5" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+    <rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+  </svg>
+);
+
 const IconChat = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
     <path d="M2 3C2 2.45 2.45 2 3 2h10c.55 0 1 .45 1 1v7c0 .55-.45 1-1 1H5l-3 3V3z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
@@ -232,16 +241,15 @@ const IconChat = () => (
 
 const IconFeed = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <rect x="2" y="2" width="5" height="5" rx="1.2" stroke="currentColor" strokeWidth="1.4"/>
-    <rect x="9" y="2" width="5" height="5" rx="1.2" stroke="currentColor" strokeWidth="1.4"/>
-    <rect x="2" y="9" width="5" height="5" rx="1.2" stroke="currentColor" strokeWidth="1.4"/>
-    <rect x="9" y="9" width="5" height="5" rx="1.2" stroke="currentColor" strokeWidth="1.4"/>
+    <path d="M2 4h12M2 8h8M2 12h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    <circle cx="13" cy="8" r="1.5" fill="currentColor"/>
   </svg>
 );
 
 const IconOrganizar = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <path d="M2 5h12M2 8h8M2 11h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    <path d="M2 12 L5 7 L8 9 L11 5 L14 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M2 14h12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.4"/>
   </svg>
 );
 
@@ -252,9 +260,10 @@ const IconLogout = () => (
 );
 
 const navItems = [
-  { key: 'chat' as HiveTab, label: 'Chat IA', icon: <IconChat />, path: '/chat' },
-  { key: 'feed' as HiveTab, label: 'Oportunidades', icon: <IconFeed />, path: '/feed' },
-  { key: 'organizar' as HiveTab, label: 'Organizar', icon: <IconOrganizar />, path: '/organizar' },
+  { key: 'dashboard' as HiveTab, label: 'Dashboard',    icon: <IconDashboard />, path: '/dashboard' },
+  { key: 'chat'      as HiveTab, label: 'Chat IA',      icon: <IconChat />,      path: '/chat'      },
+  { key: 'feed'      as HiveTab, label: 'Oportunidades',icon: <IconFeed />,      path: '/feed'      },
+  { key: 'organizar' as HiveTab, label: 'Organizar',    icon: <IconOrganizar />, path: '/organizar' },
 ];
 
 export const AppShell: React.FC<AppShellProps> = ({ current, children }) => {

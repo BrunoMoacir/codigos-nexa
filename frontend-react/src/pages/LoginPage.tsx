@@ -404,7 +404,7 @@ export const LoginPage: React.FC = () => {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    navigate('/chat');
+    navigate('/dashboard');
   };
 
   return (

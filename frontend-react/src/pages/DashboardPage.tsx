@@ -1,807 +1,405 @@
-import { useMemo } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  Bar,
-  BarChart,
-  Cell,
-  RadialBar,
-  RadialBarChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
 import { AppShell } from '../components/layout/AppShell';
-import { OpportunityRadarCard } from '../components/OpportunityRadarCard';
 import { nexaApi } from '../api/nexa';
 
-const cardStyle: React.CSSProperties = {
-  background: 'var(--bg-surface)',
-  border: '1px solid var(--border-color)',
-  borderRadius: 12,
-  padding: 18,
-  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
-};
+const css = `
+  .db { display: flex; flex-direction: column; min-height: 100vh; background: #0A0806; padding: 28px 28px 40px; gap: 22px; }
 
-const titleStyle: React.CSSProperties = {
-  fontSize: 11,
-  letterSpacing: 0.8,
-  textTransform: 'uppercase',
-  color: 'var(--text-muted)',
-  marginBottom: 8,
-  fontWeight: 600,
-};
+  /* Header */
+  .db-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+  .db-greeting { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(243,239,234,0.25); margin-bottom: 4px; }
+  .db-title { font-size: 1.75rem; font-weight: 900; color: #F3EFEA; letter-spacing: -0.04em; line-height: 1; }
+  .db-title span { color: #D4A820; }
+  .db-period { display: flex; gap: 2px; background: #100E0B; border: 1px solid rgba(243,239,234,0.07); border-radius: 10px; padding: 3px; }
+  .db-period-btn { padding: 6px 14px; border: none; background: transparent; border-radius: 7px; font-family: inherit; font-size: 0.75rem; font-weight: 600; color: rgba(243,239,234,0.3); cursor: pointer; transition: all 0.15s; letter-spacing: 0.02em; }
+  .db-period-btn.on { background: rgba(212,168,32,0.12); color: #D4A820; }
 
-function currency(value: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
-}
+  /* Main grid */
+  .db-grid { display: grid; grid-template-columns: 1fr 320px; gap: 14px; }
+  .db-grid-full { display: grid; grid-template-columns: 1fr 320px; gap: 14px; }
 
-function getGaugeColor(pct: number) {
-  if (pct > 100) return '#E74C3C';
-  if (pct >= 86) return '#0762C7';
-  if (pct >= 61) return '#0978F6';
-  return '#6BAEFA';
-}
+  /* Cards base */
+  .db-card { background: #100E0B; border: 1px solid rgba(243,239,234,0.06); border-radius: 14px; }
 
-function getCategoryColor(pct: number) {
-  if (pct > 90) return '#0762C7';
-  if (pct >= 71) return '#0978F6';
-  return '#6BAEFA';
-}
+  /* Chart card */
+  .db-chart-card { padding: 22px 24px 18px; }
+  .db-chart-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
+  .db-chart-label { font-size: 0.63rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(243,239,234,0.25); margin-bottom: 4px; }
+  .db-chart-val { font-size: 1.5rem; font-weight: 900; color: #F3EFEA; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
+  .db-chart-val span { font-size: 0.9rem; color: rgba(243,239,234,0.35); font-weight: 500; }
+  .db-chart-tabs { display: flex; gap: 2px; background: rgba(243,239,234,0.04); border-radius: 8px; padding: 2px; }
+  .db-chart-tab { padding: 5px 11px; border: none; background: transparent; border-radius: 6px; font-family: inherit; font-size: 0.72rem; font-weight: 600; color: rgba(243,239,234,0.3); cursor: pointer; transition: all 0.15s; }
+  .db-chart-tab.on { background: rgba(212,168,32,0.1); color: #D4A820; }
 
-function getPaceColor(pct: number) {
-  if (pct > 120) return '#E74C3C';
-  if (pct > 105) return '#0762C7';
-  if (pct >= 80) return '#0978F6';
-  return '#6BAEFA';
-}
-
-function getUrgencyMeta(daysUntil: number) {
-  if (daysUntil <= 1) {
-    return { label: daysUntil <= 0 ? 'Hoje' : 'Amanhã', color: '#E74C3C', icon: '!' };
+  /* SVG bar chart */
+  .db-bars-wrap { position: relative; }
+  .db-bar-tooltip {
+    position: absolute; pointer-events: none;
+    background: #1C1915; border: 1px solid rgba(212,168,32,0.25); border-radius: 8px;
+    padding: 7px 12px; white-space: nowrap;
+    font-size: 0.78rem; font-weight: 700; color: #F3EFEA;
+    transform: translateX(-50%);
+    transition: opacity 0.1s;
   }
-  if (daysUntil <= 5) {
-    return { label: `Em ${daysUntil} dias`, color: '#F39C12', icon: '!' };
+  .db-bar-tooltip-sub { font-size: 0.65rem; color: rgba(243,239,234,0.35); font-weight: 500; margin-top: 1px; }
+  .db-axis-labels { display: flex; padding: 0 4px; margin-top: 6px; }
+  .db-axis-label { flex: 1; text-align: center; font-size: 0.63rem; color: rgba(243,239,234,0.2); font-weight: 500; }
+
+  /* KPI stack */
+  .db-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .db-kpi { background: #100E0B; border: 1px solid rgba(243,239,234,0.06); border-radius: 14px; padding: 16px 18px; }
+  .db-kpi-icon { width: 32px; height: 32px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; margin-bottom: 12px; }
+  .db-kpi-label { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(243,239,234,0.22); margin-bottom: 5px; }
+  .db-kpi-val { font-size: 1.15rem; font-weight: 900; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1; }
+  .db-kpi-delta { font-size: 0.65rem; font-weight: 600; margin-top: 4px; }
+  .db-kpi-delta.up   { color: #2EC8A4; }
+  .db-kpi-delta.down { color: #F07A64; }
+  .db-kpi-delta.neu  { color: rgba(243,239,234,0.25); }
+  .db-kpi.green .db-kpi-icon { background: rgba(46,200,164,0.08);  color: #2EC8A4; }
+  .db-kpi.red   .db-kpi-icon { background: rgba(240,122,100,0.08); color: #F07A64; }
+  .db-kpi.gold  .db-kpi-icon { background: rgba(212,168,32,0.08);  color: #D4A820; }
+  .db-kpi.blue  .db-kpi-icon { background: rgba(96,176,242,0.08);  color: #60B0F2; }
+  .db-kpi.green .db-kpi-val { color: #2EC8A4; }
+  .db-kpi.red   .db-kpi-val { color: #F07A64; }
+  .db-kpi.gold  .db-kpi-val { color: #D4A820; }
+  .db-kpi.blue  .db-kpi-val { color: #60B0F2; }
+
+  /* Transactions */
+  .db-txn-card { padding: 20px 22px; }
+  .db-txn-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .db-txn-title { font-size: 0.85rem; font-weight: 800; color: #F3EFEA; }
+  .db-txn-link { font-size: 0.7rem; font-weight: 600; color: rgba(212,168,32,0.6); background: none; border: none; font-family: inherit; cursor: pointer; padding: 0; }
+  .db-txn-link:hover { color: #D4A820; }
+  .db-txn-cols { display: grid; grid-template-columns: 32px 1fr auto auto; gap: 0 12px; align-items: center; margin-bottom: 8px; }
+  .db-txn-col-hd { font-size: 0.58rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(243,239,234,0.15); padding-bottom: 8px; border-bottom: 1px solid rgba(243,239,234,0.05); }
+  .db-txn-col-hd:last-child { text-align: right; }
+  .db-txn-row { display: contents; }
+  .db-txn-row > * { padding: 9px 0; border-bottom: 1px solid rgba(243,239,234,0.04); }
+  .db-txn-ico { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; flex-shrink: 0; }
+  .db-txn-ico.out { background: rgba(240,122,100,0.1); color: #F07A64; }
+  .db-txn-ico.in  { background: rgba(46,200,164,0.1);  color: #2EC8A4; }
+  .db-txn-name { font-size: 0.82rem; font-weight: 600; color: #F3EFEA; }
+  .db-txn-date { font-size: 0.67rem; color: rgba(243,239,234,0.25); margin-top: 1px; font-weight: 500; }
+  .db-txn-cat  { font-size: 0.67rem; color: rgba(243,239,234,0.25); font-weight: 500; }
+  .db-txn-amt  { font-size: 0.88rem; font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .db-txn-amt.out { color: #F07A64; }
+  .db-txn-amt.in  { color: #2EC8A4; }
+
+  /* Summary card (right of transactions) */
+  .db-sum-card { padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
+  .db-sum-title { font-size: 0.85rem; font-weight: 800; color: #F3EFEA; margin-bottom: 2px; }
+  .db-sum-item { display: flex; flex-direction: column; gap: 5px; }
+  .db-sum-row { display: flex; align-items: center; justify-content: space-between; }
+  .db-sum-name { font-size: 0.77rem; font-weight: 600; color: rgba(243,239,234,0.55); }
+  .db-sum-pct  { font-size: 0.7rem; font-weight: 700; color: rgba(243,239,234,0.3); }
+  .db-sum-bar  { height: 5px; border-radius: 99px; background: rgba(243,239,234,0.06); overflow: hidden; }
+  .db-sum-fill { height: 100%; border-radius: 99px; }
+  .db-sum-divider { height: 1px; background: rgba(243,239,234,0.05); }
+
+  /* Skeleton */
+  .db-skel { background: rgba(243,239,234,0.05); border-radius: 12px; animation: db-pulse 1.4s ease-in-out infinite; }
+  @keyframes db-pulse { 0%,100%{opacity:0.35} 50%{opacity:0.7} }
+
+  @media (max-width: 960px) {
+    .db { padding: 16px 14px 80px; gap: 14px; }
+    .db-grid, .db-grid-full { grid-template-columns: 1fr; }
+    .db-kpis { grid-template-columns: 1fr 1fr; }
   }
-  if (daysUntil <= 14) {
-    return { label: `Em ${daysUntil} dias`, color: '#0978F6', icon: 'i' };
-  }
-  return { label: `Em ${daysUntil} dias`, color: '#6B7280', icon: 'i' };
+`;
+
+const MONTHS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+const DEMO_SPEND = [4200, 3800, 5100, 4600, 5800, 6200, 5500, 7100, 6800, 5200, 4900, 7400];
+const DEMO_TXNS = [
+  { dir: 'out' as const, icon: '🛒', name: 'Supermercado Extra',  cat: 'Alimentação',  date: '27 ago, 14:32', amount: -284.90 },
+  { dir: 'in'  as const, icon: '💼', name: 'Salário',              cat: 'Receita',       date: '25 ago, 09:00', amount: 6500.00 },
+  { dir: 'out' as const, icon: '⛽', name: 'Shell Combustível',    cat: 'Transporte',   date: '24 ago, 18:15', amount: -190.00 },
+  { dir: 'out' as const, icon: '📱', name: 'Nubank — Fatura',     cat: 'Cartão',        date: '22 ago, 12:00', amount: -1340.00 },
+  { dir: 'in'  as const, icon: '↩', name: 'Reembolso iFood',     cat: 'Estorno',       date: '20 ago, 10:30', amount: 42.00 },
+  { dir: 'out' as const, icon: '🎬', name: 'Netflix',              cat: 'Assinatura',   date: '18 ago, 00:01', amount: -55.90 },
+  { dir: 'out' as const, icon: '🏋', name: 'Smart Fit',            cat: 'Saúde',         date: '15 ago, 08:00', amount: -99.90 },
+];
+
+const DEMO_CATS = [
+  { name: 'Alimentação',  pct: 32, color: '#D4A820' },
+  { name: 'Cartão',       pct: 24, color: '#60B0F2' },
+  { name: 'Transporte',   pct: 14, color: '#2EC8A4' },
+  { name: 'Assinaturas',  pct: 9,  color: '#F07A64'  },
+  { name: 'Saúde',        pct: 8,  color: '#B08A2A'  },
+  { name: 'Outros',       pct: 13, color: 'rgba(243,239,234,0.15)' },
+];
+
+function fmt(v: number) {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(Math.abs(v));
 }
 
-function parseDaysUntil(dateValue: string) {
-  const due = new Date(dateValue);
-  if (Number.isNaN(due.getTime())) {
-    return 999;
-  }
-  const now = new Date();
-  const dueOnly = new Date(due.getFullYear(), due.getMonth(), due.getDate());
-  const nowOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const diffMs = dueOnly.getTime() - nowOnly.getTime();
-  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
-}
+function BarChart({ data, months, period }: { data: number[]; months: string[]; period: number }) {
+  const [hovered, setHovered] = useState<number | null>(null);
+  const max = Math.max(...data, 1);
+  const W = 480; const H = 110;
+  const n = data.length;
+  const barW = Math.floor((W / n) * 0.55);
+  const gap  = W / n;
 
-export const DashboardPage: React.FC = () => {
-  const userId = localStorage.getItem('user_id') || '';
-
-  const forecastQuery = useQuery({
-    queryKey: ['forecast', userId],
-    queryFn: () => nexaApi.getForecast(userId),
-    enabled: !!userId,
-  });
-
-  const incomeForBudget = useMemo(() => {
-    const rawIncome = Number(forecastQuery.data?.financial_health?.total_income || 0);
-    return rawIncome > 0 ? rawIncome : null;
-  }, [forecastQuery.data]);
-
-  const budgetQuery = useQuery({
-    queryKey: ['budget', userId, incomeForBudget],
-    queryFn: () => nexaApi.getBudget(userId, Number(incomeForBudget)),
-    enabled: !!userId && incomeForBudget != null,
-  });
-
-  const goalsQuery = useQuery({
-    queryKey: ['goals', userId],
-    queryFn: () => nexaApi.getGoals(userId, 'ACTIVE'),
-    enabled: !!userId,
-  });
-
-  const txQuery = useQuery({
-    queryKey: ['transactions', userId],
-    queryFn: () => nexaApi.getTransactions(userId, 200),
-    enabled: !!userId,
-  });
-
-  const alertsQuery = useQuery({
-    queryKey: ['alerts', userId],
-    queryFn: () => nexaApi.getAlerts(userId),
-    enabled: !!userId,
-  });
-
-  const subscriptionsQuery = useQuery({
-    queryKey: ['subscriptions', userId],
-    queryFn: () => nexaApi.getSubscriptions(userId),
-    enabled: !!userId,
-  });
-
-  const shadowSummaryQuery = useQuery({
-    queryKey: ['shadow_summary', userId],
-    queryFn: () => nexaApi.getShadowInvoiceSummary(userId),
-    enabled: !!userId,
-  });
-
-  const subscriptionsSimpleQuery = useQuery({
-    queryKey: ['subscriptions_simple', userId],
-    queryFn: () => nexaApi.getSubscriptionsSimple(userId),
-    enabled: !!userId,
-  });
-
-  const shadowInvoicesQuery = useQuery({
-    queryKey: ['shadow_invoices', userId],
-    queryFn: () => nexaApi.getShadowInvoices(userId),
-    enabled: !!userId,
-  });
-
-  const isLoading =
-    forecastQuery.isLoading || budgetQuery.isLoading || goalsQuery.isLoading || txQuery.isLoading;
-
-  const isNotFoundError = (err: unknown) => {
-    const status = (err as any)?.response?.status;
-    return status === 404;
-  };
-
-  const forecastNoData = forecastQuery.isError && isNotFoundError(forecastQuery.error);
-  const budgetNoData = budgetQuery.isError && isNotFoundError(budgetQuery.error);
-  const hasCriticalLoadError =
-    (forecastQuery.isError && !forecastNoData) || (budgetQuery.isError && !budgetNoData);
-
-  const financialHealth = forecastQuery.data?.financial_health || {};
-  const safeToSpend = forecastQuery.data?.safe_to_spend || {};
-  const shadow = forecastQuery.data?.shadow_invoices || {};
-  const cashflow = forecastQuery.data?.cashflow || {};
-
-  // Prefer authoritative sources: shadow summary (server), then forecast.shadow_invoices
-  const shadowSummary = shadowSummaryQuery.data || forecastQuery.data?.shadow_invoices || {};
-
-  // Invoice list: prefer direct shadow invoice endpoint, fall back to forecast embedded invoices
-  const shadowInvoicesList = shadowInvoicesQuery.data?.invoices || forecastQuery.data?.shadow_invoices?.invoices || [];
-
-  const goals = goalsQuery.data?.goals || [];
-  const transactions = txQuery.data?.transactions || [];
-  const alerts = alertsQuery.data?.alerts || [];
-  const subscriptions = subscriptionsQuery.data?.subscriptions || [];
-  const shadowInvoices = shadowInvoicesList;
-
-  const monthlyBudget = Number(safeToSpend.safe_to_spend_total || 0);
-
-  const spentToDate = useMemo(() => {
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-
-    return transactions.reduce((sum: number, tx: any) => {
-      const amount = Number(tx.amount || 0);
-      const parsed = new Date(tx.date);
-      if (Number.isNaN(parsed.getTime())) {
-        return sum;
-      }
-      if (parsed.getMonth() !== currentMonth || parsed.getFullYear() !== currentYear) {
-        return sum;
-      }
-      return amount < 0 ? sum + Math.abs(amount) : sum;
-    }, 0);
-  }, [transactions]);
-
-  const consumedPct = monthlyBudget > 0 ? (spentToDate / monthlyBudget) * 100 : 0;
-  const clampedConsumedPct = Math.max(0, Math.min(consumedPct, 100));
-  const gaugeColor = getGaugeColor(consumedPct);
-
-  const categoryBreakdown = useMemo(() => {
-    const allocations = budgetQuery.data?.allocations || [];
-    return allocations
-      .map((item: any) => {
-        const spent = Number(item.current_amount || 0);
-        const budget = Number(item.suggested_amount || 0);
-        const pct = budget > 0 ? (spent / budget) * 100 : 0;
-        return {
-          category: item.category || 'Categoria',
-          spent,
-          budget,
-          pct,
-        };
-      })
-      .sort((a: any, b: any) => b.pct - a.pct)
-      .slice(0, 8);
-  }, [budgetQuery.data]);
-
-  const dailySpendData = useMemo(() => {
-    const byDate = new Map<string, number>();
-    const cutoff = new Date();
-    cutoff.setHours(0, 0, 0, 0);
-    cutoff.setDate(cutoff.getDate() - 13);
-
-    transactions.forEach((tx: any) => {
-      const amount = Number(tx.amount || 0);
-      const date = String(tx.date || '');
-      if (!date) return;
-      if (amount >= 0) return;
-
-      const [year, month, day] = date.split('-').map(Number);
-      if (!year || !month || !day) return;
-      const parsed = new Date(year, month - 1, day);
-      if (Number.isNaN(parsed.getTime()) || parsed < cutoff) return;
-
-      byDate.set(date, (byDate.get(date) || 0) + Math.abs(amount));
-    });
-
-    return Array.from(byDate.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .slice(-14)
-      .map(([date, total]) => ({
-        date: date.slice(5),
-        total,
-      }));
-  }, [transactions]);
-
-  const dailySpendWithColor = useMemo(
-    () =>
-      dailySpendData.map((d) => ({
-        ...d,
-        fill: d.total < 10 ? '#6BAEFA' : d.total <= 50 ? '#0978F6' : '#0762C7',
-      })),
-    [dailySpendData]
-  );
-
-  const currentDate = new Date();
-  const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
-  const dayOfMonth = currentDate.getDate();
-  const monthProgress = dayOfMonth / daysInMonth;
-  const expectedSpendToDate = monthlyBudget * monthProgress;
-  const pacePct = expectedSpendToDate > 0 ? (spentToDate / expectedSpendToDate) * 100 : 0;
-  const paceColor = getPaceColor(pacePct);
-
-  // Table-backed subscriptions (DB)
-  const subscriptionsTable = subscriptionsSimpleQuery.data?.subscriptions || [];
-
-  const agendaItems = useMemo(() => {
-    const agendaFromShadow = shadowInvoices.map((invoice: any) => {
-      const rawDate = invoice.next_due_date || invoice.due_date || invoice.date || null;
-      const dueDate = rawDate ? String(rawDate) : null;
-      const daysUntil = dueDate ? parseDaysUntil(dueDate) : 999;
-      return {
-        description: invoice.description || invoice.merchant || 'Compromisso financeiro',
-        amount: Math.abs(Number(invoice.amount || 0)),
-        dueDate,
-        daysUntil,
-        type: invoice.type || 'ITEM',
-      };
-    });
-
-    const agendaFromSubscriptions = subscriptionsTable.map((sub: any) => {
-      const rawDate = sub.next_billing_date || sub.due_date || null;
-      const dueDate = rawDate ? String(rawDate) : null;
-      const daysUntil = dueDate ? parseDaysUntil(dueDate) : 999;
-      return {
-        description: sub.merchant || sub.name || 'Assinatura',
-        amount: Math.abs(Number(sub.monthly_amount || sub.amount || 0)),
-        dueDate,
-        daysUntil,
-        type: 'SUBSCRIPTION',
-      };
-    });
-
-    return [...agendaFromShadow, ...agendaFromSubscriptions]
-      .sort((a: any, b: any) => a.daysUntil - b.daysUntil)
-      .slice(0, 6)
-      .map((it: any) => ({
-        ...it,
-        dueDate: it.dueDate || 'Sem data prevista',
-      }));
-  }, [shadowInvoices, subscriptionsTable]);
-
-  const shadowSubscriptions = useMemo(() => {
-    return shadowInvoices
-      .filter((invoice: any) => String(invoice.type || '').toUpperCase() === 'SUBSCRIPTION')
-      .map((invoice: any) => ({
-        merchant: invoice.description || 'Assinatura',
-        monthly_amount: Math.abs(Number(invoice.amount || 0)),
-        subscription_category: 'servico_recorrente',
-      }));
-  }, [shadowInvoices]);
-
-  // Determine authoritative subscriptions list: prefer DB simple list, then detector, then shadow-derived
-  let displaySubscriptions;
-  if (subscriptionsTable && subscriptionsTable.length > 0) {
-    displaySubscriptions = subscriptionsTable;
-  } else if (subscriptions && subscriptions.length > 0) {
-    displaySubscriptions = subscriptions;
-  } else {
-    displaySubscriptions = shadowSubscriptions;
-  }
-
-  const shadowMonthlyCommitted = Number(
-    shadowSummary.total_monthly_committed ??
-    shadowSummary.total_monthly_impact ??
-    shadow.total_monthly_impact ??
-    0
-  );
-  const shadowTotalCount = Number(shadowSummary.total_count ?? shadow.total_count ?? 0);
-  const shadowSubscriptionsCount = Number(
-    shadowSummary.subscriptions ?? shadowSummary.subscriptions_count ?? shadow.subscriptions_count ?? 0
-  );
-  const shadowInstallmentsCount = Number(
-    shadowSummary.installments ?? shadowSummary.installments_count ?? shadow.installments_count ?? 0
-  );
-
-  // Determine counts and costs with priority: shadow summary (server) > simple table totals > detector totals > derived shadowSubscriptions
-  const tableTotalCost = Number(subscriptionsSimpleQuery.data?.total_monthly_cost ?? 0);
-  const tableTotalCount = Number(subscriptionsSimpleQuery.data?.total_subscriptions ?? subscriptionsTable.length ?? 0);
-  const detectorTotalCost = Number(subscriptionsQuery.data?.total_monthly_cost ?? 0);
-  const detectorTotalCount = Number(subscriptionsQuery.data?.total_subscriptions ?? subscriptions.length ?? 0);
-
-  const finalSubscriptionCount = Number(shadowTotalCount ?? tableTotalCount ?? detectorTotalCount ?? shadowSubscriptions.length);
-  const finalSubscriptionCost = Math.abs(Number(
-    shadowMonthlyCommitted ||
-    tableTotalCost ||
-    detectorTotalCost ||
-    shadowSubscriptions.reduce((sum: number, s: any) => sum + Number(s.monthly_amount || 0), 0)
-  ));
-
-  const showSkeleton = isLoading && !forecastQuery.data && !budgetQuery.data && !txQuery.data;
-
-  const renderSkeletonBlock = (height = 80) => (
-    <div
-      style={{
-        height,
-        borderRadius: 10,
-        background: 'linear-gradient(90deg, #f3f4f6 20%, #f8fafc 50%, #f3f4f6 80%)',
-        border: '1px solid #edf0f2',
-      }}
-    />
-  );
+  const selectedIdx = hovered ?? (period === 1 ? n - 1 : null);
 
   return (
-    <AppShell
-      current="dashboard"
-      title="Meu Dinheiro"
-      subtitle="Dados reais via Open Finance com visão executiva do seu fluxo."
-    >
-      {isLoading && <p style={{ color: 'var(--text-muted)', marginBottom: 14 }}>Carregando dados financeiros...</p>}
-
-      {showSkeleton && (
-        <div style={{ display: 'grid', gap: 12, marginBottom: 14 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-            {renderSkeletonBlock()}
-            {renderSkeletonBlock()}
-            {renderSkeletonBlock()}
-            {renderSkeletonBlock()}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-            {renderSkeletonBlock(220)}
-            {renderSkeletonBlock(220)}
-          </div>
-        </div>
-      )}
-
-      {hasCriticalLoadError && (
-        <div style={{ ...cardStyle, borderColor: '#fecaca', color: '#b91c1c', marginBottom: 16 }}>
-          Não foi possível carregar parte dos dados. Verifique se o backend está ativo.
-        </div>
-      )}
-
-      {forecastNoData && (
-        <div style={{ ...cardStyle, borderColor: '#bfdbfe', color: '#1e40af', marginBottom: 16 }}>
-          Sua conta está ativa, mas ainda não há histórico financeiro suficiente para o painel Meu Dinheiro.
-          Conecte uma conta no Open Finance (ou sincronize transações) para liberar todos os cálculos.
-        </div>
-      )}
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-          gap: 12,
-          marginBottom: 14,
-        }}
+    <div className="db-bars-wrap" style={{ position: 'relative' }}>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        style={{ width: '100%', height: 'auto', display: 'block', overflow: 'visible' }}
+        onMouseLeave={() => setHovered(null)}
       >
-        <div style={cardStyle}>
-          <div style={titleStyle}>Renda Mensal</div>
-          <div style={{ fontSize: 24, fontWeight: 700 }}>{currency(financialHealth.total_income || 0)}</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>
-            Perfil: {financialHealth.profile_type || 'EQUILIBRADO'}
-          </div>
-        </div>
-        <div style={cardStyle}>
-          <div style={titleStyle}>Safe To Spend</div>
-          <div style={{ fontSize: 24, fontWeight: 700 }}>{currency(safeToSpend.safe_to_spend_total || 0)}</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>
-            {currency(safeToSpend.safe_to_spend_daily || 0)}/dia
-          </div>
-        </div>
-        <div style={cardStyle}>
-          <div style={titleStyle}>Health Score</div>
-          <div style={{ fontSize: 24, fontWeight: 700 }}>{Number(financialHealth.health_score || 0).toFixed(0)} / 100</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>
-            Poupança: {((financialHealth.savings_rate || 0) * 100).toFixed(1)}%
-          </div>
-        </div>
-        <div style={cardStyle}>
-          <div style={titleStyle}>Gastos Mensais</div>
-          <div style={{ fontSize: 24, fontWeight: 700 }}>{currency(financialHealth.total_expenses || 0)}</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>
-            Risco: {safeToSpend.risk_level || 'LOW'}
-          </div>
-        </div>
-      </div>
+        <defs>
+          <linearGradient id="barGold" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#D4A820"/>
+            <stop offset="100%" stopColor="#A07A10"/>
+          </linearGradient>
+          <linearGradient id="barDim" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="rgba(243,239,234,0.12)"/>
+            <stop offset="100%" stopColor="rgba(243,239,234,0.06)"/>
+          </linearGradient>
+        </defs>
 
-      <div style={{ marginBottom: 12 }}>
-        <OpportunityRadarCard userId={userId} />
-      </div>
+        {/* Y grid lines */}
+        {[0.25, 0.5, 0.75, 1].map(f => (
+          <line key={f} x1={0} x2={W} y1={H - f * H} y2={H - f * H}
+            stroke="rgba(243,239,234,0.05)" strokeWidth="1"/>
+        ))}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 12 }}>
-        <div style={cardStyle}>
-          <div style={titleStyle}>Orçamento 50/30/20</div>
-          {incomeForBudget == null && (
-            <div style={{ color: 'var(--text-primary)', background: 'var(--bg-hover)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 13 }}>
-              Renda mensal não detectada nas transações. Conecte mais movimentações para liberar esta análise.
-            </div>
-          )}
-          <div style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 8 }}>{budgetQuery.data?.summary_text || 'Sem resumo disponível.'}</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-            {(budgetQuery.data?.group_summary || []).slice(0, 3).map((g: any) => (
-              <div key={g.group} style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 10 }}>
-                <div style={{ fontWeight: 600, fontSize: 13, textTransform: 'capitalize' }}>{g.group}</div>
-                <div style={{ marginTop: 6, fontSize: 18, fontWeight: 700 }}>{Number(g.current_pct || 0).toFixed(1)}%</div>
-                <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>meta {Number(g.target_pct || 0).toFixed(0)}%</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div style={cardStyle}>
-          <div style={titleStyle}>Obrigações Futuras</div>
-          <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>{currency(finalSubscriptionCost)}/mês</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.6 }}>
-            {shadowTotalCount} itens detectados
-            <br />
-            {shadowSubscriptionsCount} assinaturas
-            <br />
-            {shadowInstallmentsCount} parcelas
-          </div>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 12 }}>
-        <div style={cardStyle}>
-          <div style={titleStyle}>Safe-to-Spend (Consumo do Orçamento)</div>
-          <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ height: 180, width: 200, flexShrink: 0 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <RadialBarChart
-                  innerRadius="72%"
-                  outerRadius="100%"
-                  data={[{ name: 'consumido', value: clampedConsumedPct }]}
-                  startAngle={90}
-                  endAngle={-270}
-                >
-                  <RadialBar dataKey="value" cornerRadius={10} background fill={gaugeColor} />
-                </RadialBarChart>
-              </ResponsiveContainer>
-            </div>
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>{consumedPct.toFixed(0)}%</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>
-                De {currency(monthlyBudget)} você já gastou {currency(spentToDate)}
-              </div>
-              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>
-                Limite diário sugerido: {currency(Number(safeToSpend.safe_to_spend_daily || 0))}
-              </div>
-              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>
-                Nível de risco: {safeToSpend.risk_level || 'LOW'}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div style={cardStyle}>
-          <div style={titleStyle}>Ritmo de Gastos no Mês</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 6 }}>
-            Dia {dayOfMonth} de {daysInMonth} ({(monthProgress * 100).toFixed(0)}% do mês)
-          </div>
-          <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 4 }}>
-            Esperado até hoje: {currency(expectedSpendToDate)}
-          </div>
-          <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 10 }}>
-            Gasto real até hoje: {currency(spentToDate)}
-          </div>
-          <div style={{ height: 12, width: '100%', background: 'var(--bg-hover)', borderRadius: 999, overflow: 'hidden' }}>
-            <div
-              style={{
-                height: '100%',
-                width: `${Math.min(160, Math.max(0, pacePct))}%`,
-                background: paceColor,
-              }}
-            />
-          </div>
-          <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>Ritmo atual: {pacePct.toFixed(0)}%</div>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 12 }}>
-        <div style={cardStyle}>
-          <div style={titleStyle}>Categorias (Mais estouradas primeiro)</div>
-          {categoryBreakdown.length === 0 && <div style={{ color: 'var(--text-muted)' }}>Sem dados de categorias no período.</div>}
-          {categoryBreakdown.map((row: any) => {
-            const pct = Math.max(0, row.pct);
-            const width = Math.min(100, pct);
-            const color = getCategoryColor(pct);
-
-            return (
-              <div key={row.category} style={{ marginBottom: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>{row.category}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{pct.toFixed(0)}%</div>
-                </div>
-                <div style={{ height: 8, borderRadius: 99, background: 'var(--bg-hover)', overflow: 'hidden' }}>
-                  <div style={{ width: `${width}%`, height: '100%', background: color }} />
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
-                  {currency(row.spent)} de {currency(row.budget)}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div style={cardStyle}>
-          <div style={titleStyle}>Gastos Diários (últimos 14 dias)</div>
-          {dailySpendWithColor.length === 0 && <div style={{ color: 'var(--text-muted)' }}>Sem transações de débito para o gráfico.</div>}
-          {dailySpendWithColor.length > 0 && (
-            <div style={{ height: 240 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={dailySpendWithColor}>
-                  <XAxis dataKey="date" fontSize={11} tickLine={false} axisLine={false} />
-                  <YAxis fontSize={11} tickLine={false} axisLine={false} width={44} />
-                  <Tooltip
-                    formatter={(value) => currency(Number(value || 0))}
-                    labelFormatter={(label) => `Data: ${label}`}
-                  />
-                  <Bar dataKey="total" radius={[4, 4, 0, 0]}>
-                    {dailySpendWithColor.map((entry, idx) => (
-                      <Cell key={`cell-${entry.date}-${idx}`} fill={entry.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 12 }}>
-        <div style={cardStyle}>
-          <div style={titleStyle}>Metas Financeiras</div>
-          {goals.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Nenhuma meta cadastrada.</div>}
-          {goals.slice(0, 3).map((goal: any) => {
-            const pct = goal.target_amount > 0 ? (goal.current_amount / goal.target_amount) * 100 : 0;
-            const goalTypeLabels: Record<string, string> = {
-              imovel: '🏠',
-              viagem: '✈️',
-              carro: '🚗',
-              educacao: '🎓',
-              emergencia: '🆘',
-              outros: '🎯',
-            };
-            const goalIcon = goalTypeLabels[goal.goal_type] || '🎯';
-            const feasibilityColor: Record<string, string> = {
-              EASY: '#10b981',
-              MODERATE: '#0978F6',
-              HARD: '#F39C12',
-              UNREALISTIC: '#E74C3C',
-            };
-            const feasibilityLabel: Record<string, string> = {
-              EASY: 'Fácil',
-              MODERATE: 'Moderada',
-              HARD: 'Difícil',
-              UNREALISTIC: 'Irrealista',
-            };
-            const projectionFeasibility = goal.projection?.feasibility || 'MODERATE';
-
-            return (
-              <div key={goal.goal_id || goal.name} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 16 }}>{goalIcon}</span>
-                    <strong style={{ fontSize: 14 }}>{goal.name || 'Meta'}</strong>
-                  </div>
-                  <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>{pct.toFixed(0)}%</span>
-                </div>
-                <div style={{ height: 7, background: 'var(--border-color)', borderRadius: 99, overflow: 'hidden', marginBottom: 6 }}>
-                  <div
-                    style={{
-                      width: `${Math.min(100, pct)}%`,
-                      height: '100%',
-                      background: 'var(--text-primary)',
-                    }}
-                  />
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)' }}>
-                  <span>{currency(goal.current_amount)} de {currency(goal.target_amount)}</span>
-                  {goal.projection?.months_to_complete && (
-                    <span style={{ color: feasibilityColor[projectionFeasibility] }}>
-                      {goal.projection.months_to_complete} meses ({feasibilityLabel[projectionFeasibility]})
-                    </span>
-                  )}
-                </div>
-                {goal.monthly_contribution_needed && (
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-                    💰 Necessário: {currency(goal.monthly_contribution_needed)}/mês
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div style={cardStyle}>
-          <div style={titleStyle}>Agenda Financeira</div>
-          {agendaItems.length === 0 && (
-            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>
-              Sem compromissos futuros detectados no momento.
-            </div>
-          )}
-          {agendaItems.map((item: any, idx: number) => {
-            const urgency = getUrgencyMeta(item.daysUntil);
-            return (
-              <div
-                key={`${item.description}-${item.dueDate}-${idx}`}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'auto 1fr auto',
-                  gap: 10,
-                  alignItems: 'center',
-                  borderBottom: '1px solid var(--border-color)',
-                  padding: '9px 0',
-                }}
-              >
-                <div
-                  style={{
-                    width: 22,
-                    height: 22,
-                    borderRadius: 999,
-                    background: `${urgency.color}20`,
-                    color: urgency.color,
-                    fontSize: 11,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontWeight: 700,
-                  }}
-                >
-                  {urgency.icon}
-                </div>
-                <div>
-                  <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>{item.description}</div>
-                  <div style={{ fontSize: 12, color: urgency.color, marginTop: 2 }}>{urgency.label}</div>
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>{currency(item.amount)}</div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 12 }}>
-        <div style={cardStyle}>
-          <div style={titleStyle}>Alertas Ativos</div>
-          <div style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 6 }}>Alertas ativos: {alerts.length}</div>
-            {(alerts || []).slice(0, 3).map((alert: any) => (
-              <div key={alert.id || alert.title} style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 5 }}>
-                • {alert.title || alert.type || 'Alerta'}
-              </div>
-            ))}
-            {alerts.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Nenhum alerta no momento.</div>}
-          </div>
-        </div>
-
-        <div style={cardStyle}>
-          <div style={titleStyle}>Assinaturas Ativas</div>
-          {subscriptionsQuery.isError && (
-            <div style={{ fontSize: 12, color: '#92400e', marginBottom: 6 }}>
-              Endpoint de assinaturas indisponível; exibindo estimativa via obrigações futuras.
-            </div>
-          )}
-          <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 6 }}>
-            Assinaturas: {finalSubscriptionCount}
-          </div>
-          <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 8 }}>
-            Custo mensal: {currency(finalSubscriptionCost)}
-          </div>
-          {displaySubscriptions.map((sub: any, idx: number) => (
-            <div
-              key={`${sub.merchant || sub.name || 'sub'}-${idx}`}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'auto 1fr auto',
-                gap: 10,
-                alignItems: 'center',
-                borderBottom: '1px solid var(--border-color)',
-                padding: '8px 0',
-              }}
+        {data.map((v, i) => {
+          const bh = Math.max(6, (v / max) * (H - 10));
+          const x  = gap * i + (gap - barW) / 2;
+          const y  = H - bh;
+          const active = selectedIdx === i;
+          return (
+            <g key={i}
+              onMouseEnter={() => setHovered(i)}
+              style={{ cursor: 'pointer' }}
             >
-              <div
-                style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 8,
-                  background: 'var(--bg-hover)',
-                  color: 'var(--text-primary)',
-                  fontSize: 11,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: 700,
-                }}
-              >
-                S
-              </div>
+              <rect x={x} y={y} width={barW} height={bh}
+                rx={4} ry={4}
+                fill={active ? 'url(#barGold)' : 'url(#barDim)'}
+                style={{ transition: 'fill 0.15s' }}
+              />
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* Tooltip */}
+      {selectedIdx !== null && (
+        <div className="db-bar-tooltip" style={{
+          left: `${((selectedIdx + 0.5) / n) * 100}%`,
+          top: `-${Math.max(14, ((data[selectedIdx] / max) * 60) - 4)}px`,
+          opacity: 1,
+        }}>
+          {fmt(data[selectedIdx])}
+          <div className="db-bar-tooltip-sub">{months[selectedIdx]}</div>
+        </div>
+      )}
+
+      <div className="db-axis-labels">
+        {months.map((m, i) => (
+          <div key={i} className="db-axis-label"
+            style={{ color: selectedIdx === i ? 'rgba(212,168,32,0.7)' : undefined }}>
+            {m}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+type Period = '1a' | '6m' | '3m' | '1m';
+
+export const DashboardPage: React.FC = () => {
+  const [period, setPeriod] = useState<Period>('1a');
+  const [chartTab, setChartTab] = useState<'total' | 'media'>('total');
+  const userId = localStorage.getItem('user_id') || '';
+  const userName = localStorage.getItem('user_name') || localStorage.getItem('user_email') || '';
+  const displayName = userName ? userName.split(' ')[0] || userName.split('@')[0] : 'você';
+
+  const txnQ = useQuery({
+    queryKey: ['transactions', userId],
+    queryFn: () => nexaApi.getTransactions(userId),
+    enabled: !!userId, retry: 1, staleTime: 5 * 60 * 1000,
+  });
+
+  const loading = txnQ.isLoading;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawTxns: any[] = txnQ.data?.transactions || [];
+  const hasReal = rawTxns.length > 0;
+
+  const txns = hasReal
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ? rawTxns.slice(0, 7).map((t: any) => ({
+        dir: (t.amount > 0 ? 'in' : 'out') as 'in' | 'out',
+        icon: t.amount > 0 ? '↑' : '↓',
+        name: t.description || t.name || 'Transação',
+        cat: t.category || 'Geral',
+        date: t.date || '',
+        amount: t.amount,
+      }))
+    : DEMO_TXNS;
+
+  const sliceMap: Record<Period, number> = { '1a': 12, '6m': 6, '3m': 3, '1m': 1 };
+  const sliceN = sliceMap[period];
+  const spendData = DEMO_SPEND.slice(12 - sliceN);
+  const monthsData = MONTHS.slice(12 - sliceN);
+
+  const totalSpend = spendData.reduce((a, b) => a + b, 0);
+  const avgSpend   = Math.round(totalSpend / spendData.length);
+  const thisMonth  = spendData[spendData.length - 1];
+  const lastMonth  = spendData[spendData.length - 2] ?? thisMonth;
+  const spendDelta = ((thisMonth - lastMonth) / lastMonth) * 100;
+
+  const chartData   = chartTab === 'total' ? spendData : spendData.map(() => avgSpend);
+
+  return (
+    <AppShell current="dashboard">
+      <style>{css}</style>
+      <div className="db">
+
+        {/* Header */}
+        <div className="db-header">
+          <div>
+            <div className="db-greeting">Painel de controle</div>
+            <div className="db-title">
+              Bem-vindo de volta,{' '}
+              <span>{displayName.charAt(0).toUpperCase() + displayName.slice(1)}!</span>
+            </div>
+          </div>
+          <div className="db-period">
+            {(['1a','6m','3m','1m'] as Period[]).map(p => (
+              <button key={p} className={`db-period-btn${period === p ? ' on' : ''}`}
+                onClick={() => setPeriod(p)}>
+                {p === '1a' ? '1 Ano' : p === '6m' ? '6 Meses' : p === '3m' ? '3 Meses' : '1 Mês'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Row 1: Chart + KPIs */}
+        <div className="db-grid">
+          {/* Bar Chart */}
+          <div className="db-card db-chart-card">
+            <div className="db-chart-header">
               <div>
-                <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
-                  {sub.merchant || sub.name || 'Assinatura'}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  {(sub.subscription_category || sub.category || 'serviço').toString().replaceAll('_', ' ')}
+                <div className="db-chart-label">Gastos no período</div>
+                <div className="db-chart-val">
+                  {fmt(totalSpend)} <span>BRL</span>
                 </div>
               </div>
-              <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>
-                {currency(Number(sub.monthly_amount || sub.amount || 0))}
+              <div className="db-chart-tabs">
+                <button className={`db-chart-tab${chartTab === 'total' ? ' on' : ''}`}
+                  onClick={() => setChartTab('total')}>Total</button>
+                <button className={`db-chart-tab${chartTab === 'media' ? ' on' : ''}`}
+                  onClick={() => setChartTab('media')}>Média</button>
               </div>
             </div>
-          ))}
-          {displaySubscriptions.length === 0 && (
-            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Nenhuma assinatura detectada.</div>
-          )}
-        </div>
-      </div>
-
-      <div style={cardStyle}>
-        <div style={titleStyle}>Transações Recentes</div>
-        {transactions.length === 0 && <div style={{ color: 'var(--text-muted)' }}>Sem transações para exibir.</div>}
-        {transactions.length > 0 && (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ textAlign: 'left', color: 'var(--text-muted)', borderBottom: '1px solid #f0f0f0' }}>
-                  <th style={{ padding: '8px 6px' }}>Data</th>
-                  <th style={{ padding: '8px 6px' }}>Descrição</th>
-                  <th style={{ padding: '8px 6px' }}>Categoria</th>
-                  <th style={{ padding: '8px 6px', textAlign: 'right' }}>Valor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {transactions.slice(0, 12).map((tx: any) => {
-                  const value = Number(tx.amount || 0);
-                  return (
-                    <tr key={tx.transaction_id || tx.id} style={{ borderBottom: '1px solid #f7f7f7' }}>
-                      <td style={{ padding: '8px 6px', color: 'var(--text-muted)' }}>{tx.date || '-'}</td>
-                      <td style={{ padding: '8px 6px' }}>{tx.description || '-'}</td>
-                      <td style={{ padding: '8px 6px', color: 'var(--text-muted)' }}>{tx.category || '-'}</td>
-                      <td style={{ padding: '8px 6px', textAlign: 'right', color: value < 0 ? '#b91c1c' : '#166534', fontWeight: 600 }}>
-                        {currency(value)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <BarChart data={chartData} months={monthsData} period={sliceN} />
           </div>
-        )}
-      </div>
 
-      <div style={{ marginTop: 12, color: 'var(--text-muted)', fontSize: 13 }}>
-        Saldo projetado 30d: {currency(Number(cashflow.ending_balance || 0))}
+          {/* KPI 2×2 */}
+          <div className="db-kpis">
+            <div className="db-kpi green">
+              <div className="db-kpi-icon">↑</div>
+              <div className="db-kpi-label">Receita mensal</div>
+              <div className="db-kpi-val">R$ 6.500</div>
+              <div className="db-kpi-delta up">+8% vs. mês ant.</div>
+            </div>
+            <div className="db-kpi red">
+              <div className="db-kpi-icon">↓</div>
+              <div className="db-kpi-label">Gastos mês</div>
+              <div className="db-kpi-val">{fmt(thisMonth)}</div>
+              <div className={`db-kpi-delta ${spendDelta > 0 ? 'down' : 'up'}`}>
+                {spendDelta > 0 ? '+' : ''}{spendDelta.toFixed(1)}% vs. mês ant.
+              </div>
+            </div>
+            <div className="db-kpi gold">
+              <div className="db-kpi-icon">◈</div>
+              <div className="db-kpi-label">Saldo atual</div>
+              <div className="db-kpi-val">R$ 4.820</div>
+              <div className="db-kpi-delta neu">Conta + poupança</div>
+            </div>
+            <div className="db-kpi blue">
+              <div className="db-kpi-icon">%</div>
+              <div className="db-kpi-label">Taxa poupança</div>
+              <div className="db-kpi-val">26%</div>
+              <div className="db-kpi-delta up">Meta: 20% ✓</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Row 2: Transactions + Category summary */}
+        <div className="db-grid-full">
+          {/* Transactions */}
+          <div className="db-card db-txn-card">
+            <div className="db-txn-top">
+              <div className="db-txn-title">Transações Recentes</div>
+              <button className="db-txn-link">Ver todas →</button>
+            </div>
+
+            {loading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[1,2,3,4].map(i => <div key={i} className="db-skel" style={{ height: 44 }} />)}
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '30px 1fr auto auto', gap: '0 12px', alignItems: 'center' }}>
+                {/* Header cols */}
+                <div style={{ gridColumn: '1/2' }} />
+                <div className="db-txn-col-hd">Transação</div>
+                <div className="db-txn-col-hd">Categoria</div>
+                <div className="db-txn-col-hd" style={{ textAlign: 'right' }}>Valor</div>
+
+                {txns.map((t, i) => (
+                  <div key={i} style={{ display: 'contents' }}>
+                    <div style={{ padding: '9px 0', borderBottom: '1px solid rgba(243,239,234,0.04)' }}>
+                      <div className={`db-txn-ico ${t.dir}`}>{t.icon}</div>
+                    </div>
+                    <div style={{ padding: '9px 0', borderBottom: '1px solid rgba(243,239,234,0.04)' }}>
+                      <div className="db-txn-name">{t.name}</div>
+                      <div className="db-txn-date">{t.date}</div>
+                    </div>
+                    <div style={{ padding: '9px 0', borderBottom: '1px solid rgba(243,239,234,0.04)' }}>
+                      <div className="db-txn-cat">{t.cat}</div>
+                    </div>
+                    <div style={{ padding: '9px 0', borderBottom: '1px solid rgba(243,239,234,0.04)' }}>
+                      <div className={`db-txn-amt ${t.dir}`}>
+                        {t.dir === 'out' ? '−' : '+'}{fmt(t.amount)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Category breakdown */}
+          <div className="db-card db-sum-card">
+            <div className="db-sum-title">Gasto por Categoria</div>
+            <div className="db-sum-divider" />
+            {DEMO_CATS.map((c, i) => (
+              <div key={i} className="db-sum-item">
+                <div className="db-sum-row">
+                  <div className="db-sum-name">{c.name}</div>
+                  <div className="db-sum-pct">{c.pct}%</div>
+                </div>
+                <div className="db-sum-bar">
+                  <div className="db-sum-fill" style={{ width: `${c.pct}%`, background: c.color }} />
+                </div>
+              </div>
+            ))}
+            <div className="db-sum-divider" />
+            <div style={{ fontSize: '0.7rem', color: 'rgba(243,239,234,0.2)', fontWeight: 500 }}>
+              {hasReal ? 'Dados reais · abr/25' : 'Dados de demonstração'}
+            </div>
+          </div>
+        </div>
+
       </div>
     </AppShell>
   );
