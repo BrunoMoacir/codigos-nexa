@@ -261,9 +261,11 @@ const css = `
     display: grid;
     grid-template-columns: 1fr 400px;
     min-height: 100vh;
-    padding: 52px 28px 52px 36px;
+    padding: 52px 80px;
     gap: 0;
     align-items: center;
+    max-width: 1280px;
+    margin: 0 auto;
   }
 
   /* Linha vertical de conexão entre os dois lados */
@@ -513,7 +515,7 @@ const css = `
   }
 
   @media (max-width: 860px) {
-    .lp-layout { grid-template-columns: 1fr; padding: 36px 24px 48px; gap: 44px; }
+    .lp-layout { grid-template-columns: 1fr; padding: 36px 24px 48px; gap: 44px; max-width: none; }
     .lp-left { min-height: auto; padding-right: 0; gap: 28px; justify-content: flex-start; }
     .lp-divider, .lp-ring { display: none; }
     .lp-headline { font-size: clamp(3rem, 12vw, 4.2rem); }
