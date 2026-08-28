@@ -1,13 +1,13 @@
 {
-  "name": "Nexa — Inteligência Financeira",
-  "short_name": "Nexa",
-  "description": "O consultor financeiro que os bancos não querem que você tenha.",
-  "start_url": "/home",
+  "name": "HIVE — Inteligência Financeira",
+  "short_name": "HIVE",
+  "description": "O advogado financeiro que os bancos não querem que você tenha.",
+  "start_url": "/chat",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
+  "background_color": "#0C0A08",
+  "theme_color": "#0C0A08",
   "lang": "pt-BR",
   "icons": [
     {
@@ -19,15 +19,15 @@
   ],
   "shortcuts": [
     {
-      "name": "Quanto posso gastar hoje?",
-      "short_name": "Safe-to-Spend",
-      "url": "/widget",
-      "description": "Widget compacto com sua margem segura do dia"
+      "name": "Chat IA",
+      "short_name": "Chat",
+      "url": "/chat",
+      "description": "Converse com o agente HIVE"
     },
     {
       "name": "Feed de Oportunidades",
       "short_name": "Feed",
-      "url": "/strategies"
+      "url": "/feed"
     }
   ]
 }

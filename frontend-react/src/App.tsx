@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import { LoginPage } from './pages/LoginPage';
+import { RegisterPage } from './pages/RegisterPage';
 import { ChatPage } from './pages/ChatPage';
 import { FeedPage } from './pages/FeedPage';
 import { OrganizarPage } from './pages/OrganizarPage';
@@ -47,7 +48,8 @@ function App() {
       />
       <BrowserRouter>
         <Routes>
-          <Route path="/login" element={<LoginPage />} />
+          <Route path="/login"    element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
 
           {/* HIVE — 3 abas principais */}
           <Route path="/chat"      element={<AuthGuard><ChatPage /></AuthGuard>} />

@@ -279,7 +279,11 @@ export const AppShell: React.FC<AppShellProps> = ({ current, children }) => {
       <div className="hs">
         <aside className="hs-sidebar">
           <div className="hs-logo">
-            <div className="hs-logo-dot" />
+            <svg width="20" height="22" viewBox="0 0 180 200" fill="none">
+              <polygon points="90,10 168,55 168,145 90,190 12,145 12,55" fill="#7A5002"/>
+              <polygon points="90,10 12,55 12,145 90,190 105,181 105,19" fill="#D4A820"/>
+              <polygon points="100,16 110,22 110,178 100,184" fill="#090500"/>
+            </svg>
             <span className="hs-logo-word">HIVE</span>
           </div>
 
