@@ -15,11 +15,14 @@ const SlotLetter: React.FC<{ char: string; delay: number }> = ({ char, delay }) 
     const outer = outerRef.current;
     const track = trackRef.current;
     if (!outer || !track) return;
-    // Lê a altura real em px depois do render para calcular o offset exato
+    // Começa invisible — nenhum char fica estático antes do spin
+    outer.style.opacity = '0';
     const tid = setTimeout(() => {
       const h = outer.getBoundingClientRect().height;
       if (h > 0) {
-        track.style.transition = 'transform 1.2s cubic-bezier(0.16, 1, 0.3, 1)';
+        outer.style.transition = 'opacity 0.18s ease';
+        outer.style.opacity = '1';
+        track.style.transition = 'transform 1.1s cubic-bezier(0.16, 1, 0.3, 1)';
         track.style.transform = `translateY(-${(chars.length - 1) * h}px)`;
       }
     }, delay);
@@ -310,13 +313,13 @@ const css = `
   .lp-logo-word {
     font-size: 2.2rem;
     font-weight: 900;
-    letter-spacing: 0.18em;
+    letter-spacing: 0.03em;
     color: #D4A820;
     font-variant-numeric: tabular-nums;
     line-height: 1;
     display: inline-flex;
     align-items: flex-start;
-    gap: 0.04em;
+    gap: 0;
   }
 
   .lp-hero { flex: 1; display: flex; flex-direction: column; justify-content: center; }
@@ -388,7 +391,7 @@ const css = `
     background: rgba(16, 13, 9, 0.94);
     border: 1px solid rgba(212,168,32,0.28);
     border-radius: 20px;
-    padding: 36px 30px 30px;
+    padding: 28px 30px 26px;
     position: relative;
     overflow: hidden;
     box-shadow: 0 0 0 1px rgba(212,168,32,0.06), 0 8px 40px rgba(0,0,0,0.5), 0 0 60px rgba(212,168,32,0.04);
@@ -408,12 +411,12 @@ const css = `
     font-weight: 800;
     color: #F3EFEA;
     letter-spacing: -0.025em;
-    margin-bottom: 5px;
+    margin-bottom: 4px;
   }
   .lp-card-sub {
     font-size: 0.78rem;
     color: rgba(243,239,234,0.45);
-    margin-bottom: 26px;
+    margin-bottom: 18px;
     font-weight: 400;
   }
 
