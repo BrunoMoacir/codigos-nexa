@@ -146,87 +146,102 @@ const css = `
     color: #F3EFEA;
     position: relative;
     overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
-  /* Cursor glow suave — segue o mouse via CSS var */
+  /* Cursor glow suave */
   .lp-root::after {
     content: '';
     position: fixed;
-    width: 480px;
-    height: 480px;
+    width: 520px;
+    height: 520px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(212,168,32,0.045) 0%, transparent 65%);
+    background: radial-gradient(circle, rgba(212,168,32,0.055) 0%, transparent 65%);
     transform: translate(var(--cx,-9999px), var(--cy,-9999px)) translate(-50%,-50%);
     pointer-events: none;
     z-index: 1;
     transition: transform 0.06s linear;
   }
 
-  /* Layout */
+  /* Layout centralizado */
   .lp-layout {
     position: relative;
     z-index: 2;
     display: grid;
-    grid-template-columns: 1fr 440px;
+    grid-template-columns: 1fr 400px;
+    width: 100%;
+    max-width: 1020px;
     min-height: 100vh;
-    padding: 44px 96px 44px 52px;
-    gap: 40px;
+    padding: 56px 52px;
+    gap: 56px;
+    align-items: center;
   }
 
   /* ── ESQUERDO ── */
   .lp-left {
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
+    gap: 40px;
   }
 
-  /* Logo + HIVE grandão no topo */
   .lp-logo {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 14px;
     animation: lp-fadeUp 0.6s cubic-bezier(.16,1,.3,1) both;
   }
   .lp-logo-word {
-    font-size: 3.2rem;
+    font-size: 1.6rem;
     font-weight: 900;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.18em;
     color: #D4A820;
     line-height: 1;
   }
 
   .lp-hero {
-    padding: 0 0 20px;
     animation: lp-fadeUp 0.75s cubic-bezier(.16,1,.3,1) 0.1s both;
   }
 
   .lp-headline {
-    font-size: clamp(3.4rem, 5.8vw, 6rem);
+    font-size: clamp(3.2rem, 5.2vw, 5.4rem);
     font-weight: 900;
     line-height: 0.93;
     letter-spacing: -0.04em;
     text-transform: uppercase;
     color: #F3EFEA;
-    margin-bottom: 28px;
+    margin-bottom: 24px;
   }
-
   .lp-headline em {
     font-style: normal;
     color: #D4A820;
     display: block;
+    position: relative;
+    width: fit-content;
+  }
+  .lp-headline em::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    bottom: -6px;
+    width: 100%;
+    height: 3px;
+    background: rgba(212,168,32,0.35);
+    border-radius: 2px;
   }
 
   .lp-sub {
-    font-size: 0.92rem;
+    font-size: 0.93rem;
     font-weight: 400;
-    line-height: 1.8;
-    color: rgba(243,239,234,0.62);
-    max-width: 360px;
+    line-height: 1.75;
+    color: rgba(243,239,234,0.55);
+    max-width: 380px;
   }
 
   .lp-footer {
-    font-size: 0.68rem;
-    color: rgba(243,239,234,0.15);
+    font-size: 0.7rem;
+    color: rgba(243,239,234,0.38);
     letter-spacing: 0.04em;
     animation: lp-fadeUp 0.75s cubic-bezier(.16,1,.3,1) 0.3s both;
   }
@@ -240,147 +255,129 @@ const css = `
 
   .lp-card {
     width: 100%;
-    background: #100E0C;
-    border: 1px solid rgba(243,239,234,0.09);
+    background: #131008;
+    border: 1px solid rgba(243,239,234,0.11);
     border-radius: 20px;
-    padding: 32px 30px 28px;
+    padding: 32px 28px;
   }
 
   .lp-card-title {
-    font-size: 1.15rem;
+    font-size: 1.2rem;
     font-weight: 800;
     color: #F3EFEA;
     letter-spacing: -0.02em;
-    margin-bottom: 4px;
+    margin-bottom: 5px;
   }
   .lp-card-sub {
-    font-size: 0.75rem;
-    color: rgba(243,239,234,0.3);
+    font-size: 0.78rem;
+    color: rgba(243,239,234,0.5);
     margin-bottom: 24px;
+    font-weight: 400;
   }
 
   /* Fields */
-  .lp-fields { display: flex; flex-direction: column; gap: 11px; margin-bottom: 18px; }
+  .lp-fields { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
   .lp-field-label {
     display: block;
-    font-size: 0.66rem;
+    font-size: 0.67rem;
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: rgba(243,239,234,0.35);
-    margin-bottom: 5px;
+    color: rgba(243,239,234,0.55);
+    margin-bottom: 6px;
   }
   .lp-input {
     width: 100%;
-    padding: 11px 14px;
-    background: #1A1612;
+    padding: 12px 14px;
+    background: rgba(243,239,234,0.05);
     color: #F3EFEA;
-    border: 1px solid rgba(243,239,234,0.1);
+    border: 1px solid rgba(243,239,234,0.12);
     border-radius: 10px;
     font-family: inherit;
-    font-size: 0.87rem;
+    font-size: 0.9rem;
     outline: none;
-    transition: border-color 0.15s;
+    transition: border-color 0.15s, background 0.15s;
   }
-  .lp-input::placeholder { color: rgba(243,239,234,0.22); }
+  .lp-input::placeholder { color: rgba(243,239,234,0.28); }
   .lp-input:focus {
-    border-color: rgba(212,168,32,0.5);
-    background: #1E1A16;
+    border-color: rgba(212,168,32,0.55);
+    background: rgba(212,168,32,0.04);
   }
 
-  /* Botão */
+  /* Botão principal */
   .lp-btn {
     width: 100%;
-    padding: 13px;
+    padding: 14px;
     background: #D4A820;
     color: #0A0800;
     border: none;
     border-radius: 10px;
     font-family: inherit;
-    font-size: 0.84rem;
+    font-size: 0.85rem;
     font-weight: 900;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.09em;
     text-transform: uppercase;
     cursor: pointer;
     transition: background 0.15s, transform 0.12s;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
   }
   .lp-btn:hover:not(:disabled) { background: #EAC02C; transform: translateY(-1px); }
   .lp-btn:active:not(:disabled) { transform: translateY(0); }
-  .lp-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .lp-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .lp-note {
     text-align: center;
-    font-size: 0.65rem;
-    color: rgba(243,239,234,0.15);
+    font-size: 0.67rem;
+    color: rgba(243,239,234,0.35);
     line-height: 1.65;
-    margin-bottom: 0;
   }
 
   .lp-separator {
     height: 1px;
-    background: rgba(243,239,234,0.07);
+    background: rgba(243,239,234,0.08);
     margin: 18px 0;
   }
 
+  /* Botão criar conta */
   .lp-btn-register {
     display: block;
     width: 100%;
     padding: 13px;
     background: transparent;
-    color: rgba(243,239,234,0.65);
-    border: 1px solid rgba(243,239,234,0.14);
+    color: rgba(243,239,234,0.85);
+    border: 1px solid rgba(243,239,234,0.18);
     border-radius: 10px;
     font-family: inherit;
-    font-size: 0.84rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
     text-align: center;
     text-decoration: none;
     cursor: pointer;
     transition: border-color 0.15s, color 0.15s, background 0.15s;
   }
   .lp-btn-register:hover {
-    border-color: rgba(212,168,32,0.35);
+    border-color: rgba(212,168,32,0.4);
     color: #D4A820;
     background: rgba(212,168,32,0.05);
   }
 
-  /* Decorativo — círculo canto superior direito (igual roon) */
-  .lp-deco {
-    position: fixed;
-    top: -80px;
-    right: -80px;
-    width: 300px;
-    height: 300px;
-    border-radius: 50%;
-    border: 1px solid rgba(212,168,32,0.06);
-    pointer-events: none;
-    z-index: 2;
-  }
-  .lp-deco::after {
-    content: '';
-    position: absolute;
-    inset: 20px;
-    border-radius: 50%;
-    border: 1px solid rgba(212,168,32,0.04);
-  }
-
   /* Animações */
   @keyframes lp-fadeUp {
-    from { opacity: 0; transform: translateY(24px); }
+    from { opacity: 0; transform: translateY(20px); }
     to   { opacity: 1; transform: translateY(0); }
   }
 
   /* Mobile */
   @media (max-width: 860px) {
+    .lp-root { align-items: flex-start; }
     .lp-layout {
       grid-template-columns: 1fr;
       padding: 36px 24px 48px;
-      gap: 48px;
+      gap: 44px;
+      min-height: 100vh;
     }
-    .lp-left { gap: 32px; }
-    .lp-footer { order: 99; }
+    .lp-left { gap: 28px; }
     .lp-headline { font-size: clamp(2.8rem, 11vw, 4rem); }
   }
 `;
@@ -412,7 +409,6 @@ export const LoginPage: React.FC = () => {
       <style>{css}</style>
       <div className="lp-root">
         <HoneycombCanvas />
-        <div className="lp-deco" />
 
         <div className="lp-layout">
           {/* ── ESQUERDO ── */}
@@ -420,13 +416,9 @@ export const LoginPage: React.FC = () => {
 
             {/* Logo */}
             <div className="lp-logo">
-              <svg width="44" height="50" viewBox="0 0 180 200" fill="none">
-                {/* Hexágono pointy-top: igual aos da colmeia, com efeito 3D */}
-                {/* Base âmbar escura (face direita) */}
+              <svg width="28" height="32" viewBox="0 0 180 200" fill="none">
                 <polygon points="90,10 168,55 168,145 90,190 12,145 12,55" fill="#7A5002"/>
-                {/* Face esquerda — ouro claro */}
                 <polygon points="90,10 12,55 12,145 90,190 105,181 105,19" fill="#D4A820"/>
-                {/* Faixa central escura */}
                 <polygon points="100,16 110,22 110,178 100,184" fill="#090500"/>
               </svg>
               <span className="lp-logo-word">HIVE</span>
@@ -439,7 +431,7 @@ export const LoginPage: React.FC = () => {
                 <em>filtro.</em>
               </h1>
               <p className="lp-sub">
-                Conecte suas contas e veja tudo que o banco<br />
+                Conecte suas contas e veja tudo que o banco
                 não te conta sobre o seu próprio dinheiro.
               </p>
             </div>
