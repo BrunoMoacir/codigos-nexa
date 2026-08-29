@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 
 // ── Slot-machine letter (mesmo efeito do login) ──────────────────────────────
@@ -505,6 +505,173 @@ const ROWS = [
 
 const LOGOS = ['Nubank','XP Inc.','BTG Pactual','Itaú','Bradesco','Clear','Rico','Avenue','Inter','C6 Bank'];
 
+// ── Países com código DDI e emoji de bandeira ─────────────────────────────────
+const COUNTRIES = [
+  { code: 'BR', flag: '🇧🇷', name: 'Brasil',              dial: '+55'  },
+  { code: 'US', flag: '🇺🇸', name: 'Estados Unidos',      dial: '+1'   },
+  { code: 'PT', flag: '🇵🇹', name: 'Portugal',            dial: '+351' },
+  { code: 'AR', flag: '🇦🇷', name: 'Argentina',           dial: '+54'  },
+  { code: 'CL', flag: '🇨🇱', name: 'Chile',               dial: '+56'  },
+  { code: 'CO', flag: '🇨🇴', name: 'Colômbia',            dial: '+57'  },
+  { code: 'MX', flag: '🇲🇽', name: 'México',              dial: '+52'  },
+  { code: 'PE', flag: '🇵🇪', name: 'Peru',                dial: '+51'  },
+  { code: 'UY', flag: '🇺🇾', name: 'Uruguai',             dial: '+598' },
+  { code: 'PY', flag: '🇵🇾', name: 'Paraguai',            dial: '+595' },
+  { code: 'BO', flag: '🇧🇴', name: 'Bolívia',             dial: '+591' },
+  { code: 'VE', flag: '🇻🇪', name: 'Venezuela',           dial: '+58'  },
+  { code: 'EC', flag: '🇪🇨', name: 'Equador',             dial: '+593' },
+  { code: 'GB', flag: '🇬🇧', name: 'Reino Unido',         dial: '+44'  },
+  { code: 'DE', flag: '🇩🇪', name: 'Alemanha',            dial: '+49'  },
+  { code: 'FR', flag: '🇫🇷', name: 'França',              dial: '+33'  },
+  { code: 'IT', flag: '🇮🇹', name: 'Itália',              dial: '+39'  },
+  { code: 'ES', flag: '🇪🇸', name: 'Espanha',             dial: '+34'  },
+  { code: 'NL', flag: '🇳🇱', name: 'Países Baixos',       dial: '+31'  },
+  { code: 'CH', flag: '🇨🇭', name: 'Suíça',               dial: '+41'  },
+  { code: 'JP', flag: '🇯🇵', name: 'Japão',               dial: '+81'  },
+  { code: 'CN', flag: '🇨🇳', name: 'China',               dial: '+86'  },
+  { code: 'IN', flag: '🇮🇳', name: 'Índia',               dial: '+91'  },
+  { code: 'AU', flag: '🇦🇺', name: 'Austrália',           dial: '+61'  },
+  { code: 'CA', flag: '🇨🇦', name: 'Canadá',              dial: '+1'   },
+  { code: 'ZA', flag: '🇿🇦', name: 'África do Sul',       dial: '+27'  },
+  { code: 'NG', flag: '🇳🇬', name: 'Nigéria',             dial: '+234' },
+  { code: 'AE', flag: '🇦🇪', name: 'Emirados Árabes',     dial: '+971' },
+  { code: 'IL', flag: '🇮🇱', name: 'Israel',              dial: '+972' },
+  { code: 'KR', flag: '🇰🇷', name: 'Coreia do Sul',       dial: '+82'  },
+];
+
+const COUNTRY_DROPDOWN_CSS = `
+  .cp-country-wrap {
+    position: relative;
+  }
+  .cp-country-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 10px 12px;
+    background: rgba(243,239,234,0.06);
+    border-right: 1px solid rgba(243,239,234,0.1);
+    font-family: inherit;
+    font-size: 0.82rem;
+    color: rgba(243,239,234,0.6);
+    flex-shrink: 0;
+    white-space: nowrap;
+    cursor: pointer;
+    border: none;
+    outline: none;
+    transition: background 0.15s;
+    height: 100%;
+    border-right: 1px solid rgba(243,239,234,0.1);
+  }
+  .cp-country-btn:hover { background: rgba(243,239,234,0.1); color: #F3EFEA; }
+
+  .cp-country-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    width: 240px;
+    background: #1E1A14;
+    border: 1px solid rgba(212,168,32,0.2);
+    border-radius: 10px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+    z-index: 100;
+    overflow: hidden;
+    animation: cp-up 0.15s cubic-bezier(.16,1,.3,1) both;
+  }
+  .cp-country-search {
+    width: 100%;
+    padding: 10px 13px;
+    background: rgba(243,239,234,0.04);
+    color: #F3EFEA;
+    border: none;
+    border-bottom: 1px solid rgba(243,239,234,0.08);
+    font-family: inherit;
+    font-size: 0.82rem;
+    outline: none;
+  }
+  .cp-country-search::placeholder { color: rgba(243,239,234,0.25); }
+  .cp-country-list {
+    max-height: 220px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(212,168,32,0.2) transparent;
+  }
+  .cp-country-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 13px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: rgba(243,239,234,0.7);
+    transition: background 0.1s;
+  }
+  .cp-country-item:hover { background: rgba(212,168,32,0.08); color: #F3EFEA; }
+  .cp-country-item.sel  { background: rgba(212,168,32,0.12); color: #D4A820; }
+  .cp-country-flag { font-size: 1rem; flex-shrink: 0; }
+  .cp-country-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cp-country-dial { color: rgba(243,239,234,0.4); font-size: 0.75rem; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+  .cp-country-item.sel .cp-country-dial { color: rgba(212,168,32,0.7); }
+`;
+
+const CountrySelector: React.FC<{
+  selected: typeof COUNTRIES[0];
+  onChange: (c: typeof COUNTRIES[0]) => void;
+}> = ({ selected, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const filtered = COUNTRIES.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase()) ||
+    c.dial.includes(search)
+  );
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  return (
+    <div className="cp-country-wrap" ref={wrapRef}>
+      <button type="button" className="cp-country-btn" onClick={() => setOpen(o => !o)}>
+        <span style={{ fontSize: '1rem' }}>{selected.flag}</span>
+        {selected.dial}
+        <ChevronDown size={9} />
+      </button>
+      {open && (
+        <div className="cp-country-dropdown">
+          <input
+            className="cp-country-search"
+            placeholder="Buscar país ou código..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            autoFocus
+          />
+          <div className="cp-country-list">
+            {filtered.map(c => (
+              <div
+                key={c.code}
+                className={`cp-country-item${c.code === selected.code ? ' sel' : ''}`}
+                onClick={() => { onChange(c); setOpen(false); setSearch(''); }}
+              >
+                <span className="cp-country-flag">{c.flag}</span>
+                <span className="cp-country-name">{c.name}</span>
+                <span className="cp-country-dial">{c.dial}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const ContactPage: React.FC = () => {
   const [fname, setFname]   = useState('');
   const [lname, setLname]   = useState('');
@@ -513,6 +680,7 @@ export const ContactPage: React.FC = () => {
   const [message, setMessage] = useState('');
   const [errs, setErrs]     = useState({ fname:'', email:'', message:'' });
   const [sent, setSent]     = useState(false);
+  const [country, setCountry] = useState(COUNTRIES[0]);
 
   const fmtPhone = (v: string) => {
     const d = v.replace(/\D/g,'').slice(0,11);
@@ -538,7 +706,7 @@ export const ContactPage: React.FC = () => {
 
   return (
     <>
-      <style>{css}</style>
+      <style>{css + COUNTRY_DROPDOWN_CSS}</style>
       <div className="cp-page">
         <div className="cp-card">
 
@@ -550,12 +718,7 @@ export const ContactPage: React.FC = () => {
                 {'HIVE'.split('').map((ch,i) => <SlotLetter key={i} char={ch} delay={300+i*110}/>)}
               </span>
             </Link>
-            <div className="cp-nav-links">
-              {['Produto','Preços','Recursos','Blog'].map(l=>(
-                <a key={l} href="#" className="cp-nav-link">{l} <ChevronDown/></a>
-              ))}
-              <a href="#" className="cp-nav-link active">Contato</a>
-            </div>
+            <div className="cp-nav-links" />
             <div className="cp-nav-actions">
               <Link to="/login" className="cp-nav-login">Entrar</Link>
               <Link to="/register" className="cp-nav-register">Criar conta</Link>
@@ -588,15 +751,6 @@ export const ContactPage: React.FC = () => {
                 </div>
               ) : (
                 <>
-                  {/* Badge estilo Glimpse */}
-                  <div className="cp-badge">
-                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                      <rect x="0.5" y="1.5" width="10" height="8" rx="1.2" stroke="#D4A820" strokeWidth="1.1"/>
-                      <path d="M0.5 3.5l5 3 5-3" stroke="#D4A820" strokeWidth="1.1" strokeLinecap="round"/>
-                    </svg>
-                    Contato
-                  </div>
-
                   <h1 className="cp-form-title">
                     Entre em contato<br /><em>conosco</em>
                   </h1>
@@ -629,18 +783,6 @@ export const ContactPage: React.FC = () => {
                         <a href="tel:+5511999999999" className="cp-info-value">+55 (11) 9 9999-9999</a>
                       </div>
                     </div>
-                    <div className="cp-info-item">
-                      <div className="cp-info-icon">
-                        <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-                          <path d="M7.5 1C5.01 1 3 3.01 3 5.5c0 3.37 4.5 8.5 4.5 8.5S12 8.87 12 5.5C12 3.01 9.99 1 7.5 1z" stroke="#D4A820" strokeWidth="1.2"/>
-                          <circle cx="7.5" cy="5.5" r="1.5" stroke="#D4A820" strokeWidth="1.1"/>
-                        </svg>
-                      </div>
-                      <div className="cp-info-text">
-                        <div className="cp-info-label">Localização:</div>
-                        <span className="cp-info-value">São Paulo, SP — Brasil</span>
-                      </div>
-                    </div>
                   </div>
 
                   {/* Form */}
@@ -670,14 +812,7 @@ export const ContactPage: React.FC = () => {
                       <div>
                         <label className="cp-label">Número de telefone</label>
                         <div className="cp-phone-wrap">
-                          <div className="cp-phone-prefix">
-                            <svg width="16" height="11" viewBox="0 0 16 11" fill="none">
-                              <rect width="16" height="11" rx="1" fill="#009B3A"/>
-                              <ellipse cx="8" cy="5.5" rx="3.2" ry="3" fill="#FEDF00"/>
-                              <circle cx="8" cy="5.5" r="2" fill="#002776"/>
-                            </svg>
-                            +55 <ChevronDown size={9}/>
-                          </div>
+                          <CountrySelector selected={country} onChange={setCountry} />
                           <input className="cp-phone-input" type="tel" placeholder="(11) 9 0000-0000"
                             value={phone} onChange={e=>setPhone(fmtPhone(e.target.value))}/>
                         </div>
