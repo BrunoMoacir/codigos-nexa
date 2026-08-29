@@ -281,13 +281,14 @@ const css = `
   .cp-row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .cp-fields { display:flex; flex-direction:column; gap:14px; margin-bottom:22px; }
 
-  /* Campo telefone com bandeira */
+  /* Campo telefone com bandeira — SEM overflow:hidden (cortava o dropdown) */
   .cp-phone-wrap {
     display: flex;
     border: 1px solid rgba(243,239,234,0.1);
     border-radius: 8px;
-    overflow: hidden;
+    overflow: visible;
     transition: border-color 0.15s, box-shadow 0.15s;
+    position: relative;
   }
   .cp-phone-wrap:focus-within { border-color:rgba(212,168,32,0.5); box-shadow:0 0 0 3px rgba(212,168,32,0.07); }
   .cp-phone-input {
@@ -296,6 +297,7 @@ const css = `
     background: rgba(243,239,234,0.04);
     color: #F3EFEA;
     border: none;
+    border-radius: 0 7px 7px 0;
     font-family: inherit;
     font-size: 0.86rem;
     outline: none;
@@ -483,7 +485,6 @@ const COUNTRY_DROPDOWN_CSS = `
     gap: 6px;
     padding: 10px 12px;
     background: rgba(243,239,234,0.06);
-    border-right: 1px solid rgba(243,239,234,0.1);
     font-family: inherit;
     font-size: 0.84rem;
     font-weight: 600;
@@ -492,10 +493,11 @@ const COUNTRY_DROPDOWN_CSS = `
     white-space: nowrap;
     cursor: pointer;
     border: none;
+    border-right: 1px solid rgba(243,239,234,0.1);
+    border-radius: 7px 0 0 7px;
     outline: none;
     transition: background 0.15s;
     height: 100%;
-    border-right: 1px solid rgba(243,239,234,0.1);
     user-select: none;
   }
   .cp-country-btn:hover { background: rgba(243,239,234,0.1); color: #F3EFEA; }
