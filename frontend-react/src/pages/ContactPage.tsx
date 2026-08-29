@@ -478,50 +478,64 @@ const COUNTRIES = [
 ];
 
 const COUNTRY_DROPDOWN_CSS = `
-  .cp-country-wrap { position: relative; }
+  /* ── Botão trigger ── */
   .cp-country-btn {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 10px 12px;
-    background: rgba(243,239,234,0.06);
-    font-family: inherit;
-    font-size: 0.84rem;
-    font-weight: 600;
-    color: rgba(243,239,234,0.75);
-    flex-shrink: 0;
-    white-space: nowrap;
-    cursor: pointer;
+    gap: 7px;
+    padding: 0 12px;
+    height: 100%;
+    background: rgba(243,239,234,0.05);
     border: none;
     border-right: 1px solid rgba(243,239,234,0.1);
     border-radius: 7px 0 0 7px;
+    font-family: inherit;
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: rgba(243,239,234,0.8);
+    flex-shrink: 0;
+    white-space: nowrap;
+    cursor: pointer;
     outline: none;
     transition: background 0.15s;
-    height: 100%;
     user-select: none;
   }
-  .cp-country-btn:hover { background: rgba(243,239,234,0.1); color: #F3EFEA; }
+  .cp-country-btn:hover { background: rgba(243,239,234,0.09); }
 
+  /* bandeira no botão — quadrado arredondado */
+  .cp-flag-box {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.07);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  /* ── Dropdown ── */
   .cp-country-dropdown {
     position: absolute;
-    top: calc(100% + 6px);
+    top: calc(100% + 8px);
     left: 0;
-    width: 280px;
-    background: #1C1810;
-    border: 1px solid rgba(212,168,32,0.18);
-    border-radius: 12px;
-    box-shadow: 0 16px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(212,168,32,0.06);
-    z-index: 200;
+    width: 300px;
+    background: #1E1A14;
+    border: 1px solid rgba(212,168,32,0.15);
+    border-radius: 14px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.65), 0 0 0 1px rgba(212,168,32,0.05);
+    z-index: 300;
     overflow: hidden;
-    animation: cp-up 0.15s cubic-bezier(.16,1,.3,1) both;
+    animation: cp-up 0.18s cubic-bezier(.16,1,.3,1) both;
   }
+
+  /* barra de busca */
   .cp-country-search-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 11px 14px;
+    gap: 10px;
+    padding: 13px 16px;
     border-bottom: 1px solid rgba(243,239,234,0.07);
-    background: rgba(243,239,234,0.03);
+    background: rgba(243,239,234,0.025);
   }
   .cp-country-search {
     flex: 1;
@@ -529,35 +543,67 @@ const COUNTRY_DROPDOWN_CSS = `
     color: #F3EFEA;
     border: none;
     font-family: inherit;
-    font-size: 0.84rem;
+    font-size: 0.88rem;
     outline: none;
+    caret-color: #D4A820;
   }
-  .cp-country-search::placeholder { color: rgba(243,239,234,0.25); }
+  .cp-country-search::placeholder { color: rgba(243,239,234,0.22); }
+
+  /* lista */
   .cp-country-list {
-    max-height: 240px;
+    max-height: 260px;
     overflow-y: auto;
     scrollbar-width: thin;
-    scrollbar-color: rgba(212,168,32,0.2) transparent;
+    scrollbar-color: rgba(212,168,32,0.25) transparent;
   }
+
+  /* item */
   .cp-country-item {
     display: flex;
     align-items: center;
-    gap: 11px;
-    padding: 10px 14px;
+    gap: 13px;
+    padding: 11px 16px;
     cursor: pointer;
-    font-size: 0.84rem;
-    color: rgba(243,239,234,0.7);
-    transition: background 0.1s;
+    transition: background 0.08s;
     user-select: none;
   }
-  .cp-country-item:hover { background: rgba(212,168,32,0.07); color: #F3EFEA; }
-  .cp-country-item.sel  { background: rgba(212,168,32,0.11); color: #F3EFEA; }
-  .cp-country-flag { font-size: 1.15rem; flex-shrink: 0; line-height: 1; }
-  .cp-country-label { flex: 1; min-width: 0; }
-  .cp-country-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .cp-country-dial { color: rgba(243,239,234,0.38); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
-  .cp-country-item.sel .cp-country-dial { color: rgba(212,168,32,0.65); }
-  .cp-country-check { flex-shrink: 0; color: #D4A820; }
+  .cp-country-item:hover { background: rgba(212,168,32,0.07); }
+  .cp-country-item.sel  { background: rgba(212,168,32,0.12); }
+
+  /* bandeira — quadrado arredondado (igual WhatsApp) */
+  .cp-flag-item-box {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.45rem;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  /* nome + código */
+  .cp-country-text { flex: 1; min-width: 0; }
+  .cp-country-name {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #F3EFEA;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.3;
+  }
+  .cp-country-code-tag {
+    font-size: 0.78rem;
+    color: rgba(243,239,234,0.38);
+    font-variant-numeric: tabular-nums;
+    font-weight: 400;
+    line-height: 1.3;
+  }
+  .cp-country-item.sel .cp-country-name { color: #F8E97A; }
+  .cp-country-item.sel .cp-country-code-tag { color: rgba(212,168,32,0.65); }
+
+  /* checkmark */
+  .cp-country-check { flex-shrink: 0; }
 `;
 
 const CountrySelector: React.FC<{
@@ -596,17 +642,22 @@ const CountrySelector: React.FC<{
 
   return (
     <div style={{ position: 'relative' }}>
+      {/* Trigger */}
       <button type="button" className="cp-country-btn" onClick={toggle}>
-        <span style={{ fontSize: '1.15rem', lineHeight: 1 }}>{selected.flag}</span>
+        <div className="cp-flag-box">{selected.flag}</div>
         <span style={{ fontVariantNumeric: 'tabular-nums' }}>{selected.dial}</span>
         <ChevronDown size={9} />
       </button>
+
+      {/* Dropdown */}
       {open && (
         <div className="cp-country-dropdown" onClick={e => e.stopPropagation()}>
+
+          {/* Busca */}
           <div className="cp-country-search-row">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0 }}>
-              <circle cx="5.5" cy="5.5" r="4" stroke="rgba(243,239,234,0.28)" strokeWidth="1.3"/>
-              <path d="M9 9l2.5 2.5" stroke="rgba(243,239,234,0.28)" strokeWidth="1.3" strokeLinecap="round"/>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+              <circle cx="6" cy="6" r="4.5" stroke="rgba(243,239,234,0.3)" strokeWidth="1.4"/>
+              <path d="M10 10l2.5 2.5" stroke="rgba(243,239,234,0.3)" strokeWidth="1.4" strokeLinecap="round"/>
             </svg>
             <input
               ref={searchRef}
@@ -618,9 +669,11 @@ const CountrySelector: React.FC<{
               data-form-type="other"
             />
           </div>
+
+          {/* Lista */}
           <div className="cp-country-list">
             {filtered.length === 0 && (
-              <div style={{ padding: '14px', fontSize: '0.8rem', color: 'rgba(243,239,234,0.3)', textAlign: 'center' }}>
+              <div style={{ padding: '16px', fontSize: '0.82rem', color: 'rgba(243,239,234,0.28)', textAlign: 'center' }}>
                 Nenhum país encontrado
               </div>
             )}
@@ -630,14 +683,19 @@ const CountrySelector: React.FC<{
                 className={`cp-country-item${c.code === selected.code ? ' sel' : ''}`}
                 onClick={e => pick(e, c)}
               >
-                <span className="cp-country-flag">{c.flag}</span>
-                <div className="cp-country-label">
-                  <span className="cp-country-name">{c.name}</span>
-                  <span className="cp-country-dial"> ({c.dial})</span>
+                {/* Bandeira em quadrado arredondado */}
+                <div className="cp-flag-item-box">{c.flag}</div>
+
+                {/* Nome + código */}
+                <div className="cp-country-text">
+                  <div className="cp-country-name">{c.name}</div>
+                  <div className="cp-country-code-tag">({c.dial})</div>
                 </div>
+
+                {/* Checkmark se selecionado */}
                 {c.code === selected.code && (
-                  <svg className="cp-country-check" width="12" height="12" viewBox="0 0 12 12" fill="none">
-                    <path d="M2 6l3 3 5-5" stroke="#D4A820" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                  <svg className="cp-country-check" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M2.5 7l3.5 3.5 5.5-6" stroke="#D4A820" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 )}
               </div>
