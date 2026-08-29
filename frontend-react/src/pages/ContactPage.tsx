@@ -1,36 +1,69 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-// ── Slot-machine letter (mesmo efeito do login) ──────────────────────────────
-const SLOT_CHARS = ['$','¥','€','%','+','#','8','4','2','1','9','6','3','7','0','5'];
-const SlotLetter: React.FC<{ char: string; delay: number }> = ({ char, delay }) => {
-  const outerRef = useRef<HTMLSpanElement>(null);
-  const trackRef = useRef<HTMLDivElement>(null);
-  const chars = [...SLOT_CHARS, char];
+// ── Scramble text (efeito de filtro financeiro — substitui o slot-machine) ───
+const GLYPHS = '₿€$¥£₹+%#@&×∑';
+const ScrambleText: React.FC<{ text: string }> = ({ text }) => {
+  const [chars, setChars] = useState<string[]>(() => text.split('').map(() => GLYPHS[0]));
   useEffect(() => {
-    const outer = outerRef.current;
-    const track = trackRef.current;
-    if (!outer || !track) return;
-    outer.style.opacity = '0';
-    const tid = setTimeout(() => {
-      const h = outer.getBoundingClientRect().height;
-      if (h > 0) {
-        outer.style.transition = 'opacity 0.18s ease';
-        outer.style.opacity = '1';
-        track.style.transition = 'transform 1.1s cubic-bezier(0.16,1,0.3,1)';
-        track.style.transform = `translateY(-${(chars.length - 1) * h}px)`;
-      }
-    }, delay);
-    return () => clearTimeout(tid);
-  }, [chars.length, delay]);
-  return (
-    <span ref={outerRef} style={{ overflow:'hidden', display:'inline-block', height:'1em', verticalAlign:'top', lineHeight:1 }}>
-      <div ref={trackRef} style={{ lineHeight:1, willChange:'transform' }}>
-        {chars.map((c,i) => <span key={i} style={{ display:'block', height:'1em', lineHeight:1, textAlign:'center' }}>{c}</span>)}
-      </div>
-    </span>
-  );
+    let frame = 0;
+    const SETTLE = (i: number) => (i + 1) * 5;
+    const MAX = SETTLE(text.length - 1) + 10;
+    const tick = setInterval(() => {
+      frame++;
+      setChars(text.split('').map((ch, i) =>
+        frame >= SETTLE(i) ? ch : GLYPHS[Math.floor(Math.random() * GLYPHS.length)]
+      ));
+      if (frame >= MAX) clearInterval(tick);
+    }, 55);
+    return () => clearInterval(tick);
+  }, [text]);
+  return <>{chars.join('')}</>;
 };
+
+// ── Padrão hexagonal (fundo do painel direito) ───────────────────────────────
+const HEX_DATA = (() => {
+  const SIZE = 20;
+  const W = 1.732 * SIZE;
+  const H = SIZE * 2;
+  const result: Array<{ pts: string; op: number }> = [];
+  for (let c = 0; c < 11; c++) {
+    for (let r = 0; r < 10; r++) {
+      const cx = c * W + (r % 2 !== 0 ? W / 2 : 0) + W / 2;
+      const cy = r * (H * 0.75) + SIZE;
+      const dist = Math.sqrt(Math.pow(cx - 240, 2) + Math.pow(cy - 240, 2));
+      const op = Math.max(0.02, 0.09 - dist * 0.00018);
+      const pts = Array.from({ length: 6 }, (_, k) => {
+        const a = (Math.PI / 3) * k - Math.PI / 6;
+        return `${(cx + (SIZE - 2) * Math.cos(a)).toFixed(1)},${(cy + (SIZE - 2) * Math.sin(a)).toFixed(1)}`;
+      }).join(' ');
+      result.push({ pts, op });
+    }
+  }
+  return result;
+})();
+
+function HexBackground() {
+  return (
+    <svg
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 0 }}
+      viewBox="0 0 480 520"
+      preserveAspectRatio="xMidYMid slice"
+    >
+      <defs>
+        <radialGradient id="cpHexGrad" cx="50%" cy="45%" r="60%">
+          <stop offset="0%" stopColor="#D4A820" stopOpacity="0.14" />
+          <stop offset="100%" stopColor="#D4A820" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      {HEX_DATA.map((h, i) => (
+        <polygon key={i} points={h.pts} fill="none"
+          stroke={`rgba(212,168,32,${h.op.toFixed(3)})`} strokeWidth="0.8" />
+      ))}
+      <rect x="0" y="0" width="480" height="520" fill="url(#cpHexGrad)" />
+    </svg>
+  );
+}
 
 const css = `
   @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,800,900&display=swap');
@@ -61,6 +94,11 @@ const css = `
     to   { opacity:1; transform:translateY(0); }
   }
 
+  @keyframes cp-logo-glow {
+    0%,100% { filter: drop-shadow(0 0 3px rgba(212,168,32,0.35)) drop-shadow(0 0 1px rgba(212,168,32,0.5)); }
+    50%     { filter: drop-shadow(0 0 10px rgba(212,168,32,0.7)) drop-shadow(0 0 4px rgba(255,200,60,0.4)); }
+  }
+
   /* ── NAV ── */
   .cp-nav {
     display: flex;
@@ -78,47 +116,25 @@ const css = `
     flex-shrink: 0;
   }
   .cp-nav-logo-icon {
-    width: 28px; height: 28px;
+    width: 34px; height: 34px;
     background: #1E1A14;
     border: 1px solid rgba(212,168,32,0.3);
-    border-radius: 7px;
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
+    animation: cp-logo-glow 2.8s ease-in-out infinite;
   }
   .cp-nav-logo-name {
     font-size: 0.95rem;
     font-weight: 900;
     color: #D4A820;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
     line-height: 1;
-    display: inline-flex;
-    align-items: flex-start;
-    gap: 0;
     font-variant-numeric: tabular-nums;
   }
 
   .cp-nav-links { display:flex; align-items:center; gap:20px; flex:1; }
-  .cp-nav-link {
-    font-size: 0.82rem;
-    font-weight: 500;
-    color: rgba(243,239,234,0.5);
-    text-decoration: none;
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    white-space: nowrap;
-    transition: color 0.15s;
-  }
-  .cp-nav-link:hover { color: rgba(243,239,234,0.85); }
-  .cp-nav-link.active {
-    color: #F3EFEA;
-    font-weight: 700;
-    text-decoration: underline;
-    text-underline-offset: 3px;
-    text-decoration-color: rgba(212,168,32,0.5);
-  }
-
   .cp-nav-actions { display:flex; align-items:center; gap:8px; flex-shrink:0; }
   .cp-nav-login {
     padding: 7px 14px;
@@ -175,23 +191,6 @@ const css = `
     animation: cp-up 0.45s cubic-bezier(.16,1,.3,1) both;
   }
 
-  /* Badge "Contato" — estilo Glimpse */
-  .cp-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 5px 12px;
-    border: 1px solid rgba(212,168,32,0.25);
-    border-radius: 99px;
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: rgba(212,168,32,0.8);
-    margin-bottom: 18px;
-  }
-  .cp-badge svg { flex-shrink:0; }
-
   .cp-form-title {
     font-size: clamp(1.6rem, 2.8vw, 2.1rem);
     font-weight: 900;
@@ -234,7 +233,6 @@ const css = `
     justify-content: center;
     flex-shrink: 0;
   }
-  .cp-info-text {}
   .cp-info-label {
     font-size: 0.65rem;
     font-weight: 600;
@@ -283,7 +281,7 @@ const css = `
   .cp-row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .cp-fields { display:flex; flex-direction:column; gap:14px; margin-bottom:22px; }
 
-  /* Campo telefone com bandeira — estilo Glimpse */
+  /* Campo telefone com bandeira */
   .cp-phone-wrap {
     display: flex;
     border: 1px solid rgba(243,239,234,0.1);
@@ -292,19 +290,6 @@ const css = `
     transition: border-color 0.15s, box-shadow 0.15s;
   }
   .cp-phone-wrap:focus-within { border-color:rgba(212,168,32,0.5); box-shadow:0 0 0 3px rgba(212,168,32,0.07); }
-  .cp-phone-prefix {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 10px 12px;
-    background: rgba(243,239,234,0.06);
-    border-right: 1px solid rgba(243,239,234,0.1);
-    font-family: inherit;
-    font-size: 0.82rem;
-    color: rgba(243,239,234,0.6);
-    flex-shrink: 0;
-    white-space: nowrap;
-  }
   .cp-phone-input {
     flex: 1;
     padding: 10px 13px;
@@ -353,80 +338,69 @@ const css = `
   .cp-device-area {
     display: flex;
     align-items: center;
-    padding: 32px 0 32px 20px;
+    justify-content: center;
+    padding: 32px 20px 32px 20px;
     position: relative;
     z-index: 1;
     overflow: hidden;
+    background: #0D0B08;
   }
-  .cp-device-frame {
+
+  /* Bezel de laptop / tablet */
+  .cp-laptop-bezel {
+    position: relative;
     width: 100%;
-    background: #1A1714;
-    border-radius: 14px 0 0 14px;
-    overflow: hidden;
-    box-shadow: -8px 0 60px rgba(0,0,0,0.3), 0 20px 60px rgba(0,0,0,0.3);
-    margin-right: -2px;
-    min-height: 460px;
-    display: flex;
-    flex-direction: column;
+    max-width: 560px;
+    background: linear-gradient(160deg, #2A2520 0%, #1A1410 100%);
+    border-radius: 18px;
+    padding: 22px 12px 12px;
+    border: 1.5px solid rgba(255,255,255,0.07);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.06),
+      inset 0 -1px 0 rgba(0,0,0,0.25),
+      0 0 0 1px rgba(212,168,32,0.07),
+      0 4px 16px rgba(0,0,0,0.35),
+      0 24px 72px rgba(0,0,0,0.55);
     animation: cp-up 0.5s cubic-bezier(.16,1,.3,1) 0.1s both;
+    z-index: 1;
   }
-  .cp-dev-topbar {
-    padding: 10px 16px;
-    background: #13110E;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
+
+  /* Câmera */
+  .cp-laptop-camera {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #0F0C09;
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.02), inset 0 0 3px rgba(80,160,255,0.12);
   }
-  .cp-dev-logo { display:flex; align-items:center; gap:6px; }
-  .cp-dev-logo-name { font-size:0.7rem; font-weight:800; color:#D4A820; letter-spacing:0.06em; }
-  .cp-dev-version { font-size:0.52rem; background:rgba(212,168,32,0.15); color:rgba(212,168,32,0.7); padding:1px 5px; border-radius:3px; font-weight:700; }
-  .cp-dev-tabs { display:flex; gap:0; margin-left:16px; }
-  .cp-dev-tab { font-size:0.62rem; font-weight:600; color:rgba(243,239,234,0.3); padding:4px 10px; border-bottom:2px solid transparent; cursor:default; }
-  .cp-dev-tab.active { color:#F3EFEA; border-bottom-color:#D4A820; }
-  .cp-dev-tab-badge { display:inline-flex; align-items:center; justify-content:center; width:13px; height:13px; border-radius:3px; background:#D4A820; color:#0A0800; font-size:0.48rem; font-weight:800; margin-left:3px; }
-  .cp-dev-url { flex:1; text-align:right; font-size:0.52rem; color:rgba(243,239,234,0.18); }
 
-  .cp-dev-body { display:grid; grid-template-columns:130px 1fr; flex:1; overflow:hidden; }
-  .cp-dev-sidebar { background:#100D0A; border-right:1px solid rgba(255,255,255,0.05); padding:12px 8px; display:flex; flex-direction:column; gap:2px; }
-  .cp-dev-sb-section { font-size:0.46rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:rgba(243,239,234,0.2); padding:8px 8px 4px; }
-  .cp-dev-sb-item { display:flex; align-items:center; gap:6px; padding:5px 8px; border-radius:5px; font-size:0.58rem; font-weight:500; color:rgba(243,239,234,0.38); }
-  .cp-dev-sb-item.active { background:rgba(212,168,32,0.1); color:#D4A820; font-weight:700; }
-  .cp-dev-sb-dot { width:5px; height:5px; border-radius:50%; background:currentColor; opacity:0.5; flex-shrink:0; }
-  .cp-dev-sb-item.active .cp-dev-sb-dot { opacity:1; }
-  .cp-dev-sb-divider { height:1px; background:rgba(255,255,255,0.05); margin:6px 0; }
+  /* Área de tela (contém o iframe) */
+  .cp-device-screen {
+    border-radius: 8px;
+    overflow: hidden;
+    background: #0C0A08;
+    height: 330px;
+    border: 1px solid rgba(0,0,0,0.5);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+    position: relative;
+  }
 
-  .cp-dev-main { padding:14px 16px; overflow:hidden; display:flex; flex-direction:column; gap:10px; }
-  .cp-dev-header { display:flex; align-items:flex-start; justify-content:space-between; }
-  .cp-dev-page-title { font-size:0.82rem; font-weight:800; color:#F3EFEA; letter-spacing:-0.02em; margin-bottom:1px; }
-  .cp-dev-page-sub { font-size:0.5rem; color:rgba(243,239,234,0.32); }
-  .cp-dev-date-tabs { display:flex; gap:2px; background:rgba(255,255,255,0.05); border-radius:5px; padding:2px; }
-  .cp-dev-dt { font-size:0.48rem; font-weight:600; padding:3px 7px; border-radius:3px; color:rgba(243,239,234,0.38); }
-  .cp-dev-dt.active { background:rgba(212,168,32,0.15); color:#D4A820; }
-
-  .cp-dev-kpis { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
-  .cp-dev-kpi { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:7px; padding:8px 10px; }
-  .cp-dev-kpi-label { font-size:0.48rem; color:rgba(243,239,234,0.32); font-weight:600; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px; }
-  .cp-dev-kpi-val { font-size:0.82rem; font-weight:900; color:#F3EFEA; letter-spacing:-0.03em; margin-bottom:2px; font-variant-numeric:tabular-nums; }
-  .cp-dev-kpi-delta { font-size:0.48rem; font-weight:700; color:#2EC8A4; }
-
-  .cp-dev-chart { background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:7px; padding:10px; flex:1; display:flex; flex-direction:column; gap:6px; min-height:90px; }
-  .cp-dev-chart-hdr { display:flex; align-items:center; justify-content:space-between; }
-  .cp-dev-chart-title { font-size:0.55rem; font-weight:700; color:rgba(243,239,234,0.45); }
-  .cp-dev-chart-svg { flex:1; }
-
-  .cp-dev-list-hdr { display:flex; align-items:center; justify-content:space-between; padding:0 2px; }
-  .cp-dev-list-title { font-size:0.58rem; font-weight:700; color:#F3EFEA; }
-  .cp-dev-list-count { font-size:0.48rem; background:rgba(255,255,255,0.06); color:rgba(243,239,234,0.38); padding:1px 5px; border-radius:3px; font-weight:600; }
-  .cp-dev-rows { display:flex; flex-direction:column; gap:3px; }
-  .cp-dev-row { display:flex; align-items:center; gap:7px; padding:5px 7px; border-radius:5px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.04); }
-  .cp-dev-row-av { width:18px; height:18px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:0.42rem; font-weight:800; color:white; flex-shrink:0; }
-  .cp-dev-row-name { flex:1; min-width:0; }
-  .cp-dev-row-nm { font-size:0.53rem; font-weight:600; color:#F3EFEA; }
-  .cp-dev-row-em { font-size:0.46rem; color:rgba(243,239,234,0.28); }
-  .cp-dev-row-date { font-size:0.46rem; color:rgba(243,239,234,0.28); flex-shrink:0; }
-  .cp-dev-row-val  { font-size:0.53rem; font-weight:700; color:#D4A820; flex-shrink:0; font-variant-numeric:tabular-nums; }
+  /* iframe escalado para parecer desktop real */
+  .cp-dash-iframe {
+    width: 1100px;
+    height: 730px;
+    border: none;
+    transform: scale(0.445);
+    transform-origin: top left;
+    pointer-events: none;
+    display: block;
+    background: #0C0A08;
+  }
 
   /* ── LOGOS ── */
   .cp-logos-bar {
@@ -451,7 +425,6 @@ const css = `
     .cp-body { grid-template-columns:1fr; }
     .cp-device-area { display:none; }
     .cp-left { padding:36px 24px; }
-    .cp-nav-links { display:none; }
   }
 `;
 
@@ -473,39 +446,9 @@ function ChevronDown({ size = 9 }: { size?: number }) {
   );
 }
 
-function DashChart() {
-  const pts:number[][] = [[0,72],[18,60],[28,68],[38,48],[58,55],[68,38],[78,50],[98,32],[108,42],[128,28],[138,35],[158,22],[168,30],[178,14],[188,8]];
-  const line = pts.map(([x,y],i)=>`${i===0?'M':'L'}${x},${y}`).join(' ');
-  const fill = line+` L${pts[pts.length-1][0]},72 L0,72 Z`;
-  return (
-    <svg viewBox="0 0 200 80" className="cp-dev-chart-svg" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="dag2" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#D4A820" stopOpacity="0.22"/>
-          <stop offset="100%" stopColor="#D4A820" stopOpacity="0"/>
-        </linearGradient>
-      </defs>
-      {[0,24,48,72].map(y=><line key={y} x1="0" y1={y} x2="200" y2={y} stroke="rgba(255,255,255,0.04)" strokeWidth="0.5"/>)}
-      <path d={fill} fill="url(#dag2)"/>
-      <path d={line} fill="none" stroke="#D4A820" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-      <circle cx={pts[pts.length-1][0]} cy={pts[pts.length-1][1]} r="2.5" fill="#D4A820"/>
-      {['Jan','Mar','Mai','Jul','Set'].map((l,i)=>(
-        <text key={l} x={(i/4)*196+2} y="79" fontSize="5.5" fill="rgba(243,239,234,0.22)" textAnchor="middle" fontFamily="Satoshi,system-ui">{l}</text>
-      ))}
-    </svg>
-  );
-}
-
-const ROWS = [
-  { name:'Nikolas G.',  email:'nikolas@hive.com.br', date:'Abr 3, 2025', val:'R$64,00', color:'#7C3AED' },
-  { name:'Amélie L.',   email:'amelie@hive.com.br',  date:'Abr 3, 2025', val:'R$64,00', color:'#D4A820' },
-  { name:'Ammar F.',    email:'ammar@hive.com.br',   date:'Abr 3, 2025', val:'R$18,00', color:'#2EC8A4' },
-  { name:'Caitlyn K.',  email:'caitlyn@hive.com.br', date:'Abr 4, 2025', val:'R$64,00', color:'#F07A64' },
-];
-
 const LOGOS = ['Nubank','XP Inc.','BTG Pactual','Itaú','Bradesco','Clear','Rico','Avenue','Inter','C6 Bank'];
 
-// ── Países com código DDI e emoji de bandeira ─────────────────────────────────
+// ── Países com código DDI ─────────────────────────────────────────────────────
 const COUNTRIES = [
   { code: 'BR', flag: '🇧🇷', name: 'Brasil',              dial: '+55'  },
   { code: 'US', flag: '🇺🇸', name: 'Estados Unidos',      dial: '+1'   },
@@ -540,19 +483,18 @@ const COUNTRIES = [
 ];
 
 const COUNTRY_DROPDOWN_CSS = `
-  .cp-country-wrap {
-    position: relative;
-  }
+  .cp-country-wrap { position: relative; }
   .cp-country-btn {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
     padding: 10px 12px;
     background: rgba(243,239,234,0.06);
     border-right: 1px solid rgba(243,239,234,0.1);
     font-family: inherit;
-    font-size: 0.82rem;
-    color: rgba(243,239,234,0.6);
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: rgba(243,239,234,0.75);
     flex-shrink: 0;
     white-space: nowrap;
     cursor: pointer;
@@ -561,36 +503,43 @@ const COUNTRY_DROPDOWN_CSS = `
     transition: background 0.15s;
     height: 100%;
     border-right: 1px solid rgba(243,239,234,0.1);
+    user-select: none;
   }
   .cp-country-btn:hover { background: rgba(243,239,234,0.1); color: #F3EFEA; }
 
   .cp-country-dropdown {
     position: absolute;
-    top: calc(100% + 4px);
+    top: calc(100% + 6px);
     left: 0;
-    width: 240px;
-    background: #1E1A14;
-    border: 1px solid rgba(212,168,32,0.2);
-    border-radius: 10px;
-    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-    z-index: 100;
+    width: 280px;
+    background: #1C1810;
+    border: 1px solid rgba(212,168,32,0.18);
+    border-radius: 12px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(212,168,32,0.06);
+    z-index: 200;
     overflow: hidden;
     animation: cp-up 0.15s cubic-bezier(.16,1,.3,1) both;
   }
+  .cp-country-search-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 14px;
+    border-bottom: 1px solid rgba(243,239,234,0.07);
+    background: rgba(243,239,234,0.03);
+  }
   .cp-country-search {
-    width: 100%;
-    padding: 10px 13px;
-    background: rgba(243,239,234,0.04);
+    flex: 1;
+    background: transparent;
     color: #F3EFEA;
     border: none;
-    border-bottom: 1px solid rgba(243,239,234,0.08);
     font-family: inherit;
-    font-size: 0.82rem;
+    font-size: 0.84rem;
     outline: none;
   }
   .cp-country-search::placeholder { color: rgba(243,239,234,0.25); }
   .cp-country-list {
-    max-height: 220px;
+    max-height: 240px;
     overflow-y: auto;
     scrollbar-width: thin;
     scrollbar-color: rgba(212,168,32,0.2) transparent;
@@ -598,19 +547,22 @@ const COUNTRY_DROPDOWN_CSS = `
   .cp-country-item {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 8px 13px;
+    gap: 11px;
+    padding: 10px 14px;
     cursor: pointer;
-    font-size: 0.8rem;
+    font-size: 0.84rem;
     color: rgba(243,239,234,0.7);
     transition: background 0.1s;
+    user-select: none;
   }
-  .cp-country-item:hover { background: rgba(212,168,32,0.08); color: #F3EFEA; }
-  .cp-country-item.sel  { background: rgba(212,168,32,0.12); color: #D4A820; }
-  .cp-country-flag { font-size: 1rem; flex-shrink: 0; }
-  .cp-country-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cp-country-dial { color: rgba(243,239,234,0.4); font-size: 0.75rem; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-  .cp-country-item.sel .cp-country-dial { color: rgba(212,168,32,0.7); }
+  .cp-country-item:hover { background: rgba(212,168,32,0.07); color: #F3EFEA; }
+  .cp-country-item.sel  { background: rgba(212,168,32,0.11); color: #F3EFEA; }
+  .cp-country-flag { font-size: 1.15rem; flex-shrink: 0; line-height: 1; }
+  .cp-country-label { flex: 1; min-width: 0; }
+  .cp-country-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cp-country-dial { color: rgba(243,239,234,0.38); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .cp-country-item.sel .cp-country-dial { color: rgba(212,168,32,0.65); }
+  .cp-country-check { flex-shrink: 0; color: #D4A820; }
 `;
 
 const CountrySelector: React.FC<{
@@ -619,14 +571,24 @@ const CountrySelector: React.FC<{
 }> = ({ selected, onChange }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const wrapRef = useRef<HTMLDivElement>(null);
+  const wrapRef  = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const filtered = COUNTRIES.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     c.dial.includes(search)
   );
 
+  // Foca o campo de busca após o dropdown abrir (sem acionar o listener de fora)
   useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(() => searchRef.current?.focus(), 60);
+    return () => clearTimeout(t);
+  }, [open]);
+
+  // Fecha ao clicar fora — só ativo quando aberto
+  useEffect(() => {
+    if (!open) return;
     const handler = (e: MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
         setOpen(false);
@@ -635,34 +597,54 @@ const CountrySelector: React.FC<{
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, []);
+  }, [open]);
 
   return (
     <div className="cp-country-wrap" ref={wrapRef}>
-      <button type="button" className="cp-country-btn" onClick={() => setOpen(o => !o)}>
-        <span style={{ fontSize: '1rem' }}>{selected.flag}</span>
-        {selected.dial}
+      {/* onMouseDown + preventDefault evita autocomplete do browser */}
+      <button
+        type="button"
+        className="cp-country-btn"
+        onMouseDown={e => { e.preventDefault(); setOpen(o => !o); }}
+      >
+        <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>{selected.flag}</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{selected.dial}</span>
         <ChevronDown size={9} />
       </button>
       {open && (
         <div className="cp-country-dropdown">
-          <input
-            className="cp-country-search"
-            placeholder="Buscar país ou código..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            autoFocus
-          />
+          <div className="cp-country-search-row">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ flexShrink:0 }}>
+              <circle cx="5.5" cy="5.5" r="4" stroke="rgba(243,239,234,0.28)" strokeWidth="1.3"/>
+              <path d="M9 9l2.5 2.5" stroke="rgba(243,239,234,0.28)" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+            <input
+              ref={searchRef}
+              className="cp-country-search"
+              placeholder="Buscar país ou código..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              autoComplete="off"
+              data-form-type="other"
+            />
+          </div>
           <div className="cp-country-list">
             {filtered.map(c => (
               <div
                 key={c.code}
                 className={`cp-country-item${c.code === selected.code ? ' sel' : ''}`}
-                onClick={() => { onChange(c); setOpen(false); setSearch(''); }}
+                onMouseDown={e => { e.preventDefault(); onChange(c); setOpen(false); setSearch(''); }}
               >
                 <span className="cp-country-flag">{c.flag}</span>
-                <span className="cp-country-name">{c.name}</span>
-                <span className="cp-country-dial">{c.dial}</span>
+                <div className="cp-country-label">
+                  <span className="cp-country-name">{c.name}</span>{' '}
+                  <span className="cp-country-dial">({c.dial})</span>
+                </div>
+                {c.code === selected.code && (
+                  <svg className="cp-country-check" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 6l3 3 5-5" stroke="#D4A820" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                )}
               </div>
             ))}
           </div>
@@ -673,13 +655,13 @@ const CountrySelector: React.FC<{
 };
 
 export const ContactPage: React.FC = () => {
-  const [fname, setFname]   = useState('');
-  const [lname, setLname]   = useState('');
-  const [email, setEmail]   = useState('');
-  const [phone, setPhone]   = useState('');
+  const [fname, setFname]     = useState('');
+  const [lname, setLname]     = useState('');
+  const [email, setEmail]     = useState('');
+  const [phone, setPhone]     = useState('');
   const [message, setMessage] = useState('');
-  const [errs, setErrs]     = useState({ fname:'', email:'', message:'' });
-  const [sent, setSent]     = useState(false);
+  const [errs, setErrs]       = useState({ fname:'', email:'', message:'' });
+  const [sent, setSent]       = useState(false);
   const [country, setCountry] = useState(COUNTRIES[0]);
 
   const fmtPhone = (v: string) => {
@@ -701,7 +683,19 @@ export const ContactPage: React.FC = () => {
 
   const handleSubmit = (ev: React.FormEvent) => {
     ev.preventDefault();
-    if (validate()) setSent(true);
+    if (!validate()) return;
+    const lines = [
+      `*Nova mensagem via HIVE*`,
+      ``,
+      `*Nome:* ${fname}${lname ? ' ' + lname : ''}`,
+      `*E-mail:* ${email}`,
+      phone ? `*Telefone:* ${country.dial} ${phone}` : null,
+      ``,
+      `*Mensagem:*`,
+      message,
+    ].filter(Boolean).join('\n');
+    window.open(`https://wa.me/5531995302006?text=${encodeURIComponent(lines)}`, '_blank');
+    setSent(true);
   };
 
   return (
@@ -713,10 +707,8 @@ export const ContactPage: React.FC = () => {
           {/* NAV */}
           <nav className="cp-nav">
             <Link to="/login" className="cp-nav-logo">
-              <div className="cp-nav-logo-icon"><HiveLogo size={16}/></div>
-              <span className="cp-nav-logo-name">
-                {'HIVE'.split('').map((ch,i) => <SlotLetter key={i} char={ch} delay={300+i*110}/>)}
-              </span>
+              <div className="cp-nav-logo-icon"><HiveLogo size={22}/></div>
+              <span className="cp-nav-logo-name"><ScrambleText text="HIVE" /></span>
             </Link>
             <div className="cp-nav-links" />
             <div className="cp-nav-actions">
@@ -742,7 +734,7 @@ export const ContactPage: React.FC = () => {
                   </div>
                   <div className="cp-sent-title">Mensagem enviada!</div>
                   <p className="cp-sent-sub">
-                    Nossa equipe responderá em até 24 horas úteis em{' '}
+                    Sua mensagem foi enviada para nosso WhatsApp. Retornamos em breve em{' '}
                     <strong style={{color:'#D4A820'}}>{email}</strong>.
                   </p>
                   <Link to="/login" className="cp-btn-continue" style={{textDecoration:'none',textAlign:'center',display:'block'}}>
@@ -758,7 +750,6 @@ export const ContactPage: React.FC = () => {
                     Nossa equipe de suporte está a uma mensagem de distância.
                   </p>
 
-                  {/* Info items estilo Glimpse */}
                   <div className="cp-info-items">
                     <div className="cp-info-item">
                       <div className="cp-info-icon">
@@ -767,8 +758,8 @@ export const ContactPage: React.FC = () => {
                           <path d="M1 5l6.5 4L14 5" stroke="#D4A820" strokeWidth="1.2" strokeLinecap="round"/>
                         </svg>
                       </div>
-                      <div className="cp-info-text">
-                        <div className="cp-info-label">E-mail:</div>
+                      <div>
+                        <div className="cp-info-label">E-mail</div>
                         <a href="mailto:suporte@hive.com.br" className="cp-info-value">suporte@hive.com.br</a>
                       </div>
                     </div>
@@ -778,14 +769,15 @@ export const ContactPage: React.FC = () => {
                           <path d="M13 10.8c0 .28-.06.55-.2.82-.13.26-.31.5-.55.7-.4.36-.83.54-1.28.54-.32 0-.66-.08-1.03-.25A10 10 0 0 1 8.2 10.7a17.5 17.5 0 0 1-1.63-1.63 17 17 0 0 1-1.35-1.77c-.43-.63-.77-1.22-1.01-1.76C4.07 5.01 3.94 4.65 3.94 4.3c0-.34.07-.66.21-.95.14-.3.35-.56.63-.79.36-.27.74-.4 1.15-.4.16 0 .32.03.46.1.15.06.28.16.39.3l1.35 1.9c.11.15.2.28.25.41.06.12.09.24.09.35 0 .14-.04.27-.12.4-.08.12-.18.25-.31.37l-.42.44a.3.3 0 0 0-.09.22c0 .04.01.08.03.13.03.05.05.09.07.13.2.36.44.7.72 1.02.29.32.6.63.93.92.3.26.62.5.95.7.04.03.09.05.13.07.05.01.09.02.13.02a.31.31 0 0 0 .22-.1l.42-.41c.13-.12.25-.21.37-.26.12-.06.24-.09.37-.09.1 0 .21.02.32.07.12.05.25.13.38.24l1.94 1.38c.14.1.23.2.28.33.04.12.07.24.07.37z" stroke="#D4A820" strokeWidth="1.1"/>
                         </svg>
                       </div>
-                      <div className="cp-info-text">
-                        <div className="cp-info-label">Telefone:</div>
-                        <a href="tel:+5511999999999" className="cp-info-value">+55 (11) 9 9999-9999</a>
+                      <div>
+                        <div className="cp-info-label">WhatsApp</div>
+                        <a href="https://wa.me/5531995302006" target="_blank" rel="noreferrer" className="cp-info-value">
+                          +55 (31) 99530-2006
+                        </a>
                       </div>
                     </div>
                   </div>
 
-                  {/* Form */}
                   <form onSubmit={handleSubmit} noValidate>
                     <div className="cp-fields">
                       <div className="cp-row2">
@@ -814,7 +806,8 @@ export const ContactPage: React.FC = () => {
                         <div className="cp-phone-wrap">
                           <CountrySelector selected={country} onChange={setCountry} />
                           <input className="cp-phone-input" type="tel" placeholder="(11) 9 0000-0000"
-                            value={phone} onChange={e=>setPhone(fmtPhone(e.target.value))}/>
+                            value={phone} onChange={e=>setPhone(fmtPhone(e.target.value))}
+                            autoComplete="off" data-form-type="other"/>
                         </div>
                       </div>
 
@@ -840,83 +833,18 @@ export const ContactPage: React.FC = () => {
               )}
             </div>
 
-            {/* DIREITO — device */}
+            {/* DIREITO — laptop com iframe do dashboard real */}
             <div className="cp-device-area">
-              <div className="cp-device-frame">
-                <div className="cp-dev-topbar">
-                  <div className="cp-dev-logo">
-                    <HiveLogo size={12}/>
-                    <span className="cp-dev-logo-name">HIVE</span>
-                    <span className="cp-dev-version">v1.0</span>
-                  </div>
-                  <div className="cp-dev-tabs">
-                    <div className="cp-dev-tab active">Painel</div>
-                    <div className="cp-dev-tab">Carteira</div>
-                    <div className="cp-dev-tab">Organizar <span className="cp-dev-tab-badge">4</span></div>
-                    <div className="cp-dev-tab">Chat</div>
-                  </div>
-                  <div className="cp-dev-url">app.hive.com.br</div>
-                </div>
-                <div className="cp-dev-body">
-                  <div className="cp-dev-sidebar">
-                    <div className="cp-dev-sb-section">Principal</div>
-                    {[{l:'Painel',a:true},{l:'Carteira',a:false},{l:'Objetivos',a:false},{l:'Estratégias',a:false}].map(item=>(
-                      <div key={item.l} className={`cp-dev-sb-item${item.a?' active':''}`}>
-                        <div className="cp-dev-sb-dot"/>{item.l}
-                      </div>
-                    ))}
-                    <div className="cp-dev-sb-divider"/>
-                    <div className="cp-dev-sb-section">Conta</div>
-                    {['Configurações','Suporte','Documentação'].map(l=>(
-                      <div key={l} className="cp-dev-sb-item"><div className="cp-dev-sb-dot"/>{l}</div>
-                    ))}
-                  </div>
-                  <div className="cp-dev-main">
-                    <div className="cp-dev-header">
-                      <div>
-                        <div className="cp-dev-page-title">Painel</div>
-                        <div className="cp-dev-page-sub">Visão geral do seu patrimônio.</div>
-                      </div>
-                      <div className="cp-dev-date-tabs">
-                        <div className="cp-dev-dt active">12 meses</div>
-                        <div className="cp-dev-dt">30 dias</div>
-                        <div className="cp-dev-dt">7 dias</div>
-                        <div className="cp-dev-dt">24h</div>
-                      </div>
-                    </div>
-                    <div className="cp-dev-kpis">
-                      {[{label:'Patrimônio',val:'R$88.820',delta:'↑ +15%'},{label:'Rendimento',val:'R$3.604',delta:'↑ +8%'},{label:'Ativos',val:'12',delta:'↑ +2'}].map(k=>(
-                        <div key={k.label} className="cp-dev-kpi">
-                          <div className="cp-dev-kpi-label">{k.label}</div>
-                          <div className="cp-dev-kpi-val">{k.val}</div>
-                          <div className="cp-dev-kpi-delta">{k.delta}</div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="cp-dev-chart">
-                      <div className="cp-dev-chart-hdr">
-                        <div className="cp-dev-chart-title">Evolução patrimonial</div>
-                      </div>
-                      <DashChart/>
-                    </div>
-                    <div className="cp-dev-list-hdr">
-                      <span className="cp-dev-list-title">Clientes</span>
-                      <span className="cp-dev-list-count">1.656</span>
-                    </div>
-                    <div className="cp-dev-rows">
-                      {ROWS.map(r=>(
-                        <div key={r.name} className="cp-dev-row">
-                          <div className="cp-dev-row-av" style={{background:r.color}}>{r.name[0]}</div>
-                          <div className="cp-dev-row-name">
-                            <div className="cp-dev-row-nm">{r.name}</div>
-                            <div className="cp-dev-row-em">{r.email}</div>
-                          </div>
-                          <div className="cp-dev-row-date">{r.date}</div>
-                          <div className="cp-dev-row-val">{r.val}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+              <HexBackground />
+              <div className="cp-laptop-bezel">
+                <div className="cp-laptop-camera" />
+                <div className="cp-device-screen">
+                  <iframe
+                    src="/dashboard"
+                    className="cp-dash-iframe"
+                    title="HIVE Dashboard"
+                    scrolling="no"
+                  />
                 </div>
               </div>
             </div>
