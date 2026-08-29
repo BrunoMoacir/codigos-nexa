@@ -21,49 +21,84 @@ const ScrambleText: React.FC<{ text: string }> = ({ text }) => {
   return <>{chars.join('')}</>;
 };
 
-// ── Padrão hexagonal (fundo do painel direito) ───────────────────────────────
-const HEX_DATA = (() => {
-  const SIZE = 20;
-  const W = 1.732 * SIZE;
-  const H = SIZE * 2;
-  const result: Array<{ pts: string; op: number }> = [];
-  for (let c = 0; c < 11; c++) {
-    for (let r = 0; r < 10; r++) {
-      const cx = c * W + (r % 2 !== 0 ? W / 2 : 0) + W / 2;
-      const cy = r * (H * 0.75) + SIZE;
-      const dist = Math.sqrt(Math.pow(cx - 240, 2) + Math.pow(cy - 240, 2));
-      const op = Math.max(0.02, 0.09 - dist * 0.00018);
-      const pts = Array.from({ length: 6 }, (_, k) => {
-        const a = (Math.PI / 3) * k - Math.PI / 6;
-        return `${(cx + (SIZE - 2) * Math.cos(a)).toFixed(1)},${(cy + (SIZE - 2) * Math.sin(a)).toFixed(1)}`;
-      }).join(' ');
-      result.push({ pts, op });
-    }
-  }
-  return result;
-})();
+// ── Fundo animado com hexágonos pulsantes (canvas) ───────────────────────────
+const ContactBgCanvas: React.FC = () => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d')!;
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const SIZE = 26;
+    const GAP = 3;
+    const SQRT3 = Math.sqrt(3);
+    type Hex = { cx: number; cy: number; phase: number; baseOp: number };
+    let W = 0, H = 0;
+    let hexes: Hex[] = [];
+    let rafId: number;
+    let t = 0;
 
-function HexBackground() {
+    const build = () => {
+      W = canvas.offsetWidth;
+      H = canvas.offsetHeight;
+      canvas.width = W * DPR;
+      canvas.height = H * DPR;
+      ctx.scale(DPR, DPR);
+      hexes = [];
+      const cw = (SIZE + GAP) * 1.5;
+      const rh = SQRT3 * (SIZE + GAP * 0.5);
+      const cols = Math.ceil(W / cw) + 2;
+      const rows = Math.ceil(H / rh) + 2;
+      for (let c = 0; c < cols; c++) {
+        for (let r = 0; r < rows; r++) {
+          const cx = c * cw + SIZE;
+          const cy = r * rh + (c % 2 !== 0 ? rh / 2 : 0) + SIZE;
+          // fade from left (dim) to right (bright) — hex pattern concentrado no painel do device
+          const xFactor = Math.max(0, (cx / W - 0.25) / 0.75);
+          const dist = Math.sqrt((cx - W * 0.78) ** 2 + (cy - H * 0.5) ** 2);
+          const baseOp = Math.max(0.02, xFactor * (0.55 - dist * 0.00022));
+          hexes.push({ cx, cy, phase: Math.random() * Math.PI * 2, baseOp });
+        }
+      }
+    };
+
+    const hexPath = (cx: number, cy: number, r: number) => {
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = (Math.PI / 3) * i - Math.PI / 6;
+        i === 0
+          ? ctx.moveTo(cx + r * Math.cos(a), cy + r * Math.sin(a))
+          : ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+      }
+      ctx.closePath();
+    };
+
+    const render = () => {
+      t += 0.007;
+      ctx.clearRect(0, 0, W, H);
+      for (const { cx, cy, phase, baseOp } of hexes) {
+        const pulse = Math.sin(t + phase) * 0.5 + 0.5;
+        const op = baseOp * (0.3 + pulse * 0.7);
+        hexPath(cx, cy, SIZE - 2);
+        ctx.strokeStyle = `rgba(212,168,32,${op.toFixed(3)})`;
+        ctx.lineWidth = 1.1;
+        ctx.stroke();
+      }
+      rafId = requestAnimationFrame(render);
+    };
+
+    build();
+    render();
+    return () => cancelAnimationFrame(rafId);
+  }, []);
+
   return (
-    <svg
+    <canvas
+      ref={canvasRef}
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 0 }}
-      viewBox="0 0 480 520"
-      preserveAspectRatio="xMidYMid slice"
-    >
-      <defs>
-        <radialGradient id="cpHexGrad" cx="50%" cy="45%" r="60%">
-          <stop offset="0%" stopColor="#D4A820" stopOpacity="0.14" />
-          <stop offset="100%" stopColor="#D4A820" stopOpacity="0" />
-        </radialGradient>
-      </defs>
-      {HEX_DATA.map((h, i) => (
-        <polygon key={i} points={h.pts} fill="none"
-          stroke={`rgba(212,168,32,${h.op.toFixed(3)})`} strokeWidth="0.8" />
-      ))}
-      <rect x="0" y="0" width="480" height="520" fill="url(#cpHexGrad)" />
-    </svg>
+    />
   );
-}
+};
 
 const css = `
   @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,800,900&display=swap');
@@ -170,8 +205,8 @@ const css = `
   /* ── CORPO ── */
   .cp-body {
     display: grid;
-    grid-template-columns: 1fr 1.08fr;
-    min-height: 580px;
+    grid-template-columns: 1fr 1.4fr;
+    min-height: 620px;
     position: relative;
     overflow: hidden;
   }
@@ -341,9 +376,8 @@ const css = `
     position: relative;
     z-index: 1;
     overflow: hidden;
-    /* fundo um pouco mais claro que o card → hex pattern fica visível aqui */
-    background: #201C16;
-    padding: 32px 0 32px 24px;
+    background: transparent;
+    padding: 20px 0 20px 14px;
     display: flex;
     align-items: center;
   }
@@ -353,14 +387,14 @@ const css = `
     position: relative;
     z-index: 1;
     width: 100%;
-    background: #080604;
-    border-radius: 14px 0 0 14px;
+    background: #070503;
+    border-radius: 16px 0 0 16px;
     overflow: hidden;
-    padding: 10px 0 10px 10px;
+    padding: 13px 0 13px 13px;
     box-shadow:
-      -8px 0 40px rgba(0,0,0,0.55),
-      0 0 0 1px rgba(255,255,255,0.07),
-      inset 0 1px 0 rgba(255,255,255,0.04);
+      -12px 0 48px rgba(0,0,0,0.7),
+      0 0 0 1px rgba(255,255,255,0.09),
+      inset 0 1px 0 rgba(255,255,255,0.05);
     margin-right: -2px;
     animation: cp-up 0.5s cubic-bezier(.16,1,.3,1) 0.1s both;
   }
@@ -394,62 +428,62 @@ const css = `
   .cp-dev-url { flex:1; text-align:right; font-size:0.5rem; color:rgba(243,239,234,0.18); }
 
   /* Grid sidebar + main */
-  .cp-dev-body { display:grid; grid-template-columns:110px 1fr; flex:1; overflow:hidden; }
-  .cp-dev-sidebar { background:#100D0A; border-right:1px solid rgba(255,255,255,0.05); padding:10px 6px; display:flex; flex-direction:column; gap:2px; }
-  .cp-dev-sb-section { font-size:0.44rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:rgba(243,239,234,0.2); padding:7px 8px 4px; }
-  .cp-dev-sb-item { display:flex; align-items:center; gap:5px; padding:5px 8px; border-radius:5px; font-size:0.55rem; font-weight:500; color:rgba(243,239,234,0.38); }
+  .cp-dev-body { display:grid; grid-template-columns:130px 1fr; flex:1; overflow:hidden; }
+  .cp-dev-sidebar { background:#100D0A; border-right:1px solid rgba(255,255,255,0.05); padding:12px 8px; display:flex; flex-direction:column; gap:2px; }
+  .cp-dev-sb-section { font-size:0.5rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:rgba(243,239,234,0.2); padding:8px 8px 5px; }
+  .cp-dev-sb-item { display:flex; align-items:center; gap:6px; padding:6px 9px; border-radius:5px; font-size:0.63rem; font-weight:500; color:rgba(243,239,234,0.38); }
   .cp-dev-sb-item.active { background:rgba(212,168,32,0.1); color:#D4A820; font-weight:700; }
-  .cp-dev-sb-dot { width:4px; height:4px; border-radius:50%; background:currentColor; opacity:0.5; flex-shrink:0; }
+  .cp-dev-sb-dot { width:5px; height:5px; border-radius:50%; background:currentColor; opacity:0.5; flex-shrink:0; }
   .cp-dev-sb-item.active .cp-dev-sb-dot { opacity:1; }
-  .cp-dev-sb-divider { height:1px; background:rgba(255,255,255,0.05); margin:5px 0; }
+  .cp-dev-sb-divider { height:1px; background:rgba(255,255,255,0.05); margin:6px 0; }
 
-  .cp-dev-main { padding:12px 14px; overflow:hidden; display:flex; flex-direction:column; gap:9px; }
+  .cp-dev-main { padding:14px 18px; overflow:hidden; display:flex; flex-direction:column; gap:11px; }
   .cp-dev-header { display:flex; align-items:flex-start; justify-content:space-between; }
-  .cp-dev-page-title { font-size:0.78rem; font-weight:800; color:#F3EFEA; letter-spacing:-0.02em; margin-bottom:1px; }
-  .cp-dev-page-sub { font-size:0.48rem; color:rgba(243,239,234,0.32); }
-  .cp-dev-date-tabs { display:flex; gap:2px; background:rgba(255,255,255,0.05); border-radius:4px; padding:2px; }
-  .cp-dev-dt { font-size:0.46rem; font-weight:600; padding:3px 6px; border-radius:3px; color:rgba(243,239,234,0.38); }
+  .cp-dev-page-title { font-size:0.9rem; font-weight:800; color:#F3EFEA; letter-spacing:-0.02em; margin-bottom:2px; }
+  .cp-dev-page-sub { font-size:0.56rem; color:rgba(243,239,234,0.32); }
+  .cp-dev-date-tabs { display:flex; gap:2px; background:rgba(255,255,255,0.05); border-radius:5px; padding:2px; }
+  .cp-dev-dt { font-size:0.52rem; font-weight:600; padding:4px 8px; border-radius:4px; color:rgba(243,239,234,0.38); }
   .cp-dev-dt.active { background:rgba(212,168,32,0.15); color:#D4A820; }
 
-  .cp-dev-kpis { display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; }
-  .cp-dev-kpi { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:7px 9px; }
-  .cp-dev-kpi-label { font-size:0.45rem; color:rgba(243,239,234,0.32); font-weight:600; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:3px; }
-  .cp-dev-kpi-val { font-size:0.78rem; font-weight:900; color:#F3EFEA; letter-spacing:-0.03em; margin-bottom:2px; font-variant-numeric:tabular-nums; }
-  .cp-dev-kpi-delta { font-size:0.45rem; font-weight:700; color:#2EC8A4; }
+  .cp-dev-kpis { display:grid; grid-template-columns:1fr 1fr 1fr; gap:7px; }
+  .cp-dev-kpi { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:7px; padding:9px 11px; }
+  .cp-dev-kpi-label { font-size:0.52rem; color:rgba(243,239,234,0.32); font-weight:600; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px; }
+  .cp-dev-kpi-val { font-size:0.9rem; font-weight:900; color:#F3EFEA; letter-spacing:-0.03em; margin-bottom:2px; font-variant-numeric:tabular-nums; }
+  .cp-dev-kpi-delta { font-size:0.52rem; font-weight:700; color:#2EC8A4; }
 
-  .cp-dev-chart { background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:6px; padding:9px; display:flex; flex-direction:column; gap:5px; }
-  .cp-dev-chart-title { font-size:0.52rem; font-weight:700; color:rgba(243,239,234,0.45); }
+  .cp-dev-chart { background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:7px; padding:11px; display:flex; flex-direction:column; gap:6px; }
+  .cp-dev-chart-title { font-size:0.6rem; font-weight:700; color:rgba(243,239,234,0.45); }
   .cp-dev-chart-svg { width:100%; }
 
   .cp-dev-list-hdr { display:flex; align-items:center; justify-content:space-between; padding:0 2px; }
-  .cp-dev-list-title { font-size:0.56rem; font-weight:700; color:#F3EFEA; }
-  .cp-dev-list-count { font-size:0.46rem; background:rgba(255,255,255,0.06); color:rgba(243,239,234,0.38); padding:1px 5px; border-radius:3px; font-weight:600; }
-  .cp-dev-rows { display:flex; flex-direction:column; gap:3px; }
-  .cp-dev-row { display:flex; align-items:center; gap:6px; padding:5px 7px; border-radius:5px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.04); }
-  .cp-dev-row-av { width:16px; height:16px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:0.4rem; font-weight:800; color:white; flex-shrink:0; }
-  .cp-dev-row-nm { font-size:0.5rem; font-weight:600; color:#F3EFEA; }
-  .cp-dev-row-em { font-size:0.44rem; color:rgba(243,239,234,0.28); }
-  .cp-dev-row-date { font-size:0.44rem; color:rgba(243,239,234,0.28); flex-shrink:0; margin-left:auto; }
-  .cp-dev-row-val  { font-size:0.5rem; font-weight:700; color:#D4A820; flex-shrink:0; font-variant-numeric:tabular-nums; }
+  .cp-dev-list-title { font-size:0.65rem; font-weight:700; color:#F3EFEA; }
+  .cp-dev-list-count { font-size:0.52rem; background:rgba(255,255,255,0.06); color:rgba(243,239,234,0.38); padding:2px 6px; border-radius:4px; font-weight:600; }
+  .cp-dev-rows { display:flex; flex-direction:column; gap:4px; }
+  .cp-dev-row { display:flex; align-items:center; gap:8px; padding:6px 9px; border-radius:6px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.04); }
+  .cp-dev-row-av { width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:0.48rem; font-weight:800; color:white; flex-shrink:0; }
+  .cp-dev-row-nm { font-size:0.58rem; font-weight:600; color:#F3EFEA; }
+  .cp-dev-row-em { font-size:0.5rem; color:rgba(243,239,234,0.28); }
+  .cp-dev-row-date { font-size:0.5rem; color:rgba(243,239,234,0.28); flex-shrink:0; margin-left:auto; }
+  .cp-dev-row-val  { font-size:0.58rem; font-weight:700; color:#D4A820; flex-shrink:0; font-variant-numeric:tabular-nums; }
 
   /* ── TOPBAR do device ── */
   .cp-dev-topbar {
-    padding: 10px 16px;
+    padding: 11px 18px;
     background: #13110E;
     border-bottom: 1px solid rgba(255,255,255,0.06);
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     flex-shrink: 0;
   }
-  .cp-dev-logo { display:flex; align-items:center; gap:6px; }
-  .cp-dev-logo-name { font-size:0.7rem; font-weight:800; color:#D4A820; letter-spacing:0.06em; }
-  .cp-dev-version { font-size:0.52rem; background:rgba(212,168,32,0.15); color:rgba(212,168,32,0.7); padding:1px 5px; border-radius:3px; font-weight:700; }
-  .cp-dev-tabs { display:flex; gap:0; margin-left:16px; }
-  .cp-dev-tab { font-size:0.62rem; font-weight:600; color:rgba(243,239,234,0.3); padding:4px 10px; border-bottom:2px solid transparent; cursor:default; }
+  .cp-dev-logo { display:flex; align-items:center; gap:7px; }
+  .cp-dev-logo-name { font-size:0.78rem; font-weight:800; color:#D4A820; letter-spacing:0.06em; }
+  .cp-dev-version { font-size:0.56rem; background:rgba(212,168,32,0.15); color:rgba(212,168,32,0.7); padding:2px 6px; border-radius:3px; font-weight:700; }
+  .cp-dev-tabs { display:flex; gap:0; margin-left:18px; }
+  .cp-dev-tab { font-size:0.68rem; font-weight:600; color:rgba(243,239,234,0.3); padding:5px 12px; border-bottom:2px solid transparent; cursor:default; }
   .cp-dev-tab.active { color:#F3EFEA; border-bottom-color:#D4A820; }
-  .cp-dev-tab-badge { display:inline-flex; align-items:center; justify-content:center; width:13px; height:13px; border-radius:3px; background:#D4A820; color:#0A0800; font-size:0.48rem; font-weight:800; margin-left:3px; }
-  .cp-dev-url { flex:1; text-align:right; font-size:0.52rem; color:rgba(243,239,234,0.18); }
+  .cp-dev-tab-badge { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:3px; background:#D4A820; color:#0A0800; font-size:0.5rem; font-weight:800; margin-left:4px; }
+  .cp-dev-url { flex:1; text-align:right; font-size:0.56rem; color:rgba(243,239,234,0.18); }
 
   /* ── LOGOS ── */
   .cp-logos-bar {
@@ -868,6 +902,8 @@ export const ContactPage: React.FC = () => {
 
           {/* CORPO */}
           <div className="cp-body">
+            {/* Canvas de hexágonos — cobre o corpo inteiro, mais brilhante à direita */}
+            <ContactBgCanvas />
             <div className="cp-grid-line" style={{left:'33%'}}/>
             <div className="cp-grid-line" style={{left:'50%'}}/>
             <div className="cp-grid-line" style={{left:'67%'}}/>
@@ -984,9 +1020,6 @@ export const ContactPage: React.FC = () => {
 
             {/* DIREITO — device com mock do dashboard */}
             <div className="cp-device-area">
-              {/* Padrão hexagonal no fundo (visível no espaço ao redor do bezel) */}
-              <HexBackground />
-
               <div className="cp-device-bezel">
                 <div className="cp-device-screen">
 
