@@ -383,9 +383,21 @@ const css = `
   /* ── DIREITO ── */
   .lp-right {
     display: flex;
-    align-items: center;
-    justify-content: flex-end;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
     animation: lp-fadeUp 0.7s cubic-bezier(.16,1,.3,1) 0.12s both;
+  }
+  .lp-right-inner {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .lp-help-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 10px;
   }
 
   .lp-card {
@@ -603,11 +615,12 @@ export const LoginPage: React.FC = () => {
 
           {/* ── DIREITO — form ── */}
           <div className="lp-right">
+            <div className="lp-right-inner">
+            <div className="lp-help-row">
+              <a href="/contact" className="lp-help-link">Precisa de ajuda?</a>
+            </div>
             <div className="lp-card">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                <div className="lp-card-title" style={{ marginBottom: 0 }}>Acesso ao painel</div>
-                <a href="/contact" className="lp-help-link">Precisa de ajuda?</a>
-              </div>
+              <div className="lp-card-title">Acesso ao painel</div>
               <div className="lp-card-sub">Entre com seus dados para continuar.</div>
 
               <form onSubmit={handleLogin}>
@@ -642,6 +655,7 @@ export const LoginPage: React.FC = () => {
 
               <div className="lp-separator" />
               <Link to="/register" className="lp-btn-register">Criar uma conta</Link>
+            </div>
             </div>
           </div>
         </div>
