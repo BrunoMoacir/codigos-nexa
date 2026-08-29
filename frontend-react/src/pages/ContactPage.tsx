@@ -902,20 +902,6 @@ export const ContactPage: React.FC = () => {
             <div className="cp-device-area">
               <HexBackground />
               <div className="cp-device-frame">
-                <div className="cp-dev-topbar">
-                  <div className="cp-dev-logo">
-                    <HiveLogo size={12}/>
-                    <span className="cp-dev-logo-name">HIVE</span>
-                    <span className="cp-dev-version">v1.0</span>
-                  </div>
-                  <div className="cp-dev-tabs">
-                    <div className="cp-dev-tab active">Painel</div>
-                    <div className="cp-dev-tab">Carteira</div>
-                    <div className="cp-dev-tab">Organizar <span className="cp-dev-tab-badge">4</span></div>
-                    <div className="cp-dev-tab">Chat</div>
-                  </div>
-                  <div className="cp-dev-url">app.hive.com.br</div>
-                </div>
                 <div className="cp-device-screen">
                   <iframe
                     src="/dashboard"
