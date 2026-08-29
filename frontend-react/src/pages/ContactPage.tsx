@@ -336,55 +336,101 @@ const css = `
   }
   .cp-email-link:hover { color:rgba(243,239,234,0.65); }
 
-  /* ── DIREITO — device (sangra pela direita, igual referência) ── */
+  /* ── DIREITO — device ── */
   .cp-device-area {
     position: relative;
     z-index: 1;
     overflow: hidden;
-    background: #1C1814; /* fundo um pouco mais claro que o card para criar contraste */
-    padding: 28px 0 28px 20px;
+    /* fundo um pouco mais claro que o card → hex pattern fica visível aqui */
+    background: #201C16;
+    padding: 32px 0 32px 24px;
+    display: flex;
+    align-items: center;
   }
 
-  /* Bezel da tela — borda escura que simula moldura de monitor */
+  /* Bezel escuro — moldura de monitor */
   .cp-device-bezel {
+    position: relative;
+    z-index: 1;
     width: 100%;
-    height: 100%;
-    min-height: 510px;
-    background: #0A0806; /* bezel bem escuro, como a borda de um monitor */
+    background: #080604;
     border-radius: 14px 0 0 14px;
     overflow: hidden;
-    padding: 8px 0 8px 8px; /* espessura da moldura */
+    padding: 10px 0 10px 10px;
     box-shadow:
-      -6px 0 32px rgba(0,0,0,0.5),
-      0 0 0 1px rgba(255,255,255,0.06),
-      inset 0 0 0 1px rgba(255,255,255,0.04);
+      -8px 0 40px rgba(0,0,0,0.55),
+      0 0 0 1px rgba(255,255,255,0.07),
+      inset 0 1px 0 rgba(255,255,255,0.04);
     margin-right: -2px;
-    display: flex;
-    flex-direction: column;
     animation: cp-up 0.5s cubic-bezier(.16,1,.3,1) 0.1s both;
   }
 
-  /* Área de tela dentro da moldura */
+  /* Tela dentro do bezel */
   .cp-device-screen {
-    flex: 1;
+    background: #1A1714;
+    border-radius: 7px 0 0 7px;
     overflow: hidden;
-    background: #0C0A08;
-    border-radius: 8px 0 0 8px;
-    position: relative;
-    box-shadow: inset 0 0 40px rgba(0,0,0,0.4);
+    display: flex;
+    flex-direction: column;
   }
 
-  /* iframe escalado para parecer desktop real */
-  .cp-dash-iframe {
-    width: 1100px;
-    height: 1050px;
-    border: none;
-    transform: scale(0.54);
-    transform-origin: top left;
-    pointer-events: none;
-    display: block;
-    background: #0C0A08;
+  /* Barra interna do app (topbar) */
+  .cp-dev-topbar {
+    padding: 9px 14px;
+    background: #13110E;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
   }
+  .cp-dev-logo { display:flex; align-items:center; gap:6px; }
+  .cp-dev-logo-name { font-size:0.65rem; font-weight:800; color:#D4A820; letter-spacing:0.06em; }
+  .cp-dev-version { font-size:0.5rem; background:rgba(212,168,32,0.15); color:rgba(212,168,32,0.7); padding:1px 5px; border-radius:3px; font-weight:700; }
+  .cp-dev-tabs { display:flex; margin-left:14px; }
+  .cp-dev-tab { font-size:0.6rem; font-weight:600; color:rgba(243,239,234,0.3); padding:3px 9px; border-bottom:2px solid transparent; cursor:default; }
+  .cp-dev-tab.active { color:#F3EFEA; border-bottom-color:#D4A820; }
+  .cp-dev-tab-badge { display:inline-flex; align-items:center; justify-content:center; width:12px; height:12px; border-radius:3px; background:#D4A820; color:#0A0800; font-size:0.45rem; font-weight:800; margin-left:3px; }
+  .cp-dev-url { flex:1; text-align:right; font-size:0.5rem; color:rgba(243,239,234,0.18); }
+
+  /* Grid sidebar + main */
+  .cp-dev-body { display:grid; grid-template-columns:110px 1fr; flex:1; overflow:hidden; }
+  .cp-dev-sidebar { background:#100D0A; border-right:1px solid rgba(255,255,255,0.05); padding:10px 6px; display:flex; flex-direction:column; gap:2px; }
+  .cp-dev-sb-section { font-size:0.44rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:rgba(243,239,234,0.2); padding:7px 8px 4px; }
+  .cp-dev-sb-item { display:flex; align-items:center; gap:5px; padding:5px 8px; border-radius:5px; font-size:0.55rem; font-weight:500; color:rgba(243,239,234,0.38); }
+  .cp-dev-sb-item.active { background:rgba(212,168,32,0.1); color:#D4A820; font-weight:700; }
+  .cp-dev-sb-dot { width:4px; height:4px; border-radius:50%; background:currentColor; opacity:0.5; flex-shrink:0; }
+  .cp-dev-sb-item.active .cp-dev-sb-dot { opacity:1; }
+  .cp-dev-sb-divider { height:1px; background:rgba(255,255,255,0.05); margin:5px 0; }
+
+  .cp-dev-main { padding:12px 14px; overflow:hidden; display:flex; flex-direction:column; gap:9px; }
+  .cp-dev-header { display:flex; align-items:flex-start; justify-content:space-between; }
+  .cp-dev-page-title { font-size:0.78rem; font-weight:800; color:#F3EFEA; letter-spacing:-0.02em; margin-bottom:1px; }
+  .cp-dev-page-sub { font-size:0.48rem; color:rgba(243,239,234,0.32); }
+  .cp-dev-date-tabs { display:flex; gap:2px; background:rgba(255,255,255,0.05); border-radius:4px; padding:2px; }
+  .cp-dev-dt { font-size:0.46rem; font-weight:600; padding:3px 6px; border-radius:3px; color:rgba(243,239,234,0.38); }
+  .cp-dev-dt.active { background:rgba(212,168,32,0.15); color:#D4A820; }
+
+  .cp-dev-kpis { display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; }
+  .cp-dev-kpi { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:7px 9px; }
+  .cp-dev-kpi-label { font-size:0.45rem; color:rgba(243,239,234,0.32); font-weight:600; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:3px; }
+  .cp-dev-kpi-val { font-size:0.78rem; font-weight:900; color:#F3EFEA; letter-spacing:-0.03em; margin-bottom:2px; font-variant-numeric:tabular-nums; }
+  .cp-dev-kpi-delta { font-size:0.45rem; font-weight:700; color:#2EC8A4; }
+
+  .cp-dev-chart { background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:6px; padding:9px; display:flex; flex-direction:column; gap:5px; }
+  .cp-dev-chart-title { font-size:0.52rem; font-weight:700; color:rgba(243,239,234,0.45); }
+  .cp-dev-chart-svg { width:100%; }
+
+  .cp-dev-list-hdr { display:flex; align-items:center; justify-content:space-between; padding:0 2px; }
+  .cp-dev-list-title { font-size:0.56rem; font-weight:700; color:#F3EFEA; }
+  .cp-dev-list-count { font-size:0.46rem; background:rgba(255,255,255,0.06); color:rgba(243,239,234,0.38); padding:1px 5px; border-radius:3px; font-weight:600; }
+  .cp-dev-rows { display:flex; flex-direction:column; gap:3px; }
+  .cp-dev-row { display:flex; align-items:center; gap:6px; padding:5px 7px; border-radius:5px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.04); }
+  .cp-dev-row-av { width:16px; height:16px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:0.4rem; font-weight:800; color:white; flex-shrink:0; }
+  .cp-dev-row-nm { font-size:0.5rem; font-weight:600; color:#F3EFEA; }
+  .cp-dev-row-em { font-size:0.44rem; color:rgba(243,239,234,0.28); }
+  .cp-dev-row-date { font-size:0.44rem; color:rgba(243,239,234,0.28); flex-shrink:0; margin-left:auto; }
+  .cp-dev-row-val  { font-size:0.5rem; font-weight:700; color:#D4A820; flex-shrink:0; font-variant-numeric:tabular-nums; }
 
   /* ── TOPBAR do device ── */
   .cp-dev-topbar {
@@ -450,6 +496,36 @@ function ChevronDown({ size = 9 }: { size?: number }) {
 }
 
 const LOGOS = ['Nubank','XP Inc.','BTG Pactual','Itaú','Bradesco','Clear','Rico','Avenue','Inter','C6 Bank'];
+
+function DashChart() {
+  const pts:number[][] = [[0,72],[18,60],[28,68],[38,48],[58,55],[68,38],[78,50],[98,32],[108,42],[128,28],[138,35],[158,22],[168,30],[178,14],[188,8]];
+  const line = pts.map(([x,y],i)=>`${i===0?'M':'L'}${x},${y}`).join(' ');
+  const fill = line+` L${pts[pts.length-1][0]},72 L0,72 Z`;
+  return (
+    <svg viewBox="0 0 200 76" className="cp-dev-chart-svg" preserveAspectRatio="none" style={{height:60}}>
+      <defs>
+        <linearGradient id="dag2" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#D4A820" stopOpacity="0.22"/>
+          <stop offset="100%" stopColor="#D4A820" stopOpacity="0"/>
+        </linearGradient>
+      </defs>
+      {[0,24,48,72].map(y=><line key={y} x1="0" y1={y} x2="200" y2={y} stroke="rgba(255,255,255,0.04)" strokeWidth="0.5"/>)}
+      <path d={fill} fill="url(#dag2)"/>
+      <path d={line} fill="none" stroke="#D4A820" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <circle cx={pts[pts.length-1][0]} cy={pts[pts.length-1][1]} r="2.5" fill="#D4A820"/>
+      {['Jan','Mar','Mai','Jul','Set'].map((l,i)=>(
+        <text key={l} x={(i/4)*196+2} y="75" fontSize="5" fill="rgba(243,239,234,0.22)" textAnchor="middle" fontFamily="Satoshi,system-ui">{l}</text>
+      ))}
+    </svg>
+  );
+}
+
+const ROWS = [
+  { name:'Nikolas G.',  email:'nikolas@hive.com.br', date:'Abr 3', val:'R$64,00', color:'#7C3AED' },
+  { name:'Amélie L.',   email:'amelie@hive.com.br',  date:'Abr 3', val:'R$64,00', color:'#D4A820' },
+  { name:'Ammar F.',    email:'ammar@hive.com.br',   date:'Abr 3', val:'R$18,00', color:'#2EC8A4' },
+  { name:'Caitlyn K.',  email:'caitlyn@hive.com.br', date:'Abr 4', val:'R$64,00', color:'#F07A64' },
+];
 
 // ── Países com código DDI ─────────────────────────────────────────────────────
 const COUNTRIES = [
@@ -906,17 +982,94 @@ export const ContactPage: React.FC = () => {
               )}
             </div>
 
-            {/* DIREITO — device frame sangra pela direita (igual referência) */}
+            {/* DIREITO — device com mock do dashboard */}
             <div className="cp-device-area">
+              {/* Padrão hexagonal no fundo (visível no espaço ao redor do bezel) */}
               <HexBackground />
+
               <div className="cp-device-bezel">
                 <div className="cp-device-screen">
-                  <iframe
-                    src="/dashboard"
-                    className="cp-dash-iframe"
-                    title="HIVE Dashboard"
-                    scrolling="no"
-                  />
+
+                  {/* Topbar interna */}
+                  <div className="cp-dev-topbar">
+                    <div className="cp-dev-logo">
+                      <HiveLogo size={11}/>
+                      <span className="cp-dev-logo-name">HIVE</span>
+                      <span className="cp-dev-version">v1.0</span>
+                    </div>
+                    <div className="cp-dev-tabs">
+                      <div className="cp-dev-tab active">Painel</div>
+                      <div className="cp-dev-tab">Carteira</div>
+                      <div className="cp-dev-tab">Organizar <span className="cp-dev-tab-badge">4</span></div>
+                      <div className="cp-dev-tab">Chat</div>
+                    </div>
+                    <div className="cp-dev-url">app.hive.com.br</div>
+                  </div>
+
+                  {/* Corpo: sidebar + main */}
+                  <div className="cp-dev-body">
+                    <div className="cp-dev-sidebar">
+                      <div className="cp-dev-sb-section">Principal</div>
+                      {[{l:'Painel',a:true},{l:'Carteira',a:false},{l:'Objetivos',a:false},{l:'Estratégias',a:false}].map(item=>(
+                        <div key={item.l} className={`cp-dev-sb-item${item.a?' active':''}`}>
+                          <div className="cp-dev-sb-dot"/>{item.l}
+                        </div>
+                      ))}
+                      <div className="cp-dev-sb-divider"/>
+                      <div className="cp-dev-sb-section">Conta</div>
+                      {['Configurações','Suporte','Docs'].map(l=>(
+                        <div key={l} className="cp-dev-sb-item"><div className="cp-dev-sb-dot"/>{l}</div>
+                      ))}
+                    </div>
+
+                    <div className="cp-dev-main">
+                      <div className="cp-dev-header">
+                        <div>
+                          <div className="cp-dev-page-title">Painel</div>
+                          <div className="cp-dev-page-sub">Visão geral do seu patrimônio.</div>
+                        </div>
+                        <div className="cp-dev-date-tabs">
+                          <div className="cp-dev-dt active">12 meses</div>
+                          <div className="cp-dev-dt">30 dias</div>
+                          <div className="cp-dev-dt">7 dias</div>
+                        </div>
+                      </div>
+
+                      <div className="cp-dev-kpis">
+                        {[{label:'Patrimônio',val:'R$88.820',delta:'↑ +15%'},{label:'Rendimento',val:'R$3.604',delta:'↑ +8%'},{label:'Ativos',val:'12',delta:'↑ +2'}].map(k=>(
+                          <div key={k.label} className="cp-dev-kpi">
+                            <div className="cp-dev-kpi-label">{k.label}</div>
+                            <div className="cp-dev-kpi-val">{k.val}</div>
+                            <div className="cp-dev-kpi-delta">{k.delta}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="cp-dev-chart">
+                        <div className="cp-dev-chart-title">Evolução patrimonial</div>
+                        <DashChart/>
+                      </div>
+
+                      <div className="cp-dev-list-hdr">
+                        <span className="cp-dev-list-title">Clientes</span>
+                        <span className="cp-dev-list-count">1.656</span>
+                      </div>
+                      <div className="cp-dev-rows">
+                        {ROWS.map(r=>(
+                          <div key={r.name} className="cp-dev-row">
+                            <div className="cp-dev-row-av" style={{background:r.color}}>{r.name[0]}</div>
+                            <div>
+                              <div className="cp-dev-row-nm">{r.name}</div>
+                              <div className="cp-dev-row-em">{r.email}</div>
+                            </div>
+                            <div className="cp-dev-row-date">{r.date}</div>
+                            <div className="cp-dev-row-val">{r.val}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               </div>
             </div>
