@@ -334,73 +334,66 @@ const css = `
   }
   .cp-email-link:hover { color:rgba(243,239,234,0.65); }
 
-  /* ── DIREITO — device ── */
+  /* ── DIREITO — device (sangra pela direita, igual referência) ── */
   .cp-device-area {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 32px 20px 32px 20px;
     position: relative;
     z-index: 1;
     overflow: hidden;
     background: #0D0B08;
   }
 
-  /* Bezel de laptop / tablet */
-  .cp-laptop-bezel {
-    position: relative;
+  .cp-device-frame {
     width: 100%;
-    max-width: 560px;
-    background: linear-gradient(160deg, #2A2520 0%, #1A1410 100%);
-    border-radius: 18px;
-    padding: 22px 12px 12px;
-    border: 1.5px solid rgba(255,255,255,0.07);
-    box-shadow:
-      inset 0 1px 0 rgba(255,255,255,0.06),
-      inset 0 -1px 0 rgba(0,0,0,0.25),
-      0 0 0 1px rgba(212,168,32,0.07),
-      0 4px 16px rgba(0,0,0,0.35),
-      0 24px 72px rgba(0,0,0,0.55);
+    height: 100%;
+    min-height: 560px;
+    background: #1A1714;
+    border-radius: 14px 0 0 14px;
+    overflow: hidden;
+    box-shadow: -8px 0 48px rgba(0,0,0,0.35), 0 0 0 1px rgba(212,168,32,0.06);
+    margin-right: -2px;
+    display: flex;
+    flex-direction: column;
     animation: cp-up 0.5s cubic-bezier(.16,1,.3,1) 0.1s both;
-    z-index: 1;
-  }
-
-  /* Câmera */
-  .cp-laptop-camera {
-    position: absolute;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: #0F0C09;
-    border: 1px solid rgba(255,255,255,0.1);
-    box-shadow: 0 0 0 2px rgba(255,255,255,0.02), inset 0 0 3px rgba(80,160,255,0.12);
   }
 
   /* Área de tela (contém o iframe) */
   .cp-device-screen {
-    border-radius: 8px;
+    flex: 1;
     overflow: hidden;
     background: #0C0A08;
-    height: 330px;
-    border: 1px solid rgba(0,0,0,0.5);
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
     position: relative;
   }
 
-  /* iframe escalado para parecer desktop real */
+  /* iframe escalado para parecer desktop real (1100px → ~55% = ~600px visível) */
   .cp-dash-iframe {
     width: 1100px;
-    height: 730px;
+    height: 1050px;
     border: none;
-    transform: scale(0.445);
+    transform: scale(0.54);
     transform-origin: top left;
     pointer-events: none;
     display: block;
     background: #0C0A08;
   }
+
+  /* ── TOPBAR do device ── */
+  .cp-dev-topbar {
+    padding: 10px 16px;
+    background: #13110E;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .cp-dev-logo { display:flex; align-items:center; gap:6px; }
+  .cp-dev-logo-name { font-size:0.7rem; font-weight:800; color:#D4A820; letter-spacing:0.06em; }
+  .cp-dev-version { font-size:0.52rem; background:rgba(212,168,32,0.15); color:rgba(212,168,32,0.7); padding:1px 5px; border-radius:3px; font-weight:700; }
+  .cp-dev-tabs { display:flex; gap:0; margin-left:16px; }
+  .cp-dev-tab { font-size:0.62rem; font-weight:600; color:rgba(243,239,234,0.3); padding:4px 10px; border-bottom:2px solid transparent; cursor:default; }
+  .cp-dev-tab.active { color:#F3EFEA; border-bottom-color:#D4A820; }
+  .cp-dev-tab-badge { display:inline-flex; align-items:center; justify-content:center; width:13px; height:13px; border-radius:3px; background:#D4A820; color:#0A0800; font-size:0.48rem; font-weight:800; margin-left:3px; }
+  .cp-dev-url { flex:1; text-align:right; font-size:0.52rem; color:rgba(243,239,234,0.18); }
 
   /* ── LOGOS ── */
   .cp-logos-bar {
@@ -571,50 +564,45 @@ const CountrySelector: React.FC<{
 }> = ({ selected, onChange }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const wrapRef  = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const filtered = COUNTRIES.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.dial.includes(search)
+    c.name.toLowerCase().includes(search.toLowerCase()) || c.dial.includes(search)
   );
 
-  // Foca o campo de busca após o dropdown abrir (sem acionar o listener de fora)
+  // Abre/fecha: stopPropagation impede o listener do document de fechar imediatamente
+  const toggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpen(o => !o);
+  };
+
+  // Adiciona listener de click no document só enquanto aberto — fecha ao clicar fora
   useEffect(() => {
     if (!open) return;
+    const close = () => { setOpen(false); setSearch(''); };
+    document.addEventListener('click', close);
     const t = setTimeout(() => searchRef.current?.focus(), 60);
-    return () => clearTimeout(t);
+    return () => { document.removeEventListener('click', close); clearTimeout(t); };
   }, [open]);
 
-  // Fecha ao clicar fora — só ativo quando aberto
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setSearch('');
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
+  const pick = (e: React.MouseEvent, c: typeof COUNTRIES[0]) => {
+    e.stopPropagation();
+    onChange(c);
+    setOpen(false);
+    setSearch('');
+  };
 
   return (
-    <div className="cp-country-wrap" ref={wrapRef}>
-      {/* onMouseDown + preventDefault evita autocomplete do browser */}
-      <button
-        type="button"
-        className="cp-country-btn"
-        onMouseDown={e => { e.preventDefault(); setOpen(o => !o); }}
-      >
-        <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>{selected.flag}</span>
+    <div style={{ position: 'relative' }}>
+      <button type="button" className="cp-country-btn" onClick={toggle}>
+        <span style={{ fontSize: '1.15rem', lineHeight: 1 }}>{selected.flag}</span>
         <span style={{ fontVariantNumeric: 'tabular-nums' }}>{selected.dial}</span>
         <ChevronDown size={9} />
       </button>
       {open && (
-        <div className="cp-country-dropdown">
+        <div className="cp-country-dropdown" onClick={e => e.stopPropagation()}>
           <div className="cp-country-search-row">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ flexShrink:0 }}>
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0 }}>
               <circle cx="5.5" cy="5.5" r="4" stroke="rgba(243,239,234,0.28)" strokeWidth="1.3"/>
               <path d="M9 9l2.5 2.5" stroke="rgba(243,239,234,0.28)" strokeWidth="1.3" strokeLinecap="round"/>
             </svg>
@@ -629,16 +617,21 @@ const CountrySelector: React.FC<{
             />
           </div>
           <div className="cp-country-list">
+            {filtered.length === 0 && (
+              <div style={{ padding: '14px', fontSize: '0.8rem', color: 'rgba(243,239,234,0.3)', textAlign: 'center' }}>
+                Nenhum país encontrado
+              </div>
+            )}
             {filtered.map(c => (
               <div
                 key={c.code}
                 className={`cp-country-item${c.code === selected.code ? ' sel' : ''}`}
-                onMouseDown={e => { e.preventDefault(); onChange(c); setOpen(false); setSearch(''); }}
+                onClick={e => pick(e, c)}
               >
                 <span className="cp-country-flag">{c.flag}</span>
                 <div className="cp-country-label">
-                  <span className="cp-country-name">{c.name}</span>{' '}
-                  <span className="cp-country-dial">({c.dial})</span>
+                  <span className="cp-country-name">{c.name}</span>
+                  <span className="cp-country-dial"> ({c.dial})</span>
                 </div>
                 {c.code === selected.code && (
                   <svg className="cp-country-check" width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -833,11 +826,24 @@ export const ContactPage: React.FC = () => {
               )}
             </div>
 
-            {/* DIREITO — laptop com iframe do dashboard real */}
+            {/* DIREITO — device frame sangra pela direita (igual referência) */}
             <div className="cp-device-area">
               <HexBackground />
-              <div className="cp-laptop-bezel">
-                <div className="cp-laptop-camera" />
+              <div className="cp-device-frame">
+                <div className="cp-dev-topbar">
+                  <div className="cp-dev-logo">
+                    <HiveLogo size={12}/>
+                    <span className="cp-dev-logo-name">HIVE</span>
+                    <span className="cp-dev-version">v1.0</span>
+                  </div>
+                  <div className="cp-dev-tabs">
+                    <div className="cp-dev-tab active">Painel</div>
+                    <div className="cp-dev-tab">Carteira</div>
+                    <div className="cp-dev-tab">Organizar <span className="cp-dev-tab-badge">4</span></div>
+                    <div className="cp-dev-tab">Chat</div>
+                  </div>
+                  <div className="cp-dev-url">app.hive.com.br</div>
+                </div>
                 <div className="cp-device-screen">
                   <iframe
                     src="/dashboard"
