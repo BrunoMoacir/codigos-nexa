@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import toast from 'react-hot-toast';
+import { API_BASE_URL } from '../api/client';
 
 // ─── Utils ───────────────────────────────────────────────────────────────────
 const pwStrength = (pw: string) => {
@@ -736,6 +738,8 @@ export const RegisterPage: React.FC = () => {
   const [confirm, setConfirm] = useState('');
   const [errs1, setErrs1] = useState({ name: '', email: '', cpf: '', phone: '', password: '', confirm: '' });
 
+  const [loading, setLoading] = useState(false);
+
   // Step 3
   const [termAccepted, setTermAccepted] = useState(false);
   const [privAccepted, setPrivAccepted] = useState(false);
@@ -758,10 +762,9 @@ export const RegisterPage: React.FC = () => {
     if (!name.trim()) e.name = 'Preencha seu nome';
     if (!email.trim()) e.email = 'Preencha o e-mail';
     else if (!/\S+@\S+\.\S+/.test(email)) e.email = 'E-mail inválido';
-    if (!cpf) e.cpf = 'Preencha o CPF';
-    else if (cpf.replace(/\D/g, '').length < 11) e.cpf = 'CPF incompleto';
-    if (!phone) e.phone = 'Preencha o telefone';
-    else if (phone.replace(/\D/g, '').length < 10) e.phone = 'Telefone incompleto';
+    // CPF e telefone são opcionais — backend não armazena ainda
+    if (cpf && cpf.replace(/\D/g, '').length < 11) e.cpf = 'CPF incompleto';
+    if (phone && phone.replace(/\D/g, '').length < 10) e.phone = 'Telefone incompleto';
     if (!password) e.password = 'Preencha a senha';
     else if (password.length < 8) e.password = 'Mínimo 8 caracteres';
     if (!confirm) e.confirm = 'Confirme a senha';
@@ -771,9 +774,45 @@ export const RegisterPage: React.FC = () => {
   };
 
   const handleStep1 = (ev: React.FormEvent) => { ev.preventDefault(); if (validate1()) setStep(2); };
-  const handleStep3 = () => {
+
+  const handleStep3 = async () => {
     if (!termAccepted || !privAccepted) { setTermErr(true); return; }
-    setStep(4);
+    setLoading(true);
+    try {
+      // Registrar
+      const res = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password, full_name: name.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.detail || 'Erro ao criar conta. Tente novamente.');
+        return;
+      }
+
+      // Auto-login
+      const params = new URLSearchParams();
+      params.append('username', email.trim());
+      params.append('password', password);
+      const loginRes = await fetch(`${API_BASE_URL}/auth/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      if (loginRes.ok) {
+        const loginData = await loginRes.json();
+        localStorage.setItem('jwt_token', loginData.access_token);
+        if (loginData.user_id)      localStorage.setItem('user_id', loginData.user_id);
+        if (loginData.refresh_token) localStorage.setItem('refresh_token', loginData.refresh_token);
+      }
+
+      setStep(4);
+    } catch {
+      toast.error('Erro de conexão. Verifique sua internet.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const dot = (n: number) => step > n ? 'done' : step === n ? 'active' : '';
@@ -983,7 +1022,9 @@ export const RegisterPage: React.FC = () => {
                       </div>
                     )}
 
-                    <button className="rp-btn" style={{ marginTop: 14 }} onClick={handleStep3}>Confirmar e entrar</button>
+                    <button className="rp-btn" style={{ marginTop: 14 }} onClick={handleStep3} disabled={loading}>
+                      {loading ? 'Criando conta…' : 'Confirmar e entrar'}
+                    </button>
                   </>
                 )}
 
