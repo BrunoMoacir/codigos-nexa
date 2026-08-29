@@ -644,7 +644,13 @@ const CountrySelector: React.FC<{
     <div style={{ position: 'relative' }}>
       {/* Trigger */}
       <button type="button" className="cp-country-btn" onClick={toggle}>
-        <div className="cp-flag-box">{selected.flag}</div>
+        <div className="cp-flag-box">
+          <img
+            src={`https://flagcdn.com/w40/${selected.code.toLowerCase()}.png`}
+            alt={selected.name}
+            style={{ width: 22, height: 16, objectFit: 'cover', borderRadius: 3, display: 'block' }}
+          />
+        </div>
         <span style={{ fontVariantNumeric: 'tabular-nums' }}>{selected.dial}</span>
         <ChevronDown size={9} />
       </button>
@@ -683,8 +689,14 @@ const CountrySelector: React.FC<{
                 className={`cp-country-item${c.code === selected.code ? ' sel' : ''}`}
                 onClick={e => pick(e, c)}
               >
-                {/* Bandeira em quadrado arredondado */}
-                <div className="cp-flag-item-box">{c.flag}</div>
+                {/* Bandeira real via flagcdn.com */}
+                <div className="cp-flag-item-box">
+                  <img
+                    src={`https://flagcdn.com/w40/${c.code.toLowerCase()}.png`}
+                    alt={c.name}
+                    style={{ width: 28, height: 20, objectFit: 'cover', borderRadius: 4, display: 'block' }}
+                  />
+                </div>
 
                 {/* Nome + código */}
                 <div className="cp-country-text">
