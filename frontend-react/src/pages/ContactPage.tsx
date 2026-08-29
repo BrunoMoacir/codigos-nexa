@@ -341,32 +341,40 @@ const css = `
     position: relative;
     z-index: 1;
     overflow: hidden;
-    background: #0D0B08;
+    background: #1C1814; /* fundo um pouco mais claro que o card para criar contraste */
+    padding: 28px 0 28px 20px;
   }
 
-  .cp-device-frame {
+  /* Bezel da tela — borda escura que simula moldura de monitor */
+  .cp-device-bezel {
     width: 100%;
     height: 100%;
-    min-height: 560px;
-    background: #1A1714;
+    min-height: 510px;
+    background: #0A0806; /* bezel bem escuro, como a borda de um monitor */
     border-radius: 14px 0 0 14px;
     overflow: hidden;
-    box-shadow: -8px 0 48px rgba(0,0,0,0.35), 0 0 0 1px rgba(212,168,32,0.06);
+    padding: 8px 0 8px 8px; /* espessura da moldura */
+    box-shadow:
+      -6px 0 32px rgba(0,0,0,0.5),
+      0 0 0 1px rgba(255,255,255,0.06),
+      inset 0 0 0 1px rgba(255,255,255,0.04);
     margin-right: -2px;
     display: flex;
     flex-direction: column;
     animation: cp-up 0.5s cubic-bezier(.16,1,.3,1) 0.1s both;
   }
 
-  /* Área de tela (contém o iframe) */
+  /* Área de tela dentro da moldura */
   .cp-device-screen {
     flex: 1;
     overflow: hidden;
     background: #0C0A08;
+    border-radius: 8px 0 0 8px;
     position: relative;
+    box-shadow: inset 0 0 40px rgba(0,0,0,0.4);
   }
 
-  /* iframe escalado para parecer desktop real (1100px → ~55% = ~600px visível) */
+  /* iframe escalado para parecer desktop real */
   .cp-dash-iframe {
     width: 1100px;
     height: 1050px;
@@ -901,7 +909,7 @@ export const ContactPage: React.FC = () => {
             {/* DIREITO — device frame sangra pela direita (igual referência) */}
             <div className="cp-device-area">
               <HexBackground />
-              <div className="cp-device-frame">
+              <div className="cp-device-bezel">
                 <div className="cp-device-screen">
                   <iframe
                     src="/dashboard"
