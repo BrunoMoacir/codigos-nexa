@@ -73,7 +73,14 @@ from demo.personas import PERSONAS  # noqa: E402
 
 logging.getLogger("demo").setLevel(logging.WARNING)
 
-st.set_page_config(page_title="HIVE", page_icon="🐝", layout="wide",
+# O ícone da aba é o favicon real do produto: o hexágono ouro da colmeia
+# (frontend-react/public/favicon.svg). Se o arquivo não estiver ao lado — o
+# backend pode ser distribuído sem o frontend — cai no hexágono unicode, que
+# é a mesma forma sem depender de caminho.
+_FAVICON_SVG = _BACKEND.parent / "frontend-react" / "public" / "favicon.svg"
+_FAVICON = str(_FAVICON_SVG) if _FAVICON_SVG.exists() else "⬢"
+
+st.set_page_config(page_title="HIVE", page_icon=_FAVICON, layout="wide",
                    initial_sidebar_state="expanded")
 
 # ══════════════════════════════════════════════════════════════════════
@@ -909,7 +916,7 @@ def tela_de_entrada() -> None:
     with meio:
         st.markdown(
             '<div style="text-align:center;margin-top:8vh">'
-            '<div class="hv-marca">🐝 HIVE</div>'
+            '<div class="hv-marca">HIVE</div>'
             '<div class="hv-lema">O advogado financeiro que os bancos '
             'não querem que você tenha.</div></div>',
             unsafe_allow_html=True,
@@ -954,7 +961,7 @@ def tela_de_entrada() -> None:
 def barra_lateral(chave_persona: str, uid: str, plano: str) -> None:
     persona = PERSONAS[chave_persona]
     st.sidebar.markdown(
-        '<div class="hv-marca" style="font-size:1.4rem">🐝 HIVE</div>'
+        '<div class="hv-marca" style="font-size:1.4rem">HIVE</div>'
         '<div class="hv-lema">demo em produção</div>',
         unsafe_allow_html=True,
     )
@@ -1024,7 +1031,7 @@ def main() -> None:
     barra_lateral(chave, uid, plano)
 
     st.markdown(
-        f'<div class="hv-marca">🐝 HIVE</div>'
+        f'<div class="hv-marca">HIVE</div>'
         f'<div class="hv-lema">Olá, {persona.full_name.split()[0]} — '
         f'aqui está o que os seus dados dizem hoje.</div>',
         unsafe_allow_html=True,
