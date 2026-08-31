@@ -162,27 +162,38 @@ def _ensure_pluggy_items(persona) -> int:
     return n
 
 
-def _ensure_goals(persona) -> None:
+def _ensure_goals(persona) -> int:
+    """
+    Cria as metas da persona.
+
+    `GoalTracker` recebe a sessão por injeção e levanta
+    `RuntimeError("requires a database session")` sem ela. Construído vazio,
+    TODA criação caía no `except` e o seed seguia dizendo que tinha semeado —
+    nenhuma das personas tinha meta, e `get_goals_summary` respondia "você
+    ainda não tem metas cadastradas" para as três. É o tratamento de erro mudo
+    que o relatório do projeto lista como risco: o log de warning existia e
+    ninguém lia.
+    """
+    from app.core.database import SessionLocal
     from app.goals.tracker import GoalTracker
 
-    tracker = GoalTracker()
-    try:
-        existing = {g.name for g in tracker.list_goals(user_id=persona.user_id)}
-    except Exception:
-        existing = set()
-    for g in persona.goals:
-        if g["name"] in existing:
-            continue
-        try:
+    criadas = 0
+    with SessionLocal() as db:
+        tracker = GoalTracker(db)
+        existentes = {g.name for g in tracker.list_goals(user_id=persona.user_id)}
+        for meta in persona.goals:
+            if meta["name"] in existentes:
+                continue
             tracker.create_goal(
                 user_id=persona.user_id,
-                name=g["name"],
-                target_amount=float(g["target"]),
-                current_amount=float(g.get("current", 0)),
-                goal_type=g.get("type", "outros"),
+                name=meta["name"],
+                target_amount=float(meta["target"]),
+                current_amount=float(meta.get("current", 0)),
+                goal_type=meta.get("type", "outros"),
+                target_date=meta.get("target_date"),
             )
-        except Exception as exc:
-            logger.warning("meta '%s' não criada: %s", g["name"], exc)
+            criadas += 1
+    return criadas
 
 
 def seed_persona(persona) -> dict:

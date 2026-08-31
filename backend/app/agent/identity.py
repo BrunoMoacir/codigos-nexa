@@ -25,6 +25,7 @@ consulta dados sem saber de quem é o pior resultado possível.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -65,8 +66,31 @@ def usuario_da_requisicao(user_id: str) -> Iterator[None]:
         _USUARIO_AUTENTICADO.reset(token)
 
 
+def _aceita_user_id(func: Callable) -> bool:
+    """
+    A função da tool tem onde receber `user_id`?
+
+    Nem toda ferramenta é por usuário: `simulate_investment(amount,
+    holding_months)` responde "quanto rende R$ 10 mil em 12 meses", que é a
+    mesma resposta para qualquer pessoa. Injetar o argumento nela levantava
+    `TypeError: got an unexpected keyword argument 'user_id'` em TODA chamada
+    vinda do grafo — a tool ficava inalcançável no chat.
+
+    O teste de produção não pegava porque exercita as tools CRUAS de
+    `AGENT_TOOLS`; a vinculação só acontece no build do agente.
+    """
+    try:
+        parametros = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return True  # sem assinatura legível, mantém o comportamento antigo
+    return "user_id" in parametros or any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in parametros.values()
+    )
+
+
 def _vincular(nome: str, func: Callable) -> Callable:
     """Envolve a função da tool sobrescrevendo `user_id` pelo autenticado."""
+    por_usuario = _aceita_user_id(func)
 
     def vinculada(*args: Any, **kwargs: Any) -> Any:
         dono = usuario_autenticado()
@@ -83,7 +107,13 @@ def _vincular(nome: str, func: Callable) -> Callable:
                 "[Agent] %s pediu user_id=%r; sobrescrito pelo autenticado %r.",
                 nome, pedido, dono,
             )
-        kwargs["user_id"] = dono
+        if por_usuario:
+            kwargs["user_id"] = dono
+        else:
+            # A tool não é por usuário. A identidade segue no contexto (o
+            # `usuario_autenticado()` acima continua sendo exigido), mas o
+            # argumento não existe para ser sobrescrito.
+            kwargs.pop("user_id", None)
         return func(*args, **kwargs)
 
     vinculada.__name__ = getattr(func, "__name__", nome)

@@ -75,37 +75,47 @@ mitigação de prompt injection, a que sobrescreve o `user_id` que o modelo
 passou pelo do usuário autenticado. No Chat, um `[user_id=…]` digitado na
 mensagem é neutralizado antes de chegar ao LLM, e a interface avisa.
 
-## As 3 personas (desenhadas para acender inteligências diferentes)
+## As 3 personas (um ano de extrato cada)
 
-| Persona | Perfil | Plano | O que ela exercita |
-|---|---|---|---|
-| **Ana Souza** | CLT, delivery pesado | Total | Renda estável detectada, safe-to-spend alto, assinatura que subiu de preço, poupança sub-CDI, dinheiro parado, calendário fiscal (IR) |
-| **Bruno Lima** | MEI | Pro | Classificador PF/PJ, renda via maquininha, DAS/fiscal MEI, mistura de gastos pessoais e do negócio |
-| **Carla Mendes** | Renda caindo | Free | **FSS crítico → cluster ESTRESSE_FINANCEIRO**, juros abusivos (rotativo/cheque especial crescentes), margem apertada, tarifa recorrente |
+| Persona | Perfil detectado | Plano | Extrato | Comprometido | O que ela acende |
+|---|---|---|---|---|---|
+| **Ana Souza** | `DIGITAL_NATIVO` (2º: `URBANO_FOODIE`) · FSS 23 ATENÇÃO | Total | ~500 tx / 12 meses | 90% da renda | Delivery quase diário, **seguro prestamista amarrado ao cartão (D1)**, R$ 52 mil parados na conta (Radar), 2 parcelamentos em curso, assinatura que subiu de preço, 13º e restituição de IR |
+| **Bruno Lima (MEI)** | `MICROEMPREENDEDOR` · FSS 21 ATENÇÃO | Pro | ~550 tx / 12 meses | 87% da renda | Maquininha com meses cheios e fracos, mistura PF/PJ, DAS, **tarifas de conta PJ (Raio-X + D2)**, ferramentas B2B que acendem o detector de MEI |
+| **Carla Mendes** | `ESTRESSE_FINANCEIRO` · FSS 65 **CRÍTICO** · resiliência 19 | Free | ~320 tx / 12 meses | **112% da renda** | Renda caindo 12 meses seguidos, rotativo e cheque especial **crescendo**, título de capitalização debitado sem pedir (D1), margem R$ 0/dia |
 
-## O teste automatizado
+### Por que os números são esses
 
-`tests/demo/test_hive_app.py` dirige o app pelo harness oficial do Streamlit
-(`streamlit.testing.v1.AppTest`) — sem browser. Em três camadas:
+O volume e o comprometimento foram **calibrados medindo**, não escolhidos:
 
-1. **Catálogo** (sem banco, sem rede): a interface e `AGENT_TOOLS` dizem a mesma
-   coisa; todo card aponta para um doc que existe; nenhum parâmetro tem padrão
-   fora da própria faixa.
-2. **Render** (precisa das personas semeadas): as 4 superfícies das 3 personas
-   sobem sem exceção e sem erro na tela, com números de verdade, e o gating de
-   plano muda o que aparece.
-3. **Execução**: clicar em "Executar" roda a ferramenta real; a linha `[NEXA]`
-   fica fora do corpo e vira selo. Com chave de LLM, uma volta completa do
-   agente — inclusive o teste de `user_id` forjado.
+- **Densidade (26–45 lançamentos/mês).** Com os ~17/mês de antes, o
+  `DataQualityValidator` via lacunas em metade dos dias (cobertura temporal
+  0,55) e o `SpendingAnomalyDetector` não alcançava os "≥ 5 lançamentos por
+  categoria" que ele exige antes de comparar com média e desvio. Hoje a
+  qualidade sai `EXCELLENT` para as três.
+- **Comprometimento.** Empilhar gasto sem renda correspondente levou Bruno a
+  108% com saldo negativo e margem R$ 0, e zerou a taxa de poupança da Ana —
+  o que trocou o cluster das duas. Renda e balanço precisam contar a mesma
+  história: R$ 52 mil parados na conta e 93% da renda comprometida são a mesma
+  pessoa em duas versões diferentes.
+- **A Carla é a única a 112%**, e de propósito: é o que sustenta FSS CRÍTICO,
+  resiliência 19 e health score 0. O gasto dela **cresce** ao longo do ano
+  (fator 4 do `resilience_score` zera 20 pontos quando a despesa sobe), que é
+  como a espiral acontece de fato — a renda cai, o crédito cobre a diferença,
+  e o custo do crédito faz o gasto subir sozinho no mês seguinte.
 
-```bash
-python3 -m pytest tests/demo/ -v
-```
+### Dado sujo de propósito
 
-`demo/features.py` ainda verifica **na importação** que o catálogo da interface
-e o registro `AGENT_TOOLS` estão sincronizados: ferramenta nova sem lugar na
-tela, ou card apontando para tool removida, e o app não sobe — com a lista do
-que divergiu.
+O extrato real não chega limpo, e o pipeline tem de absorver isso sem
+contaminar análise. Cada persona recebe:
+
+- uma **duplicata exata** (mesma conta, data, valor e descrição) — o
+  `dedup_hash` a colapsa, e é por isso que o seed reporta `válidas=504 →
+  persistidas=503`;
+- o **mesmo comerciante escrito de três jeitos** (`PG *NETFLX 4471`,
+  `NETFLIX.COM 8891`, `NETFLIX COM BR *ASSIN`) — a normalização de merchant
+  precisa reduzir os três ao mesmo;
+- um **lançamento retroativo** fora de ordem cronológica, como quando o
+  agregador reprocessa um mês antigo.
 
 ## As 5 superfícies do `streamlit_app.py` (harness anterior)
 

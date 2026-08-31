@@ -308,6 +308,28 @@ class TestIdentidadeVinculada:
         assert vistos == [], "a tool rodou sem usuário autenticado"
         assert "FALHA DE IDENTIDADE" in resultado
 
+    @pytest.mark.parametrize("original", AGENT_TOOLS, ids=lambda t: t.name)
+    def test_toda_tool_sobrevive_ao_caminho_do_agente(self, original, usuario_com_extrato):
+        """
+        A vinculação é o caminho do GRAFO, e nenhum teste o percorria.
+
+        As duas varreduras acima invocam as tools CRUAS de `AGENT_TOOLS`; a
+        vinculação só acontece no `build_financial_agent`. A diferença deixou
+        `simulate_investment` inalcançável no chat: `_vincular` injetava
+        `user_id` em toda função, e a assinatura dela é
+        `(amount, holding_months)` — nem toda ferramenta é por usuário, porque
+        "quanto rende R$ 10 mil em 12 meses" é a mesma resposta para qualquer
+        pessoa. Toda invocação vinda do grafo levantava
+        `TypeError: got an unexpected keyword argument 'user_id'`, e a varredura
+        das 31 passava verde.
+        """
+        vinculada = vincular_ao_usuario(original)
+        with usuario_da_requisicao(usuario_com_extrato):
+            resultado = vinculada.invoke(
+                {"user_id": "vitima-alheia", **_ARGS_EXTRA.get(original.name, {})}
+            )
+        assert isinstance(resultado, str) and resultado.strip()
+
     def test_nome_descricao_e_schema_sobrevivem(self):
         """O grafo roteia por isso, e os evals reaproveitam o schema real."""
         for original in AGENT_TOOLS:

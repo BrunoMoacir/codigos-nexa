@@ -332,9 +332,13 @@ def get_expert_card_analysis(
                 "Configure no backend/.env e tente novamente."
             )
 
+        # `temperature` NÃO é passado: os modelos Opus mais novos rejeitam o
+        # parâmetro com 400 (`temperature is deprecated for this model`), e o
+        # except abaixo transformava isso em "o especialista encontrou um
+        # erro" para TODO usuário — o caminho de aprofundamento que o prompt
+        # manda usar quando a confiança fica abaixo de 0,50 nunca respondia.
         llm = ChatAnthropic(
             model=model_id,
-            temperature=0.0,
             api_key=settings.ANTHROPIC_API_KEY,
             max_tokens=4096,
         )

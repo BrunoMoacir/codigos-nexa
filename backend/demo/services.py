@@ -61,16 +61,26 @@ def dashboard_data(user_id: str) -> dict:
         "cashflow_forecast": proj.get("cashflow_forecast"),
     })
 
-    out["profile"] = _behavioral_profile(df)
+    # O health score precisa vir ANTES do perfil: o `resilience_score` que ele
+    # calcula é entrada do FSS, e passá-lo como zero (o que este demo fazia)
+    # dava a TODA persona o sinal `low_resilience=0` — a penalidade máxima.
+    # Era o que mantinha a Ana em ALERTA com health score 85.
     out["health_score"] = _health_score(user_id, df)
+    out["profile"] = _behavioral_profile(df, out["health_score"].get("resilience"))
     out["by_category"] = _spend_by_category(df)
     out["pf_pj"] = _pf_pj_split(df)
     out["recent"] = _recent_transactions(df)
     return out
 
 
-def _behavioral_profile(df: pl.DataFrame) -> dict:
-    """Cluster comportamental (ML híbrido) + FSS via o profiler real."""
+def _behavioral_profile(df: pl.DataFrame, resilience: float | None = None) -> dict:
+    """
+    Cluster comportamental (ML híbrido) + FSS via o profiler real.
+
+    `resilience` é o `resilience_score` do `UserProfileAnalyzer`. Ele entra no
+    FSS como o fator de resiliência; sem ele o cálculo recebia zero fixo e todo
+    perfil ganhava `low_resilience=0`, que sozinho põe o FSS em ALERTA.
+    """
     try:
         from app.optimizer.profiler import ConsumptionProfiler
         from app.optimizer.detectors.lifestyle_classifier import LifestyleClassifier
@@ -78,7 +88,8 @@ def _behavioral_profile(df: pl.DataFrame) -> dict:
 
         profile = ConsumptionProfiler().build(df)
         try:
-            fss = FSSCalculator().calc_fss(profile, df, resilience_score=0)
+            fss = FSSCalculator().calc_fss(
+                profile, df, resilience_score=float(resilience or 0.0))
             profile.fss = fss["fss"]
             profile.fss_level = fss["fss_level"]
         except Exception:
