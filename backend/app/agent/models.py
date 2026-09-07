@@ -11,3 +11,6 @@ class ChatMessage(Base):
     role = Column(String(20), nullable=False)  # "human" or "assistant"
     content = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Agrupa mensagens em conversas distintas (lista "Conversas" no chat).
+    # Nulo para linhas gravadas antes desta coluna existir.
+    session_id = Column(String(100), nullable=True, index=True)

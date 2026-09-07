@@ -235,6 +235,14 @@ export interface ChatHistoryItem {
   role: string;
   content: string;
   created_at: string;
+  session_id?: string | null;
+}
+
+export interface ChatSessionItem {
+  session_id: string;
+  title: string;
+  last_message_at: string;
+  message_count: number;
 }
 
 // ==================== PLUGGY ====================
@@ -252,6 +260,20 @@ export interface PluggyItem {
 
 export interface PluggyItemsResponse {
   items: PluggyItem[];
+}
+
+export interface CreditCard {
+  account_id: string;
+  bank_name?: string | null;
+  brand?: string | null;
+  level?: string | null;
+  last4?: string | null;
+  credit_limit?: number | null;
+  available_credit_limit?: number | null;
+  balance_close_date?: string | null;
+  balance_due_date?: string | null;
+  currency: string;
+  captured_at: string;
 }
 
 // ==================== ALERTS ====================

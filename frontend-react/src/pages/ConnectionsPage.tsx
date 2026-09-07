@@ -155,8 +155,6 @@ export const ConnectionsPage: React.FC = () => {
   return (
     <AppShell
       current="connections"
-      title="Conexões Open Finance"
-      subtitle="Gerencie contas conectadas via Pluggy e sincronize dados reais."
     >
       <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 12, marginBottom: 12 }}>
         <div style={card}>

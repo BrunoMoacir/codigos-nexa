@@ -79,6 +79,14 @@ class ChatHistoryItem(BaseModel):
     role: str
     content: str
     created_at: str
+    session_id: str | None = None
+
+
+class ChatSessionItem(BaseModel):
+    session_id: str
+    title: str
+    last_message_at: str
+    message_count: int
 
 
 @router.post("/", response_model=ChatResponse)
@@ -174,8 +182,8 @@ async def chat_with_agent(
         target_message = messages[-1].content
 
         # Persistir a mensagem do usuário e a resposta do agente
-        db.add(ChatMessage(user_id=chat_request.user_id, role="human", content=chat_request.message))
-        db.add(ChatMessage(user_id=chat_request.user_id, role="assistant", content=target_message))
+        db.add(ChatMessage(user_id=chat_request.user_id, role="human", content=chat_request.message, session_id=chat_request.session_id))
+        db.add(ChatMessage(user_id=chat_request.user_id, role="assistant", content=target_message, session_id=chat_request.session_id))
         db.commit()
 
         return ChatResponse(response=target_message)
@@ -198,20 +206,21 @@ async def chat_with_agent(
 @router.get("/history", response_model=List[ChatHistoryItem])
 def get_chat_history(
     user_id: str = Depends(require_owner),
+    session_id: str | None = Query(None, description="Filtra o histórico a uma única conversa"),
     limit: int = Query(50, ge=1, le=200, description="Número máximo de mensagens"),
     db: Session = Depends(get_db),
 ):
     """
     Retorna o histórico de mensagens do usuário, ordenado do mais antigo ao mais recente.
+    Sem `session_id`, retorna as últimas `limit` mensagens de todas as conversas
+    (comportamento legado, mantido para compatibilidade).
     """
 
-    rows = (
-        db.query(ChatMessage)
-        .filter(ChatMessage.user_id == user_id)
-        .order_by(ChatMessage.created_at.desc())
-        .limit(limit)
-        .all()
-    )
+    query = db.query(ChatMessage).filter(ChatMessage.user_id == user_id)
+    if session_id:
+        query = query.filter(ChatMessage.session_id == session_id)
+
+    rows = query.order_by(ChatMessage.created_at.desc()).limit(limit).all()
 
     # Retornar em ordem cronológica (do mais antigo ao mais recente)
     rows = list(reversed(rows))
@@ -222,9 +231,51 @@ def get_chat_history(
             role=row.role,
             content=row.content,
             created_at=str(row.created_at),
+            session_id=row.session_id,
         )
         for row in rows
     ]
+
+
+@router.get("/sessions", response_model=List[ChatSessionItem])
+def get_chat_sessions(
+    user_id: str = Depends(require_owner),
+    limit: int = Query(30, ge=1, le=100, description="Número máximo de conversas"),
+    db: Session = Depends(get_db),
+):
+    """
+    Lista as conversas do usuário (uma por `session_id`), mais recente primeiro.
+    O título de cada conversa é a primeira mensagem do usuário, truncada.
+    Mensagens gravadas antes da coluna `session_id` existir (session_id nulo)
+    não aparecem aqui — só no histórico legado sem filtro.
+    """
+
+    rows = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.user_id == user_id, ChatMessage.session_id.isnot(None))
+        .order_by(ChatMessage.created_at.asc())
+        .all()
+    )
+
+    sessions: dict[str, dict] = {}
+    for row in rows:
+        s = sessions.setdefault(row.session_id, {"first_human": None, "last_at": row.created_at, "count": 0})
+        s["count"] += 1
+        s["last_at"] = row.created_at
+        if s["first_human"] is None and row.role == "human":
+            s["first_human"] = row.content
+
+    items = [
+        ChatSessionItem(
+            session_id=sid,
+            title=(data["first_human"] or "Nova conversa")[:80],
+            last_message_at=str(data["last_at"]),
+            message_count=data["count"],
+        )
+        for sid, data in sessions.items()
+    ]
+    items.sort(key=lambda i: i.last_message_at, reverse=True)
+    return items[:limit]
 
 
 @router.delete("/history", response_model=ChatClearResponse)

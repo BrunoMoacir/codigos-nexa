@@ -48,7 +48,7 @@ const HoneycombCanvas: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mouse = useRef({ x: -9999, y: -9999 });
   const clicks = useRef<Array<{ x: number; y: number; t: number }>>([]);
-  const rafRef = useRef<number>();
+  const rafRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -175,11 +175,11 @@ const HoneycombCanvas: React.FC = () => {
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────
 const css = `
-  @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,800,900&display=swap');
+  @import url('https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   .lp-root {
-    font-family: 'Satoshi', system-ui, sans-serif;
+    font-family: 'General Sans', system-ui, sans-serif;
     min-height: 100vh;
     background: #0C0A08;
     color: #F3EFEA;
@@ -595,7 +595,12 @@ export const LoginPage: React.FC = () => {
       localStorage.setItem('jwt_token', data.access_token);
       if (data.user_id)      localStorage.setItem('user_id', data.user_id);
       if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
-      navigate('/dashboard');
+      localStorage.setItem('user_name', data.full_name || loginEmail.split('@')[0]);
+      localStorage.setItem('user_email', loginEmail.trim());
+      // Cada login começa uma conversa nova — as anteriores continuam
+      // salvas e acessíveis pela lista de conversas do chat.
+      if (data.user_id) localStorage.removeItem(`hive-session:${data.user_id}`);
+      navigate('/chat');
     } catch {
       toast.error('Erro de conexão. Verifique sua internet.');
     } finally {

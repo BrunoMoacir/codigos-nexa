@@ -2,7 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { AppShell } from '../components/layout/AppShell';
 import { nexaApi } from '../api/nexa';
-import type { Transaction, Goal } from '../api/types';
+import { isDemoMode } from '../utils/demoMode';
+import type { Transaction, Goal, CreditCard } from '../api/types';
 
 // ─── Sparkline SVG ────────────────────────────────────────────────────────────
 function AreaChart({ data, color = '#D4A820', h = 80 }: { data: number[]; color?: string; h?: number }) {
@@ -33,6 +34,40 @@ function AreaChart({ data, color = '#D4A820', h = 80 }: { data: number[]; color?
   );
 }
 
+// ─── Empty state (honesto — sem banco conectado, sem modo demo) ──────────────
+function EmptyPanel({ icon, title, sub }: { icon: string; title: string; sub: string }) {
+  return (
+    <div className="op-empty">
+      <div className="op-empty-icon">{icon}</div>
+      <div className="op-empty-title">{title}</div>
+      <div className="op-empty-sub">{sub}</div>
+    </div>
+  );
+}
+
+// ─── Cartão de crédito visual ─────────────────────────────────────────────────
+function CardVisual({ card }: { card: { bank_name?: string | null; brand?: string | null; last4?: string | null; credit_limit?: number | null; available_credit_limit?: number | null } }) {
+  return (
+    <div className="op-card-visual">
+      <div className="op-card-visual-top">
+        <span className="op-card-visual-bank">{card.bank_name || 'Cartão'}</span>
+        <span className="op-card-visual-brand">{(card.brand || 'CARTÃO').toUpperCase()}</span>
+      </div>
+      <div className="op-card-visual-number">•••• •••• •••• {card.last4 || '····'}</div>
+      <div className="op-card-visual-bottom">
+        <div>
+          <div className="op-card-visual-label">Disponível</div>
+          <div className="op-card-visual-val">{fmtBRL(card.available_credit_limit ?? 0)}</div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div className="op-card-visual-label">Limite total</div>
+          <div className="op-card-visual-val">{fmtBRL(card.credit_limit ?? 0)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const css = `
   .op { display: flex; flex-direction: column; min-height: 100vh; background: #0A0806; padding: 28px 28px 40px; gap: 20px; }
 
@@ -50,6 +85,7 @@ const css = `
   .op-kpi-val.gold   { color: #D4A820; }
   .op-kpi-val.green  { color: #2EC8A4; }
   .op-kpi-val.red    { color: #F07A64; }
+  .op-kpi-val.dim    { color: rgba(243,239,234,0.2); }
   .op-kpi-delta { font-size: 0.72rem; font-weight: 600; color: rgba(243,239,234,0.25); }
   .op-kpi-delta.up   { color: #2EC8A4; }
   .op-kpi-delta.down { color: #F07A64; }
@@ -72,6 +108,13 @@ const css = `
   }
   .op-panel-title { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(243,239,234,0.35); }
   .op-panel-badge { font-size: 0.68rem; font-weight: 700; color: #D4A820; background: rgba(212,168,32,0.1); border: 1px solid rgba(212,168,32,0.2); border-radius: 20px; padding: 2px 10px; }
+  .op-panel-badge.demo { color: rgba(243,239,234,0.4); background: rgba(243,239,234,0.05); border-color: rgba(243,239,234,0.1); }
+
+  /* Empty state */
+  .op-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px 16px; gap: 6px; min-height: 120px; }
+  .op-empty-icon { font-size: 1.5rem; opacity: 0.25; margin-bottom: 2px; }
+  .op-empty-title { font-size: 0.84rem; font-weight: 700; color: rgba(243,239,234,0.5); }
+  .op-empty-sub { font-size: 0.74rem; color: rgba(243,239,234,0.28); max-width: 240px; line-height: 1.5; }
 
   /* Chart x-axis labels */
   .op-chart-labels { display: flex; justify-content: space-between; margin-top: 6px; }
@@ -117,6 +160,35 @@ const css = `
   .op-txn-val  { font-size: 0.88rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .op-txn-val.in  { color: #2EC8A4; }
   .op-txn-val.out { color: rgba(243,239,234,0.7); }
+
+  /* Cartões */
+  .op-cards-row { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 4px; }
+  .op-card-visual {
+    min-width: 260px; flex: 1;
+    max-width: 320px;
+    border-radius: 16px;
+    padding: 20px 22px;
+    background: linear-gradient(135deg, #1C1610 0%, #2A2015 65%, #1C1610 100%);
+    border: 1px solid rgba(212,168,32,0.25);
+    position: relative;
+    overflow: hidden;
+    display: flex; flex-direction: column; gap: 24px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  }
+  .op-card-visual::before {
+    content: '';
+    position: absolute; top: -50%; right: -25%;
+    width: 200px; height: 200px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(212,168,32,0.16), transparent 70%);
+    pointer-events: none;
+  }
+  .op-card-visual-top { display: flex; justify-content: space-between; align-items: flex-start; position: relative; }
+  .op-card-visual-bank { font-size: 0.86rem; font-weight: 800; color: #F3EFEA; }
+  .op-card-visual-brand { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.08em; color: #D4A820; }
+  .op-card-visual-number { font-size: 0.98rem; font-weight: 600; letter-spacing: 0.1em; color: rgba(243,239,234,0.75); font-variant-numeric: tabular-nums; position: relative; }
+  .op-card-visual-bottom { display: flex; justify-content: space-between; align-items: flex-end; position: relative; }
+  .op-card-visual-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(243,239,234,0.35); margin-bottom: 3px; }
+  .op-card-visual-val { font-size: 0.9rem; font-weight: 800; color: #F3EFEA; font-variant-numeric: tabular-nums; }
 
   /* Connect CTA */
   .op-cta {
@@ -175,6 +247,11 @@ const DEMO_TXNS = [
   { desc: 'Combustível',   date: '20 ago', type: 'out', val:   'R$  180,00' },
 ];
 
+const DEMO_CARDS = [
+  { bank_name: 'Nubank', brand: 'Mastercard', last4: '4532', credit_limit: 8500, available_credit_limit: 3180 },
+  { bank_name: 'Itaú',   brand: 'Visa',        last4: '1187', credit_limit: 5000, available_credit_limit: 4260 },
+];
+
 function fmtBRL(n: number) {
   return `R$ ${Math.abs(n).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
 }
@@ -201,7 +278,6 @@ function buildCats(txns: Transaction[]) {
 }
 
 function buildSpend(txns: Transaction[]) {
-  if (!txns.length) return DEMO_SPEND;
   const map: Record<string, number> = {};
   for (const t of txns) {
     if (t.amount < 0 || t.type === 'expense') {
@@ -210,12 +286,13 @@ function buildSpend(txns: Transaction[]) {
     }
   }
   const vals = Object.values(map);
-  return vals.length >= 2 ? vals.slice(-12) : DEMO_SPEND;
+  return vals.length >= 2 ? vals.slice(-12) : [];
 }
 
 export const OrganizarPage: React.FC = () => {
   const navigate = useNavigate();
   const userId = localStorage.getItem('user_id') || '';
+  const demo = isDemoMode(userId);
 
   const txnsQ = useQuery({
     queryKey: ['transactions', userId],
@@ -231,27 +308,46 @@ export const OrganizarPage: React.FC = () => {
     retry: 1, staleTime: 2 * 60 * 1000,
   });
 
-  const loading = txnsQ.isLoading || goalsQ.isLoading;
+  const cardsQ = useQuery({
+    queryKey: ['cards', userId],
+    queryFn: () => nexaApi.getCards(),
+    enabled: !!userId,
+    retry: 1, staleTime: 2 * 60 * 1000,
+  });
+
+  const loading = txnsQ.isLoading || goalsQ.isLoading || cardsQ.isLoading;
   const txns: Transaction[] = txnsQ.data?.transactions || [];
   const goals: Goal[] = goalsQ.data?.goals || [];
-  const hasReal = txns.length > 0 || goals.length > 0;
+  const realCards: CreditCard[] = cardsQ.data || [];
 
-  const cats     = txns.length   ? buildCats(txns)   : DEMO_CATS;
-  const spendData = buildSpend(txns);
-  const displayGoals = goals.length ? goals : DEMO_GOALS;
+  // "Real" aqui = banco conectado com transações sincronizadas. Metas e
+  // cartões têm suas próprias fontes (goals é manual; cards vem do sync do
+  // Pluggy) — cada seção decide sozinha entre real / demo / vazio honesto.
+  const hasReal = txns.length > 0;
+  const hasRealGoals = goals.length > 0;
+  const hasRealCards = realCards.length > 0;
+  const showDemo = !hasReal && demo;
+  const showEmpty = !hasReal && !demo;
+
+  const cats: { name: string; color: string; pct: number; val: string }[] =
+    hasReal ? buildCats(txns) : showDemo ? DEMO_CATS : [];
+  const spendData = hasReal ? buildSpend(txns) : showDemo ? DEMO_SPEND : [];
+  const displayGoals = hasRealGoals ? goals : (!hasRealGoals && demo ? DEMO_GOALS : []);
+  const displayCards: { bank_name?: string | null; brand?: string | null; last4?: string | null; credit_limit?: number | null; available_credit_limit?: number | null }[] =
+    hasRealCards ? realCards : (!hasRealCards && demo ? DEMO_CARDS : []);
 
   const totalIn  = txns.filter(t => t.amount > 0 || t.type === 'income').reduce((s, t) => s + Math.abs(t.amount), 0);
   const totalOut = txns.filter(t => t.amount < 0 || t.type === 'expense').reduce((s, t) => s + Math.abs(t.amount), 0);
   const saldo    = totalIn - totalOut;
 
-  const displayTxns = txns.length
+  const displayTxns = hasReal
     ? txns.slice(0, 8).map(t => ({
         desc: t.description,
         date: fmtDate(t.date),
         type: t.amount > 0 || t.type === 'income' ? 'in' : 'out',
         val:  (t.amount > 0 || t.type === 'income' ? '+' : '') + fmtBRL(t.amount),
       }))
-    : DEMO_TXNS;
+    : showDemo ? DEMO_TXNS : [];
 
   return (
     <AppShell current="organizar">
@@ -267,27 +363,31 @@ export const OrganizarPage: React.FC = () => {
           <div className="op-kpis">
             <div className="op-kpi">
               <span className="op-kpi-label">Receita</span>
-              <span className="op-kpi-val green">{hasReal ? fmtBRL(totalIn) : 'R$ 7.000'}</span>
-              <span className="op-kpi-delta up">▲ este mês</span>
+              <span className={`op-kpi-val ${hasReal ? 'green' : showDemo ? 'green' : 'dim'}`}>
+                {hasReal ? fmtBRL(totalIn) : showDemo ? 'R$ 7.000' : '—'}
+              </span>
+              <span className="op-kpi-delta up">{hasReal || showDemo ? '▲ este mês' : 'sem dados ainda'}</span>
             </div>
             <div className="op-kpi">
               <span className="op-kpi-label">Gastos</span>
-              <span className="op-kpi-val red">{hasReal ? fmtBRL(totalOut) : 'R$ 4.000'}</span>
-              <span className="op-kpi-delta down">▼ vs mês anterior</span>
+              <span className={`op-kpi-val ${hasReal ? 'red' : showDemo ? 'red' : 'dim'}`}>
+                {hasReal ? fmtBRL(totalOut) : showDemo ? 'R$ 4.000' : '—'}
+              </span>
+              <span className="op-kpi-delta down">{hasReal || showDemo ? '▼ vs mês anterior' : 'sem dados ainda'}</span>
             </div>
             <div className="op-kpi">
               <span className="op-kpi-label">Saldo</span>
-              <span className={`op-kpi-val ${hasReal ? (saldo >= 0 ? 'green' : 'red') : 'gold'}`}>
-                {hasReal ? fmtBRL(saldo) : 'R$ 3.000'}
+              <span className={`op-kpi-val ${hasReal ? (saldo >= 0 ? 'green' : 'red') : showDemo ? 'gold' : 'dim'}`}>
+                {hasReal ? fmtBRL(saldo) : showDemo ? 'R$ 3.000' : '—'}
               </span>
-              <span className="op-kpi-delta">disponível agora</span>
+              <span className="op-kpi-delta">{hasReal || showDemo ? 'disponível agora' : 'sem dados ainda'}</span>
             </div>
             <div className="op-kpi">
               <span className="op-kpi-label">Taxa de poupança</span>
-              <span className="op-kpi-val gold">
-                {hasReal && totalIn ? `${Math.round((saldo / totalIn) * 100)}%` : '43%'}
+              <span className={`op-kpi-val ${hasReal || showDemo ? 'gold' : 'dim'}`}>
+                {hasReal && totalIn ? `${Math.round((saldo / totalIn) * 100)}%` : showDemo ? '43%' : '—'}
               </span>
-              <span className="op-kpi-delta up">▲ acima da média</span>
+              <span className="op-kpi-delta up">{hasReal || showDemo ? '▲ acima da média' : 'sem dados ainda'}</span>
             </div>
           </div>
         )}
@@ -298,33 +398,63 @@ export const OrganizarPage: React.FC = () => {
             <div className="op-panel">
               <div className="op-panel-head">
                 <span className="op-panel-title">Gastos mensais</span>
-                <span className="op-panel-badge">últimos 12 meses</span>
+                {showDemo && <span className="op-panel-badge demo">exemplo</span>}
+                {(hasReal || showDemo) && <span className="op-panel-badge">últimos 12 meses</span>}
               </div>
-              <AreaChart data={spendData} color="#D4A820" h={120} />
-              <div className="op-chart-labels">
-                {DEMO_MONTHS.slice(-spendData.length).map(m => (
-                  <span key={m} className="op-chart-label">{m}</span>
-                ))}
-              </div>
+              {spendData.length > 0 ? (
+                <>
+                  <AreaChart data={spendData} color="#D4A820" h={120} />
+                  <div className="op-chart-labels">
+                    {DEMO_MONTHS.slice(-spendData.length).map(m => (
+                      <span key={m} className="op-chart-label">{m}</span>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <EmptyPanel icon="📈" title="Nenhum gasto registrado ainda" sub="Conecte seu banco pra ver a evolução dos seus gastos mês a mês." />
+              )}
             </div>
 
             <div className="op-panel">
               <div className="op-panel-head">
                 <span className="op-panel-title">Por categoria</span>
+                {showDemo && <span className="op-panel-badge demo">exemplo</span>}
               </div>
-              <div className="op-cats">
-                {cats.map(c => (
-                  <div key={c.name} className="op-cat-row">
-                    <div className="op-cat-dot" style={{ background: c.color }} />
-                    <span className="op-cat-name">{c.name}</span>
-                    <div className="op-cat-track">
-                      <div className="op-cat-fill" style={{ width: `${c.pct}%`, background: c.color }} />
+              {cats.length > 0 ? (
+                <div className="op-cats">
+                  {cats.map(c => (
+                    <div key={c.name} className="op-cat-row">
+                      <div className="op-cat-dot" style={{ background: c.color }} />
+                      <span className="op-cat-name">{c.name}</span>
+                      <div className="op-cat-track">
+                        <div className="op-cat-fill" style={{ width: `${c.pct}%`, background: c.color }} />
+                      </div>
+                      <span className="op-cat-val">{c.val}</span>
                     </div>
-                    <span className="op-cat-val">{c.val}</span>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyPanel icon="🏷" title="Sem categorias ainda" sub="Assim que suas transações chegarem, elas aparecem organizadas aqui." />
+              )}
             </div>
+          </div>
+        )}
+
+        {/* ── Cartões ── */}
+        {!loading && (
+          <div className="op-panel">
+            <div className="op-panel-head">
+              <span className="op-panel-title">Cartões</span>
+              {showDemo && !hasRealCards && <span className="op-panel-badge demo">exemplo</span>}
+              {(hasRealCards || (!hasRealCards && demo)) && <span className="op-panel-badge">{displayCards.length} {displayCards.length === 1 ? 'cartão' : 'cartões'}</span>}
+            </div>
+            {displayCards.length > 0 ? (
+              <div className="op-cards-row">
+                {displayCards.map((c, i) => <CardVisual key={i} card={c} />)}
+              </div>
+            ) : (
+              <EmptyPanel icon="💳" title="Nenhum cartão conectado" sub="Conecte seu banco pra ver bandeira, limite e fatura dos seus cartões aqui." />
+            )}
           </div>
         )}
 
@@ -334,52 +464,62 @@ export const OrganizarPage: React.FC = () => {
             <div className="op-panel">
               <div className="op-panel-head">
                 <span className="op-panel-title">Movimentações recentes</span>
-                <span className="op-panel-badge">{displayTxns.length} transações</span>
+                {showDemo && <span className="op-panel-badge demo">exemplo</span>}
+                {displayTxns.length > 0 && <span className="op-panel-badge">{displayTxns.length} transações</span>}
               </div>
-              <div className="op-txn-list">
-                {displayTxns.map((t, i) => (
-                  <div key={i} className="op-txn-row">
-                    <div className={`op-txn-icon ${t.type}`}>{t.type === 'in' ? '↑' : '↓'}</div>
-                    <div className="op-txn-info">
-                      <div className="op-txn-desc">{t.desc}</div>
-                      <div className="op-txn-date">{t.date}</div>
+              {displayTxns.length > 0 ? (
+                <div className="op-txn-list">
+                  {displayTxns.map((t, i) => (
+                    <div key={i} className="op-txn-row">
+                      <div className={`op-txn-icon ${t.type}`}>{t.type === 'in' ? '↑' : '↓'}</div>
+                      <div className="op-txn-info">
+                        <div className="op-txn-desc">{t.desc}</div>
+                        <div className="op-txn-date">{t.date}</div>
+                      </div>
+                      <div className={`op-txn-val ${t.type}`}>{t.val}</div>
                     </div>
-                    <div className={`op-txn-val ${t.type}`}>{t.val}</div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyPanel icon="↔" title="Nenhuma movimentação ainda" sub="Suas transações aparecem aqui assim que você conectar uma conta." />
+              )}
             </div>
 
             <div className="op-panel">
               <div className="op-panel-head">
                 <span className="op-panel-title">Metas</span>
-                <span className="op-panel-badge">{displayGoals.length} ativas</span>
+                {!hasRealGoals && demo && <span className="op-panel-badge demo">exemplo</span>}
+                {displayGoals.length > 0 && <span className="op-panel-badge">{displayGoals.length} ativas</span>}
               </div>
-              <div className="op-goals">
-                {displayGoals.map((g: Goal | typeof DEMO_GOALS[0]) => {
-                  const curr  = 'current_amount' in g ? g.current_amount : (g as { curr: number }).curr;
-                  const total = 'target_amount'  in g ? g.target_amount  : (g as { total: number }).total;
-                  const pct   = Math.min(100, Math.round((curr / total) * 100));
-                  return (
-                    <div key={g.name} className="op-goal-row">
-                      <div className="op-goal-top">
-                        <span className="op-goal-name">{g.name}</span>
-                        <span className="op-goal-pct">{pct}%</span>
+              {displayGoals.length > 0 ? (
+                <div className="op-goals">
+                  {displayGoals.map((g: Goal | typeof DEMO_GOALS[0]) => {
+                    const curr  = 'current_amount' in g ? g.current_amount : (g as { curr: number }).curr;
+                    const total = 'target_amount'  in g ? g.target_amount  : (g as { total: number }).total;
+                    const pct   = Math.min(100, Math.round((curr / total) * 100));
+                    return (
+                      <div key={g.name} className="op-goal-row">
+                        <div className="op-goal-top">
+                          <span className="op-goal-name">{g.name}</span>
+                          <span className="op-goal-pct">{pct}%</span>
+                        </div>
+                        <div className="op-goal-track">
+                          <div className="op-goal-fill" style={{ width: `${pct}%` }} />
+                        </div>
+                        <div className="op-goal-sub">{fmtBRL(curr)} de {fmtBRL(total)}</div>
                       </div>
-                      <div className="op-goal-track">
-                        <div className="op-goal-fill" style={{ width: `${pct}%` }} />
-                      </div>
-                      <div className="op-goal-sub">{fmtBRL(curr)} de {fmtBRL(total)}</div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <EmptyPanel icon="🎯" title="Nenhuma meta ainda" sub="Crie sua primeira meta financeira e acompanhe o progresso por aqui." />
+              )}
             </div>
           </div>
         )}
 
         {/* ── CTA banco ── */}
-        {!hasReal && !loading && (
+        {showEmpty && !loading && (
           <div className="op-cta">
             <div>
               <div className="op-cta-text">Conecte seu banco para dados reais</div>

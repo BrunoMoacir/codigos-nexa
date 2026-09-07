@@ -463,7 +463,7 @@ export const HomePage: React.FC = () => {
       `}</style>
 
       <div className="hp-root">
-        <AppShell current="home" title="Início" subtitle="Aqui está seu cockpit financeiro. Escolha um módulo para começar.">
+        <AppShell current="home">
           <main className="hp-main">
             {/* Greeting */}
             <div className="hp-greeting-wrap">

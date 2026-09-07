@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-export type HiveTab = 'dashboard' | 'chat' | 'feed' | 'organizar';
+export type HiveTab = 'chat' | 'feed' | 'organizar' | 'connections' | 'goals' | 'home' | 'profile' | 'strategies';
 
 interface AppShellProps {
   current: HiveTab;
@@ -9,10 +9,10 @@ interface AppShellProps {
 }
 
 const css = `
-  @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,800,900&display=swap');
+  @import url('https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap');
 
   .hs {
-    font-family: 'Satoshi', system-ui, sans-serif;
+    font-family: 'General Sans', system-ui, sans-serif;
     min-height: 100vh;
     background: #0E0C0A;
     color: #F3EFEA;
@@ -126,14 +126,14 @@ const css = `
     width: 30px;
     height: 30px;
     border-radius: 50%;
-    background: rgba(212,168,32,0.2);
-    border: 1px solid rgba(212,168,32,0.3);
+    background: #F2DE7A;
+    border: none;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 0.72rem;
     font-weight: 700;
-    color: #D4A820;
+    color: #0A0800;
     flex-shrink: 0;
   }
   .hs-user-name {
@@ -224,15 +224,6 @@ const css = `
   }
 `;
 
-const IconDashboard = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <rect x="2" y="2" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <rect x="8.5" y="2" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <rect x="2" y="8.5" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-  </svg>
-);
-
 const IconChat = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
     <path d="M2 3C2 2.45 2.45 2 3 2h10c.55 0 1 .45 1 1v7c0 .55-.45 1-1 1H5l-3 3V3z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
@@ -260,7 +251,6 @@ const IconLogout = () => (
 );
 
 const navItems = [
-  { key: 'dashboard' as HiveTab, label: 'Dashboard',    icon: <IconDashboard />, path: '/dashboard' },
   { key: 'chat'      as HiveTab, label: 'Chat IA',      icon: <IconChat />,      path: '/chat'      },
   { key: 'feed'      as HiveTab, label: 'Oportunidades',icon: <IconFeed />,      path: '/feed'      },
   { key: 'organizar' as HiveTab, label: 'Organizar',    icon: <IconOrganizar />, path: '/organizar' },

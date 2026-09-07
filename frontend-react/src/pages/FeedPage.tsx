@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { AppShell } from '../components/layout/AppShell';
 import { nexaApi } from '../api/nexa';
+import { isDemoMode } from '../utils/demoMode';
 
 const css = `
   .fp { display: flex; flex-direction: column; min-height: 100vh; background: #0A0806; padding: 28px 28px 40px; gap: 20px; }
@@ -68,6 +69,12 @@ const css = `
   .fp-demo { display: flex; align-items: center; gap: 8px; background: rgba(212,168,32,0.06); border: 1px solid rgba(212,168,32,0.13); border-radius: 10px; padding: 9px 14px; font-size: 0.73rem; color: rgba(243,239,234,0.4); }
   .fp-demo-dot { width: 5px; height: 5px; border-radius: 50%; background: #D4A820; flex-shrink: 0; }
 
+  /* Empty state */
+  .fp-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 48px 16px; gap: 8px; background: #100E0B; border: 1px solid rgba(243,239,234,0.07); border-radius: 14px; }
+  .fp-empty-icon { font-size: 1.7rem; opacity: 0.25; margin-bottom: 2px; }
+  .fp-empty-title { font-size: 0.9rem; font-weight: 700; color: rgba(243,239,234,0.5); }
+  .fp-empty-sub { font-size: 0.78rem; color: rgba(243,239,234,0.28); max-width: 320px; line-height: 1.6; }
+
   /* Skeleton */
   .fp-skel { background: rgba(243,239,234,0.05); border-radius: 12px; animation: fp-pulse 1.4s ease-in-out infinite; }
   @keyframes fp-pulse { 0%,100%{opacity:0.35} 50%{opacity:0.7} }
@@ -121,13 +128,16 @@ export const FeedPage: React.FC = () => {
     enabled: !!userId, retry: 1, staleTime: 2 * 60 * 1000,
   });
 
+  const demo = isDemoMode(userId);
   const loading = alertsQ.isLoading;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const realAlerts: FeedCard[] = (alertsQ.data?.alerts || []).map((a: any) => mapAlert(a));
   const hasReal = realAlerts.length > 0;
+  const showDemo = !hasReal && demo;
+  const showEmpty = !hasReal && !demo;
 
-  const alerts = hasReal ? realAlerts.filter(c => c.type === 'alert' || c.type === 'warn') : DEMO_ALERTS;
-  const opps   = hasReal ? realAlerts.filter(c => c.type === 'good' || c.type === 'gold' || c.type === 'info') : DEMO_OPP;
+  const alerts = hasReal ? realAlerts.filter(c => c.type === 'alert' || c.type === 'warn') : showDemo ? DEMO_ALERTS : [];
+  const opps   = hasReal ? realAlerts.filter(c => c.type === 'good' || c.type === 'gold' || c.type === 'info') : showDemo ? DEMO_OPP : [];
 
   const totalAlerts = alerts.length;
   const totalOpps   = opps.length;
@@ -161,16 +171,22 @@ export const FeedPage: React.FC = () => {
           )}
         </div>
 
-        {!hasReal && !loading && (
+        {showDemo && !loading && (
           <div className="fp-demo">
             <div className="fp-demo-dot" />
-            Demonstração — conecte seu banco para ver seus alertas reais.
+            Modo demonstração — desative em Perfil para ver o estado real.
           </div>
         )}
 
         {loading ? (
           <div className="fp-grid">
             {[1,2,3,4,5].map(i => <div key={i} className="fp-skel" style={{ height: 72 }} />)}
+          </div>
+        ) : showEmpty ? (
+          <div className="fp-empty">
+            <div className="fp-empty-icon">🔍</div>
+            <div className="fp-empty-title">Nenhum alerta ou oportunidade ainda</div>
+            <div className="fp-empty-sub">Conecte seu banco pra o HIVE analisar suas tarifas, assinaturas e oportunidades reais.</div>
           </div>
         ) : (
           <>
