@@ -9,10 +9,10 @@ interface AppShellProps {
 }
 
 const css = `
-  @import url('https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap');
+  @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,800,900&display=swap');
 
   .hs {
-    font-family: 'General Sans', system-ui, sans-serif;
+    font-family: 'Satoshi', system-ui, sans-serif;
     min-height: 100vh;
     background: #0E0C0A;
     color: #F3EFEA;
@@ -119,9 +119,18 @@ const css = `
     gap: 10px;
     padding: 10px 12px;
     border-radius: 10px;
-    cursor: default;
+    cursor: pointer;
     margin-bottom: 4px;
+    width: 100%;
+    background: none;
+    border: none;
+    font-family: inherit;
+    text-align: left;
+    transition: background 0.15s;
   }
+  .hs-user:hover { background: rgba(243,239,234,0.06); }
+  .hs-user.on { background: rgba(212,168,32,0.08); }
+  .hs-user.on .hs-user-name { color: #F3EFEA; }
   .hs-avatar {
     width: 30px;
     height: 30px;
@@ -253,7 +262,7 @@ const IconLogout = () => (
 const navItems = [
   { key: 'chat'      as HiveTab, label: 'Chat IA',      icon: <IconChat />,      path: '/chat'      },
   { key: 'feed'      as HiveTab, label: 'Oportunidades',icon: <IconFeed />,      path: '/feed'      },
-  { key: 'organizar' as HiveTab, label: 'Organizar',    icon: <IconOrganizar />, path: '/organizar' },
+  { key: 'organizar' as HiveTab, label: 'Organização',  icon: <IconOrganizar />, path: '/organizar' },
 ];
 
 export const AppShell: React.FC<AppShellProps> = ({ current, children }) => {
@@ -302,10 +311,10 @@ export const AppShell: React.FC<AppShellProps> = ({ current, children }) => {
           <div className="hs-divider" />
 
           <div className="hs-bottom">
-            <div className="hs-user">
+            <button className={`hs-user${current === 'profile' ? ' on' : ''}`} onClick={() => navigate('/profile')}>
               <div className="hs-avatar">{initials}</div>
               <span className="hs-user-name">{displayName}</span>
-            </div>
+            </button>
             <button className="hs-action" onClick={handleLogout}>
               <IconLogout />
               Sair

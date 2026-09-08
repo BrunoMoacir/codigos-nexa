@@ -36,7 +36,10 @@ from datetime import datetime, timezone, timedelta
 from typing import TYPE_CHECKING, List, Optional
 
 from fastapi import APIRouter, HTTPException, status, Depends
+from sqlalchemy.orm import Session
 from app.core.security import require_owner
+from app.core.database import get_db
+from app.core.models.pluggy_item import PluggyItem
 from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
@@ -117,7 +120,7 @@ def generate_token_expiry_alerts(days_until_expiry: int) -> List[AlertItem]:
             id="token_expired",
             type="TOKEN_EXPIRY",
             level="CRITICAL",
-            title="⛔ Conexão expirou",
+            title="Conexão expirou",
             message="Sua conexão com o banco expirou. Reconecte imediatamente para continuar usando a Nexa.",
             due_date=datetime.now(timezone.utc),
             action_url="/api/v1/reconnect"
@@ -128,7 +131,7 @@ def generate_token_expiry_alerts(days_until_expiry: int) -> List[AlertItem]:
             id="token_expiry_7d",
             type="TOKEN_EXPIRY",
             level="CRITICAL",
-            title=f"⚠️ Conexão vence em {days_until_expiry} dias",
+            title=f"Conexão vence em {days_until_expiry} dias",
             message=f"Sua conexão vence em {days_until_expiry} dias. Reconecte em breve para não perder acesso aos dados.",
             due_date=datetime.now(timezone.utc) + timedelta(days=days_until_expiry),
             action_url="/api/v1/reconnect"
@@ -139,7 +142,7 @@ def generate_token_expiry_alerts(days_until_expiry: int) -> List[AlertItem]:
             id="token_expiry_30d",
             type="TOKEN_EXPIRY",
             level="WARNING",
-            title=f"⏰ Conexão vence em {days_until_expiry} dias",
+            title=f"Conexão vence em {days_until_expiry} dias",
             message=f"Sua conexão vencerá em {days_until_expiry} dias. Planeje reconectar em breve.",
             due_date=datetime.now(timezone.utc) + timedelta(days=days_until_expiry),
             action_url="/api/v1/reconnect"
@@ -158,7 +161,7 @@ def generate_negative_balance_alert(negative_day: int | None) -> List[AlertItem]
             id="negative_balance",
             type="NEGATIVE_BALANCE",
             level="CRITICAL",
-            title=f"⛔ Saldo negativo em {negative_day} dias",
+            title=f"Saldo negativo em {negative_day} dias",
             message=f"Seu saldo pode ficar negativo em {negative_day} dias se manter os gastos atuais.",
             due_date=datetime.now(timezone.utc) + timedelta(days=negative_day),
             action_url=None
@@ -209,7 +212,7 @@ def generate_high_commitment_alert(
             id="high_commitment",
             type="HIGH_COMMITMENT",
             level="WARNING",
-            title=f"⚠️ {percentage}% do caixa comprometido",
+            title=f"{percentage}% do caixa comprometido",
             message=message,
             due_date=datetime.now(timezone.utc),
             action_url=None
@@ -223,7 +226,10 @@ def generate_high_commitment_alert(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.get("/{user_id}", response_model=AlertsResponse)
-async def get_alerts(user_id: str = Depends(require_owner)) -> AlertsResponse:
+async def get_alerts(
+    user_id: str = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> AlertsResponse:
     """
     Retorna alertas ativos para o usuário.
     
@@ -313,8 +319,15 @@ async def get_alerts(user_id: str = Depends(require_owner)) -> AlertsResponse:
 
         alerts: List[AlertItem] = []
 
-        # ✅ ALERTA 1: Token expiry (placeholder - 30 dias no futuro)
-        alerts.extend(generate_token_expiry_alerts(30))
+        # ALERTA 1: Token expiry — só faz sentido se o usuário tem pelo menos
+        # um banco conectado de verdade. Antes disparava sempre com "30 dias"
+        # fixo (placeholder nunca ligado à data real de expiração), poluindo
+        # o feed de quem nunca conectou nada.
+        has_connected_bank = (
+            db.query(PluggyItem).filter(PluggyItem.user_id == user_id).first() is not None
+        )
+        if has_connected_bank:
+            alerts.extend(generate_token_expiry_alerts(30))
 
         # ✅ ALERTA 2: Negative balance
         projections = runner_result.get("projections", {})

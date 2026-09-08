@@ -43,11 +43,9 @@ const SlotLetter: React.FC<{ char: string; delay: number }> = ({ char, delay }) 
   );
 };
 
-// ─── Canvas de Colmeia ───────────────────────────────────────────────────────
+// ─── Canvas de Colmeia — ponto quente fixo no canto, sem depender do mouse ───
 const HoneycombCanvas: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const mouse = useRef({ x: -9999, y: -9999 });
-  const clicks = useRef<Array<{ x: number; y: number; t: number }>>([]);
   const rafRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -58,17 +56,18 @@ const HoneycombCanvas: React.FC = () => {
     const SIZE = 28;
     const GAP = 5;
     const SQRT3 = Math.sqrt(3);
-    const GLOW_R = 200;
-    const WAVE_SPEED = 300;
-    const WAVE_WIDTH = 65;
+    const GLOW_R = 380;
 
     type Hex = { cx: number; cy: number; phase: number };
     let hexes: Hex[] = [];
+    let hotspot = { x: 0, y: 0 };
 
     const resize = () => {
       canvas.width = window.innerWidth * DPR;
       canvas.height = window.innerHeight * DPR;
       ctx.scale(DPR, DPR);
+      // Canto inferior direito — fixo, não segue o cursor.
+      hotspot = { x: window.innerWidth * 0.88, y: window.innerHeight * 0.92 };
       build();
     };
 
@@ -108,42 +107,29 @@ const HoneycombCanvas: React.FC = () => {
     const frame = (now: number) => {
       const t = (now - t0) / 1000;
       ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-      const { x: mx, y: my } = mouse.current;
 
-      // Limpar clicks antigos
-      clicks.current = clicks.current.filter(c => now - c.t < 1100);
+      // O ponto quente pulsa bem devagar sozinho — nunca reage a mouse/clique.
+      const pulse = 0.75 + Math.sin(t * 0.3) * 0.25;
 
       for (const h of hexes) {
-        const dist = Math.hypot(h.cx - mx, h.cy - my);
-        const hover = Math.max(0, 1 - dist / GLOW_R);
-
-        // Ripples de clicks
-        let ripple = 0;
-        for (const ck of clicks.current) {
-          const age = (now - ck.t) / 1000;
-          const wave = age * WAVE_SPEED;
-          const d = Math.hypot(h.cx - ck.x, h.cy - ck.y);
-          const fromWave = Math.abs(d - wave);
-          const r = Math.max(0, 1 - fromWave / WAVE_WIDTH) * Math.max(0, 1 - age * 1.2);
-          ripple = Math.max(ripple, r);
-        }
+        const dist = Math.hypot(h.cx - hotspot.x, h.cy - hotspot.y);
+        const glow = Math.max(0, 1 - dist / GLOW_R) * pulse;
 
         const breathe = Math.sin(t * 0.65 + h.phase) * 0.5 + 0.5;
-        const baseA = 0.012 + breathe * 0.022;
-        const total = Math.max(hover, ripple);
+        const baseA = 0.006 + breathe * 0.012;
         const s = SIZE - GAP * 0.5;
 
         drawHex(h.cx, h.cy, s);
-        ctx.fillStyle = total > 0.02
-          ? `rgba(212,168,32,${total * 0.28})`
+        ctx.fillStyle = glow > 0.02
+          ? `rgba(212,168,32,${glow * 0.28})`
           : `rgba(243,239,234,${baseA * 0.4})`;
         ctx.fill();
 
         drawHex(h.cx, h.cy, s);
-        ctx.strokeStyle = total > 0.02
-          ? `rgba(212,168,32,${0.08 + total * 0.85})`
+        ctx.strokeStyle = glow > 0.02
+          ? `rgba(212,168,32,${0.08 + glow * 0.85})`
           : `rgba(243,239,234,${baseA * 1.4})`;
-        ctx.lineWidth = total > 0.15 ? 1.4 : 0.65;
+        ctx.lineWidth = glow > 0.15 ? 1.4 : 0.65;
         ctx.stroke();
       }
 
@@ -152,15 +138,8 @@ const HoneycombCanvas: React.FC = () => {
 
     rafRef.current = requestAnimationFrame(frame);
 
-    const onMove  = (e: MouseEvent) => { mouse.current = { x: e.clientX, y: e.clientY }; };
-    const onClick = (e: MouseEvent) => { clicks.current.push({ x: e.clientX, y: e.clientY, t: performance.now() }); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('click', onClick);
-
     return () => {
       window.removeEventListener('resize', resize);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('click', onClick);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, []);
@@ -175,11 +154,11 @@ const HoneycombCanvas: React.FC = () => {
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────
 const css = `
-  @import url('https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap');
+  @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,800,900&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   .lp-root {
-    font-family: 'General Sans', system-ui, sans-serif;
+    font-family: 'Satoshi', system-ui, sans-serif;
     min-height: 100vh;
     background: #0C0A08;
     color: #F3EFEA;
@@ -203,18 +182,6 @@ const css = `
   @keyframes pulse-ring {
     0%,100% { opacity: 0.18; transform: translate(-50%,-50%) scale(1); }
     50%      { opacity: 0.07; transform: translate(-50%,-50%) scale(1.06); }
-  }
-
-  /* ── Cursor glow ── */
-  .lp-root::after {
-    content: '';
-    position: fixed;
-    width: 600px; height: 600px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(212,168,32,0.06) 0%, transparent 65%);
-    transform: translate(var(--cx,-9999px), var(--cy,-9999px)) translate(-50%,-50%);
-    pointer-events: none; z-index: 1;
-    transition: transform 0.08s linear;
   }
 
   /* ── Marca d'água HIVE enorme — une as duas colunas ── */
@@ -459,6 +426,16 @@ const css = `
   .lp-input::placeholder { color: rgba(243,239,234,0.25); }
   .lp-input:focus { border-color: rgba(212,168,32,0.5); background: rgba(212,168,32,0.03); }
   .lp-input.err { border-color: rgba(240,122,100,0.55); background: rgba(240,122,100,0.04); }
+  /* Navegador pinta autofill de branco por padrão — força manter o escuro */
+  .lp-input:-webkit-autofill,
+  .lp-input:-webkit-autofill:hover,
+  .lp-input:-webkit-autofill:focus,
+  .lp-input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 100px #171310 inset !important;
+    -webkit-text-fill-color: #F3EFEA !important;
+    caret-color: #F3EFEA;
+    transition: background-color 9999s ease-in-out 0s;
+  }
   .lp-field-err {
     font-size: 0.7rem;
     color: #F07A64;
@@ -552,16 +529,6 @@ export const LoginPage: React.FC = () => {
   const [loginPassword, setLoginPassword] = useState('');
   const [loading, setLoading]             = useState(false);
   const [errs, setErrs]                   = useState({ email: false, password: false });
-
-  // CSS var para cursor glow
-  useEffect(() => {
-    const mm = (e: MouseEvent) => {
-      document.documentElement.style.setProperty('--cx', `${e.clientX}px`);
-      document.documentElement.style.setProperty('--cy', `${e.clientY}px`);
-    };
-    window.addEventListener('mousemove', mm);
-    return () => window.removeEventListener('mousemove', mm);
-  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

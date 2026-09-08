@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { AppShell } from '../components/layout/AppShell';
@@ -5,32 +6,51 @@ import { nexaApi } from '../api/nexa';
 import { isDemoMode } from '../utils/demoMode';
 import type { Transaction, Goal, CreditCard } from '../api/types';
 
-// ─── Sparkline SVG ────────────────────────────────────────────────────────────
-function AreaChart({ data, color = '#D4A820', h = 80 }: { data: number[]; color?: string; h?: number }) {
-  if (!data.length) return null;
-  const w = 400;
-  const max = Math.max(...data, 1);
-  const min = Math.min(...data, 0);
-  const range = max - min || 1;
-  const pad = 8;
-  const pts = data.map((v, i) => {
-    const x = pad + (i / (data.length - 1)) * (w - pad * 2);
-    const y = h - pad - ((v - min) / range) * (h - pad * 2);
-    return `${x},${y}`;
-  });
-  const linePath = `M ${pts.join(' L ')}`;
-  const areaPath = `M ${pad},${h - pad} L ${pts.join(' L ')} L ${w - pad},${h - pad} Z`;
+// ─── Gráfico de barras — Receita x Gastos por mês, com glow e tooltip ────────
+function BarChart({ income, expense, labels, h = 160 }: { income: number[]; expense: number[]; labels: string[]; h?: number }) {
+  const [mounted, setMounted] = useState(false);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    const t = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(t);
+  }, []);
+
+  if (!income.length) return null;
+  const max = Math.max(...income, ...expense, 1);
+
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', height: h, display: 'block' }} preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="ag" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.22" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={areaPath} fill="url(#ag)" />
-      <path d={linePath} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
+    <div className="op-bars-wrap">
+      <div className="op-bars-legend">
+        <span className="op-bars-legend-item"><i className="op-bars-swatch in" />Receita</span>
+        <span className="op-bars-legend-item"><i className="op-bars-swatch out" />Gastos</span>
+      </div>
+      <div className="op-bars-row" style={{ height: h }} onMouseLeave={() => setHoverIdx(null)}>
+        {income.map((v, i) => {
+          const ev = expense[i] || 0;
+          const inPct = (v / max) * 100;
+          const outPct = (ev / max) * 100;
+          return (
+            <div key={i} className="op-bar-group" onMouseEnter={() => setHoverIdx(i)}>
+              {hoverIdx === i && (
+                <div className="op-bar-tip">
+                  <span className="op-bar-tip-label">{labels[i]}</span>
+                  <span className="op-bar-tip-in">Receita {fmtBRL(v)}</span>
+                  <span className="op-bar-tip-out">Gastos {fmtBRL(ev)}</span>
+                </div>
+              )}
+              <div className="op-bar-pair">
+                <div className="op-bar in"  style={{ height: mounted ? `${inPct}%`  : '0%' }} />
+                <div className="op-bar out" style={{ height: mounted ? `${outPct}%` : '0%' }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="op-chart-labels">
+        {labels.map(m => <span key={m} className="op-chart-label">{m}</span>)}
+      </div>
+    </div>
   );
 }
 
@@ -46,23 +66,28 @@ function EmptyPanel({ icon, title, sub }: { icon: string; title: string; sub: st
 }
 
 // ─── Cartão de crédito visual ─────────────────────────────────────────────────
-function CardVisual({ card }: { card: { bank_name?: string | null; brand?: string | null; last4?: string | null; credit_limit?: number | null; available_credit_limit?: number | null } }) {
+function CardVisual({ card }: { card: { bank_name?: string | null; brand?: string | null; level?: string | null; last4?: string | null; credit_limit?: number | null; available_credit_limit?: number | null } }) {
   return (
     <div className="op-card-visual">
       <div className="op-card-visual-top">
-        <span className="op-card-visual-bank">{card.bank_name || 'Cartão'}</span>
-        <span className="op-card-visual-brand">{(card.brand || 'CARTÃO').toUpperCase()}</span>
+        <div className="op-card-visual-bankblock">
+          <span className="op-card-visual-bank">{card.bank_name || 'Cartão'}</span>
+          <span className="op-card-visual-issuer">{(card.level || 'CRÉDITO').toUpperCase()}</span>
+        </div>
+        <div className="op-card-visual-nfc">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M8.5 8.5a5 5 0 0 1 7 0M6 6a9 9 0 0 1 12 0M11 11a1.5 1.5 0 0 1 2 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+          </svg>
+        </div>
       </div>
-      <div className="op-card-visual-number">•••• •••• •••• {card.last4 || '····'}</div>
+
+      <div className="op-card-visual-chip" />
+
+      <div className="op-card-visual-number">•••• &nbsp; •••• &nbsp; •••• &nbsp; {card.last4 || '····'}</div>
+
       <div className="op-card-visual-bottom">
-        <div>
-          <div className="op-card-visual-label">Disponível</div>
-          <div className="op-card-visual-val">{fmtBRL(card.available_credit_limit ?? 0)}</div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div className="op-card-visual-label">Limite total</div>
-          <div className="op-card-visual-val">{fmtBRL(card.credit_limit ?? 0)}</div>
-        </div>
+        <span className="op-card-visual-avail">Disponível {fmtBRL(card.available_credit_limit ?? 0)}</span>
+        <span className="op-card-visual-brand">{(card.brand || 'Cartão').toUpperCase()}</span>
       </div>
     </div>
   );
@@ -71,24 +96,18 @@ function CardVisual({ card }: { card: { bank_name?: string | null; brand?: strin
 const css = `
   .op { display: flex; flex-direction: column; min-height: 100vh; background: #0A0806; padding: 28px 28px 40px; gap: 20px; }
 
-  /* KPIs */
-  .op-kpis { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
-  .op-kpi {
-    background: #100E0B;
-    border: 1px solid rgba(243,239,234,0.07);
-    border-radius: 14px;
-    padding: 18px 20px;
-    display: flex; flex-direction: column; gap: 6px;
-  }
-  .op-kpi-label { font-size: 0.67rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(243,239,234,0.28); }
-  .op-kpi-val { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; color: #F3EFEA; }
-  .op-kpi-val.gold   { color: #D4A820; }
-  .op-kpi-val.green  { color: #2EC8A4; }
-  .op-kpi-val.red    { color: #F07A64; }
-  .op-kpi-val.dim    { color: rgba(243,239,234,0.2); }
-  .op-kpi-delta { font-size: 0.72rem; font-weight: 600; color: rgba(243,239,234,0.25); }
-  .op-kpi-delta.up   { color: #2EC8A4; }
-  .op-kpi-delta.down { color: #F07A64; }
+  /* Resumo — um número grande (Saldo) com Receita/Gastos como texto de apoio */
+  .op-hero-stat { display: flex; flex-direction: column; gap: 3px; margin-bottom: 22px; }
+  .op-hero-label { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(243,239,234,0.32); }
+  .op-hero-val { font-size: 2.4rem; font-weight: 900; letter-spacing: -0.05em; font-variant-numeric: tabular-nums; color: #F3EFEA; line-height: 1.1; }
+  .op-hero-val.gold  { color: #D4A820; }
+  .op-hero-val.green { color: #2EC8A4; }
+  .op-hero-val.red   { color: #F07A64; }
+  .op-hero-val.dim   { color: rgba(243,239,234,0.2); }
+  .op-hero-sub { font-size: 0.82rem; font-weight: 600; color: rgba(243,239,234,0.4); }
+  .op-hero-sub .green { color: #2EC8A4; }
+  .op-hero-sub .red   { color: #F07A64; }
+  .op-hero-sep { margin: 0 8px; color: rgba(243,239,234,0.18); }
 
   /* Row */
   .op-row { display: grid; grid-template-columns: 1fr 340px; gap: 14px; align-items: start; }
@@ -96,19 +115,24 @@ const css = `
 
   /* Panels */
   .op-panel {
-    background: #100E0B;
+    background: linear-gradient(165deg, #141210 0%, #100E0B 55%);
     border: 1px solid rgba(243,239,234,0.07);
     border-radius: 16px;
     padding: 20px 22px;
     overflow: hidden;
+    position: relative;
+  }
+  .op-panel::before {
+    content: '';
+    position: absolute; top: 0; left: 20px; right: 20px; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(243,239,234,0.14), transparent);
   }
   .op-panel-head {
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 18px;
   }
   .op-panel-title { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(243,239,234,0.35); }
-  .op-panel-badge { font-size: 0.68rem; font-weight: 700; color: #D4A820; background: rgba(212,168,32,0.1); border: 1px solid rgba(212,168,32,0.2); border-radius: 20px; padding: 2px 10px; }
-  .op-panel-badge.demo { color: rgba(243,239,234,0.4); background: rgba(243,239,234,0.05); border-color: rgba(243,239,234,0.1); }
+  .op-panel-tag { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; color: rgba(243,239,234,0.32); font-style: italic; }
 
   /* Empty state */
   .op-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px 16px; gap: 6px; min-height: 120px; }
@@ -120,14 +144,38 @@ const css = `
   .op-chart-labels { display: flex; justify-content: space-between; margin-top: 6px; }
   .op-chart-label { font-size: 0.62rem; color: rgba(243,239,234,0.2); font-variant-numeric: tabular-nums; }
 
-  /* Categorias */
-  .op-cats { display: flex; flex-direction: column; gap: 12px; }
-  .op-cat-row { display: flex; align-items: center; gap: 10px; }
-  .op-cat-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-  .op-cat-name { font-size: 0.8rem; color: rgba(243,239,234,0.6); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .op-cat-track { flex: 1.5; height: 4px; background: rgba(243,239,234,0.07); border-radius: 2px; overflow: hidden; }
-  .op-cat-fill  { height: 100%; border-radius: 2px; }
-  .op-cat-val   { font-size: 0.78rem; font-weight: 600; color: rgba(243,239,234,0.55); font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
+  /* Gráfico de barras — Receita x Gastos por mês */
+  .op-bars-wrap { display: flex; flex-direction: column; }
+  .op-bars-legend { display: flex; gap: 16px; margin-bottom: 14px; }
+  .op-bars-legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; font-weight: 600; color: rgba(243,239,234,0.45); }
+  .op-bars-swatch { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+  .op-bars-swatch.in  { background: #2EC8A4; }
+  .op-bars-swatch.out { background: #F07A64; }
+  .op-bars-row { display: flex; align-items: flex-end; gap: 4px; }
+  .op-bar-group { flex: 1; position: relative; display: flex; justify-content: center; align-items: flex-end; height: 100%; cursor: pointer; }
+  .op-bar-pair { display: flex; align-items: flex-end; justify-content: center; gap: 3px; width: 100%; height: 100%; }
+  .op-bar { width: 34%; max-width: 14px; border-radius: 4px 4px 2px 2px; transition: height 0.8s cubic-bezier(.34,1.4,.4,1), filter 0.15s ease; }
+  .op-bar.in  { background: linear-gradient(180deg, #57E6C2, #2EC8A4); box-shadow: 0 0 12px rgba(46,200,164,0.28); }
+  .op-bar.out { background: linear-gradient(180deg, #F5987F, #F07A64); box-shadow: 0 0 12px rgba(240,122,100,0.22); }
+  .op-bar-group:hover .op-bar { filter: brightness(1.2); }
+  .op-bar-tip {
+    position: absolute; bottom: 100%; margin-bottom: 10px; left: 50%; transform: translateX(-50%);
+    background: #1A1613; border: 1px solid rgba(243,239,234,0.14);
+    border-radius: 10px; padding: 8px 12px;
+    display: flex; flex-direction: column; gap: 3px;
+    white-space: nowrap; z-index: 6; pointer-events: none;
+    box-shadow: 0 10px 24px rgba(0,0,0,0.45);
+  }
+  .op-bar-tip-label { font-size: 0.6rem; font-weight: 700; color: rgba(243,239,234,0.4); text-transform: uppercase; letter-spacing: 0.06em; }
+  .op-bar-tip-in  { font-size: 0.76rem; font-weight: 700; color: #2EC8A4; }
+  .op-bar-tip-out { font-size: 0.76rem; font-weight: 700; color: #F07A64; }
+
+  /* Categorias — linha simples, sem cartão/pílula por item */
+  .op-cats { display: flex; flex-wrap: wrap; column-gap: 22px; row-gap: 10px; padding-top: 14px; border-top: 1px solid rgba(243,239,234,0.06); }
+  .op-cat-chip { display: flex; align-items: center; gap: 7px; }
+  .op-cat-dot { width: 6px; height: 6px; border-radius: 2px; flex-shrink: 0; }
+  .op-cat-name { font-size: 0.78rem; color: rgba(243,239,234,0.5); }
+  .op-cat-val  { font-size: 0.78rem; font-weight: 700; color: rgba(243,239,234,0.9); font-variant-numeric: tabular-nums; }
 
   /* Metas */
   .op-goals { display: flex; flex-direction: column; gap: 16px; }
@@ -147,13 +195,9 @@ const css = `
     border-bottom: 1px solid rgba(243,239,234,0.05);
   }
   .op-txn-row:last-child { border-bottom: none; }
-  .op-txn-icon {
-    width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.8rem; font-weight: 800;
-  }
-  .op-txn-icon.in  { background: rgba(46,200,164,0.12); color: #2EC8A4; }
-  .op-txn-icon.out { background: rgba(240,122,100,0.1);  color: #F07A64; }
+  .op-txn-arrow { flex-shrink: 0; display: flex; }
+  .op-txn-arrow.in  { color: #2EC8A4; }
+  .op-txn-arrow.out { color: rgba(243,239,234,0.3); }
   .op-txn-info { flex: 1; min-width: 0; }
   .op-txn-desc { font-size: 0.83rem; font-weight: 600; color: #F3EFEA; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .op-txn-date { font-size: 0.68rem; color: rgba(243,239,234,0.25); margin-top: 1px; }
@@ -161,34 +205,75 @@ const css = `
   .op-txn-val.in  { color: #2EC8A4; }
   .op-txn-val.out { color: rgba(243,239,234,0.7); }
 
-  /* Cartões */
-  .op-cards-row { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 4px; }
+  /* Cartões — layout copiado 1:1 da referência (Loftbank): nome+selo em cima
+     à esquerda, ícone contactless em cima à direita, número grande no meio,
+     disponível + bandeira embaixo. */
+  .op-cards-row { display: flex; gap: 16px; overflow-x: auto; padding-bottom: 4px; }
   .op-card-visual {
-    min-width: 260px; flex: 1;
-    max-width: 320px;
-    border-radius: 16px;
-    padding: 20px 22px;
-    background: linear-gradient(135deg, #1C1610 0%, #2A2015 65%, #1C1610 100%);
-    border: 1px solid rgba(212,168,32,0.25);
+    min-width: 300px; flex: 1;
+    max-width: 360px;
+    aspect-ratio: 1.586 / 1;
+    border-radius: 18px;
+    padding: 22px 24px;
+    background:
+      radial-gradient(120% 140% at 15% 0%, rgba(255,255,255,0.07), transparent 55%),
+      linear-gradient(135deg, #45484D 0%, #2A2C30 45%, #17181B 100%);
     position: relative;
     overflow: hidden;
-    display: flex; flex-direction: column; gap: 24px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    display: flex; flex-direction: column;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.25), 0 20px 40px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.06);
   }
-  .op-card-visual::before {
+  .op-card-visual::after {
     content: '';
-    position: absolute; top: -50%; right: -25%;
-    width: 200px; height: 200px; border-radius: 50%;
-    background: radial-gradient(circle, rgba(212,168,32,0.16), transparent 70%);
+    position: absolute; inset: 0;
+    background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,0.05) 48%, transparent 60%);
     pointer-events: none;
   }
-  .op-card-visual-top { display: flex; justify-content: space-between; align-items: flex-start; position: relative; }
-  .op-card-visual-bank { font-size: 0.86rem; font-weight: 800; color: #F3EFEA; }
-  .op-card-visual-brand { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.08em; color: #D4A820; }
-  .op-card-visual-number { font-size: 0.98rem; font-weight: 600; letter-spacing: 0.1em; color: rgba(243,239,234,0.75); font-variant-numeric: tabular-nums; position: relative; }
-  .op-card-visual-bottom { display: flex; justify-content: space-between; align-items: flex-end; position: relative; }
-  .op-card-visual-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(243,239,234,0.35); margin-bottom: 3px; }
-  .op-card-visual-val { font-size: 0.9rem; font-weight: 800; color: #F3EFEA; font-variant-numeric: tabular-nums; }
+  .op-card-visual-top { display: flex; justify-content: space-between; align-items: flex-start; position: relative; z-index: 1; }
+  .op-card-visual-bankblock { display: flex; flex-direction: column; gap: 3px; }
+  .op-card-visual-bank { font-size: 1rem; font-weight: 800; color: #F3EFEA; letter-spacing: -0.01em; }
+  .op-card-visual-issuer { font-size: 0.58rem; font-weight: 700; letter-spacing: 0.1em; color: rgba(243,239,234,0.42); }
+  .op-card-visual-nfc {
+    width: 24px; height: 24px;
+    display: flex; align-items: center; justify-content: center;
+    color: rgba(243,239,234,0.65);
+    flex-shrink: 0;
+  }
+  .op-card-visual-chip {
+    width: 34px; height: 25px; border-radius: 5px; margin: 18px 0 14px;
+    background: linear-gradient(155deg, #E8D9A8 0%, #C9AE6F 45%, #B08F4E 100%);
+    position: relative; z-index: 1;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.15);
+  }
+  .op-card-visual-chip::before, .op-card-visual-chip::after {
+    content: ''; position: absolute; background: rgba(0,0,0,0.18);
+  }
+  .op-card-visual-chip::before { left: 0; right: 0; top: 50%; height: 1px; transform: translateY(-50%); }
+  .op-card-visual-chip::after { top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-50%); }
+  .op-card-visual-number {
+    font-size: 1.2rem; font-weight: 500; letter-spacing: 0.1em;
+    color: #F3EFEA; font-variant-numeric: tabular-nums;
+    position: relative; z-index: 1;
+  }
+  .op-card-visual-bottom { display: flex; justify-content: space-between; align-items: flex-end; position: relative; z-index: 1; margin-top: auto; }
+  .op-card-visual-avail { font-size: 0.68rem; font-weight: 500; color: rgba(243,239,234,0.5); }
+  .op-card-visual-brand { font-size: 0.98rem; font-weight: 800; font-style: italic; letter-spacing: 0.02em; color: #F3EFEA; }
+
+  .op-card-add {
+    min-width: 200px; flex: 0 0 auto;
+    aspect-ratio: 1.586 / 1;
+    border-radius: 18px;
+    border: 1.5px dashed rgba(243,239,234,0.16);
+    background: transparent;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    color: rgba(243,239,234,0.4);
+    font-family: inherit; font-size: 0.82rem; font-weight: 700;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  }
+  .op-card-add:hover { border-color: rgba(212,168,32,0.5); color: #D4A820; background: rgba(212,168,32,0.04); }
+  .op-card-add-icon { font-size: 1.6rem; font-weight: 400; line-height: 1; }
 
   /* Connect CTA */
   .op-cta {
@@ -207,18 +292,17 @@ const css = `
   @keyframes op-pulse { 0%,100%{opacity:0.35} 50%{opacity:0.7} }
 
   @media (max-width: 1024px) {
-    .op-kpis { grid-template-columns: repeat(2,1fr); }
     .op-row  { grid-template-columns: 1fr; }
   }
   @media (max-width: 600px) {
     .op { padding: 16px 14px 32px; }
-    .op-kpis { grid-template-columns: repeat(2,1fr); }
   }
 `;
 
 const CAT_COLORS = ['#D4A820','#2EC8A4','#60B0F2','#F07A64','#ECB040','#B088E0'];
 
-const DEMO_SPEND = [3200, 2800, 3600, 3100, 4200, 3800, 4000, 3500, 3900, 4100, 3700, 4000];
+const DEMO_SPEND  = [3200, 2800, 3600, 3100, 4200, 3800, 4000, 3500, 3900, 4100, 3700, 4000];
+const DEMO_INCOME = [6000, 5800, 6200, 6100, 7200, 6800, 7000, 6900, 7100, 7000, 6950, 7000];
 const DEMO_MONTHS = ['Set','Out','Nov','Dez','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago'];
 
 const DEMO_CATS = [
@@ -248,8 +332,8 @@ const DEMO_TXNS = [
 ];
 
 const DEMO_CARDS = [
-  { bank_name: 'Nubank', brand: 'Mastercard', last4: '4532', credit_limit: 8500, available_credit_limit: 3180 },
-  { bank_name: 'Itaú',   brand: 'Visa',        last4: '1187', credit_limit: 5000, available_credit_limit: 4260 },
+  { bank_name: 'Nubank', brand: 'Mastercard', level: 'Platinum', last4: '4532', credit_limit: 8500, available_credit_limit: 3180 },
+  { bank_name: 'Itaú',   brand: 'Visa',        level: 'Gold',     last4: '1187', credit_limit: 5000, available_credit_limit: 4260 },
 ];
 
 function fmtBRL(n: number) {
@@ -281,6 +365,18 @@ function buildSpend(txns: Transaction[]) {
   const map: Record<string, number> = {};
   for (const t of txns) {
     if (t.amount < 0 || t.type === 'expense') {
+      const m = t.date?.slice(0, 7) || '';
+      map[m] = (map[m] || 0) + Math.abs(t.amount);
+    }
+  }
+  const vals = Object.values(map);
+  return vals.length >= 2 ? vals.slice(-12) : [];
+}
+
+function buildIncome(txns: Transaction[]) {
+  const map: Record<string, number> = {};
+  for (const t of txns) {
+    if (t.amount > 0 || t.type === 'income') {
       const m = t.date?.slice(0, 7) || '';
       map[m] = (map[m] || 0) + Math.abs(t.amount);
     }
@@ -331,9 +427,11 @@ export const OrganizarPage: React.FC = () => {
 
   const cats: { name: string; color: string; pct: number; val: string }[] =
     hasReal ? buildCats(txns) : showDemo ? DEMO_CATS : [];
-  const spendData = hasReal ? buildSpend(txns) : showDemo ? DEMO_SPEND : [];
+  const spendData  = hasReal ? buildSpend(txns)  : showDemo ? DEMO_SPEND  : [];
+  const incomeData = hasReal ? buildIncome(txns) : showDemo ? DEMO_INCOME : [];
+  const chartLen = Math.min(spendData.length, incomeData.length);
   const displayGoals = hasRealGoals ? goals : (!hasRealGoals && demo ? DEMO_GOALS : []);
-  const displayCards: { bank_name?: string | null; brand?: string | null; last4?: string | null; credit_limit?: number | null; available_credit_limit?: number | null }[] =
+  const displayCards: { bank_name?: string | null; brand?: string | null; level?: string | null; last4?: string | null; credit_limit?: number | null; available_credit_limit?: number | null }[] =
     hasRealCards ? realCards : (!hasRealCards && demo ? DEMO_CARDS : []);
 
   const totalIn  = txns.filter(t => t.amount > 0 || t.type === 'income').reduce((s, t) => s + Math.abs(t.amount), 0);
@@ -354,89 +452,51 @@ export const OrganizarPage: React.FC = () => {
       <style>{css}</style>
       <div className="op">
 
-        {/* ── KPIs ── */}
+        {/* ── Resumo + finanças por mês (um painel só) ── */}
         {loading ? (
-          <div className="op-kpis">
-            {[1,2,3,4].map(i => <div key={i} className="op-skel" style={{ height: 90 }} />)}
-          </div>
+          <div className="op-panel"><div className="op-skel" style={{ height: 240 }} /></div>
         ) : (
-          <div className="op-kpis">
-            <div className="op-kpi">
-              <span className="op-kpi-label">Receita</span>
-              <span className={`op-kpi-val ${hasReal ? 'green' : showDemo ? 'green' : 'dim'}`}>
-                {hasReal ? fmtBRL(totalIn) : showDemo ? 'R$ 7.000' : '—'}
-              </span>
-              <span className="op-kpi-delta up">{hasReal || showDemo ? '▲ este mês' : 'sem dados ainda'}</span>
+          <div className="op-panel">
+            <div className="op-panel-head">
+              <span className="op-panel-title">Resumo do mês</span>
+              {showDemo && <span className="op-panel-tag">exemplo</span>}
             </div>
-            <div className="op-kpi">
-              <span className="op-kpi-label">Gastos</span>
-              <span className={`op-kpi-val ${hasReal ? 'red' : showDemo ? 'red' : 'dim'}`}>
-                {hasReal ? fmtBRL(totalOut) : showDemo ? 'R$ 4.000' : '—'}
-              </span>
-              <span className="op-kpi-delta down">{hasReal || showDemo ? '▼ vs mês anterior' : 'sem dados ainda'}</span>
-            </div>
-            <div className="op-kpi">
-              <span className="op-kpi-label">Saldo</span>
-              <span className={`op-kpi-val ${hasReal ? (saldo >= 0 ? 'green' : 'red') : showDemo ? 'gold' : 'dim'}`}>
+
+            <div className="op-hero-stat">
+              <span className="op-hero-label">Saldo do mês</span>
+              <span className={`op-hero-val ${hasReal ? (saldo >= 0 ? 'green' : 'red') : showDemo ? 'gold' : 'dim'}`}>
                 {hasReal ? fmtBRL(saldo) : showDemo ? 'R$ 3.000' : '—'}
               </span>
-              <span className="op-kpi-delta">{hasReal || showDemo ? 'disponível agora' : 'sem dados ainda'}</span>
-            </div>
-            <div className="op-kpi">
-              <span className="op-kpi-label">Taxa de poupança</span>
-              <span className={`op-kpi-val ${hasReal || showDemo ? 'gold' : 'dim'}`}>
-                {hasReal && totalIn ? `${Math.round((saldo / totalIn) * 100)}%` : showDemo ? '43%' : '—'}
+              <span className="op-hero-sub">
+                <span className="green">Receita {hasReal ? fmtBRL(totalIn) : showDemo ? 'R$ 7.000' : '—'}</span>
+                <span className="op-hero-sep">·</span>
+                <span className="red">Gastos {hasReal ? fmtBRL(totalOut) : showDemo ? 'R$ 4.000' : '—'}</span>
               </span>
-              <span className="op-kpi-delta up">{hasReal || showDemo ? '▲ acima da média' : 'sem dados ainda'}</span>
             </div>
-          </div>
-        )}
 
-        {/* ── Gráfico + Categorias ── */}
-        {!loading && (
-          <div className="op-row">
-            <div className="op-panel">
-              <div className="op-panel-head">
-                <span className="op-panel-title">Gastos mensais</span>
-                {showDemo && <span className="op-panel-badge demo">exemplo</span>}
-                {(hasReal || showDemo) && <span className="op-panel-badge">últimos 12 meses</span>}
-              </div>
-              {spendData.length > 0 ? (
-                <>
-                  <AreaChart data={spendData} color="#D4A820" h={120} />
-                  <div className="op-chart-labels">
-                    {DEMO_MONTHS.slice(-spendData.length).map(m => (
-                      <span key={m} className="op-chart-label">{m}</span>
+            {chartLen > 0 ? (
+              <>
+                <BarChart
+                  income={incomeData.slice(-chartLen)}
+                  expense={spendData.slice(-chartLen)}
+                  labels={DEMO_MONTHS.slice(-chartLen)}
+                  h={160}
+                />
+                {cats.length > 0 && (
+                  <div className="op-cats">
+                    {cats.map(c => (
+                      <div key={c.name} className="op-cat-chip">
+                        <div className="op-cat-dot" style={{ background: c.color }} />
+                        <span className="op-cat-name">{c.name}</span>
+                        <span className="op-cat-val">{c.val}</span>
+                      </div>
                     ))}
                   </div>
-                </>
-              ) : (
-                <EmptyPanel icon="📈" title="Nenhum gasto registrado ainda" sub="Conecte seu banco pra ver a evolução dos seus gastos mês a mês." />
-              )}
-            </div>
-
-            <div className="op-panel">
-              <div className="op-panel-head">
-                <span className="op-panel-title">Por categoria</span>
-                {showDemo && <span className="op-panel-badge demo">exemplo</span>}
-              </div>
-              {cats.length > 0 ? (
-                <div className="op-cats">
-                  {cats.map(c => (
-                    <div key={c.name} className="op-cat-row">
-                      <div className="op-cat-dot" style={{ background: c.color }} />
-                      <span className="op-cat-name">{c.name}</span>
-                      <div className="op-cat-track">
-                        <div className="op-cat-fill" style={{ width: `${c.pct}%`, background: c.color }} />
-                      </div>
-                      <span className="op-cat-val">{c.val}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyPanel icon="🏷" title="Sem categorias ainda" sub="Assim que suas transações chegarem, elas aparecem organizadas aqui." />
-              )}
-            </div>
+                )}
+              </>
+            ) : (
+              <EmptyPanel icon="📈" title="Nenhum gasto registrado ainda" sub="Conecte seu banco pra ver a evolução dos seus gastos mês a mês." />
+            )}
           </div>
         )}
 
@@ -445,16 +505,22 @@ export const OrganizarPage: React.FC = () => {
           <div className="op-panel">
             <div className="op-panel-head">
               <span className="op-panel-title">Cartões</span>
-              {showDemo && !hasRealCards && <span className="op-panel-badge demo">exemplo</span>}
-              {(hasRealCards || (!hasRealCards && demo)) && <span className="op-panel-badge">{displayCards.length} {displayCards.length === 1 ? 'cartão' : 'cartões'}</span>}
+              {showDemo && !hasRealCards && <span className="op-panel-tag">exemplo</span>}
             </div>
-            {displayCards.length > 0 ? (
-              <div className="op-cards-row">
-                {displayCards.map((c, i) => <CardVisual key={i} card={c} />)}
+            {displayCards.length === 0 && (
+              <div className="op-empty" style={{ paddingBottom: 6 }}>
+                <div className="op-empty-icon">💳</div>
+                <div className="op-empty-title">Nenhum cartão ainda</div>
+                <div className="op-empty-sub">Conecte seu banco ou cadastre um cartão na mão.</div>
               </div>
-            ) : (
-              <EmptyPanel icon="💳" title="Nenhum cartão conectado" sub="Conecte seu banco pra ver bandeira, limite e fatura dos seus cartões aqui." />
             )}
+            <div className="op-cards-row">
+              {displayCards.map((c, i) => <CardVisual key={i} card={c} />)}
+              <button type="button" className="op-card-add" onClick={() => navigate('/organizar/cartao/novo')}>
+                <span className="op-card-add-icon">+</span>
+                Adicionar cartão
+              </button>
+            </div>
           </div>
         )}
 
@@ -464,14 +530,17 @@ export const OrganizarPage: React.FC = () => {
             <div className="op-panel">
               <div className="op-panel-head">
                 <span className="op-panel-title">Movimentações recentes</span>
-                {showDemo && <span className="op-panel-badge demo">exemplo</span>}
-                {displayTxns.length > 0 && <span className="op-panel-badge">{displayTxns.length} transações</span>}
+                {showDemo && <span className="op-panel-tag">exemplo</span>}
               </div>
               {displayTxns.length > 0 ? (
                 <div className="op-txn-list">
                   {displayTxns.map((t, i) => (
                     <div key={i} className="op-txn-row">
-                      <div className={`op-txn-icon ${t.type}`}>{t.type === 'in' ? '↑' : '↓'}</div>
+                      <svg className={`op-txn-arrow ${t.type}`} width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        {t.type === 'in'
+                          ? <path d="M7 11V3M3.5 6.5 7 3l3.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                          : <path d="M7 3v8M3.5 7.5 7 11l3.5-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>}
+                      </svg>
                       <div className="op-txn-info">
                         <div className="op-txn-desc">{t.desc}</div>
                         <div className="op-txn-date">{t.date}</div>
@@ -488,8 +557,7 @@ export const OrganizarPage: React.FC = () => {
             <div className="op-panel">
               <div className="op-panel-head">
                 <span className="op-panel-title">Metas</span>
-                {!hasRealGoals && demo && <span className="op-panel-badge demo">exemplo</span>}
-                {displayGoals.length > 0 && <span className="op-panel-badge">{displayGoals.length} ativas</span>}
+                {!hasRealGoals && demo && <span className="op-panel-tag">exemplo</span>}
               </div>
               {displayGoals.length > 0 ? (
                 <div className="op-goals">

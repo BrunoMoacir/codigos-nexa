@@ -6,6 +6,7 @@ import { RegisterPage } from './pages/RegisterPage';
 import { ChatPage } from './pages/ChatPage';
 import { FeedPage } from './pages/FeedPage';
 import { OrganizarPage } from './pages/OrganizarPage';
+import { AddCardPage } from './pages/AddCardPage';
 import { HomePage } from './pages/HomePage';
 import { StrategiesPage } from './pages/StrategiesPage';
 import { ConnectionsPage } from './pages/ConnectionsPage';
@@ -34,7 +35,7 @@ function App() {
             borderRadius: '12px',
             border: '1px solid rgba(212,168,32,0.2)',
             fontSize: '0.85rem',
-            fontFamily: "'General Sans', system-ui, sans-serif",
+            fontFamily: "'Satoshi', system-ui, sans-serif",
           },
           success: { iconTheme: { primary: '#2EC8A4', secondary: '#0C0A08' } },
           error:   { iconTheme: { primary: '#F07A64', secondary: '#0C0A08' } },
@@ -49,6 +50,7 @@ function App() {
           <Route path="/chat"      element={<ChatPage />} />
           <Route path="/feed"      element={<FeedPage />} />
           <Route path="/organizar" element={<OrganizarPage />} />
+          <Route path="/organizar/cartao/novo" element={<AddCardPage />} />
 
           {/* Páginas legadas mantidas */}
           <Route path="/home"        element={<HomePage />} />

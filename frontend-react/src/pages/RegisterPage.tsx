@@ -4,19 +4,6 @@ import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../api/client';
 
 // ─── Utils ───────────────────────────────────────────────────────────────────
-const pwStrength = (pw: string) => {
-  if (!pw) return 0;
-  let s = 0;
-  if (pw.length >= 8) s++;
-  if (pw.length >= 12) s++;
-  if (/[A-Z]/.test(pw)) s++;
-  if (/[0-9]/.test(pw)) s++;
-  if (/[^A-Za-z0-9]/.test(pw)) s++;
-  return s;
-};
-const PW_LABEL = ['', 'Muito fraca', 'Fraca', 'Média', 'Forte', 'Muito forte'];
-const PW_COLOR = ['', '#F07A64', '#F5A94A', '#ECC94B', '#68D391', '#2EC8A4'];
-
 const fmtCPF = (v: string) => {
   const d = v.replace(/\D/g, '').slice(0, 11);
   return d
@@ -45,11 +32,11 @@ const BANKS = [
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────
 const css = `
-  @import url('https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap');
+  @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,800,900&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   .rp-root {
-    font-family: 'General Sans', system-ui, sans-serif;
+    font-family: 'Satoshi', system-ui, sans-serif;
     min-height: 100vh;
     background: #0C0A08;
     color: #F3EFEA;
@@ -323,33 +310,23 @@ const css = `
   .rp-input::placeholder { color: rgba(243,239,234,0.28); }
   .rp-input:focus { border-color: rgba(212,168,32,0.5); background: rgba(212,168,32,0.03); }
   .rp-input.err { border-color: rgba(240,122,100,0.55); background: rgba(240,122,100,0.04); }
+  /* Navegador pinta autofill de branco por padrão — força manter o escuro */
+  .rp-input:-webkit-autofill,
+  .rp-input:-webkit-autofill:hover,
+  .rp-input:-webkit-autofill:focus,
+  .rp-input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 100px #171310 inset !important;
+    -webkit-text-fill-color: #F3EFEA !important;
+    caret-color: #F3EFEA;
+    transition: background-color 9999s ease-in-out 0s;
+  }
   .rp-field-err {
     font-size: 0.7rem;
     color: #F07A64;
     margin-top: 4px;
     font-weight: 500;
   }
-
-  /* ── Senha strength ── */
-  .rp-pw-bars {
-    display: flex;
-    gap: 3px;
-    margin-top: 7px;
-  }
-  .rp-pw-bar {
-    flex: 1;
-    height: 3px;
-    border-radius: 2px;
-    background: rgba(243,239,234,0.08);
-    transition: background 0.3s;
-  }
-  .rp-pw-label {
-    font-size: 0.65rem;
-    font-weight: 600;
-    margin-top: 4px;
-    transition: color 0.3s;
-    min-height: 1em;
-  }
+  .rp-field-err a { color: #D4A820; font-weight: 700; text-decoration: underline; }
 
   /* ── Botão principal ── */
   .rp-btn {
@@ -651,6 +628,8 @@ export const RegisterPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [errs1, setErrs1] = useState({ name: '', email: '', cpf: '', phone: '', password: '', confirm: '' });
+  const [checkingEmail, setCheckingEmail] = useState(false);
+  const [emailTaken, setEmailTaken] = useState(false);
 
   const [loading, setLoading] = useState(false);
 
@@ -664,7 +643,6 @@ export const RegisterPage: React.FC = () => {
   const [privAccepted, setPrivAccepted] = useState(false);
   const [termErr, setTermErr] = useState(false);
 
-  const strength = pwStrength(password);
   const firstName = name.trim().split(' ')[0] || '';
 
   const validate1 = () => {
@@ -683,7 +661,30 @@ export const RegisterPage: React.FC = () => {
     return !Object.values(e).some(Boolean);
   };
 
-  const handleStep1 = (ev: React.FormEvent) => { ev.preventDefault(); if (validate1()) setStep(2); };
+  const handleStep1 = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    setEmailTaken(false);
+    if (!validate1()) return;
+
+    setCheckingEmail(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/check-email?email=${encodeURIComponent(email.trim())}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (!data.available) {
+          setEmailTaken(true);
+          return;
+        }
+      }
+      // Se a verificação falhar por erro de rede, segue em frente —
+      // o /auth/register do passo 3 ainda pega um e-mail duplicado.
+      setStep(2);
+    } catch {
+      setStep(2);
+    } finally {
+      setCheckingEmail(false);
+    }
+  };
 
   const handleStep3 = async () => {
     if (!termAccepted || !privAccepted) { setTermErr(true); return; }
@@ -825,10 +826,15 @@ export const RegisterPage: React.FC = () => {
 
                         <div>
                           <label className="rp-field-label">E-mail</label>
-                          <input className={`rp-input${errs1.email ? ' err' : ''}`} type="email" placeholder="seu@email.com"
-                            value={email} onChange={e => { setEmail(e.target.value); if (errs1.email) setErrs1(p => ({...p, email: ''})); }}
+                          <input className={`rp-input${errs1.email || emailTaken ? ' err' : ''}`} type="email" placeholder="seu@email.com"
+                            value={email} onChange={e => { setEmail(e.target.value); if (errs1.email) setErrs1(p => ({...p, email: ''})); setEmailTaken(false); }}
                             autoComplete="email" />
                           {errs1.email && <div className="rp-field-err">{errs1.email}</div>}
+                          {emailTaken && (
+                            <div className="rp-field-err">
+                              Este e-mail já tem uma conta. <Link to="/login">Entrar</Link>
+                            </div>
+                          )}
                         </div>
 
                         <div className="rp-row2">
@@ -853,19 +859,6 @@ export const RegisterPage: React.FC = () => {
                           <input className={`rp-input${errs1.password ? ' err' : ''}`} type="password" placeholder="Mínimo 8 caracteres"
                             value={password} onChange={e => { setPassword(e.target.value); if (errs1.password) setErrs1(p => ({...p, password: ''})); }}
                             autoComplete="new-password" />
-                          {password && (
-                            <>
-                              <div className="rp-pw-bars">
-                                {[1,2,3,4,5].map(i => (
-                                  <div key={i} className="rp-pw-bar"
-                                    style={{ background: i <= strength ? PW_COLOR[strength] : undefined }} />
-                                ))}
-                              </div>
-                              <div className="rp-pw-label" style={{ color: PW_COLOR[strength] }}>
-                                {PW_LABEL[strength]}
-                              </div>
-                            </>
-                          )}
                           {errs1.password && <div className="rp-field-err">{errs1.password}</div>}
                         </div>
 
@@ -878,7 +871,9 @@ export const RegisterPage: React.FC = () => {
                         </div>
                       </div>
 
-                      <button type="submit" className="rp-btn">Continuar</button>
+                      <button type="submit" className="rp-btn" disabled={checkingEmail}>
+                        {checkingEmail ? 'Verificando…' : 'Continuar'}
+                      </button>
                     </form>
                   </>
                 )}

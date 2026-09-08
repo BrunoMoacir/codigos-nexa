@@ -119,6 +119,18 @@ export const nexaApi = {
     return data;
   },
 
+  addManualCard: async (payload: {
+    bank_name: string;
+    brand?: string;
+    level?: string;
+    last4?: string;
+    credit_limit?: number;
+    available_credit_limit?: number;
+  }) => {
+    const { data } = await apiClient.post('/pluggy/cards/manual', payload);
+    return data;
+  },
+
   // Chat
   sendChatMessage: async (userId: string, message: string, sessionId?: string) => {
     const { data } = await apiClient.post('/chat/', { user_id: userId, message, session_id: sessionId });

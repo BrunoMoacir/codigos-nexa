@@ -101,11 +101,11 @@ const ContactBgCanvas: React.FC = () => {
 };
 
 const css = `
-  @import url('https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap');
+  @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,800,900&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   .cp-page {
-    font-family: 'General Sans', system-ui, sans-serif;
+    font-family: 'Satoshi', system-ui, sans-serif;
     min-height: 100vh;
     background: #0A0806;
     display: flex;
@@ -548,7 +548,7 @@ function DashChart() {
       <path d={line} fill="none" stroke="#D4A820" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
       <circle cx={pts[pts.length-1][0]} cy={pts[pts.length-1][1]} r="2.5" fill="#D4A820"/>
       {['Jan','Mar','Mai','Jul','Set'].map((l,i)=>(
-        <text key={l} x={(i/4)*196+2} y="75" fontSize="5" fill="rgba(243,239,234,0.22)" textAnchor="middle" fontFamily="General Sans,system-ui">{l}</text>
+        <text key={l} x={(i/4)*196+2} y="75" fontSize="5" fill="rgba(243,239,234,0.22)" textAnchor="middle" fontFamily="Satoshi,system-ui">{l}</text>
       ))}
     </svg>
   );

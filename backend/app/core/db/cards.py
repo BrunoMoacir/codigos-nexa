@@ -87,6 +87,44 @@ def save_credit_cards(user_id: str, item_id: str | None, accounts: list[dict]) -
     return saved
 
 
+def save_manual_card(
+    user_id: str,
+    bank_name: str,
+    brand: Optional[str],
+    level: Optional[str],
+    last4: Optional[str],
+    credit_limit: Optional[float],
+    available_credit_limit: Optional[float],
+) -> str:
+    """Cartão cadastrado manualmente pelo usuário (banco não coberto pelo Open Finance).
+
+    Reaproveita a mesma tabela dos cartões sincronizados via Pluggy — só que
+    com item_id nulo e um account_id sintético, já que não existe conta Pluggy
+    por trás. get_cards() lê os dois tipos igual, sem distinção na UI.
+    """
+    from app.core.database import SessionLocal
+    from app.core.models.credit_card import CreditCard
+
+    account_id = f"manual-{uuid.uuid4()}"
+    with SessionLocal() as db:
+        db.add(CreditCard(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            item_id=None,
+            account_id=account_id,
+            bank_name=bank_name,
+            brand=brand,
+            level=level,
+            last4=last4,
+            credit_limit=credit_limit,
+            available_credit_limit=available_credit_limit,
+            currency="BRL",
+            captured_at=datetime.now(timezone.utc),
+        ))
+        db.commit()
+    return account_id
+
+
 def get_cards(user_id: str) -> list[CardSnapshot]:
     """Cartões do usuário — snapshot mais recente por conta CREDIT."""
     try:
@@ -123,4 +161,4 @@ def get_cards(user_id: str) -> list[CardSnapshot]:
         return []
 
 
-__all__ = ["CardSnapshot", "save_credit_cards", "get_cards"]
+__all__ = ["CardSnapshot", "save_credit_cards", "save_manual_card", "get_cards"]
