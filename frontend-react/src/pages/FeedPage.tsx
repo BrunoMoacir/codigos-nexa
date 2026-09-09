@@ -104,6 +104,11 @@ const css = `
 
   .fp-section-label { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(243,239,234,0.4); margin: 4px 0 2px; }
 
+  /* Alertas e Oportunidades lado a lado — dá pra ver as duas sem rolar */
+  .fp-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  .fp-columns.single { grid-template-columns: 1fr; }
+  .fp-column { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+
   /* Demo banner — texto simples, sem caixa */
   .fp-demo { display: flex; align-items: center; gap: 8px; font-size: 0.73rem; color: rgba(243,239,234,0.35); font-style: italic; padding: 2px 2px; }
   .fp-demo-dot { width: 5px; height: 5px; border-radius: 2px; background: #D4A820; flex-shrink: 0; }
@@ -129,6 +134,7 @@ const css = `
     .fp { padding: 16px 14px 32px; }
     .fp-top { flex-direction: column; align-items: flex-start; }
     .fp-hero { grid-template-columns: 1fr; }
+    .fp-columns { grid-template-columns: 1fr; }
     .fp-cta { flex-direction: column; align-items: flex-start; }
     .fp-cta-btn { width: 100%; text-align: center; }
   }
@@ -299,9 +305,9 @@ export const FeedPage: React.FC = () => {
             <div className="fp-empty-sub">Conecte seu banco pra o HIVE analisar suas tarifas, assinaturas e oportunidades reais.</div>
           </div>
         ) : (
-          <>
+          <div className={`fp-columns${alerts.length > 0 && opps.length > 0 ? '' : ' single'}`}>
             {alerts.length > 0 && (
-              <>
+              <div className="fp-column">
                 <div className="fp-section-label">Alertas</div>
                 <div className="fp-grid">
                   {alerts.map((o, i) => (
@@ -320,11 +326,11 @@ export const FeedPage: React.FC = () => {
                     </div>
                   ))}
                 </div>
-              </>
+              </div>
             )}
 
             {opps.length > 0 && (
-              <>
+              <div className="fp-column">
                 <div className="fp-section-label">Oportunidades</div>
                 <div className="fp-grid">
                   {opps.map((o, i) => (
@@ -343,9 +349,9 @@ export const FeedPage: React.FC = () => {
                     </div>
                   ))}
                 </div>
-              </>
+              </div>
             )}
-          </>
+          </div>
         )}
 
         <div className="fp-cta">

@@ -6,52 +6,80 @@ import { nexaApi } from '../api/nexa';
 import { isDemoMode } from '../utils/demoMode';
 import type { Transaction, Goal, CreditCard } from '../api/types';
 
-// ─── Gráfico de barras — Receita x Gastos por mês, com glow e tooltip ────────
-function BarChart({ income, expense, labels, h = 160 }: { income: number[]; expense: number[]; labels: string[]; h?: number }) {
-  const [mounted, setMounted] = useState(false);
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+// ─── Gráfico de barras flat — valor acima da barra + eixo com grade ──────────
+function fmtShort(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 1000) return `${(n / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}k`;
+  return n.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+}
 
+interface BarPoint { key: string; label: string; value: number }
+
+function SingleBarChart({
+  series, currentKey, onSelect, color = '#D4A820', currentColor = '#F0C840', h = 190,
+}: { series: BarPoint[]; currentKey?: string | null; onSelect?: (key: string) => void; color?: string; currentColor?: string; h?: number }) {
+  const [mounted, setMounted] = useState(false);
   useEffect(() => {
     const t = requestAnimationFrame(() => setMounted(true));
     return () => cancelAnimationFrame(t);
-  }, []);
-
-  if (!income.length) return null;
-  const max = Math.max(...income, ...expense, 1);
+  }, [series.length]);
+  if (!series.length) return null;
+  const max = Math.max(...series.map(s => s.value), 1);
+  const ticks = [1, 0.75, 0.5, 0.25, 0].map(f => Math.round(max * f));
 
   return (
-    <div className="op-bars-wrap">
-      <div className="op-bars-legend">
-        <span className="op-bars-legend-item"><i className="op-bars-swatch in" />Receita</span>
-        <span className="op-bars-legend-item"><i className="op-bars-swatch out" />Gastos</span>
-      </div>
-      <div className="op-bars-row" style={{ height: h }} onMouseLeave={() => setHoverIdx(null)}>
-        {income.map((v, i) => {
-          const ev = expense[i] || 0;
-          const inPct = (v / max) * 100;
-          const outPct = (ev / max) * 100;
-          return (
-            <div key={i} className="op-bar-group" onMouseEnter={() => setHoverIdx(i)}>
-              {hoverIdx === i && (
-                <div className="op-bar-tip">
-                  <span className="op-bar-tip-label">{labels[i]}</span>
-                  <span className="op-bar-tip-in">Receita {fmtBRL(v)}</span>
-                  <span className="op-bar-tip-out">Gastos {fmtBRL(ev)}</span>
+    <div className="op-sbar-wrap">
+      <div className="op-sbar-plot" style={{ height: h }}>
+        <div className="op-sbar-axis">
+          {ticks.map((t, i) => <span key={i}>{fmtShort(t)}</span>)}
+        </div>
+        <div className="op-sbar-plotarea">
+          <div className="op-sbar-grid">
+            {ticks.map((_, i) => <div key={i} />)}
+          </div>
+          <div className="op-sbar-bars">
+            {series.map((s) => {
+              const isCurrent = s.key === currentKey;
+              return (
+                <div key={s.key} className="op-sbar-col">
+                  <span className={`op-sbar-val${isCurrent ? ' current' : ''}`}>{fmtShort(s.value)}</span>
+                  <button
+                    type="button"
+                    className={`op-sbar-bar${isCurrent ? ' current' : ''}${onSelect ? ' clickable' : ''}`}
+                    style={{ height: mounted ? `${(s.value / max) * 100}%` : '0%', background: isCurrent ? currentColor : color }}
+                    onClick={() => onSelect?.(s.key)}
+                    disabled={!onSelect}
+                    aria-label={s.label}
+                  />
                 </div>
-              )}
-              <div className="op-bar-pair">
-                <div className="op-bar in"  style={{ height: mounted ? `${inPct}%`  : '0%' }} />
-                <div className="op-bar out" style={{ height: mounted ? `${outPct}%` : '0%' }} />
-              </div>
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        </div>
       </div>
       <div className="op-chart-labels">
-        {labels.map(m => <span key={m} className="op-chart-label">{m}</span>)}
+        <div className="op-sbar-axis-spacer" />
+        <div className="op-sbar-labels">
+          {series.map(s => (
+            <div key={s.key} className="op-sbar-label-col">
+              <span className={`op-chart-label${s.key === currentKey ? ' current' : ''}`}>{s.label}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
+}
+
+// ─── Série diária sintética pro modo demo (soma ≈ total do mês) ──────────────
+function demoDailySeries(total: number, seed: number, days = 30): number[] {
+  const base = total / days;
+  const raw = Array.from({ length: days }, (_, d) => {
+    const wave = Math.sin((d + seed * 7) * 0.9) * 0.4 + Math.sin((d + seed) * 0.35) * 0.3;
+    return Math.max(0, base * (1 + wave));
+  });
+  const sum = raw.reduce((s, v) => s + v, 0) || 1;
+  return raw.map(v => Math.round(v * (total / sum)));
 }
 
 // ─── Empty state (honesto — sem banco conectado, sem modo demo) ──────────────
@@ -96,18 +124,51 @@ function CardVisual({ card }: { card: { bank_name?: string | null; brand?: strin
 const css = `
   .op { display: flex; flex-direction: column; min-height: 100vh; background: #0A0806; padding: 28px 28px 40px; gap: 20px; }
 
-  /* Resumo — um número grande (Saldo) com Receita/Gastos como texto de apoio */
-  .op-hero-stat { display: flex; flex-direction: column; gap: 3px; margin-bottom: 22px; }
-  .op-hero-label { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(243,239,234,0.32); }
-  .op-hero-val { font-size: 2.4rem; font-weight: 900; letter-spacing: -0.05em; font-variant-numeric: tabular-nums; color: #F3EFEA; line-height: 1.1; }
+  /* Resumo — um número grande (Saldo), alinhado à esquerda, com Receita/Gastos de apoio */
+  .op-hero-stat { display: flex; flex-direction: column; gap: 6px; padding: 10px 0 28px; }
+  .op-hero-val { font-size: 2.6rem; font-weight: 900; letter-spacing: -0.05em; font-variant-numeric: tabular-nums; color: #F3EFEA; line-height: 1.1; }
   .op-hero-val.gold  { color: #D4A820; }
   .op-hero-val.green { color: #2EC8A4; }
   .op-hero-val.red   { color: #F07A64; }
   .op-hero-val.dim   { color: rgba(243,239,234,0.2); }
-  .op-hero-sub { font-size: 0.82rem; font-weight: 600; color: rgba(243,239,234,0.4); }
+  .op-hero-sub { font-size: 0.84rem; font-weight: 600; color: rgba(243,239,234,0.4); }
   .op-hero-sub .green { color: #2EC8A4; }
   .op-hero-sub .red   { color: #F07A64; }
   .op-hero-sep { margin: 0 8px; color: rgba(243,239,234,0.18); }
+
+  /* Filtro de período — abas com sublinhado, sem pílula */
+  .op-period-tabs { display: flex; gap: 20px; }
+  .op-period-tab {
+    font-family: inherit; font-size: 0.74rem; font-weight: 700;
+    color: rgba(243,239,234,0.35); background: none; border: none;
+    padding: 4px 2px 8px; cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .op-period-tab:hover { color: rgba(243,239,234,0.65); }
+  .op-period-tab.active { color: #D4A820; border-bottom-color: #D4A820; }
+
+  /* Voltar do drill-down diário */
+  .op-back-btn {
+    display: flex; align-items: center; gap: 8px;
+    font-family: inherit; font-size: 0.78rem; font-weight: 700;
+    color: #F3EFEA; background: none; border: none; padding: 0; cursor: pointer;
+  }
+  .op-back-btn:hover { color: #D4A820; }
+  .op-chart-hint { font-size: 0.7rem; color: rgba(243,239,234,0.22); margin-top: 10px; }
+
+  /* Navegação de semana dentro do drill-down diário */
+  .op-week-nav { display: flex; align-items: center; justify-content: center; gap: 18px; margin-bottom: 20px; }
+  .op-week-label { font-size: 1.05rem; font-weight: 800; color: #F3EFEA; min-width: 220px; text-align: center; font-variant-numeric: tabular-nums; }
+  .op-week-arrow {
+    width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(243,239,234,0.05); border: 1px solid rgba(243,239,234,0.1);
+    color: rgba(243,239,234,0.6); cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .op-week-arrow:hover:not(:disabled) { background: rgba(212,168,32,0.1); border-color: rgba(212,168,32,0.3); color: #D4A820; }
+  .op-week-arrow:disabled { opacity: 0.25; cursor: default; }
 
   /* Row */
   .op-row { display: grid; grid-template-columns: 1fr 340px; gap: 14px; align-items: start; }
@@ -132,7 +193,6 @@ const css = `
     margin-bottom: 18px;
   }
   .op-panel-title { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(243,239,234,0.35); }
-  .op-panel-tag { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; color: rgba(243,239,234,0.32); font-style: italic; }
 
   /* Empty state */
   .op-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px 16px; gap: 6px; min-height: 120px; }
@@ -141,34 +201,35 @@ const css = `
   .op-empty-sub { font-size: 0.74rem; color: rgba(243,239,234,0.28); max-width: 240px; line-height: 1.5; }
 
   /* Chart x-axis labels */
-  .op-chart-labels { display: flex; justify-content: space-between; margin-top: 6px; }
-  .op-chart-label { font-size: 0.62rem; color: rgba(243,239,234,0.2); font-variant-numeric: tabular-nums; }
+  /* Mesma estrutura de colunas/gap das barras — garante alinhamento exato */
+  .op-chart-labels { display: flex; gap: 14px; margin-top: 8px; }
+  .op-sbar-axis-spacer { width: 34px; flex-shrink: 0; }
+  .op-sbar-labels { display: flex; justify-content: center; align-items: flex-start; gap: 14px; flex: 1; min-width: 0; }
+  .op-sbar-label-col { flex: 0 1 110px; min-width: 0; display: flex; justify-content: center; }
+  .op-chart-label { font-size: 0.7rem; font-weight: 600; color: rgba(243,239,234,0.32); font-variant-numeric: tabular-nums; }
 
-  /* Gráfico de barras — Receita x Gastos por mês */
-  .op-bars-wrap { display: flex; flex-direction: column; }
-  .op-bars-legend { display: flex; gap: 16px; margin-bottom: 14px; }
-  .op-bars-legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; font-weight: 600; color: rgba(243,239,234,0.45); }
-  .op-bars-swatch { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
-  .op-bars-swatch.in  { background: #2EC8A4; }
-  .op-bars-swatch.out { background: #F07A64; }
-  .op-bars-row { display: flex; align-items: flex-end; gap: 4px; }
-  .op-bar-group { flex: 1; position: relative; display: flex; justify-content: center; align-items: flex-end; height: 100%; cursor: pointer; }
-  .op-bar-pair { display: flex; align-items: flex-end; justify-content: center; gap: 3px; width: 100%; height: 100%; }
-  .op-bar { width: 34%; max-width: 14px; border-radius: 4px 4px 2px 2px; transition: height 0.8s cubic-bezier(.34,1.4,.4,1), filter 0.15s ease; }
-  .op-bar.in  { background: linear-gradient(180deg, #57E6C2, #2EC8A4); box-shadow: 0 0 12px rgba(46,200,164,0.28); }
-  .op-bar.out { background: linear-gradient(180deg, #F5987F, #F07A64); box-shadow: 0 0 12px rgba(240,122,100,0.22); }
-  .op-bar-group:hover .op-bar { filter: brightness(1.2); }
-  .op-bar-tip {
-    position: absolute; bottom: 100%; margin-bottom: 10px; left: 50%; transform: translateX(-50%);
-    background: #1A1613; border: 1px solid rgba(243,239,234,0.14);
-    border-radius: 10px; padding: 8px 12px;
-    display: flex; flex-direction: column; gap: 3px;
-    white-space: nowrap; z-index: 6; pointer-events: none;
-    box-shadow: 0 10px 24px rgba(0,0,0,0.45);
+  /* Gráfico de barras flat — uma série, valor acima, eixo com grade */
+  .op-sbar-wrap { display: flex; flex-direction: column; }
+  .op-sbar-plot { display: flex; gap: 14px; }
+  .op-sbar-axis { display: flex; flex-direction: column; justify-content: space-between; width: 34px; flex-shrink: 0; padding-bottom: 1px; }
+  .op-sbar-axis span { font-size: 0.68rem; color: rgba(243,239,234,0.28); font-variant-numeric: tabular-nums; }
+  .op-sbar-plotarea { position: relative; flex: 1; }
+  .op-sbar-grid { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
+  .op-sbar-grid div { border-top: 1px solid rgba(243,239,234,0.07); height: 0; }
+  .op-sbar-bars { position: relative; display: flex; justify-content: center; align-items: flex-end; gap: 14px; height: 100%; }
+  .op-sbar-col { flex: 0 1 110px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; min-width: 0; }
+  .op-sbar-val { font-size: 0.78rem; font-weight: 800; color: rgba(243,239,234,0.65); margin-bottom: 8px; font-variant-numeric: tabular-nums; }
+  .op-sbar-val.current { color: #F0C840; font-weight: 900; }
+  .op-sbar-bar {
+    width: 68%; max-width: 52px; min-height: 2px;
+    border: none; padding: 0; border-radius: 5px 5px 2px 2px;
+    transition: height 0.8s cubic-bezier(.4,0,.2,1), filter 0.15s ease;
+    cursor: default;
   }
-  .op-bar-tip-label { font-size: 0.6rem; font-weight: 700; color: rgba(243,239,234,0.4); text-transform: uppercase; letter-spacing: 0.06em; }
-  .op-bar-tip-in  { font-size: 0.76rem; font-weight: 700; color: #2EC8A4; }
-  .op-bar-tip-out { font-size: 0.76rem; font-weight: 700; color: #F07A64; }
+  .op-sbar-bar.clickable { cursor: pointer; }
+  .op-sbar-bar.clickable:hover { filter: brightness(1.2); }
+  .op-sbar-bar.current { box-shadow: 0 0 14px rgba(240,200,64,0.4); }
+  .op-chart-label.current { color: #F0C840; font-weight: 800; }
 
   /* Categorias — linha simples, sem cartão/pílula por item */
   .op-cats { display: flex; flex-wrap: wrap; column-gap: 22px; row-gap: 10px; padding-top: 14px; border-top: 1px solid rgba(243,239,234,0.06); }
@@ -302,8 +363,8 @@ const css = `
 const CAT_COLORS = ['#D4A820','#2EC8A4','#60B0F2','#F07A64','#ECB040','#B088E0'];
 
 const DEMO_SPEND  = [3200, 2800, 3600, 3100, 4200, 3800, 4000, 3500, 3900, 4100, 3700, 4000];
-const DEMO_INCOME = [6000, 5800, 6200, 6100, 7200, 6800, 7000, 6900, 7100, 7000, 6950, 7000];
 const DEMO_MONTHS = ['Set','Out','Nov','Dez','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago'];
+const MONTH_NAMES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
 const DEMO_CATS = [
   { name: 'Moradia',     color: '#D4A820', pct: 38, val: 'R$ 1.520' },
@@ -361,34 +422,39 @@ function buildCats(txns: Transaction[]) {
   }));
 }
 
-function buildSpend(txns: Transaction[]) {
-  const map: Record<string, number> = {};
-  for (const t of txns) {
-    if (t.amount < 0 || t.type === 'expense') {
-      const m = t.date?.slice(0, 7) || '';
-      map[m] = (map[m] || 0) + Math.abs(t.amount);
-    }
-  }
-  const vals = Object.values(map);
-  return vals.length >= 2 ? vals.slice(-12) : [];
+function monthKeyLabel(key: string): string {
+  const idx = parseInt(key.slice(5, 7), 10) - 1;
+  return MONTH_NAMES[idx] ?? key;
 }
 
-function buildIncome(txns: Transaction[]) {
+// Agrupa por mês-calendário real (YYYY-MM) — ordenado cronologicamente, não
+// pela ordem de chegada da API, pra bater com o mês que o usuário clicar.
+function buildMonthlySeries(txns: Transaction[], isMatch: (t: Transaction) => boolean): BarPoint[] {
   const map: Record<string, number> = {};
   for (const t of txns) {
-    if (t.amount > 0 || t.type === 'income') {
-      const m = t.date?.slice(0, 7) || '';
-      map[m] = (map[m] || 0) + Math.abs(t.amount);
-    }
+    if (!isMatch(t)) continue;
+    const m = t.date?.slice(0, 7) || '';
+    if (!m) continue;
+    map[m] = (map[m] || 0) + Math.abs(t.amount);
   }
-  const vals = Object.values(map);
-  return vals.length >= 2 ? vals.slice(-12) : [];
+  return Object.entries(map)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([key, value]) => ({ key, label: monthKeyLabel(key), value }))
+    .slice(-12);
 }
+
+const PERIODS = [
+  { key: '1a', label: '1 Ano',   months: 12 },
+  { key: '6m', label: '6 Meses', months: 6  },
+];
+
+const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 export const OrganizarPage: React.FC = () => {
   const navigate = useNavigate();
   const userId = localStorage.getItem('user_id') || '';
   const demo = isDemoMode(userId);
+  const [period, setPeriod] = useState('1a');
 
   const txnsQ = useQuery({
     queryKey: ['transactions', userId],
@@ -427,9 +493,52 @@ export const OrganizarPage: React.FC = () => {
 
   const cats: { name: string; color: string; pct: number; val: string }[] =
     hasReal ? buildCats(txns) : showDemo ? DEMO_CATS : [];
-  const spendData  = hasReal ? buildSpend(txns)  : showDemo ? DEMO_SPEND  : [];
-  const incomeData = hasReal ? buildIncome(txns) : showDemo ? DEMO_INCOME : [];
-  const chartLen = Math.min(spendData.length, incomeData.length);
+
+  const monthSeries: BarPoint[] = hasReal
+    ? buildMonthlySeries(txns, t => t.amount < 0 || t.type === 'expense')
+    : showDemo ? DEMO_SPEND.map((v, i) => ({ key: `demo-${i}`, label: DEMO_MONTHS[i], value: v })) : [];
+  const periodMonths = PERIODS.find(p => p.key === period)?.months ?? 12;
+  const chartSeries = monthSeries.slice(-Math.min(periodMonths, monthSeries.length));
+  const currentMonthKey = monthSeries.length ? monthSeries[monthSeries.length - 1].key : null;
+
+  const [drillKey, setDrillKey] = useState<string | null>(null);
+  const [weekIdx, setWeekIdx] = useState(0);
+  useEffect(() => { setWeekIdx(0); }, [drillKey]);
+  const drillPoint = drillKey ? monthSeries.find(m => m.key === drillKey) || null : null;
+
+  let monthDaily: number[] = [];
+  let weekdayOf: (day: number) => number = () => 0;
+  if (drillPoint) {
+    if (hasReal) {
+      const [yStr, mStr] = drillPoint.key.split('-');
+      const year = parseInt(yStr, 10);
+      const month = parseInt(mStr, 10);
+      const daysInMonth = new Date(year, month, 0).getDate();
+      monthDaily = new Array(daysInMonth).fill(0);
+      for (const t of txns) {
+        if ((t.amount < 0 || t.type === 'expense') && t.date?.slice(0, 7) === drillPoint.key) {
+          const day = parseInt(t.date.slice(8, 10), 10);
+          if (day >= 1 && day <= daysInMonth) monthDaily[day - 1] += Math.abs(t.amount);
+        }
+      }
+      weekdayOf = (day) => new Date(year, month - 1, day).getDay();
+    } else {
+      const seed = parseInt(drillPoint.key.replace('demo-', ''), 10) || 0;
+      monthDaily = demoDailySeries(drillPoint.value, seed, 30);
+      weekdayOf = (day) => (day - 1) % 7;
+    }
+  }
+
+  const weeks: number[][] = [];
+  for (let i = 0; i < monthDaily.length; i += 7) weeks.push(monthDaily.slice(i, i + 7));
+  const currentWeekDays = weeks[weekIdx] || [];
+  const weekSeries: BarPoint[] = currentWeekDays.map((v, i) => {
+    const day = weekIdx * 7 + i + 1;
+    return { key: `d-${day}`, label: WEEKDAYS[weekdayOf(day)], value: v };
+  });
+  const weekStart = weekIdx * 7 + 1;
+  const weekEnd = weekIdx * 7 + currentWeekDays.length;
+
   const displayGoals = hasRealGoals ? goals : (!hasRealGoals && demo ? DEMO_GOALS : []);
   const displayCards: { bank_name?: string | null; brand?: string | null; level?: string | null; last4?: string | null; credit_limit?: number | null; available_credit_limit?: number | null }[] =
     hasRealCards ? realCards : (!hasRealCards && demo ? DEMO_CARDS : []);
@@ -458,12 +567,26 @@ export const OrganizarPage: React.FC = () => {
         ) : (
           <div className="op-panel">
             <div className="op-panel-head">
-              <span className="op-panel-title">Resumo do mês</span>
-              {showDemo && <span className="op-panel-tag">exemplo</span>}
+              {drillPoint ? (
+                <button type="button" className="op-back-btn" onClick={() => setDrillKey(null)}>
+                  <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M9 2.5 3.5 7 9 11.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  Gastos em {drillPoint.label}
+                </button>
+              ) : (
+                <span className="op-panel-title">Resumo do mês</span>
+              )}
+              {!drillPoint && (hasReal || showDemo) && (
+                <div className="op-period-tabs">
+                  {PERIODS.map(p => (
+                    <button key={p.key} type="button" className={`op-period-tab${period === p.key ? ' active' : ''}`} onClick={() => setPeriod(p.key)}>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="op-hero-stat">
-              <span className="op-hero-label">Saldo do mês</span>
               <span className={`op-hero-val ${hasReal ? (saldo >= 0 ? 'green' : 'red') : showDemo ? 'gold' : 'dim'}`}>
                 {hasReal ? fmtBRL(saldo) : showDemo ? 'R$ 3.000' : '—'}
               </span>
@@ -474,14 +597,28 @@ export const OrganizarPage: React.FC = () => {
               </span>
             </div>
 
-            {chartLen > 0 ? (
+            {drillPoint ? (
               <>
-                <BarChart
-                  income={incomeData.slice(-chartLen)}
-                  expense={spendData.slice(-chartLen)}
-                  labels={DEMO_MONTHS.slice(-chartLen)}
-                  h={160}
+                <div className="op-week-nav">
+                  <button type="button" className="op-week-arrow" onClick={() => setWeekIdx(i => i - 1)} disabled={weekIdx === 0}>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2.5 3.5 7 9 11.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </button>
+                  <span className="op-week-label">Semana {weekIdx + 1} · dia {weekStart} a {weekEnd}</span>
+                  <button type="button" className="op-week-arrow" onClick={() => setWeekIdx(i => i + 1)} disabled={weekIdx >= weeks.length - 1}>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 2.5 10.5 7 5 11.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </button>
+                </div>
+                <SingleBarChart series={weekSeries} h={250} />
+              </>
+            ) : monthSeries.length > 0 ? (
+              <>
+                <SingleBarChart
+                  series={chartSeries}
+                  currentKey={currentMonthKey}
+                  onSelect={setDrillKey}
+                  h={190}
                 />
+                <p className="op-chart-hint">Clique num mês pra ver o gasto por semana.</p>
                 {cats.length > 0 && (
                   <div className="op-cats">
                     {cats.map(c => (
@@ -505,7 +642,6 @@ export const OrganizarPage: React.FC = () => {
           <div className="op-panel">
             <div className="op-panel-head">
               <span className="op-panel-title">Cartões</span>
-              {showDemo && !hasRealCards && <span className="op-panel-tag">exemplo</span>}
             </div>
             {displayCards.length === 0 && (
               <div className="op-empty" style={{ paddingBottom: 6 }}>
@@ -530,7 +666,6 @@ export const OrganizarPage: React.FC = () => {
             <div className="op-panel">
               <div className="op-panel-head">
                 <span className="op-panel-title">Movimentações recentes</span>
-                {showDemo && <span className="op-panel-tag">exemplo</span>}
               </div>
               {displayTxns.length > 0 ? (
                 <div className="op-txn-list">
@@ -557,7 +692,6 @@ export const OrganizarPage: React.FC = () => {
             <div className="op-panel">
               <div className="op-panel-head">
                 <span className="op-panel-title">Metas</span>
-                {!hasRealGoals && demo && <span className="op-panel-tag">exemplo</span>}
               </div>
               {displayGoals.length > 0 ? (
                 <div className="op-goals">

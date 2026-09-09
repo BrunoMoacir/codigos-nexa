@@ -105,7 +105,7 @@ export const ProfilePage: React.FC = () => {
           <div>
             <div style={label}>Modo demonstração</div>
             <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 4 }}>
-              Mostra dados de exemplo em Organizar, Oportunidades e Cartões — só nesta conta.
+              Mostra dados fictícios em Organização, Oportunidades e Cartões — só nesta conta.
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               {demoMode
