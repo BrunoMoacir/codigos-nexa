@@ -400,8 +400,6 @@ export const StrategiesPage: React.FC = () => {
   return (
     <AppShell
       current="strategies"
-      title="Estratégias Nexa"
-      subtitle="Optimizer, Architect, Fiscal Intelligence e alertas proativos."
     >
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         {[

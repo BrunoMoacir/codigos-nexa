@@ -43,12 +43,10 @@ const SlotLetter: React.FC<{ char: string; delay: number }> = ({ char, delay }) 
   );
 };
 
-// ─── Canvas de Colmeia ───────────────────────────────────────────────────────
+// ─── Canvas de Colmeia — ponto quente fixo no canto, sem depender do mouse ───
 const HoneycombCanvas: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const mouse = useRef({ x: -9999, y: -9999 });
-  const clicks = useRef<Array<{ x: number; y: number; t: number }>>([]);
-  const rafRef = useRef<number>();
+  const rafRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -56,19 +54,20 @@ const HoneycombCanvas: React.FC = () => {
     const ctx = canvas.getContext('2d')!;
     const DPR = Math.min(window.devicePixelRatio || 1, 2);
     const SIZE = 28;
-    const GAP = 5;
+    const GAP = 1.5;
     const SQRT3 = Math.sqrt(3);
-    const GLOW_R = 200;
-    const WAVE_SPEED = 300;
-    const WAVE_WIDTH = 65;
+    const GLOW_R = 380;
 
     type Hex = { cx: number; cy: number; phase: number };
     let hexes: Hex[] = [];
+    let hotspot = { x: 0, y: 0 };
 
     const resize = () => {
       canvas.width = window.innerWidth * DPR;
       canvas.height = window.innerHeight * DPR;
       ctx.scale(DPR, DPR);
+      // Canto inferior direito — fixo, não segue o cursor.
+      hotspot = { x: window.innerWidth * 0.88, y: window.innerHeight * 0.92 };
       build();
     };
 
@@ -108,43 +107,31 @@ const HoneycombCanvas: React.FC = () => {
     const frame = (now: number) => {
       const t = (now - t0) / 1000;
       ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-      const { x: mx, y: my } = mouse.current;
 
-      // Limpar clicks antigos
-      clicks.current = clicks.current.filter(c => now - c.t < 1100);
+      // O ponto quente pulsa bem devagar sozinho — nunca reage a mouse/clique.
+      const pulse = 0.75 + Math.sin(t * 0.3) * 0.25;
 
       for (const h of hexes) {
-        const dist = Math.hypot(h.cx - mx, h.cy - my);
-        const hover = Math.max(0, 1 - dist / GLOW_R);
-
-        // Ripples de clicks
-        let ripple = 0;
-        for (const ck of clicks.current) {
-          const age = (now - ck.t) / 1000;
-          const wave = age * WAVE_SPEED;
-          const d = Math.hypot(h.cx - ck.x, h.cy - ck.y);
-          const fromWave = Math.abs(d - wave);
-          const r = Math.max(0, 1 - fromWave / WAVE_WIDTH) * Math.max(0, 1 - age * 1.2);
-          ripple = Math.max(ripple, r);
-        }
+        const dist = Math.hypot(h.cx - hotspot.x, h.cy - hotspot.y);
+        const glow = Math.max(0, 1 - dist / GLOW_R) * pulse;
 
         const breathe = Math.sin(t * 0.65 + h.phase) * 0.5 + 0.5;
-        const baseA = 0.012 + breathe * 0.022;
-        const total = Math.max(hover, ripple);
+        const baseA = 0.03 + breathe * 0.035;
         const s = SIZE - GAP * 0.5;
 
         drawHex(h.cx, h.cy, s);
-        ctx.fillStyle = total > 0.02
-          ? `rgba(212,168,32,${total * 0.28})`
-          : `rgba(243,239,234,${baseA * 0.4})`;
-        ctx.fill();
-
-        drawHex(h.cx, h.cy, s);
-        ctx.strokeStyle = total > 0.02
-          ? `rgba(212,168,32,${0.08 + total * 0.85})`
-          : `rgba(243,239,234,${baseA * 1.4})`;
-        ctx.lineWidth = total > 0.15 ? 1.4 : 0.65;
-        ctx.stroke();
+        if (glow > 0.02) {
+          ctx.fillStyle = `rgba(212,168,32,${glow * 0.28})`;
+          ctx.fill();
+          drawHex(h.cx, h.cy, s);
+          ctx.strokeStyle = `rgba(212,168,32,${0.08 + glow * 0.85})`;
+          ctx.lineWidth = glow > 0.15 ? 1.4 : 0.85;
+          ctx.stroke();
+        } else {
+          // Sem contorno — escuros, mas um pouco mais claros que o fundo puro.
+          ctx.fillStyle = `rgba(52,44,34,${baseA})`;
+          ctx.fill();
+        }
       }
 
       rafRef.current = requestAnimationFrame(frame);
@@ -152,15 +139,8 @@ const HoneycombCanvas: React.FC = () => {
 
     rafRef.current = requestAnimationFrame(frame);
 
-    const onMove  = (e: MouseEvent) => { mouse.current = { x: e.clientX, y: e.clientY }; };
-    const onClick = (e: MouseEvent) => { clicks.current.push({ x: e.clientX, y: e.clientY, t: performance.now() }); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('click', onClick);
-
     return () => {
       window.removeEventListener('resize', resize);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('click', onClick);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, []);
@@ -203,18 +183,6 @@ const css = `
   @keyframes pulse-ring {
     0%,100% { opacity: 0.18; transform: translate(-50%,-50%) scale(1); }
     50%      { opacity: 0.07; transform: translate(-50%,-50%) scale(1.06); }
-  }
-
-  /* ── Cursor glow ── */
-  .lp-root::after {
-    content: '';
-    position: fixed;
-    width: 600px; height: 600px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(212,168,32,0.06) 0%, transparent 65%);
-    transform: translate(var(--cx,-9999px), var(--cy,-9999px)) translate(-50%,-50%);
-    pointer-events: none; z-index: 1;
-    transition: transform 0.08s linear;
   }
 
   /* ── Marca d'água HIVE enorme — une as duas colunas ── */
@@ -459,6 +427,16 @@ const css = `
   .lp-input::placeholder { color: rgba(243,239,234,0.25); }
   .lp-input:focus { border-color: rgba(212,168,32,0.5); background: rgba(212,168,32,0.03); }
   .lp-input.err { border-color: rgba(240,122,100,0.55); background: rgba(240,122,100,0.04); }
+  /* Navegador pinta autofill de branco por padrão — força manter o escuro */
+  .lp-input:-webkit-autofill,
+  .lp-input:-webkit-autofill:hover,
+  .lp-input:-webkit-autofill:focus,
+  .lp-input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 100px #171310 inset !important;
+    -webkit-text-fill-color: #F3EFEA !important;
+    caret-color: #F3EFEA;
+    transition: background-color 9999s ease-in-out 0s;
+  }
   .lp-field-err {
     font-size: 0.7rem;
     color: #F07A64;
@@ -536,97 +514,6 @@ const css = `
     background: rgba(212,168,32,0.06);
   }
 
-  /* ── OTP / Verificação ── */
-  .lp-otp-row {
-    display: flex;
-    gap: 8px;
-    justify-content: center;
-    margin: 22px 0;
-  }
-  .lp-otp-input {
-    width: 46px;
-    height: 54px;
-    text-align: center;
-    font-size: 1.5rem;
-    font-weight: 800;
-    background: rgba(243,239,234,0.04);
-    color: #F3EFEA;
-    border: 1.5px solid rgba(243,239,234,0.1);
-    border-radius: 10px;
-    font-family: inherit;
-    outline: none;
-    caret-color: #D4A820;
-    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
-    font-variant-numeric: tabular-nums;
-  }
-  .lp-otp-input:focus {
-    border-color: rgba(212,168,32,0.55);
-    background: rgba(212,168,32,0.04);
-    box-shadow: 0 0 0 3px rgba(212,168,32,0.08);
-  }
-  .lp-otp-input.filled { border-color: rgba(212,168,32,0.3); }
-  .lp-otp-input.otp-err {
-    border-color: rgba(240,122,100,0.6);
-    background: rgba(240,122,100,0.04);
-    animation: lp-shake 0.35s ease;
-  }
-  @keyframes lp-shake {
-    0%,100% { transform: translateX(0); }
-    20%,60% { transform: translateX(-4px); }
-    40%,80% { transform: translateX(4px); }
-  }
-  .lp-otp-info {
-    text-align: center;
-    font-size: 0.8rem;
-    color: rgba(243,239,234,0.42);
-    line-height: 1.6;
-    margin-bottom: 2px;
-  }
-  .lp-otp-info strong { color: #D4A820; font-weight: 700; }
-  .lp-otp-resend {
-    text-align: center;
-    margin-top: 14px;
-    font-size: 0.76rem;
-    color: rgba(243,239,234,0.35);
-  }
-  .lp-otp-resend button {
-    background: none;
-    border: none;
-    color: #D4A820;
-    font-family: inherit;
-    font-size: 0.76rem;
-    font-weight: 700;
-    cursor: pointer;
-    padding: 0;
-    margin-left: 4px;
-    transition: opacity 0.15s;
-  }
-  .lp-otp-resend button:hover:not(:disabled) { opacity: 0.7; }
-  .lp-otp-resend button:disabled { opacity: 0.3; cursor: default; }
-  .lp-back-btn {
-    background: none;
-    border: none;
-    color: rgba(243,239,234,0.4);
-    font-family: inherit;
-    font-size: 0.77rem;
-    cursor: pointer;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    margin-bottom: 14px;
-    transition: color 0.15s;
-  }
-  .lp-back-btn:hover { color: rgba(243,239,234,0.75); }
-  .lp-verify-icon {
-    width: 48px; height: 48px;
-    border-radius: 14px;
-    background: rgba(212,168,32,0.1);
-    border: 1px solid rgba(212,168,32,0.2);
-    display: flex; align-items: center; justify-content: center;
-    margin: 0 auto 16px;
-  }
-
   @media (max-width: 860px) {
     .lp-layout { grid-template-columns: 1fr; padding: 36px 24px 48px; gap: 44px; max-width: none; }
     .lp-left { min-height: auto; padding-right: 0; gap: 28px; justify-content: flex-start; }
@@ -636,109 +523,57 @@ const css = `
   }
 `;
 
-// ─── Máscara do e-mail para exibição no OTP ─────────────────────────────────
-function maskEmail(email: string) {
-  const [local, domain] = email.split('@');
-  if (!domain) return email;
-  const visible = local.slice(0, 2);
-  return `${visible}${'*'.repeat(Math.max(2, local.length - 2))}@${domain}`;
-}
-
 // ─── LoginPage ────────────────────────────────────────────────────────────────
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
-  const [loginEmail, setLoginEmail] = useState('');
+  const [loginEmail, setLoginEmail]       = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [errs, setErrs] = useState({ email: false, password: false });
+  const [loading, setLoading]             = useState(false);
+  const [errs, setErrs]                   = useState({ email: false, password: false });
 
-  // Etapa de verificação OTP
-  const [step, setStep]           = useState<'login' | 'verify'>('login');
-  const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
-  const [otpErr, setOtpErr]       = useState(false);
-  const [cooldown, setCooldown]   = useState(0);
-  const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
-
-  // CSS var para cursor glow
-  useEffect(() => {
-    const mm = (e: MouseEvent) => {
-      document.documentElement.style.setProperty('--cx', `${e.clientX}px`);
-      document.documentElement.style.setProperty('--cy', `${e.clientY}px`);
-    };
-    window.addEventListener('mousemove', mm);
-    return () => window.removeEventListener('mousemove', mm);
-  }, []);
-
-  // Cooldown reenvio
-  useEffect(() => {
-    if (cooldown <= 0) return;
-    const t = setTimeout(() => setCooldown(c => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [cooldown]);
-
-  // Foca primeiro dígito ao entrar na etapa verify
-  useEffect(() => {
-    if (step === 'verify') {
-      setTimeout(() => otpRefs.current[0]?.focus(), 120);
-    }
-  }, [step]);
-
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrs = { email: !loginEmail.trim(), password: !loginPassword.trim() };
     setErrs(newErrs);
     if (newErrs.email || newErrs.password) return;
-    setStep('verify');
-    setOtpDigits(['', '', '', '', '', '']);
-    setOtpErr(false);
-    setCooldown(60);
-  };
 
-  const handleOtpChange = (idx: number, val: string) => {
-    const digit = val.replace(/\D/g, '').slice(-1);
-    const next = [...otpDigits];
-    next[idx] = digit;
-    setOtpDigits(next);
-    setOtpErr(false);
-    if (digit && idx < 5) otpRefs.current[idx + 1]?.focus();
-    if (next.every(d => d !== '') && digit) submitOtp(next.join(''));
-  };
+    setLoading(true);
+    try {
+      const body = new URLSearchParams();
+      body.append('username', loginEmail.trim());
+      body.append('password', loginPassword);
 
-  const handleOtpKeyDown = (idx: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace' && !otpDigits[idx] && idx > 0) {
-      otpRefs.current[idx - 1]?.focus();
+      const res = await fetch(`${API_BASE_URL}/auth/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 429) {
+          toast.error('Muitas tentativas. Aguarde alguns minutos.');
+        } else {
+          toast.error(data.detail || 'E-mail ou senha incorretos.');
+        }
+        return;
+      }
+
+      const data = await res.json();
+      localStorage.setItem('jwt_token', data.access_token);
+      if (data.user_id)      localStorage.setItem('user_id', data.user_id);
+      if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
+      localStorage.setItem('user_name', data.full_name || loginEmail.split('@')[0]);
+      localStorage.setItem('user_email', loginEmail.trim());
+      // Cada login começa uma conversa nova — as anteriores continuam
+      // salvas e acessíveis pela lista de conversas do chat.
+      if (data.user_id) localStorage.removeItem(`hive-session:${data.user_id}`);
+      navigate('/chat');
+    } catch {
+      toast.error('Erro de conexão. Verifique sua internet.');
+    } finally {
+      setLoading(false);
     }
-  };
-
-  const handleOtpPaste = (e: React.ClipboardEvent) => {
-    e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    const next = Array(6).fill('').map((_, i) => pasted[i] || '');
-    setOtpDigits(next);
-    if (pasted.length === 6) {
-      submitOtp(pasted);
-    } else {
-      otpRefs.current[pasted.length]?.focus();
-    }
-  };
-
-  const submitOtp = (code: string) => {
-    if (code.length === 6) navigate('/dashboard');
-    else setOtpErr(true);
-  };
-
-  const handleVerify = () => {
-    const code = otpDigits.join('');
-    if (code.length < 6) { setOtpErr(true); return; }
-    submitOtp(code);
-  };
-
-  const handleResend = () => {
-    setOtpDigits(['', '', '', '', '', '']);
-    setOtpErr(false);
-    setCooldown(60);
-    setTimeout(() => otpRefs.current[0]?.focus(), 60);
-    toast.success('Código reenviado para o e-mail!');
   };
 
   return (
@@ -747,10 +582,7 @@ export const LoginPage: React.FC = () => {
       <div className="lp-root">
         <HoneycombCanvas />
 
-        {/* Marca d'água HIVE gigante — une as duas colunas */}
         <div className="lp-wm" aria-hidden="true">HIVE</div>
-
-        {/* Anel pulsante no lado do form */}
         <div className="lp-ring" aria-hidden="true" />
 
         <div className="lp-layout">
@@ -786,108 +618,46 @@ export const LoginPage: React.FC = () => {
           {/* ── DIREITO — form ── */}
           <div className="lp-right">
             <div className="lp-right-inner">
-            <div className="lp-help-row">
-              <a href="/contact" className="lp-help-link">Precisa de ajuda?</a>
-            </div>
-            <div className="lp-card">
-              {step === 'login' ? (
-                <>
-                  <div className="lp-card-title">Acesso ao painel</div>
-                  <div className="lp-card-sub">Entre com seus dados para continuar.</div>
+              <div className="lp-help-row">
+                <a href="/contact" className="lp-help-link">Precisa de ajuda?</a>
+              </div>
+              <div className="lp-card">
+                <div className="lp-card-title">Acesso ao painel</div>
+                <div className="lp-card-sub">Entre com seus dados para continuar.</div>
 
-                  <form onSubmit={handleLogin}>
-                    <div className="lp-fields">
-                      <div>
-                        <label className="lp-field-label">E-mail</label>
-                        <input
-                          className={`lp-input${errs.email ? ' err' : ''}`}
-                          type="email" placeholder="seu@email.com"
-                          value={loginEmail}
-                          onChange={e => { setLoginEmail(e.target.value); if (errs.email) setErrs(p => ({...p, email: false})); }}
-                          autoComplete="email" disabled={loading}
-                        />
-                        {errs.email && <div className="lp-field-err">Preencha o e-mail</div>}
-                      </div>
-                      <div>
-                        <label className="lp-field-label">Senha</label>
-                        <input
-                          className={`lp-input${errs.password ? ' err' : ''}`}
-                          type="password" placeholder="••••••••"
-                          value={loginPassword}
-                          onChange={e => { setLoginPassword(e.target.value); if (errs.password) setErrs(p => ({...p, password: false})); }}
-                          autoComplete="current-password" disabled={loading}
-                        />
-                        {errs.password && <div className="lp-field-err">Preencha a senha</div>}
-                      </div>
-                    </div>
-                    <button type="submit" className="lp-btn" disabled={loading}>
-                      {loading ? 'Entrando…' : 'Acessar painel'}
-                    </button>
-                  </form>
-
-                  <div className="lp-separator" />
-                  <Link to="/register" className="lp-btn-register">Criar uma conta</Link>
-                </>
-              ) : (
-                <>
-                  <button className="lp-back-btn" onClick={() => setStep('login')}>
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <path d="M9 2L4 7l5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                    Voltar
-                  </button>
-
-                  <div className="lp-verify-icon">
-                    <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-                      <rect x="2" y="6" width="18" height="14" rx="2" stroke="#D4A820" strokeWidth="1.4"/>
-                      <path d="M6 6V5a5 5 0 0 1 10 0v1" stroke="#D4A820" strokeWidth="1.4" strokeLinecap="round"/>
-                      <circle cx="11" cy="13" r="2" fill="#D4A820"/>
-                      <path d="M11 15v2" stroke="#D4A820" strokeWidth="1.4" strokeLinecap="round"/>
-                    </svg>
-                  </div>
-
-                  <div className="lp-card-title" style={{ textAlign: 'center' }}>Verificação de segurança</div>
-                  <div className="lp-otp-info">
-                    Enviamos um código de 6 dígitos para<br />
-                    <strong>{maskEmail(loginEmail)}</strong>
-                  </div>
-
-                  <div className="lp-otp-row" onPaste={handleOtpPaste}>
-                    {otpDigits.map((d, i) => (
+                <form onSubmit={handleLogin}>
+                  <div className="lp-fields">
+                    <div>
+                      <label className="lp-field-label">E-mail</label>
                       <input
-                        key={i}
-                        ref={el => { otpRefs.current[i] = el; }}
-                        className={`lp-otp-input${d ? ' filled' : ''}${otpErr ? ' otp-err' : ''}`}
-                        type="text"
-                        inputMode="numeric"
-                        maxLength={1}
-                        value={d}
-                        onChange={e => handleOtpChange(i, e.target.value)}
-                        onKeyDown={e => handleOtpKeyDown(i, e)}
-                        autoComplete="off"
+                        className={`lp-input${errs.email ? ' err' : ''}`}
+                        type="email" placeholder="seu@email.com"
+                        value={loginEmail}
+                        onChange={e => { setLoginEmail(e.target.value); if (errs.email) setErrs(p => ({...p, email: false})); }}
+                        autoComplete="email" autoFocus disabled={loading}
                       />
-                    ))}
-                  </div>
-
-                  {otpErr && (
-                    <div className="lp-field-err" style={{ justifyContent: 'center', marginBottom: 10 }}>
-                      Código inválido. Verifique e tente novamente.
+                      {errs.email && <div className="lp-field-err">Preencha o e-mail</div>}
                     </div>
-                  )}
-
-                  <button className="lp-btn" onClick={handleVerify}>
-                    Verificar e entrar
-                  </button>
-
-                  <div className="lp-otp-resend">
-                    Não recebeu?
-                    <button onClick={handleResend} disabled={cooldown > 0}>
-                      {cooldown > 0 ? `Reenviar em ${cooldown}s` : 'Reenviar código'}
-                    </button>
+                    <div>
+                      <label className="lp-field-label">Senha</label>
+                      <input
+                        className={`lp-input${errs.password ? ' err' : ''}`}
+                        type="password" placeholder="••••••••"
+                        value={loginPassword}
+                        onChange={e => { setLoginPassword(e.target.value); if (errs.password) setErrs(p => ({...p, password: false})); }}
+                        autoComplete="current-password" disabled={loading}
+                      />
+                      {errs.password && <div className="lp-field-err">Preencha a senha</div>}
+                    </div>
                   </div>
-                </>
-              )}
-            </div>
+                  <button type="submit" className="lp-btn" disabled={loading}>
+                    {loading ? 'Entrando…' : 'Acessar painel'}
+                  </button>
+                </form>
+
+                <div className="lp-separator" />
+                <Link to="/register" className="lp-btn-register">Criar uma conta</Link>
+              </div>
             </div>
           </div>
         </div>

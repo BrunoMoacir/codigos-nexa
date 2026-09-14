@@ -114,14 +114,38 @@ export const nexaApi = {
     return data;
   },
 
+  getCards: async () => {
+    const { data } = await apiClient.get('/pluggy/cards');
+    return data;
+  },
+
+  addManualCard: async (payload: {
+    bank_name: string;
+    brand?: string;
+    level?: string;
+    last4?: string;
+    credit_limit?: number;
+    available_credit_limit?: number;
+  }) => {
+    const { data } = await apiClient.post('/pluggy/cards/manual', payload);
+    return data;
+  },
+
   // Chat
   sendChatMessage: async (userId: string, message: string, sessionId?: string) => {
     const { data } = await apiClient.post('/chat/', { user_id: userId, message, session_id: sessionId });
     return data;
   },
 
-  getChatHistory: async (userId: string, limit = 50) => {
+  getChatHistory: async (userId: string, limit = 50, sessionId?: string) => {
     const { data } = await apiClient.get('/chat/history', {
+      params: { user_id: userId, limit, session_id: sessionId },
+    });
+    return data;
+  },
+
+  getChatSessions: async (userId: string, limit = 30) => {
+    const { data } = await apiClient.get('/chat/sessions', {
       params: { user_id: userId, limit },
     });
     return data;

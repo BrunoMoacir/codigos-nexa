@@ -276,6 +276,12 @@ def sync_item_transactions(
     from app.core.db.balances import save_account_balances
     balances_saved = save_account_balances(str(user_id), item_id, accounts)
 
+    # Snapshot de cartão de crédito (bandeira, limite, vencimento) — o
+    # creditData do Pluggy era buscado e descartado; agora alimenta a seção
+    # "Cartões" do app. Mesmo padrão: falha silenciosamente.
+    from app.core.db.cards import save_credit_cards
+    save_credit_cards(str(user_id), item_id, accounts)
+
     total_accounts = 0
     total_received = 0
     total_valid = 0

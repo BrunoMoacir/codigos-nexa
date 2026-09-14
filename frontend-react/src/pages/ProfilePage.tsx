@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { AppShell } from '../components/layout/AppShell';
+import { isDemoMode, setDemoMode } from '../utils/demoMode';
 
 const card: React.CSSProperties = {
   background: 'var(--bg-surface)',
@@ -26,12 +27,18 @@ export const ProfilePage: React.FC = () => {
   const theme = localStorage.getItem('theme') || 'light';
   const dataOrigin = localStorage.getItem('nexa_data_origin') === 'sandbox' ? 'Sandbox' : 'Dados reais';
   const dataOriginUpdatedAt = localStorage.getItem('nexa_data_origin_updated_at');
+  const rawUserId = localStorage.getItem('user_id') || '';
+  const [demoMode, setDemoModeState] = useState(() => isDemoMode(rawUserId));
+
+  const toggleDemoMode = () => {
+    const next = !demoMode;
+    setDemoMode(rawUserId, next);
+    setDemoModeState(next);
+  };
 
   return (
     <AppShell
       current="profile"
-      title="Perfil"
-      subtitle="Informações da conta e da sessão atual"
     >
       <div style={{ display: 'grid', gap: 12 }}>
         <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -92,6 +99,35 @@ export const ProfilePage: React.FC = () => {
                 : 'Sem atualização registrada'}
             </div>
           </div>
+        </div>
+
+        <div style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div>
+            <div style={label}>Modo demonstração</div>
+            <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 4 }}>
+              Mostra dados fictícios em Organização, Oportunidades e Cartões — só nesta conta.
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {demoMode
+                ? 'Ativado — você está vendo dados fictícios.'
+                : 'Desativado — mostrando o estado real (vazio até conectar um banco).'}
+            </div>
+          </div>
+          <button
+            onClick={toggleDemoMode}
+            aria-pressed={demoMode}
+            style={{
+              width: 46, height: 26, borderRadius: 999, border: 'none', cursor: 'pointer',
+              background: demoMode ? '#D4A820' : 'var(--border-color)',
+              position: 'relative', flexShrink: 0, transition: 'background 0.15s',
+            }}
+          >
+            <span style={{
+              position: 'absolute', top: 3, left: demoMode ? 23 : 3,
+              width: 20, height: 20, borderRadius: '50%', background: '#fff',
+              transition: 'left 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            }} />
+          </button>
         </div>
       </div>
     </AppShell>
