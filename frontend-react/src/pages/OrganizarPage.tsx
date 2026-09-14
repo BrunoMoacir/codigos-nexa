@@ -6,66 +6,53 @@ import { nexaApi } from '../api/nexa';
 import { isDemoMode } from '../utils/demoMode';
 import type { Transaction, Goal, CreditCard } from '../api/types';
 
-// ─── Gráfico de barras flat — valor acima da barra + eixo com grade ──────────
-function fmtShort(n: number): string {
-  const abs = Math.abs(n);
-  if (abs >= 1000) return `${(n / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}k`;
-  return n.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
-}
-
+// ─── Gráfico de área — linha + gradiente, a versão original ──────────────────
 interface BarPoint { key: string; label: string; value: number }
 
-function SingleBarChart({
-  series, currentKey, onSelect, color = '#D4A820', currentColor = '#F0C840', h = 190,
-}: { series: BarPoint[]; currentKey?: string | null; onSelect?: (key: string) => void; color?: string; currentColor?: string; h?: number }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    const t = requestAnimationFrame(() => setMounted(true));
-    return () => cancelAnimationFrame(t);
-  }, [series.length]);
+function AreaChart({ series, currentKey, onSelect, color = '#D4A820', currentColor = '#F0C840', h = 190 }: {
+  series: BarPoint[]; currentKey?: string | null; onSelect?: (key: string) => void; color?: string; currentColor?: string; h?: number;
+}) {
   if (!series.length) return null;
-  const max = Math.max(...series.map(s => s.value), 1);
-  const ticks = [1, 0.75, 0.5, 0.25, 0].map(f => Math.round(max * f));
+  const w = 400;
+  const values = series.map(s => s.value);
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  const pad = 8;
+  const pts = series.map((s, i) => ({
+    x: pad + (i / (series.length - 1 || 1)) * (w - pad * 2),
+    y: h - pad - ((s.value - min) / range) * (h - pad * 2),
+  }));
+  const linePath = `M ${pts.map(p => `${p.x},${p.y}`).join(' L ')}`;
+  const areaPath = `${linePath} L ${pts[pts.length - 1].x},${h - pad} L ${pts[0].x},${h - pad} Z`;
 
   return (
-    <div className="op-sbar-wrap">
-      <div className="op-sbar-plot" style={{ height: h }}>
-        <div className="op-sbar-axis">
-          {ticks.map((t, i) => <span key={i}>{fmtShort(t)}</span>)}
-        </div>
-        <div className="op-sbar-plotarea">
-          <div className="op-sbar-grid">
-            {ticks.map((_, i) => <div key={i} />)}
-          </div>
-          <div className="op-sbar-bars">
-            {series.map((s) => {
-              const isCurrent = s.key === currentKey;
-              return (
-                <div key={s.key} className="op-sbar-col">
-                  <span className={`op-sbar-val${isCurrent ? ' current' : ''}`}>{fmtShort(s.value)}</span>
-                  <button
-                    type="button"
-                    className={`op-sbar-bar${isCurrent ? ' current' : ''}${onSelect ? ' clickable' : ''}`}
-                    style={{ height: mounted ? `${(s.value / max) * 100}%` : '0%', background: isCurrent ? currentColor : color }}
-                    onClick={() => onSelect?.(s.key)}
-                    disabled={!onSelect}
-                    aria-label={s.label}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+    <div className="op-line-wrap">
+      <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', height: h, display: 'block' }} preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="op-ag" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.22" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill="url(#op-ag)" />
+        <path d={linePath} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+        {pts.map((p, i) => {
+          const isCurrent = series[i].key === currentKey;
+          return (
+            <g key={series[i].key}>
+              <circle cx={p.x} cy={p.y} r={isCurrent ? 4 : 2.5} fill={isCurrent ? currentColor : color} />
+              {onSelect && (
+                <circle cx={p.x} cy={p.y} r="11" fill="transparent" style={{ cursor: 'pointer' }} onClick={() => onSelect(series[i].key)} />
+              )}
+            </g>
+          );
+        })}
+      </svg>
       <div className="op-chart-labels">
-        <div className="op-sbar-axis-spacer" />
-        <div className="op-sbar-labels">
-          {series.map(s => (
-            <div key={s.key} className="op-sbar-label-col">
-              <span className={`op-chart-label${s.key === currentKey ? ' current' : ''}`}>{s.label}</span>
-            </div>
-          ))}
-        </div>
+        {series.map(s => (
+          <span key={s.key} className={`op-chart-label${s.key === currentKey ? ' current' : ''}`}>{s.label}</span>
+        ))}
       </div>
     </div>
   );
@@ -200,36 +187,11 @@ const css = `
   .op-empty-title { font-size: 0.84rem; font-weight: 700; color: rgba(243,239,234,0.5); }
   .op-empty-sub { font-size: 0.74rem; color: rgba(243,239,234,0.28); max-width: 240px; line-height: 1.5; }
 
-  /* Chart x-axis labels */
-  /* Mesma estrutura de colunas/gap das barras — garante alinhamento exato */
-  .op-chart-labels { display: flex; gap: 14px; margin-top: 8px; }
-  .op-sbar-axis-spacer { width: 34px; flex-shrink: 0; }
-  .op-sbar-labels { display: flex; justify-content: center; align-items: flex-start; gap: 14px; flex: 1; min-width: 0; }
-  .op-sbar-label-col { flex: 0 1 110px; min-width: 0; display: flex; justify-content: center; }
-  .op-chart-label { font-size: 0.7rem; font-weight: 600; color: rgba(243,239,234,0.32); font-variant-numeric: tabular-nums; }
-
-  /* Gráfico de barras flat — uma série, valor acima, eixo com grade */
-  .op-sbar-wrap { display: flex; flex-direction: column; }
-  .op-sbar-plot { display: flex; gap: 14px; }
-  .op-sbar-axis { display: flex; flex-direction: column; justify-content: space-between; width: 34px; flex-shrink: 0; padding-bottom: 1px; }
-  .op-sbar-axis span { font-size: 0.68rem; color: rgba(243,239,234,0.28); font-variant-numeric: tabular-nums; }
-  .op-sbar-plotarea { position: relative; flex: 1; }
-  .op-sbar-grid { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
-  .op-sbar-grid div { border-top: 1px solid rgba(243,239,234,0.07); height: 0; }
-  .op-sbar-bars { position: relative; display: flex; justify-content: center; align-items: flex-end; gap: 14px; height: 100%; }
-  .op-sbar-col { flex: 0 1 110px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; min-width: 0; }
-  .op-sbar-val { font-size: 0.78rem; font-weight: 800; color: rgba(243,239,234,0.65); margin-bottom: 8px; font-variant-numeric: tabular-nums; }
-  .op-sbar-val.current { color: #F0C840; font-weight: 900; }
-  .op-sbar-bar {
-    width: 68%; max-width: 52px; min-height: 2px;
-    border: none; padding: 0; border-radius: 5px 5px 2px 2px;
-    transition: height 0.8s cubic-bezier(.4,0,.2,1), filter 0.15s ease;
-    cursor: default;
-  }
-  .op-sbar-bar.clickable { cursor: pointer; }
-  .op-sbar-bar.clickable:hover { filter: brightness(1.2); }
-  .op-sbar-bar.current { box-shadow: 0 0 14px rgba(240,200,64,0.4); }
-  .op-chart-label.current { color: #F0C840; font-weight: 800; }
+  /* Gráfico de linha — original: linha + gradiente, pontos clicáveis */
+  .op-line-wrap { display: flex; flex-direction: column; }
+  .op-chart-labels { display: flex; justify-content: space-between; margin-top: 6px; }
+  .op-chart-label { font-size: 0.62rem; color: rgba(243,239,234,0.2); font-variant-numeric: tabular-nums; }
+  .op-chart-label.current { color: #F0C840; font-weight: 700; }
 
   /* Categorias — linha simples, sem cartão/pílula por item */
   .op-cats { display: flex; flex-wrap: wrap; column-gap: 22px; row-gap: 10px; padding-top: 14px; border-top: 1px solid rgba(243,239,234,0.06); }
@@ -561,6 +523,29 @@ export const OrganizarPage: React.FC = () => {
       <style>{css}</style>
       <div className="op">
 
+        {/* ── Cartões ── */}
+        {!loading && (
+          <div className="op-panel">
+            <div className="op-panel-head">
+              <span className="op-panel-title">Cartões</span>
+            </div>
+            {displayCards.length === 0 && (
+              <div className="op-empty" style={{ paddingBottom: 6 }}>
+                <div className="op-empty-icon">💳</div>
+                <div className="op-empty-title">Nenhum cartão ainda</div>
+                <div className="op-empty-sub">Conecte seu banco ou cadastre um cartão na mão.</div>
+              </div>
+            )}
+            <div className="op-cards-row">
+              {displayCards.map((c, i) => <CardVisual key={i} card={c} />)}
+              <button type="button" className="op-card-add" onClick={() => navigate('/organizar/cartao/novo')}>
+                <span className="op-card-add-icon">+</span>
+                Adicionar cartão
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ── Resumo + finanças por mês (um painel só) ── */}
         {loading ? (
           <div className="op-panel"><div className="op-skel" style={{ height: 240 }} /></div>
@@ -608,11 +593,11 @@ export const OrganizarPage: React.FC = () => {
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 2.5 10.5 7 5 11.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   </button>
                 </div>
-                <SingleBarChart series={weekSeries} h={250} />
+                <AreaChart series={weekSeries} h={220} />
               </>
             ) : monthSeries.length > 0 ? (
               <>
-                <SingleBarChart
+                <AreaChart
                   series={chartSeries}
                   currentKey={currentMonthKey}
                   onSelect={setDrillKey}
@@ -634,29 +619,6 @@ export const OrganizarPage: React.FC = () => {
             ) : (
               <EmptyPanel icon="📈" title="Nenhum gasto registrado ainda" sub="Conecte seu banco pra ver a evolução dos seus gastos mês a mês." />
             )}
-          </div>
-        )}
-
-        {/* ── Cartões ── */}
-        {!loading && (
-          <div className="op-panel">
-            <div className="op-panel-head">
-              <span className="op-panel-title">Cartões</span>
-            </div>
-            {displayCards.length === 0 && (
-              <div className="op-empty" style={{ paddingBottom: 6 }}>
-                <div className="op-empty-icon">💳</div>
-                <div className="op-empty-title">Nenhum cartão ainda</div>
-                <div className="op-empty-sub">Conecte seu banco ou cadastre um cartão na mão.</div>
-              </div>
-            )}
-            <div className="op-cards-row">
-              {displayCards.map((c, i) => <CardVisual key={i} card={c} />)}
-              <button type="button" className="op-card-add" onClick={() => navigate('/organizar/cartao/novo')}>
-                <span className="op-card-add-icon">+</span>
-                Adicionar cartão
-              </button>
-            </div>
           </div>
         )}
 

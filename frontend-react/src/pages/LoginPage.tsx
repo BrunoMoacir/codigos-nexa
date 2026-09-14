@@ -54,7 +54,7 @@ const HoneycombCanvas: React.FC = () => {
     const ctx = canvas.getContext('2d')!;
     const DPR = Math.min(window.devicePixelRatio || 1, 2);
     const SIZE = 28;
-    const GAP = 5;
+    const GAP = 1.5;
     const SQRT3 = Math.sqrt(3);
     const GLOW_R = 380;
 
@@ -116,21 +116,22 @@ const HoneycombCanvas: React.FC = () => {
         const glow = Math.max(0, 1 - dist / GLOW_R) * pulse;
 
         const breathe = Math.sin(t * 0.65 + h.phase) * 0.5 + 0.5;
-        const baseA = 0.006 + breathe * 0.012;
+        const baseA = 0.03 + breathe * 0.035;
         const s = SIZE - GAP * 0.5;
 
         drawHex(h.cx, h.cy, s);
-        ctx.fillStyle = glow > 0.02
-          ? `rgba(212,168,32,${glow * 0.28})`
-          : `rgba(243,239,234,${baseA * 0.4})`;
-        ctx.fill();
-
-        drawHex(h.cx, h.cy, s);
-        ctx.strokeStyle = glow > 0.02
-          ? `rgba(212,168,32,${0.08 + glow * 0.85})`
-          : `rgba(243,239,234,${baseA * 1.4})`;
-        ctx.lineWidth = glow > 0.15 ? 1.4 : 0.65;
-        ctx.stroke();
+        if (glow > 0.02) {
+          ctx.fillStyle = `rgba(212,168,32,${glow * 0.28})`;
+          ctx.fill();
+          drawHex(h.cx, h.cy, s);
+          ctx.strokeStyle = `rgba(212,168,32,${0.08 + glow * 0.85})`;
+          ctx.lineWidth = glow > 0.15 ? 1.4 : 0.85;
+          ctx.stroke();
+        } else {
+          // Sem contorno — escuros, mas um pouco mais claros que o fundo puro.
+          ctx.fillStyle = `rgba(52,44,34,${baseA})`;
+          ctx.fill();
+        }
       }
 
       rafRef.current = requestAnimationFrame(frame);
