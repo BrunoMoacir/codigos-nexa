@@ -192,6 +192,7 @@ def test_user(client):
     """Registra um usuário único e retorna email/senha/user_id."""
     email = f"integra_{uuid.uuid4().hex[:10]}@nexa.test"
     resp = client.post(f"{BASE}/auth/register", json={
+        "accepted_terms": True,
         "email": email,
         "password": "SenhaIntegracao@123",
         "full_name": "Usuário Integração Nexa",
@@ -289,6 +290,7 @@ class TestAuth:
     def test_registro_sucesso(self, client):
         email = f"reg_{uuid.uuid4().hex[:8]}@nexa.test"
         resp = client.post(f"{BASE}/auth/register", json={
+            "accepted_terms": True,
             "email": email,
             "password": "SenhaForte@2024",
             "full_name": "Usuário Novo",
@@ -300,6 +302,7 @@ class TestAuth:
 
     def test_registro_email_duplicado(self, client, test_user):
         resp = client.post(f"{BASE}/auth/register", json={
+            "accepted_terms": True,
             "email": test_user["email"],
             "password": "qualquersenha",
         })
@@ -423,7 +426,7 @@ class TestTransacoes:
         fresh_id = str(uuid.uuid4())
         # Criar usuário temporário só para testar 404
         email_tmp = f"tmp_{uuid.uuid4().hex[:8]}@nexa.test"
-        r = client.post(f"{BASE}/auth/register", json={"email": email_tmp, "password": "Abc@12345"})
+        r = client.post(f"{BASE}/auth/register", json={"email": email_tmp, "password": "Abc@12345", "accepted_terms": True})
         if r.status_code != 201:
             pytest.skip("Não foi possível criar usuário temporário")
         tmp_token = client.post(f"{BASE}/auth/token", data={
@@ -489,7 +492,7 @@ class TestHealthScore:
     def test_historico_sem_dados(self, client, H, uid):
         """Usuário sem transações retorna score=0 e data_quality=NO_TRANSACTIONS."""
         fresh_email = f"hs_{uuid.uuid4().hex[:8]}@nexa.test"
-        r = client.post(f"{BASE}/auth/register", json={"email": fresh_email, "password": "Abc@12345"})
+        r = client.post(f"{BASE}/auth/register", json={"email": fresh_email, "password": "Abc@12345", "accepted_terms": True})
         if r.status_code != 201:
             pytest.skip("Registro falhou")
         fresh_uid = r.json()["user_id"]
@@ -1014,7 +1017,7 @@ class TestCustosBancarios:
     def test_raio_x_sem_dados(self, client, H):
         """Usuário sem transações retorna 404."""
         fresh_email = f"costs_{uuid.uuid4().hex[:8]}@nexa.test"
-        r = client.post(f"{BASE}/auth/register", json={"email": fresh_email, "password": "Abc@12345"})
+        r = client.post(f"{BASE}/auth/register", json={"email": fresh_email, "password": "Abc@12345", "accepted_terms": True})
         if r.status_code != 201:
             pytest.skip("Registro falhou")
         fresh_uid = r.json()["user_id"]
@@ -1060,7 +1063,7 @@ class TestAssinaturas:
         titular (o endpoint agora exige require_owner)."""
         fresh_email = f"sub_{uuid.uuid4().hex[:8]}@nexa.test"
         password = "Abc@12345"
-        r = client.post(f"{BASE}/auth/register", json={"email": fresh_email, "password": password})
+        r = client.post(f"{BASE}/auth/register", json={"email": fresh_email, "password": password, "accepted_terms": True})
         if r.status_code != 201:
             pytest.skip("Registro falhou")
         fresh_uid = r.json()["user_id"]
@@ -1096,14 +1099,25 @@ class TestOrcamento:
         assert "confidence" in data
 
     def test_orcamento_sem_renda(self, client, H, uid):
-        """GET /budget sem monthly_income → 422."""
+        """
+        GET /budget sem monthly_income: estima pelo extrato ou pede a renda.
+
+        Era 422 sempre — e a tela não tinha de onde tirar a renda, então o
+        orçamento nunca abria. Agora: 200 com `income_source="estimada"`
+        quando o IncomeProfiler tem confiança, 422 com mensagem clara quando
+        não tem. Nunca um número chutado.
+        """
         resp = client.get(f"{BASE}/budget/{uid}", headers=H)
-        assert resp.status_code == 422
+        assert resp.status_code in (200, 422)
+        if resp.status_code == 200:
+            assert resp.json()["income_source"] == "estimada"
+        else:
+            assert "Informe a renda" in resp.json()["detail"]
 
     def test_orcamento_sem_dados(self, client, H, uid):
         """Usuário sem transações recebe orçamento padrão 50/30/20."""
         fresh_email = f"bud_{uuid.uuid4().hex[:8]}@nexa.test"
-        r = client.post(f"{BASE}/auth/register", json={"email": fresh_email, "password": "Abc@12345"})
+        r = client.post(f"{BASE}/auth/register", json={"email": fresh_email, "password": "Abc@12345", "accepted_terms": True})
         if r.status_code != 201:
             pytest.skip("Registro falhou")
         fresh_uid = r.json()["user_id"]
@@ -1246,7 +1260,7 @@ class TestPares:
     def test_comparar_sem_dados(self, client, H):
         """Usuário sem transações retorna 404."""
         fresh_email = f"peer_{uuid.uuid4().hex[:8]}@nexa.test"
-        r = client.post(f"{BASE}/auth/register", json={"email": fresh_email, "password": "Abc@12345"})
+        r = client.post(f"{BASE}/auth/register", json={"email": fresh_email, "password": "Abc@12345", "accepted_terms": True})
         if r.status_code != 201:
             pytest.skip("Registro falhou")
         fresh_uid = r.json()["user_id"]
@@ -1298,7 +1312,7 @@ class TestForecast:
     def test_forecast_sem_dados(self, client, H):
         """Usuário sem dados → 404."""
         fresh_email = f"fc_{uuid.uuid4().hex[:8]}@nexa.test"
-        r = client.post(f"{BASE}/auth/register", json={"email": fresh_email, "password": "Abc@12345"})
+        r = client.post(f"{BASE}/auth/register", json={"email": fresh_email, "password": "Abc@12345", "accepted_terms": True})
         if r.status_code != 201:
             pytest.skip("Registro falhou")
         fresh_uid = r.json()["user_id"]
@@ -1456,6 +1470,7 @@ class TestIsolamentoDados:
         """Segundo usuário para testes de isolamento."""
         email = f"outro_{uuid.uuid4().hex[:8]}@nexa.test"
         r = client.post(f"{BASE}/auth/register", json={
+            "accepted_terms": True,
             "email": email, "password": "Abc@12345"
         })
         if r.status_code != 201:

@@ -59,6 +59,7 @@ async def auth(client: AsyncClient) -> dict:
     require_owner aceita nos paths.
     """
     await client.post("/api/v1/auth/register", json={
+        "accepted_terms": True,
         "email": GOLDEN_EMAIL,
         "password": GOLDEN_PASSWORD,
         "full_name": "Nexa Golden User",

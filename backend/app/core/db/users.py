@@ -13,8 +13,8 @@ def _get_user_by_email_duckdb(email: str) -> Optional[Dict[str, Any]]:
         con = get_connection()
         try:
             row = con.execute(
-                "SELECT user_id, email, hashed_password, full_name FROM users WHERE email = ? LIMIT 1",
-                [email],
+                "SELECT user_id, email, hashed_password, full_name FROM users WHERE lower(email) = lower(?) LIMIT 1",
+                [email.strip()],
             ).fetchone()
         finally:
             con.close()
@@ -61,8 +61,19 @@ def _get_user_by_id_duckdb(user_id: str) -> Optional[Dict[str, Any]]:
 
 
 def get_user_by_email(db: Session, email: str) -> Optional[Dict[str, Any]]:
+    """
+    Busca por e-mail SEM diferenciar maiúsculas. O cadastro passa a guardar em
+    minúsculas, mas contas antigas podem ter sido criadas como "Ana@x.com" —
+    comparar com lower() dos dois lados mantém essas contas entrando.
+    """
     try:
-        user = db.query(User).filter(User.email == email).first()
+        from sqlalchemy import func
+
+        user = (
+            db.query(User)
+            .filter(func.lower(User.email) == (email or "").strip().lower())
+            .first()
+        )
         if user:
             return {
                 "user_id": user.user_id,
@@ -117,14 +128,23 @@ def _create_user_duckdb(email: str, hashed_password: str, full_name: Optional[st
         return None
 
 
-def create_user(db: Session, email: str, hashed_password: str, full_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def create_user(
+    db: Session,
+    email: str,
+    hashed_password: str,
+    full_name: Optional[str] = None,
+    phone: Optional[str] = None,
+    terms_accepted_at=None,
+) -> Optional[Dict[str, Any]]:
     try:
         user_id = str(uuid.uuid4())
         db_user = User(
             user_id=user_id,
-            email=email,
+            email=(email or "").strip().lower(),
             hashed_password=hashed_password,
             full_name=full_name,
+            phone=phone,
+            terms_accepted_at=terms_accepted_at,
         )
         db.add(db_user)
         db.commit()

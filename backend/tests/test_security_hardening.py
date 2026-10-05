@@ -50,6 +50,7 @@ def _register_and_login() -> dict:
     email = f"sec_{_uuid.uuid4().hex[:10]}@nexa.test"
     password = "SenhaSegura@123"
     reg = _client.post(f"{BASE}/auth/register", json={
+        "accepted_terms": True,
         "email": email, "password": password, "full_name": "Sec Test",
     })
     assert reg.status_code in (200, 201), reg.text

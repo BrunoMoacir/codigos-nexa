@@ -1,7 +1,10 @@
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel
+import re
+from datetime import datetime, timezone
+
+from pydantic import BaseModel, Field, field_validator
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -32,10 +35,76 @@ logger_auth = logging.getLogger(__name__)
 # não é encontrado — evita timing attack / enumeração de contas.
 _DUMMY_HASH = get_password_hash("__nexa_dummy_password_never_used__")
 
+_MIN_PASSWORD_LEN = 8
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def normalizar_email(email: str) -> str:
+    """E-mail como é guardado e comparado: sem espaços, em minúsculas."""
+    return (email or "").strip().lower()
+
+
 class UserCreate(BaseModel):
+    """
+    Cadastro. Antes: e-mail sem validação nenhuma ('x' passava), senha de um
+    caractere aceita (o reset já exigia 8 — era possível criar conta com uma
+    senha que a própria redefinição recusaria), e o cadastro multi-etapas do
+    app mandava telefone e aceite de termos que eram descartados em silêncio.
+    """
+
     email: str
     password: str
     full_name: str | None = None
+    phone: str | None = None
+    # validate_default: omitir o campo também é recusa (o validador não rodaria)
+    accepted_terms: bool = Field(default=False, validate_default=True)
+
+    @field_validator("email")
+    @classmethod
+    def _email_valido(cls, v: str) -> str:
+        v = normalizar_email(v)
+        if not _EMAIL_RE.match(v) or len(v) > 254:
+            raise ValueError("E-mail inválido")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def _senha_minima(cls, v: str) -> str:
+        if len(v or "") < _MIN_PASSWORD_LEN:
+            raise ValueError(f"A senha precisa ter pelo menos {_MIN_PASSWORD_LEN} caracteres")
+        return v
+
+    @field_validator("full_name")
+    @classmethod
+    def _nome(cls, v: str | None) -> str | None:
+        v = (v or "").strip()
+        if len(v) > 120:
+            raise ValueError("Nome muito longo (máx. 120 caracteres)")
+        return v or None
+
+    @field_validator("phone")
+    @classmethod
+    def _telefone(cls, v: str | None) -> str | None:
+        if v is None or not str(v).strip():
+            return None
+        digitos = re.sub(r"\D", "", str(v))
+        if not 10 <= len(digitos) <= 15:
+            raise ValueError("Telefone inválido: use DDI + DDD + número (10 a 15 dígitos)")
+        return digitos
+
+    @field_validator("accepted_terms")
+    @classmethod
+    def _termos(cls, v: bool) -> bool:
+        # Registro do consentimento (LGPD art. 8º): sem aceite, não há conta.
+        if v is not True:
+            raise ValueError("É preciso aceitar os termos de uso e a política de privacidade")
+        return v
+
+
+class LogoutRequest(BaseModel):
+    """Corpo opcional do logout: o refresh desta sessão, para revogá-lo também."""
+
+    refresh_token: str | None = None
 
 class Token(BaseModel):
     access_token: str
@@ -66,13 +135,12 @@ class ResendVerificationRequest(BaseModel):
     email: str
 
 
-_MIN_PASSWORD_LEN = 8
 
 
 def _frontend_url(path: str) -> str:
     from app.core.config import settings
 
-    base = (getattr(settings, "FRONTEND_BASE_URL", "") or "http://localhost:8501").rstrip("/")
+    base = (getattr(settings, "FRONTEND_BASE_URL", "") or "http://localhost:3000").rstrip("/")
     return f"{base}{path}"
 
 
@@ -125,7 +193,9 @@ async def register(request: Request, user: UserCreate, db: Session = Depends(get
         db=db,
         email=user.email,
         hashed_password=hashed_password,
-        full_name=user.full_name
+        full_name=user.full_name,
+        phone=user.phone,
+        terms_accepted_at=datetime.now(timezone.utc),
     )
 
     if not new_user:
@@ -171,9 +241,14 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
     # não virar oráculo de existência de conta.
     from app.core import login_throttle
 
-    if login_throttle.esta_bloqueada(form_data.username):
+    # Normalizado uma vez: a comparação de e-mail é case-insensitive, e o
+    # contador de tentativas por conta era por texto cru — "Ana@x" e "ana@x"
+    # tinham baldes separados, o que multiplicava as tentativas permitidas.
+    email_login = normalizar_email(form_data.username)
+
+    if login_throttle.esta_bloqueada(email_login):
         audit.log_login_failure(
-            email=form_data.username, ip=ip, reason="account_throttled", request_id=req_id
+            email=email_login, ip=ip, reason="account_throttled", request_id=req_id
         )
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -183,15 +258,15 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
             ),
         )
 
-    user = get_user_by_email(db, form_data.username)
+    user = get_user_by_email(db, email_login)
     if not user:
         # Executa verify_password com hash fictício para equalizar tempo de resposta.
         # Sem isso, o tempo de retorno quando o email não existe é visivelmente menor,
         # permitindo enumeração de usuários cadastrados (timing attack).
         verify_password(form_data.password, _DUMMY_HASH)
-        login_throttle.registrar_falha(form_data.username)
+        login_throttle.registrar_falha(email_login)
         audit.log_login_failure(
-            email=form_data.username,
+            email=email_login,
             ip=ip,
             reason="email_not_found",
             request_id=req_id,
@@ -203,9 +278,9 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
         )
 
     if not verify_password(form_data.password, user["hashed_password"]):
-        login_throttle.registrar_falha(form_data.username)
+        login_throttle.registrar_falha(email_login)
         audit.log_login_failure(
-            email=form_data.username,
+            email=email_login,
             ip=ip,
             reason="wrong_password",
             request_id=req_id,
@@ -221,7 +296,7 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
         data={"sub": user["user_id"]}, expires_delta=access_token_expires
     )
 
-    login_throttle.limpar(form_data.username)
+    login_throttle.limpar(email_login)
     audit.log_login_success(user_id=user["user_id"], ip=ip, request_id=req_id)
 
     return {
@@ -306,7 +381,7 @@ async def forgot_password(
     ip = request.client.host if request.client else "unknown"
     req_id = getattr(request.state, "request_id", None)
 
-    user = get_user_by_email(db, body.email)
+    user = get_user_by_email(db, normalizar_email(body.email))
     if user:
         try:
             from app.core.account_tokens import PURPOSE_PASSWORD_RESET, issue_token
@@ -398,7 +473,7 @@ async def resend_verification(
     db: Session = Depends(get_db),
 ):
     """Reenvia o e-mail de confirmação. Sempre 202 (anti-enumeração)."""
-    user = get_user_by_email(db, body.email)
+    user = get_user_by_email(db, normalizar_email(body.email))
     if user:
         try:
             from app.core.account_tokens import PURPOSE_EMAIL_VERIFY, issue_token
@@ -447,11 +522,31 @@ async def logout_all_devices(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(request: Request, token_data: TokenData = Depends(get_current_token_data)):
+async def logout(
+    request: Request,
+    body: LogoutRequest | None = None,
+    token_data: TokenData = Depends(get_current_token_data),
+):
     """
-    Revoga o token atual adicionando o jti à blacklist Redis.
-    O token deixa de ser aceito imediatamente, mesmo antes de expirar.
+    Revoga o access atual (jti na blacklist) e, se vier no corpo, o refresh
+    desta sessão.
+
+    Revogar só o access deixava o refresh de 14 dias de pé: depois do
+    "sair", ele ainda gerava um par novo em /auth/refresh. O refresh só é
+    revogado se for do MESMO usuário do access — o logout de um não derruba
+    a sessão de outro.
     """
+    if body and body.refresh_token:
+        try:
+            refresh = decode_refresh_token(body.refresh_token)
+            if refresh.user_id == token_data.user_id and refresh.jti:
+                from datetime import datetime, timezone
+                agora = int(datetime.now(timezone.utc).timestamp())
+                restante = max(0, (refresh.exp or agora) - agora)
+                revoke_token(refresh.jti, restante or 60)
+        except HTTPException:
+            pass  # refresh já inválido/revogado: nada a revogar
+
     if token_data.jti:
         exp = token_data.__dict__.get("exp")
         remaining = 0

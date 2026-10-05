@@ -98,6 +98,7 @@ def auth(client):
     email = f"e2e_{_uuid.uuid4().hex[:10]}@nexa.test"
     password = "SenhaE2E@123"
     resp = client.post("/api/v1/auth/register", json={
+        "accepted_terms": True,
         "email": email, "password": password, "full_name": "Usuário E2E",
     })
     assert resp.status_code in (200, 201), f"Registro falhou: {resp.text}"

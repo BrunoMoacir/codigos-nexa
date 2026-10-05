@@ -39,7 +39,7 @@ def fresh_user(sent_emails):
     """Registra um usuário novo e devolve (email, senha, user_id)."""
     email = f"reset_test_{uuid.uuid4().hex[:10]}@nexa.test"
     password = "senhaForte123"
-    resp = client.post(BASE + "/register", json={"email": email, "password": password})
+    resp = client.post(BASE + "/register", json={"email": email, "password": password, "accepted_terms": True})
     assert resp.status_code == 201, resp.text
     return email, password, resp.json()["user_id"]
 

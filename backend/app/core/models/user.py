@@ -20,3 +20,9 @@ class User(Base):
     # roubado por até 14 DIAS, que é a janela que importa.
     # Nulo = nunca houve corte (contas antigas seguem valendo).
     sessions_valid_from = Column(DateTime(timezone=True), nullable=True)
+
+    # Telefone com DDI, só dígitos (opcional) e o instante do aceite dos
+    # termos de uso e da política de privacidade — o registro do
+    # consentimento que o cadastro passou a exigir.
+    phone = Column(String(20), nullable=True)
+    terms_accepted_at = Column(DateTime(timezone=True), nullable=True)

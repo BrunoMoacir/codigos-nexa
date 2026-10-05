@@ -109,7 +109,7 @@ class TestResetDerrubaSessoes:
     def conta(self, cliente):
         email = f"corte_{uuid.uuid4().hex[:8]}@nexa.test"
         senha = "SenhaForte@2024"
-        resp = cliente.post(f"{BASE}/auth/register", json={"email": email, "password": senha})
+        resp = cliente.post(f"{BASE}/auth/register", json={"email": email, "password": senha, "accepted_terms": True})
         if resp.status_code != 201:
             pytest.skip(f"registro indisponível ({resp.status_code})")
         login_throttle.limpar(email)
@@ -346,7 +346,7 @@ class TestLogoutAll:
     def dois_aparelhos(self, cliente):
         email = f"todos_{uuid.uuid4().hex[:8]}@nexa.test"
         senha = "SenhaForte@2024"
-        resp = cliente.post(f"{BASE}/auth/register", json={"email": email, "password": senha})
+        resp = cliente.post(f"{BASE}/auth/register", json={"email": email, "password": senha, "accepted_terms": True})
         if resp.status_code != 201:
             pytest.skip(f"registro indisponível ({resp.status_code})")
         login_throttle.limpar(email)
