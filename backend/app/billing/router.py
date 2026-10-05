@@ -69,20 +69,27 @@ def get_subscription(user_id: str = Depends(require_owner)) -> SubscriptionOut:
     )
 
 
+def _frontend_base() -> str:
+    return (getattr(settings, "FRONTEND_BASE_URL", "") or "http://localhost:3000").rstrip("/")
+
+
 @router.post("/checkout/{user_id}", response_model=CheckoutOut)
 def create_checkout(
     body: CheckoutIn,
     user_id: str = Depends(require_owner),
 ) -> CheckoutOut:
     """Cria a sessão de Checkout do Stripe para assinar Pro ou Total."""
-    base = (getattr(settings, "FRONTEND_BASE_URL", "") or "http://localhost:8501").rstrip("/")
+    base = _frontend_base()
     try:
         session = _service.create_checkout(
             user_id=user_id,
             plan_id=body.plan,
             customer_email=None,  # Stripe coleta no checkout; evita expor email na URL
-            success_url=f"{base}/billing/success?session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{base}/billing/cancel",
+            # Rotas que o app React tem: a tela de Planos lê ?checkout= na volta.
+            # As antigas (/billing/success, /billing/cancel) não existiam em lugar
+            # nenhum — o usuário pagava e caía numa página em branco.
+            success_url=f"{base}/planos?checkout=success&session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{base}/planos?checkout=cancel",
         )
     except StripeNaoConfigurado as exc:
         raise HTTPException(status_code=503, detail=str(exc))
@@ -96,9 +103,9 @@ def create_checkout(
 @router.post("/portal/{user_id}", response_model=PortalOut)
 def create_portal(user_id: str = Depends(require_owner)) -> PortalOut:
     """Portal do cliente Stripe (trocar cartão, plano ou cancelar)."""
-    base = (getattr(settings, "FRONTEND_BASE_URL", "") or "http://localhost:8501").rstrip("/")
+    base = _frontend_base()
     try:
-        session = _service.create_portal(user_id=user_id, return_url=f"{base}/billing")
+        session = _service.create_portal(user_id=user_id, return_url=f"{base}/planos")
     except StripeNaoConfigurado as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except StripeIndisponivel as exc:

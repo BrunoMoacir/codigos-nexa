@@ -58,8 +58,11 @@ class Settings(BaseSettings):
     # URL do Widget Pluggy Connect (onde o usuário conecta sua conta)
     PLUGGY_CONNECT_URL: str = "https://connect.pluggy.ai"
 
-    # URL base do frontend (usada como fallback no redirect de reconexão)
-    FRONTEND_BASE_URL: str = "http://localhost:8501"
+    # URL base do frontend React (links de e-mail, retorno do Stripe e da
+    # reconexão Open Finance). O padrão era a porta 8501 do Streamlit de
+    # demonstração, e o link "redefinir senha" do e-mail abria uma tela que
+    # não tem essa rota.
+    FRONTEND_BASE_URL: str = "http://localhost:3000"
 
     # Origens permitidas no CORS.
     # Aceita formatos: "*", "https://a.com,https://b.com", ou ["https://a.com","https://b.com"]
