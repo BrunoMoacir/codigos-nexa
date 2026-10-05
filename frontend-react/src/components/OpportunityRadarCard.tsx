@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { nexaApi } from '../api/nexa';
+import { Link } from 'react-router-dom';
+import { feedApi, rotuloLiquidez } from '../api/feed';
+import { brl } from '../api/painel';
+import { describeError } from '../api/errors';
 
 /**
  * OPP — Card do Radar de Oportunidades (docs/OPP.md, Etapa 6).
@@ -38,9 +41,8 @@ const badgeStyle = (bg: string, fg: string): React.CSSProperties => ({
   color: fg,
 });
 
-function currency(value: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
-}
+const currency = (value: number | null | undefined) => brl(value || 0);
+const pct = (v: number, casas = 2) => Number(v).toFixed(casas).replace('.', ',');
 
 const STATUS_BADGES: Record<string, { label: string; bg: string; fg: string }> = {
   CONFIRMED: { label: 'Confirmado (30 dias)', bg: '#dcfce7', fg: '#166534' },
@@ -54,14 +56,15 @@ export const OpportunityRadarCard: React.FC<{ userId: string }> = ({ userId }) =
 
   const oppQuery = useQuery({
     queryKey: ['opportunities', userId],
-    queryFn: () => nexaApi.getOpportunities(userId),
+    queryFn: () => feedApi.radar(userId),
     enabled: !!userId,
     staleTime: 30 * 60 * 1000,
+    retry: false,
   });
 
   const savingsQuery = useQuery({
     queryKey: ['savings-vs-cdi'],
-    queryFn: () => nexaApi.getSavingsVsCdi(),
+    queryFn: () => feedApi.poupancaVsCdi(),
     staleTime: 60 * 60 * 1000,
   });
 
@@ -74,9 +77,23 @@ export const OpportunityRadarCard: React.FC<{ userId: string }> = ({ userId }) =
     );
   }
 
-  if (oppQuery.isError || !oppQuery.data) {
-    return null; // sem dados suficientes — não polui o feed com um card vazio
+  if (oppQuery.isError) {
+    // Antes: `return null` para qualquer erro — com o gating por plano ligado,
+    // quem é Free via o Radar sumir sem saber por quê.
+    const e = describeError(oppQuery.error, 'Não foi possível analisar seu dinheiro parado agora.');
+    return (
+      <div style={cardStyle}>
+        <div style={titleStyle}>Radar de Oportunidades</div>
+        <div style={{ color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.6 }}>{e.message}</div>
+        {e.kind === 'upgrade_required' && (
+          <Link to="/planos" style={{ display: 'inline-block', marginTop: 8, fontSize: 13, fontWeight: 700, color: 'var(--accent-color, #D4A820)' }}>
+            Ver planos →
+          </Link>
+        )}
+      </div>
+    );
   }
+  if (!oppQuery.data) return null;
 
   const opp = oppQuery.data;
   const top = opp.top_opportunity;
@@ -118,12 +135,18 @@ export const OpportunityRadarCard: React.FC<{ userId: string }> = ({ userId }) =
                 Melhor alternativa (líquido pós-IR)
               </div>
               <div style={{ fontWeight: 600, fontSize: 14 }}>
-                {top.bank_name} {top.product_type} {Number(top.cdi_pct).toFixed(0)}% CDI
+                {top.bank_name} {top.product_type} {Number(top.cdi_pct).toFixed(0)}% do CDI
                 {top.is_exempt ? ' · isento de IR' : ''}
-                {top.fgc_covered === false ? ' · garantia do Tesouro' : ' · FGC até R$250k'}
+                {top.fgc_covered === false ? ' · garantia do Tesouro' : ' · FGC até R$ 250 mil'}
+              </div>
+              {/* liquidez e caráter promocional ficavam escondidos: um LCI de
+                  24 meses aparecia igual a um CDB de liquidez diária */}
+              <div style={{ fontSize: 12, color: top.liquidity_days > 30 ? '#b45309' : 'var(--text-muted)', marginTop: 2 }}>
+                {rotuloLiquidez(top.liquidity, top.liquidity_days)}
+                {top.promotional ? ' · taxa promocional (prazo ou teto limitados)' : ''}
               </div>
               <div style={{ color: '#166534', fontWeight: 700, fontSize: 16, marginTop: 4 }}>
-                +{currency(top.annual_gain_brl)}/ano ({Number(top.annual_rate_net_pct).toFixed(2)}% a.a. líquido)
+                +{currency(top.annual_gain_brl)}/ano ({pct(top.annual_rate_net_pct)}% a.a. líquido)
               </div>
 
               {Array.isArray(top.steps) && top.steps.length > 0 && (
@@ -144,7 +167,7 @@ export const OpportunityRadarCard: React.FC<{ userId: string }> = ({ userId }) =
                   </button>
                   {showSteps && (
                     <ol style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                      {top.steps.map((step: string, i: number) => (
+                      {top.steps.map((step, i) => (
                         <li key={i}>{step}</li>
                       ))}
                     </ol>
@@ -172,16 +195,16 @@ export const OpportunityRadarCard: React.FC<{ userId: string }> = ({ userId }) =
             color: '#9a3412',
           }}
         >
-          🐷 Poupança hoje rende {Number(savings.savings_annual_pct).toFixed(2)}% a.a. contra{' '}
-          {Number(savings.cdi_annual_pct).toFixed(2)}% do CDI — {currency(savings.estimated_loss_annual_brl)}
+          🐷 Poupança hoje rende {pct(savings.savings_annual_pct)}% a.a. contra{' '}
+          {pct(savings.cdi_annual_pct)}% do CDI — {currency(savings.estimated_loss_annual_brl)}
           /ano de diferença a cada {currency(savings.amount_reference_brl)}.
         </div>
       )}
 
-      {opp.emergency_reserve > 0 && (
+      {opp.emergency_reserve > 0 && opp.idle_amount > 0 && (
         <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)' }}>
-          🛡️ {currency(opp.emergency_reserve)} protegidos como reserva de emergência (
-          {opp.reserve_months_applied} meses de gastos) — fora da recomendação.
+          🛡️ {currency(opp.reserve_protected ?? Math.min(opp.emergency_reserve, opp.gross_idle_amount))} mantidos como
+          reserva de emergência (meta: {currency(opp.emergency_reserve)}, {opp.reserve_months_applied} meses de gastos) — fora da recomendação.
         </div>
       )}
 
