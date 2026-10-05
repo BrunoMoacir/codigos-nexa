@@ -296,7 +296,9 @@ class NotificationStateStore:
                         "INSERT INTO notification_events "
                         "(id, user_id, fingerprint, notification_type, event_type, created_at) "
                         "VALUES (?, ?, ?, ?, 'shown', ?)",
-                        [str(uuid.uuid4())[:8], user_id, fp, n.type, now],
+                        # UUID inteiro: 8 caracteres como chave primária colidem
+                        # na casa de dezenas de milhares de eventos.
+                        [str(uuid.uuid4()), user_id, fp, n.type, now],
                     )
             finally:
                 con.close()
@@ -304,17 +306,97 @@ class NotificationStateStore:
         except Exception as exc:
             logger.warning("NotificationStateStore.mark_shown falhou: %s", exc)
 
+    # ── feed in-app: só some o que o usuário dispensou ────────────────
+
+    def filter_dismissed(
+        self, user_id: str, notifications: list[Notification]
+    ) -> list[Notification]:
+        """
+        Remove as notificações que o usuário DISPENSOU dentro do TTL do tipo.
+
+        É o filtro do feed (GET /notifications), que tem de ser idempotente:
+        abrir a tela não é dispensar o card. O `filter_unseen` + `mark_shown`
+        continuam valendo para os canais proativos (push, e-mail), onde
+        "já foi entregue" é motivo para não repetir.
+
+        Um CRITICAL dispensado volta depois de 1 dia — o usuário pode tirá-lo
+        da frente, mas não silenciá-lo por semanas.
+        """
+        if not notifications:
+            return notifications
+        try:
+            con = self._conn()
+            try:
+                self._init(con)
+                fps = {n.id: compute_fingerprint(user_id, n) for n in notifications}
+                placeholders = ",".join("?" * len(fps))
+                rows = con.execute(
+                    "SELECT fingerprint, MAX(created_at) FROM notification_events "
+                    f"WHERE user_id = ? AND event_type = 'dismissed' AND fingerprint IN ({placeholders}) "
+                    "GROUP BY fingerprint",
+                    [user_id, *fps.values()],
+                ).fetchall()
+                dispensadas = {r[0]: r[1] for r in rows}
+            finally:
+                con.close()
+        except Exception as exc:
+            logger.warning("NotificationStateStore.filter_dismissed falhou: %s", exc)
+            return notifications  # fail-open
+
+        now = datetime.now(timezone.utc)
+        resultado = []
+        for n in notifications:
+            quando = dispensadas.get(fps[n.id])
+            if quando is None:
+                resultado.append(n)
+                continue
+            if quando.tzinfo is None:
+                quando = quando.replace(tzinfo=timezone.utc)
+            ttl = 1 if n.priority == "CRITICAL" else _SEEN_TTL_DAYS.get(n.type, 7)
+            if now - quando > timedelta(days=ttl):
+                resultado.append(n)
+        return resultado
+
+    def seen_fingerprints(self, user_id: str, fingerprints: list[str]) -> set[str]:
+        """Quais destes fingerprints o usuário já viu (evento 'shown')."""
+        if not fingerprints:
+            return set()
+        try:
+            con = self._conn()
+            try:
+                self._init(con)
+                placeholders = ",".join("?" * len(fingerprints))
+                rows = con.execute(
+                    "SELECT fingerprint FROM notification_state "
+                    f"WHERE user_id = ? AND fingerprint IN ({placeholders})",
+                    [user_id, *fingerprints],
+                ).fetchall()
+                return {r[0] for r in rows}
+            finally:
+                con.close()
+        except Exception as exc:
+            logger.warning("NotificationStateStore.seen_fingerprints falhou: %s", exc)
+            return set()
+
     # ── registrar evento de interação ─────────────────────────────────
+
+    EVENTOS_VALIDOS = {"shown", "tapped", "dismissed", "acted"}
 
     def log_event(
         self,
         user_id: str,
         fingerprint: str,
         notification_type: str,
-        event_type: str,   # "tapped" | "dismissed"
+        event_type: str,   # "shown" | "tapped" | "dismissed" | "acted"
     ) -> None:
-        """Registra uma interação do usuário (tapped ou dismissed)."""
-        if event_type not in {"tapped", "dismissed"}:
+        """
+        Registra uma interação do usuário com uma notificação.
+
+        'shown' também atualiza o estado (primeira/última vez vista), como o
+        `mark_shown` faz para os canais proativos — no feed quem informa que o
+        card foi exibido é o app, não a leitura do endpoint.
+        """
+        if event_type not in self.EVENTOS_VALIDOS:
             logger.warning("log_event: event_type inválido '%s'", event_type)
             return
 
@@ -322,14 +404,33 @@ class NotificationStateStore:
             con = self._conn()
             try:
                 self._init(con)
+                agora = datetime.now(timezone.utc)
+                if event_type == "shown":
+                    existente = con.execute(
+                        "SELECT seen_count FROM notification_state WHERE fingerprint = ? AND user_id = ?",
+                        [fingerprint, user_id],
+                    ).fetchone()
+                    if existente:
+                        con.execute(
+                            "UPDATE notification_state SET last_seen_at = ?, seen_count = seen_count + 1 "
+                            "WHERE fingerprint = ? AND user_id = ?",
+                            [agora, fingerprint, user_id],
+                        )
+                    else:
+                        con.execute(
+                            "INSERT INTO notification_state "
+                            "(fingerprint, user_id, notification_type, first_seen_at, last_seen_at, seen_count) "
+                            "VALUES (?, ?, ?, ?, ?, 1)",
+                            [fingerprint, user_id, notification_type, agora, agora],
+                        )
                 con.execute(
                     "INSERT INTO notification_events "
                     "(id, user_id, fingerprint, notification_type, event_type, created_at) "
                     "VALUES (?, ?, ?, ?, ?, ?)",
                     [
-                        str(uuid.uuid4())[:8],
+                        str(uuid.uuid4()),
                         user_id, fingerprint, notification_type,
-                        event_type, datetime.now(timezone.utc),
+                        event_type, agora,
                     ],
                 )
             finally:

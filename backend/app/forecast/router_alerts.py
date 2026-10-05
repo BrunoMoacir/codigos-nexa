@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, List, Optional
 from fastapi import APIRouter, HTTPException, status, Depends
 from app.core.security import require_owner
 from pydantic import BaseModel, ConfigDict, Field
+from app.core.formatacao import brl
 
 if TYPE_CHECKING:
     from app.forecast.etl.income_profiler import IncomeProfile
@@ -102,6 +103,11 @@ class AlertsResponse(BaseModel):
 # HELPERS: Gerar alertas
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def _em_dias(n: int) -> str:
+    """'amanhã' / 'em 1 dia' / 'em 5 dias' — o card dizia "em 1 dias"."""
+    return "amanhã" if n == 1 else f"em {n} dias"
+
+
 def generate_token_expiry_alerts(days_until_expiry: int) -> List[AlertItem]:
     """
     Gera alerta de expiração de token se necessário.
@@ -120,7 +126,7 @@ def generate_token_expiry_alerts(days_until_expiry: int) -> List[AlertItem]:
             title="⛔ Conexão expirou",
             message="Sua conexão com o banco expirou. Reconecte imediatamente para continuar usando a Nexa.",
             due_date=datetime.now(timezone.utc),
-            action_url="/api/v1/reconnect"
+            action_url="/connections"
         )]
     
     elif days_until_expiry <= 7:
@@ -128,10 +134,10 @@ def generate_token_expiry_alerts(days_until_expiry: int) -> List[AlertItem]:
             id="token_expiry_7d",
             type="TOKEN_EXPIRY",
             level="CRITICAL",
-            title=f"⚠️ Conexão vence em {days_until_expiry} dias",
-            message=f"Sua conexão vence em {days_until_expiry} dias. Reconecte em breve para não perder acesso aos dados.",
+            title=f"⚠️ Conexão vence {_em_dias(days_until_expiry)}",
+            message=f"Sua conexão vence {_em_dias(days_until_expiry)}. Reconecte em breve para não perder acesso aos dados.",
             due_date=datetime.now(timezone.utc) + timedelta(days=days_until_expiry),
-            action_url="/api/v1/reconnect"
+            action_url="/connections"
         )]
     
     elif days_until_expiry <= 30:
@@ -139,13 +145,82 @@ def generate_token_expiry_alerts(days_until_expiry: int) -> List[AlertItem]:
             id="token_expiry_30d",
             type="TOKEN_EXPIRY",
             level="WARNING",
-            title=f"⏰ Conexão vence em {days_until_expiry} dias",
-            message=f"Sua conexão vencerá em {days_until_expiry} dias. Planeje reconectar em breve.",
+            title=f"⏰ Conexão vence {_em_dias(days_until_expiry)}",
+            message=f"Sua conexão vencerá {_em_dias(days_until_expiry)}. Planeje reconectar em breve.",
             due_date=datetime.now(timezone.utc) + timedelta(days=days_until_expiry),
-            action_url="/api/v1/reconnect"
+            action_url="/connections"
         )]
     
     return []
+
+
+# Consentimento Open Finance: validade máxima de 12 meses (Res. Conjunta
+# BCB/CMN nº 1/2020). A conexão não guarda a data de expiração que a
+# instituição informou, então a estimativa é pela data real da conexão.
+_VALIDADE_CONSENTIMENTO_DIAS = 365
+
+
+def alertas_de_consentimento(user_id: str) -> List[AlertItem]:
+    """
+    Alertas de vencimento a partir das conexões REAIS do usuário.
+
+    Era `generate_token_expiry_alerts(30)` fixo: todo usuário — com ou sem
+    banco conectado — recebia "Conexão vence em 30 dias". Era o único card que
+    o feed mostrava para todos, e era falso.
+    """
+    try:
+        from app.core.database import SessionLocal
+        from app.core.models.pluggy_item import PluggyItem
+
+        with SessionLocal() as db:
+            itens = db.query(PluggyItem).filter(PluggyItem.user_id == user_id).all()
+    except Exception as exc:
+        logger.warning("alertas_de_consentimento(%s): %s", user_id, exc)
+        return []
+
+    hoje = datetime.now(timezone.utc)
+    alertas: List[AlertItem] = []
+    for item in itens:
+        criado = item.created_at
+        if criado is None:
+            continue
+        if criado.tzinfo is None:
+            criado = criado.replace(tzinfo=timezone.utc)
+        faltam = (criado + timedelta(days=_VALIDADE_CONSENTIMENTO_DIAS) - hoje).days
+        for alerta in generate_token_expiry_alerts(faltam):
+            banco = item.connector_name or "seu banco"
+            alerta.id = f"{alerta.id}_{item.item_id}"
+            alerta.title = alerta.title.replace("Conexão", f"Conexão com {banco}")
+            alerta.message += " (estimativa pela data da conexão: o consentimento vale até 12 meses.)"
+            alerta.action_url = "/connections"
+            alertas.append(alerta)
+    return alertas
+
+
+def _id_estavel(user_id: str, alerta: AlertItem) -> str:
+    """
+    Id que sobrevive entre leituras: o mesmo alerta, o mesmo id.
+
+    Os ids de anomalia eram o índice na lista (`anomaly_0_…`) — mudavam a
+    cada leitura, e dispensar um alerta não tinha como valer para o próximo.
+    """
+    import hashlib
+
+    base = f"{user_id}|{alerta.type}|{alerta.title}"
+    if alerta.type == "SPENDING_ANOMALY":
+        # Cada anomalia é UM lançamento, e várias têm o mesmo título ("Gasto
+        # bem acima do normal"): só pelo título, três alertas saíam com o
+        # mesmo id — chave duplicada na tela e "Dispensar" sumia com os três.
+        base += f"|{alerta.message}"
+    return f"{alerta.type.lower()}_{hashlib.sha256(base.encode()).hexdigest()[:12]}"
+
+
+_TITULO_DA_ANOMALIA = {
+    "UNUSUAL_AMOUNT": "Gasto bem acima do normal",
+    "FREQUENCY_SPIKE": "Compras mais frequentes que o normal",
+    "NEW_MERCHANT": "Gasto alto num lugar novo",
+    "DUPLICATE_SUSPECT": "Possível cobrança em dobro",
+}
 
 
 def generate_negative_balance_alert(negative_day: int | None) -> List[AlertItem]:
@@ -158,8 +233,8 @@ def generate_negative_balance_alert(negative_day: int | None) -> List[AlertItem]
             id="negative_balance",
             type="NEGATIVE_BALANCE",
             level="CRITICAL",
-            title=f"⛔ Saldo negativo em {negative_day} dias",
-            message=f"Seu saldo pode ficar negativo em {negative_day} dias se manter os gastos atuais.",
+            title=f"⛔ Saldo negativo {_em_dias(negative_day)}",
+            message=f"Seu saldo pode ficar negativo {_em_dias(negative_day)} se manter os gastos atuais.",
             due_date=datetime.now(timezone.utc) + timedelta(days=negative_day),
             action_url=None
         )]
@@ -202,7 +277,7 @@ def generate_high_commitment_alert(
             message += (
                 f" Isso equivale a aproximadamente {income_pct:.0f}% "
                 f"da sua renda mensal estimada "
-                f"(R$ {income_profile.monthly_net_income:,.0f}/mês)."
+                f"({brl(income_profile.monthly_net_income, 0)}/mês)."
             )
 
         return [AlertItem(
@@ -222,8 +297,11 @@ def generate_high_commitment_alert(
 # ENDPOINT: GET /alerts/{user_id}
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+# `def` (não `async def`): o handler roda o pipeline do extrato, que é
+# síncrono e pesado — dentro de `async def` ele travava o event loop e toda
+# outra requisição do servidor esperava. Como `def`, vai para o threadpool.
 @router.get("/{user_id}", response_model=AlertsResponse)
-async def get_alerts(user_id: str = Depends(require_owner)) -> AlertsResponse:
+def get_alerts(user_id: str = Depends(require_owner)) -> AlertsResponse:
     """
     Retorna alertas ativos para o usuário.
     
@@ -284,7 +362,6 @@ async def get_alerts(user_id: str = Depends(require_owner)) -> AlertsResponse:
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
         from app.runner import get_runner
-        from app.core.config import settings
         from app.forecast.etl.income_profiler import IncomeProfiler
         from app.forecast.etl.spending_anomaly_detector import SpendingAnomalyDetector
         import os
@@ -292,13 +369,11 @@ async def get_alerts(user_id: str = Depends(require_owner)) -> AlertsResponse:
         from datetime import date as date_type
 
         mode = "prod" if os.getenv("APP_MODE", "dev") == "prod" else "dev"
-        if mode == "prod" and (not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET):
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
-            )
 
-        runner_result = get_runner(mode).run(horizon_days=30)
+        # O extrato DESTE usuário. Era `.run()` sem user_id: mock fixo da
+        # Pluggy em dev, item sandbox novo em produção — os alertas nunca
+        # falavam do dinheiro de quem os lia.
+        runner_result = get_runner(mode).run_from_db(user_id, horizon_days=30) or {}
 
         # MI.6: Estimar renda a partir das transações para contextualizar alertas
         income_profile = None
@@ -313,8 +388,8 @@ async def get_alerts(user_id: str = Depends(require_owner)) -> AlertsResponse:
 
         alerts: List[AlertItem] = []
 
-        # ✅ ALERTA 1: Token expiry (placeholder - 30 dias no futuro)
-        alerts.extend(generate_token_expiry_alerts(30))
+        # ✅ ALERTA 1: Vencimento do consentimento, pelas conexões reais
+        alerts.extend(alertas_de_consentimento(user_id))
 
         # ✅ ALERTA 2: Negative balance
         projections = runner_result.get("projections", {})
@@ -354,7 +429,10 @@ async def get_alerts(user_id: str = Depends(require_owner)) -> AlertsResponse:
                         id=f"anomaly_{i}_{anomaly.anomaly_type.lower()}",
                         type="SPENDING_ANOMALY",
                         level=_sev_map.get(anomaly.severity, "INFO"),
-                        title=f"Anomalia: {anomaly.anomaly_type.replace('_', ' ').title()}",
+                        # era o nome interno em inglês ("Anomalia: Duplicate Suspect")
+                        title=_TITULO_DA_ANOMALIA.get(
+                            anomaly.anomaly_type, "Gasto fora do seu padrão"
+                        ),
                         message=anomaly.description,
                         due_date=datetime.now(timezone.utc),
                         action_url=None,
@@ -364,6 +442,10 @@ async def get_alerts(user_id: str = Depends(require_owner)) -> AlertsResponse:
         # STEP 3: CONSOLIDAR RESPOSTA
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
+        for alerta in alerts:
+            alerta.id = _id_estavel(user_id, alerta)
+        alerts = _sem_dispensados(user_id, alerts)
+
         critical_count = sum(1 for a in alerts if a.level == "CRITICAL")
         warning_count = sum(1 for a in alerts if a.level == "WARNING")
         
@@ -402,15 +484,64 @@ async def get_alerts(user_id: str = Depends(require_owner)) -> AlertsResponse:
 # ENDPOINT: DELETE /alerts/{alert_id} (Marcar como lido)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-@router.delete("/{user_id}/{alert_id}")
-async def dismiss_alert(alert_id: str, user_id: str = Depends(require_owner)):
-    """
-    Marca um alerta como lido/ignorado.
+_DIAS_DISPENSADO = {"CRITICAL": 1, "WARNING": 7, "INFO": 14}
 
-    TODO: Implementar persistência no Postgres
+
+def _sem_dispensados(user_id: str, alerts: List[AlertItem]) -> List[AlertItem]:
+    """Tira os alertas que o usuário dispensou há pouco (CRITICAL volta em 1 dia)."""
+    if not alerts:
+        return alerts
+    try:
+        from app.notifications.state_store import NotificationStateStore
+
+        store = NotificationStateStore()
+        con = store._conn()
+        try:
+            store._init(con)
+            ids = [a.id for a in alerts]
+            marcadores = ",".join("?" * len(ids))
+            linhas = con.execute(
+                "SELECT fingerprint, MAX(created_at) FROM notification_events "
+                f"WHERE user_id = ? AND event_type = 'dismissed' AND fingerprint IN ({marcadores}) "
+                "GROUP BY fingerprint",
+                [user_id, *ids],
+            ).fetchall()
+        finally:
+            con.close()
+    except Exception as exc:
+        logger.warning("Filtro de alertas dispensados indisponível: %s", exc)
+        return alerts
+
+    dispensados = {fp: quando for fp, quando in linhas}
+    agora = datetime.now(timezone.utc)
+    restantes = []
+    for a in alerts:
+        quando = dispensados.get(a.id)
+        if quando is not None and quando.tzinfo is None:
+            quando = quando.replace(tzinfo=timezone.utc)
+        if quando is None or agora - quando > timedelta(days=_DIAS_DISPENSADO.get(a.level, 7)):
+            restantes.append(a)
+    return restantes
+
+
+@router.delete("/{user_id}/{alert_id}")
+def dismiss_alert(alert_id: str, user_id: str = Depends(require_owner)):
     """
-    logger.info("Ignorando alerta %s do user %s", alert_id, user_id)
-    
+    Dispensa um alerta: ele some de GET /alerts pelo período do nível
+    (CRITICAL 1 dia, WARNING 7, INFO 14).
+
+    Antes respondia "dismissed" sem gravar nada — o alerta voltava na leitura
+    seguinte, e a interface não tinha como saber que o servidor mentira.
+    """
+    from app.notifications.state_store import NotificationStateStore
+
+    NotificationStateStore().log_event(
+        user_id=user_id,
+        fingerprint=alert_id,
+        notification_type="ALERT",
+        event_type="dismissed",
+    )
+    logger.info("Alerta %s dispensado por %s", alert_id, user_id)
     return {
         "status": "dismissed",
         "alert_id": alert_id,

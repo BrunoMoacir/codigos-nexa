@@ -196,7 +196,9 @@ def deliver(
                     user_id=user_id,
                     title=subject,
                     body=_html_to_text(html_body),
-                    url="/strategies",     # feed de oportunidades no frontend
+                    # o Feed (aba Oportunidades) mostra o card com a ação; era
+                    # /strategies, tela fora da navegação principal
+                    url="/feed",
                     tag=notification_type,
                 )
                 if sent > 0:

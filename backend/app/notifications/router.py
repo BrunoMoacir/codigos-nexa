@@ -92,16 +92,14 @@ def get_notifications(
         from app.goals.tracker import GoalTracker
 
         import os
-        from app.core.config import settings
 
         mode = "prod" if os.getenv("APP_MODE", "dev") == "prod" else "dev"
-        if mode == "prod" and (not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET):
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Pluggy não configurada.",
-            )
 
-        runner_result = get_runner(mode).run(horizon_days=30)
+        # O extrato DESTE usuário, do banco. Era `.run()` sem user_id: em dev
+        # rodava sobre o mock fixo da Pluggy (jan/2026), em produção sobre um
+        # item sandbox criado na hora — ninguém via notificação sobre o próprio
+        # dinheiro. É o mesmo caminho do /forecast.
+        runner_result = get_runner(mode).run_from_db(user_id, horizon_days=30) or {}
 
         transactions_data = runner_result.get("transactions", {})
         transactions_df: pl.DataFrame | None = transactions_data.get("pf_pj_classified_df")
@@ -216,9 +214,15 @@ def get_notifications(
             )
 
         # ── 8. Metas ativas ────────────────────────────────────────
+        # GoalTracker exige a sessão por injeção: construído vazio, levantava
+        # "requires a database session" no except abaixo e meta nenhuma jamais
+        # gerou notificação.
         try:
-            tracker = GoalTracker()
-            for goal in tracker.list_goals(user_id=user_id, status="ACTIVE"):
+            from app.core.database import SessionLocal
+
+            with SessionLocal() as _db_metas:
+                metas_ativas = GoalTracker(_db_metas).list_goals(user_id=user_id, status="ACTIVE")
+            for goal in metas_ativas:
                 pct       = (goal.current_amount / goal.target_amount * 100) if goal.target_amount > 0 else 0
                 remaining = max(0.0, goal.target_amount - goal.current_amount)
                 ctx.goal_progress.append(GoalProgressInput(
@@ -263,42 +267,77 @@ def get_notifications(
     # Etapa B: relevância e confiança (quality + caps, income-relative)
     relevant = _relevance_filter.filter(raw_notes, monthly_income=monthly_income)
 
-    # Etapa C: deduplicação por estado (TTL por tipo — CRITICAL imune)
-    unseen = _state_store.filter_unseen(user_id, relevant)
+    # Etapa C: só sai do feed o que o usuário DISPENSOU. Antes era
+    # `filter_unseen` + `mark_shown` aqui mesmo: a leitura marcava tudo como
+    # visto, e a segunda abertura da tela (ou o refetch do react-query, que a
+    # página de Estratégias disparava logo após montar) voltava vazia —
+    # "Sem notificações recentes" para quem tinha alerta crítico.
+    visiveis = _state_store.filter_dismissed(user_id, relevant)
 
     # Etapa D: filtro de prioridade solicitado pelo cliente
     if not include_info:
-        unseen = [n for n in unseen if n.priority != "INFO"]
+        visiveis = [n for n in visiveis if n.priority != "INFO"]
 
-    # Etapa E: persiste estado e eventos 'shown'
-    _state_store.mark_shown(user_id, unseen)
-
-    # Fingerprints para o cliente enviar eventos de interação
-    fingerprints = _state_store.annotate_fingerprints(user_id, unseen)
+    # O fingerprint é o id ESTÁVEL do card (o `id` do Notification é um UUID
+    # novo a cada geração e não serve para mandar evento).
+    fingerprints = _state_store.annotate_fingerprints(user_id, visiveis)
+    ja_vistas = _state_store.seen_fingerprints(user_id, list(fingerprints.values()))
 
     by_priority = {
-        "CRITICAL": sum(1 for n in unseen if n.priority == "CRITICAL"),
-        "WARNING":  sum(1 for n in unseen if n.priority == "WARNING"),
-        "INFO":     sum(1 for n in unseen if n.priority == "INFO"),
+        "CRITICAL": sum(1 for n in visiveis if n.priority == "CRITICAL"),
+        "WARNING":  sum(1 for n in visiveis if n.priority == "WARNING"),
+        "INFO":     sum(1 for n in visiveis if n.priority == "INFO"),
     }
 
     logger.info(
-        "GET /notifications/%s | raw=%d relevant=%d unseen=%d "
+        "GET /notifications/%s | raw=%d relevant=%d visiveis=%d "
         "CRITICAL=%d WARNING=%d INFO=%d income=R$%.0f",
-        user_id, len(raw_notes), len(relevant), len(unseen),
+        user_id, len(raw_notes), len(relevant), len(visiveis),
         by_priority["CRITICAL"], by_priority["WARNING"], by_priority["INFO"],
         monthly_income,
     )
 
+    itens = []
+    for n in visiveis:
+        fp = fingerprints.get(n.id, "")
+        item = n.to_dict()
+        item.update({
+            "id": fp,
+            "fingerprint": fp,
+            "created_at": item.get("generated_at"),
+            "action_route": _ROTA_DA_ACAO.get(n.type),
+            "seen": fp in ja_vistas,
+        })
+        itens.append(item)
+
     return {
         "user_id":       user_id,
-        "total":         len(unseen),
+        "total":         len(itens),
         "by_priority":   by_priority,
-        "notifications": [
-            {**n.to_dict(), "fingerprint": fingerprints.get(n.id, "")}
-            for n in unseen
-        ],
+        "notifications": itens,
     }
+
+
+# Tela do app onde o usuário age sobre cada tipo de card.
+_ROTA_DA_ACAO: dict[str, str] = {
+    "BURN_RATE_HIGH":            "/organizar",
+    "ANOMALY_DETECTED":          "/organizar",
+    "SAFE_TO_SPEND_LOW":         "/dashboard",
+    "SUBSCRIPTION_INCREASE":     "/organizar",
+    "SCORE_IMPROVED":            "/organizar",
+    "CHALLENGE_COMPLETED":       "/organizar",
+    "CHALLENGE_PROGRESS":        "/organizar",
+    "GOAL_PROGRESS":             "/goals",
+    "CARD_OPPORTUNITY":          "/strategies",
+    "WAIVER_ALERT":              "/strategies",
+    "TRANSFER_PROMO":            "/strategies",
+    "PURCHASE_FOLLOWUP":         "/strategies",
+    "SAVINGS_BELOW_CDI":         "/feed",
+    "IDLE_MONEY_DETECTED":       "/feed",
+    "FISCAL_SEASON":             "/impostos",
+    "TARIFA_AUMENTO_UNILATERAL": "/defesa",
+    "LIFE_EVENT":                "/chat",
+}
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -308,7 +347,12 @@ def get_notifications(
 class NotificationEventRequest(BaseModel):
     fingerprint:       str
     notification_type: str
-    event_type:        str   # "tapped" | "dismissed"
+    # "shown" (o app exibiu) | "tapped"/"clicked" (seguiu a ação) |
+    # "dismissed" (tirou do feed) | "acted" (fez o que o card pedia)
+    event_type:        str
+
+
+_ALIAS_DE_EVENTO = {"clicked": "tapped"}
 
 
 @router.post(
@@ -325,17 +369,21 @@ def post_notification_event(
     body: NotificationEventRequest,
     user_id: str = Depends(require_owner),
 ) -> dict:
-    if body.event_type not in {"tapped", "dismissed"}:
+    evento = _ALIAS_DE_EVENTO.get(body.event_type, body.event_type)
+    if evento not in _state_store.EVENTOS_VALIDOS:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"event_type inválido: '{body.event_type}'. Use 'tapped' ou 'dismissed'.",
+            detail=(
+                f"event_type inválido: '{body.event_type}'. "
+                "Use 'shown', 'tapped' (ou 'clicked'), 'dismissed' ou 'acted'."
+            ),
         )
 
     _state_store.log_event(
         user_id=user_id,
         fingerprint=body.fingerprint,
         notification_type=body.notification_type,
-        event_type=body.event_type,
+        event_type=evento,
     )
 
     logger.info(
