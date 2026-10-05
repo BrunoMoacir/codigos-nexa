@@ -1,5 +1,11 @@
-version: '3.8'
-
+# Ambiente local completo: API + Postgres + Redis + frontend (Vite).
+#
+#   docker compose up --build
+#   → app em http://localhost:3000, API em http://localhost:8000/docs
+#
+# O compose anterior não subia a API: env_file obrigatório inexistente,
+# APP_ENV=production (que exige segredos e origens explícitas) e a senha do
+# DATABASE_URL diferente da do Postgres.
 services:
   api:
     build:
@@ -10,14 +16,27 @@ services:
     volumes:
       - ./backend/:/app/backend/
     env_file:
-      - ./backend/.env
+      # opcional: credenciais da Pluggy, chave do LLM, VAPID, Stripe…
+      - path: ./backend/.env
+        required: false
     environment:
-      - APP_MODE=prod
-      - APP_ENV=production
-      - DATABASE_URL=postgresql+psycopg2://nexa_user:nexa_password@postgres:5432/nexa_db
+      - APP_MODE=dev
+      - APP_ENV=development
+      - DATABASE_URL=postgresql+psycopg2://nexa_user:nexa_secret@postgres:5432/nexa_db
+      - REDIS_URL=redis://redis:6379/0
+      - FRONTEND_BASE_URL=http://localhost:3000
+      - ALLOWED_ORIGINS=http://localhost:3000
+    # Schema pelas migrações (como no Railway) antes de subir; create_all do
+    # boot cobre só as tabelas com modelo ORM.
+    command: >
+      sh -c "alembic upgrade head &&
+             exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app"
     restart: unless-stopped
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - nexa-network
 
@@ -31,11 +50,25 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexa_user -d nexa_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
     restart: unless-stopped
     networks:
       - nexa-network
 
-  # Frontend React
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - nexa-network
+
+  # Frontend React (Vite dev). O bundle chama /api/v1 relativo e o proxy do
+  # Vite encaminha para a API pela rede do compose.
   frontend:
     build:
       context: ./frontend-react
@@ -47,7 +80,8 @@ services:
       - ./frontend-react:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:8000/api/v1
+      - VITE_API_URL=/api/v1
+      - VITE_DEV_BACKEND=http://api:8000
     depends_on:
       - api
     networks:

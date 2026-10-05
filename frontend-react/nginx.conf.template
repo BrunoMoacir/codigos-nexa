@@ -1,0 +1,55 @@
+# Processado pelo entrypoint da imagem oficial do nginx (envsubst): só as
+# variáveis de ambiente DEFINIDAS são trocadas — $uri, $host etc. ficam.
+#
+#   BACKEND_URL     origem do backend (padrão no Dockerfile: http://api:8000)
+#   NGINX_RESOLVER  DNS para resolver BACKEND_URL (padrão: 127.0.0.11, o do Docker)
+#
+# O proxy_pass usa VARIÁVEL de propósito: com o host fixo ("http://api:8000")
+# o nginx tentava resolvê-lo no boot e não subia fora da rede do compose.
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    resolver ${NGINX_RESOLVER} valid=30s ipv6=off;
+
+    # SPA: toda rota da interface cai no index.html, que nunca é cacheado
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-store, no-cache, must-revalidate";
+    }
+
+    # Service worker e manifest: o navegador precisa ver a versão nova a cada
+    # deploy (eram servidos com cache de 1 ano pela regra de .js abaixo)
+    location = /sw.js {
+        add_header Cache-Control "no-cache";
+    }
+    location = /manifest.webmanifest {
+        add_header Cache-Control "no-cache";
+    }
+
+    # API: o bundle chama /api/v1 relativo (VITE_API_URL padrão)
+    location /api/ {
+        set $backend "${BACKEND_URL}";
+        proxy_pass $backend$request_uri;
+        proxy_http_version 1.1;
+        proxy_set_header Host $proxy_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # SSE do sync e chat de até 60 s: sem buffer e com folga de leitura
+        proxy_buffering off;
+        proxy_read_timeout 120s;
+    }
+
+    # Arquivos com hash no nome (/assets/*): cache longo é seguro
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    gzip on;
+    gzip_vary on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript image/svg+xml;
+}
