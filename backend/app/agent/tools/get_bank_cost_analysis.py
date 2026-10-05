@@ -6,6 +6,7 @@ from langchain_core.tools import tool
 
 from app.costs.bank_fee_analyzer import BankFeeAnalyzer
 from app.core.db.queries import get_transactions_for_user
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -49,15 +50,15 @@ def get_bank_cost_analysis(user_id: str) -> str:
     lines = [
         f"=== RAIO-X DE CUSTOS BANCÁRIOS ===",
         f"Período analisado: {report.analysis_months} mês(es)",
-        f"Total pago em tarifas: R$ {report.total_paid:,.2f}",
-        f"Média mensal: R$ {report.monthly_avg:,.2f}",
-        f"Projeção anual (CBT): R$ {report.annual_projection:,.2f}",
+        f"Total pago em tarifas: {brl(report.total_paid)}",
+        f"Média mensal: {brl(report.monthly_avg)}",
+        f"Projeção anual (CBT): {brl(report.annual_projection)}",
     ]
 
     if report.savings_opportunity > 0:
         lines.append(
-            f"💡 Economia potencial: R$ {report.savings_opportunity:,.2f}/mês "
-            f"(R$ {report.savings_opportunity * 12:,.2f}/ano)"
+            f"💡 Economia potencial: {brl(report.savings_opportunity)}/mês "
+            f"({brl(report.savings_opportunity * 12)}/ano)"
         )
 
     # Por banco
@@ -65,24 +66,24 @@ def get_bank_cost_analysis(user_id: str) -> str:
         lines += ["", "── Por banco ──"]
         for bank in report.by_bank:
             lines.append(
-                f"• {bank.bank_name}: R$ {bank.monthly_avg:,.2f}/mês "
+                f"• {bank.bank_name}: {brl(bank.monthly_avg)}/mês "
                 f"({bank.transaction_count} cobrança(s) detectada(s))"
             )
             for fee_type, value in bank.fees_by_type.items():
-                lines.append(f"  - {fee_type}: R$ {value:,.2f}")
+                lines.append(f"  - {fee_type}: {brl(value)}")
 
     # Por tipo de tarifa
     if report.by_fee_type:
         lines += ["", "── Por tipo de tarifa ──"]
         for fee_type, value in report.by_fee_type.items():
-            lines.append(f"• {fee_type}: R$ {value:,.2f}")
+            lines.append(f"• {fee_type}: {brl(value)}")
 
     # Benchmarks
     if report.market_benchmarks:
         lines += ["", "── Comparação com o mercado ──"]
         for bm in report.market_benchmarks:
             lines.append(
-                f"• {bm.bank_name}: R$ {bm.monthly_avg_market:,.2f}/mês (média mercado)"
+                f"• {bm.bank_name}: {brl(bm.monthly_avg_market)}/mês (média mercado)"
             )
 
     if report.warnings:

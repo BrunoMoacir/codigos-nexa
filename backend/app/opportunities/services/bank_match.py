@@ -41,6 +41,7 @@ from app.opportunities.models import (
     BankScorecardEntry,
 )
 from app.opportunities.services.bank_scorecard import BankScorecardService
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -295,19 +296,19 @@ class BankMatchService:
             )
 
             reasons = [
-                f"Rendimento: R$ {bank.best_net_return_brl:,.2f} líquidos no melhor produto "
+                f"Rendimento: {brl(bank.best_net_return_brl)} líquidos no melhor produto "
                 f"({bank.best_product_type} {bank.best_cdi_pct:.0f}% CDI)"
             ]
             if fee is not None:
                 if bank.bank_name in real_fee_banks:
                     reasons.append(
                         "Você não paga tarifa neste banco hoje" if fee == 0
-                        else f"Você paga R$ {fee:,.2f}/mês de tarifas neste banco hoje (detectado no seu extrato)"
+                        else f"Você paga {brl(fee)}/mês de tarifas neste banco hoje (detectado no seu extrato)"
                     )
                 else:
                     reasons.append(
                         "Sem tarifa de manutenção típica" if fee == 0
-                        else f"Tarifa média de mercado: R$ {fee:,.2f}/mês"
+                        else f"Tarifa média de mercado: {brl(fee)}/mês"
                     )
             if card_info:
                 reasons.append(f"Cartão forte para seu perfil: {card_info['top_card_name']}")
@@ -357,8 +358,8 @@ class BankMatchService:
             return (
                 f"Pelo seu perfil, o melhor banco hoje é o {best.bank_name} "
                 f"(match {best.match_score:.0f}/100): "
-                f"R$ {best.projected_annual_gain_brl:,.2f}/ano no melhor produto para "
-                f"R$ {amount:,.2f}. Conecte suas contas para compararmos com o seu banco atual."
+                f"{brl(best.projected_annual_gain_brl)}/ano no melhor produto para "
+                f"{brl(amount)}. Conecte suas contas para compararmos com o seu banco atual."
             )
         if current.bank_name == best.bank_name:
             return (
@@ -376,8 +377,8 @@ class BankMatchService:
         return (
             f"Vale avaliar o {best.bank_name}: match {best.match_score:.0f}/100 contra "
             f"{current.match_score:.0f} do seu {current.bank_name}"
-            + (f", com R$ {gain_diff:,.2f}/ano a mais no melhor produto" if gain_diff > 0 else "")
-            + f" para R$ {amount:,.2f}. Você não precisa fechar a conta atual para começar."
+            + (f", com {brl(gain_diff)}/ano a mais no melhor produto" if gain_diff > 0 else "")
+            + f" para {brl(amount)}. Você não precisa fechar a conta atual para começar."
         )
 
 

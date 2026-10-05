@@ -41,6 +41,7 @@ from app.rights.parametros_legais import (
     irpf_isencao_anual,
 )
 from app.rights.services.contexto_transacional import ContextoTransacional
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +112,7 @@ class IrRestituicaoChecker:
                 ),
                 (
                     f"Detectados {ctx.irrf_lancamentos} lançamento(s) de IRRF no período "
-                    f"{ctx.janela} (R$ {ctx.irrf_retido:,.2f} retidos) — vale conferir se "
+                    f"{ctx.janela} ({brl(ctx.irrf_retido)} retidos) — vale conferir se "
                     "há restituição."
                 ),
             )
@@ -120,13 +121,13 @@ class IrRestituicaoChecker:
         if renda_anual and renda_anual > irpf_isencao_anual():
             mensal = round(renda_anual / max(ctx.meses_com_renda, 1), 2)
             return None, (
-                f"Renda média de R$ {mensal:,.2f}/mês no período {ctx.janela} — acima da "
-                f"faixa de isenção (R$ {IRPF_ISENCAO_MENSAL:,.2f}/mês). Não detectamos "
+                f"Renda média de {brl(mensal)}/mês no período {ctx.janela} — acima da "
+                f"faixa de isenção ({brl(IRPF_ISENCAO_MENSAL)}/mês). Não detectamos "
                 f"IRRF no extrato, mas pode haver retenção na folha. {IRPF_FONTE}"
             )
 
         return None, (
             f"Nenhum IRRF detectado no período {ctx.janela} e renda dentro da faixa de "
-            f"isenção (R$ {IRPF_ISENCAO_MENSAL:,.2f}/mês). Se declarou em anos anteriores, "
+            f"isenção ({brl(IRPF_ISENCAO_MENSAL)}/mês). Se declarou em anos anteriores, "
             "ainda pode haver restituição não resgatada — o prazo é de 5 anos."
         )

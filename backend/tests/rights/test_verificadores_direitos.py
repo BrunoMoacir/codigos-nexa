@@ -409,7 +409,8 @@ class TestToolDoAgente:
             for i in range(1, 7)
         ])
         assert com_salario != sem_salario
-        assert f"{4_000.0 * FGTS_ALIQUOTA_MENSAL * 6:,.2f}" in com_salario
+        from app.core.formatacao import brl
+        assert brl(4_000.0 * FGTS_ALIQUOTA_MENSAL * 6) in com_salario
 
     def test_nunca_imprime_total_a_receber(self):
         texto = self._rodar(_salario(12, 2_000.0))

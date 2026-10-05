@@ -3,6 +3,7 @@ import logging
 
 from app.agent.procedencia import com_procedencia, degradada
 from langchain_core.tools import tool
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ def get_defense_analysis(user_id: str, detectors: str = "d1,d2,d3,d4") -> str:
     low    = [f for f in all_findings if f.severity == "low"]
 
     lines += [
-        f"🔍 {len(all_findings)} indício(s) detectado(s) | Estimativa total: R$ {total:.2f}",
+        f"🔍 {len(all_findings)} indício(s) detectado(s) | Estimativa total: {brl(total)}",
         f"   Alta severidade: {len(high)} | Média: {len(medium)} | Baixa: {len(low)}",
         "",
     ]
@@ -114,7 +115,7 @@ def get_defense_analysis(user_id: str, detectors: str = "d1,d2,d3,d4") -> str:
         conf = f" | Confiança: {f.confidence:.0%}" if hasattr(f, "confidence") and f.confidence else ""
         lines += [
             f"{icon} [{label} — {f.bank_name}] {f.title}",
-            f"   Estimativa contestável: R$ {f.amount_disputed:.2f}{conf}",
+            f"   Estimativa contestável: {brl(f.amount_disputed)}{conf}",
             f"   {f.description[:200]}{'...' if len(f.description) > 200 else ''}",
             f"   Base legal: {f.legal_basis[:120]}{'...' if len(f.legal_basis) > 120 else ''}",
             "",

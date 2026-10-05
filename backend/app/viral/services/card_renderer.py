@@ -10,6 +10,7 @@ from __future__ import annotations
 import html
 
 from app.viral.models import SavingsCard, WrappedReport
+from app.core.formatacao import brl
 
 _WIDTH = 1080
 _HEIGHT = 1080
@@ -19,7 +20,7 @@ class CardRenderer:
     """Renderiza SavingsCard e WrappedReport como SVG compartilhável."""
 
     def render_savings_card(self, card: SavingsCard) -> str:
-        total = f"R$ {card.total_annual_savings_brl:,.2f}"
+        total = f"{brl(card.total_annual_savings_brl)}"
         rows = "".join(
             self._source_row(i, s.name, s.annual_savings_brl)
             for i, s in enumerate(card.sources[:4])
@@ -84,7 +85,7 @@ class CardRenderer:
             f'<text x="60" y="{y}" font-family="Arial, sans-serif" font-size="26" fill="#C8CCFF">'
             f'{html.escape(name)}</text>'
             f'<text x="{_WIDTH - 60}" y="{y}" font-family="Arial, sans-serif" font-size="26" '
-            f'fill="#4ADE80" text-anchor="end" font-weight="bold">R$ {value:,.2f}</text>'
+            f'fill="#4ADE80" text-anchor="end" font-weight="bold">{brl(value)}</text>'
         )
 
     @staticmethod

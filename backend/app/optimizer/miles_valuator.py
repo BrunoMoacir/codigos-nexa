@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +222,7 @@ class MilesValuator:
             "max": "resgate otimista (promoção de bônus de transferência)",
         }
         label = labels.get(scenario, scenario)
-        return f"{label} — R$ {rate:.0f}/mil pontos"
+        return f"{label} — {brl(rate, 0)}/mil pontos"
 
 
 # ── Singleton ────────────────────────────────────────────────────────────────

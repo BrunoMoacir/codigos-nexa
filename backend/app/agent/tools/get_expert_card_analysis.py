@@ -19,6 +19,7 @@ import logging
 from typing import Optional
 
 from langchain_core.tools import tool
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -59,28 +60,28 @@ def _make_expert_tools(user_id: str, monthly_income: Optional[float], monthly_sp
             if profile:
                 lines += [
                     f"Cluster: {profile.lifestyle_cluster}",
-                    f"Gasto mensal médio: R${profile.monthly_avg_spend:.0f}",
-                    f"Renda estimada: R${profile.estimated_monthly_income:.0f}/mês",
+                    f"Gasto mensal médio: {brl(profile.monthly_avg_spend, 0)}",
+                    f"Renda estimada: {brl(profile.estimated_monthly_income, 0)}/mês",
                     f"Cobertura de dados: {profile.data_coverage_months} meses",
                     f"FSS: {profile.fss:.0f} ({profile.fss_level})",
-                    f"Gasto de viagem: R${profile.travel_spend_monthly:.0f}/mês",
-                    f"Gasto internacional: R${profile.international_spend_monthly:.0f}/mês",
+                    f"Gasto de viagem: {brl(profile.travel_spend_monthly, 0)}/mês",
+                    f"Gasto internacional: {brl(profile.international_spend_monthly, 0)}/mês",
                     f"Perfil viagem: {profile.travel_profile}",
                     f"Perfil foodie: {profile.foodie_profile}",
-                    f"Taxa de poupança: {profile.savings_rate:.1f}%",
+                    f"Taxa de poupança: {numero(profile.savings_rate, 1)}%",
                     f"Tipo investidor: {profile.investor_type}",
                     f"É MEI: {profile.is_likely_mei}",
                     f"Família com filhos: {profile.is_family_with_kids}",
                     "Gastos por categoria (R$/mês):",
                 ]
                 for cat, val in sorted(profile.spend_by_category.items(), key=lambda x: -x[1])[:8]:
-                    lines.append(f"  {cat}: R${val:.0f}")
+                    lines.append(f"  {cat}: {brl(val, 0)}")
             else:
                 lines.append("Sem histórico de transações conectado.")
                 if monthly_income:
-                    lines.append(f"Renda declarada pelo usuário: R${monthly_income:.0f}/mês")
+                    lines.append(f"Renda declarada pelo usuário: {brl(monthly_income, 0)}/mês")
                 if monthly_spend:
-                    lines.append(f"Gasto declarado pelo usuário: R${monthly_spend:.0f}/mês")
+                    lines.append(f"Gasto declarado pelo usuário: {brl(monthly_spend, 0)}/mês")
 
             # Metas ativas
             try:
@@ -90,7 +91,7 @@ def _make_expert_tools(user_id: str, monthly_income: Optional[float], monthly_sp
                     lines.append(f"Metas ativas: {len(goals)}")
                     for g in goals[:3]:
                         pct = (g.current_amount / g.target_amount * 100) if g.target_amount > 0 else 0
-                        lines.append(f"  - {g.name}: R${g.current_amount:.0f}/{g.target_amount:.0f} ({pct:.0f}%)")
+                        lines.append(f"  - {g.name}: {brl(g.current_amount, 0)}/{g.target_amount:.0f} ({pct:.0f}%)")
             except Exception:
                 pass
 
@@ -132,7 +133,7 @@ def _make_expert_tools(user_id: str, monthly_income: Optional[float], monthly_sp
                 tags = ", ".join(t.value for t in c.benefit_tags[:3]) if c.benefit_tags else "-"
                 lines.append(
                     f"  [{c.card_id}] {c.name} | {c.issuer} | "
-                    f"anuidade=R${c.base_annuity:.0f} | tipo={c.card_type.value} | "
+                    f"anuidade={brl(c.base_annuity, 0)} | tipo={c.card_type.value} | "
                     f"tags={tags}"
                 )
             return "\n".join(lines)
@@ -180,11 +181,11 @@ def _make_expert_tools(user_id: str, monthly_income: Optional[float], monthly_sp
 
             lines = [
                 f"Simulação: {card.name} ({card.issuer})",
-                f"  Anuidade efetiva: R${result.annuity_effective:.0f} (isenta: {result.annuity_waived})",
-                f"  Benefícios esperados: R${result.points_value_expected:.0f}/ano",
-                f"  Ganho líquido esperado: R${result.net_gain_expected:.0f}/ano",
-                f"  Cenário pessimista: R${result.net_gain_min:.0f}/ano",
-                f"  Cenário otimista: R${result.net_gain_max:.0f}/ano",
+                f"  Anuidade efetiva: {brl(result.annuity_effective, 0)} (isenta: {result.annuity_waived})",
+                f"  Benefícios esperados: {brl(result.points_value_expected, 0)}/ano",
+                f"  Ganho líquido esperado: {brl(result.net_gain_expected, 0)}/ano",
+                f"  Cenário pessimista: {brl(result.net_gain_min, 0)}/ano",
+                f"  Cenário otimista: {brl(result.net_gain_max, 0)}/ano",
                 f"  Risco de liquidez: {result.liquidity_risk.value}",
                 f"  Confiança: {result.confidence_score:.0%}",
             ]
@@ -259,11 +260,11 @@ def _make_expert_tools(user_id: str, monthly_income: Optional[float], monthly_sp
             best = d.get("best_opportunity", {})
             return (
                 f"Cartão atual: {d.get('current_card_name')}\n"
-                f"Total gasto no período: R${d.get('total_spent', 0):.0f}\n"
-                f"Retorno gerado: R${d.get('current_card_reward_value', 0):.0f}\n"
+                f"Total gasto no período: {brl(d.get('total_spent', 0), 0)}\n"
+                f"Retorno gerado: {brl(d.get('current_card_reward_value', 0), 0)}\n"
                 f"Melhor alternativa: {best.get('card_name', '-')}\n"
-                f"Diferença: R${best.get('difference', 0):.0f} no período "
-                f"(R${best.get('difference_annualized', 0):.0f}/ano)\n"
+                f"Diferença: {brl(best.get('difference', 0), 0)} no período "
+                f"({brl(best.get('difference_annualized', 0), 0)}/ano)\n"
                 f"Explicação: {best.get('explanation', '-')[:200]}"
             )
         except Exception as e:

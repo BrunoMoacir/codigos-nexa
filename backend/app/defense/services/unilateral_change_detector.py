@@ -21,6 +21,7 @@ import logging
 from datetime import date, timedelta
 
 from app.defense.models import DefenseFinding
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -125,12 +126,12 @@ class UnilateralChangeDetector:
                     bank_name=bank,
                     title=(
                         f"Aumento de tarifa sem aviso verificado — "
-                        f"{ftype.replace('_', ' ')} (+{increase_pct*100:.1f}%)"
+                        f"{ftype.replace('_', ' ')} (+{numero(increase_pct*100, 1)}%)"
                     ),
                     description=(
                         f"{bank} aumentou '{ftype.replace('_', ' ').lower()}' "
-                        f"de R$ {prev_amt:.2f} para R$ {cur_amt:.2f} "
-                        f"(+{increase_pct*100:.1f}%, R$ {disputed:.2f} a mais) "
+                        f"de {brl(prev_amt)} para {brl(cur_amt)} "
+                        f"(+{numero(increase_pct*100, 1)}%, {brl(disputed)} a mais) "
                         f"de {prev_month} para {current_month}. "
                         f"Qualquer aumento exige notificação prévia de 30 dias "
                         f"(Res. CMN 3.919/2010, art. 3º) — solicite o comprovante."
@@ -141,9 +142,9 @@ class UnilateralChangeDetector:
                     evidence_points=[
                         f"Banco: {bank}",
                         f"Tarifa: {ftype}",
-                        f"Valor anterior ({prev_month}): R$ {prev_amt:.2f}",
-                        f"Valor atual ({current_month}): R$ {cur_amt:.2f}",
-                        f"Aumento: R$ {disputed:.2f} (+{increase_pct*100:.1f}%)",
+                        f"Valor anterior ({prev_month}): {brl(prev_amt)}",
+                        f"Valor atual ({current_month}): {brl(cur_amt)}",
+                        f"Aumento: {brl(disputed)} (+{numero(increase_pct*100, 1)}%)",
                         "Qualquer aumento sem aviso prévio de 30 dias é contestável.",
                         "Solicite comprovante de notificação ao banco.",
                     ],
@@ -193,11 +194,11 @@ class UnilateralChangeDetector:
                     bank_name=bank,
                     title=f"Tarifa acima do teto BACEN — {ftype.replace('_', ' ')}",
                     description=(
-                        f"{bank} cobrou R$ {amount_f:.2f} por "
+                        f"{bank} cobrou {brl(amount_f)} por "
                         f"'{ftype.replace('_', ' ').lower()}', "
                         f"acima do valor máximo registrado no BACEN "
-                        f"(R$ {ceiling:.2f}). "
-                        f"Excedente: R$ {excedente:.2f}. "
+                        f"({brl(ceiling)}). "
+                        f"Excedente: {brl(excedente)}. "
                         f"Evidência objetiva via Olinda BACEN Tarifas."
                     ),
                     amount_disputed=excedente,
@@ -206,9 +207,9 @@ class UnilateralChangeDetector:
                     evidence_points=[
                         f"Banco: {bank}",
                         f"Tarifa: {ftype}",
-                        f"Valor cobrado: R$ {amount_f:.2f}",
-                        f"Teto BACEN (Olinda): R$ {ceiling:.2f}",
-                        f"Excedente contestável: R$ {excedente:.2f}",
+                        f"Valor cobrado: {brl(amount_f)}",
+                        f"Teto BACEN (Olinda): {brl(ceiling)}",
+                        f"Excedente contestável: {brl(excedente)}",
                         "Fonte: BACEN Olinda ListaTarifasPorInstituicaoFinanceira",
                     ],
                 ))

@@ -30,6 +30,7 @@ from app.costs.models import (
     FeeType,
     MarketBenchmark,
 )
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +119,7 @@ class BankFeeAnalyzer:
         if nao_identificados:
             valor = round(sum(b.total_paid for b in nao_identificados), 2)
             warnings.append(
-                f"R$ {valor:.2f} em tarifas não puderam ser atribuídas a um banco "
+                f"{brl(valor)} em tarifas não puderam ser atribuídas a um banco "
                 "específico — sem isso não há comparação de mercado possível para "
                 "esse valor. Reconecte a conta pelo Open Finance para identificar "
                 "a instituição."

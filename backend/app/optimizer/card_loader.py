@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from app.optimizer.models import CardRecord, CardFlag, BenefitTag
+from app.core.formatacao import brl
 
 if TYPE_CHECKING:
     from app.forecast.etl.income_profiler import IncomeProfile, IncomePattern
@@ -168,7 +169,7 @@ class CardKnowledgeBase:
 
         logger.info(
             f"filter_eligible: {len(eligible)}/{len(self._cards)} cartões elegíveis "
-            f"(renda anual R$ {annual_income:,.0f})"
+            f"(renda anual {brl(annual_income, 0)})"
         )
         return eligible
 
@@ -200,26 +201,26 @@ class CardKnowledgeBase:
             if income_ratio >= 2.0:
                 income_factor = 0.95
                 reasons.append(
-                    f"Renda estimada de R$ {annual_income / 12:,.0f}/mês está bem acima "
-                    f"do mínimo exigido (R$ {card.min_income / 12:,.0f}/mês)"
+                    f"Renda estimada de {brl(annual_income / 12, 0)}/mês está bem acima "
+                    f"do mínimo exigido ({brl(card.min_income / 12, 0)}/mês)"
                 )
             elif income_ratio >= 1.5:
                 income_factor = 0.80
                 reasons.append(
-                    f"Renda estimada de R$ {annual_income / 12:,.0f}/mês está acima "
-                    f"do mínimo exigido (R$ {card.min_income / 12:,.0f}/mês)"
+                    f"Renda estimada de {brl(annual_income / 12, 0)}/mês está acima "
+                    f"do mínimo exigido ({brl(card.min_income / 12, 0)}/mês)"
                 )
             elif income_ratio >= 1.2:
                 income_factor = 0.70
                 reasons.append(
-                    f"Renda estimada de R$ {annual_income / 12:,.0f}/mês cobre o "
-                    f"mínimo exigido (R$ {card.min_income / 12:,.0f}/mês)"
+                    f"Renda estimada de {brl(annual_income / 12, 0)}/mês cobre o "
+                    f"mínimo exigido ({brl(card.min_income / 12, 0)}/mês)"
                 )
             else:
                 income_factor = 0.60
                 reasons.append(
                     f"Renda no limite mínimo — aprovação provável mas não garantida "
-                    f"(R$ {annual_income / 12:,.0f}/mês vs R$ {card.min_income / 12:,.0f}/mês)"
+                    f"({brl(annual_income / 12, 0)}/mês vs {brl(card.min_income / 12, 0)}/mês)"
                 )
 
         # --- Penalidade por instabilidade de renda PJ/MIXED (MI.3) ---

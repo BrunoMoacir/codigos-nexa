@@ -44,6 +44,7 @@ from app.rights.parametros_legais import (
     abono_proporcional,
 )
 from app.rights.services.contexto_transacional import ContextoTransacional
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ class PisPasepChecker:
                 "PIS (trabalhador setor privado) ou PASEP (setor público): "
                 "cotas acumuladas de quem trabalhou com carteira assinada ANTES de 04/10/1988 "
                 "podem estar esquecidas. Além disso, quem trabalhou com carteira assinada e teve "
-                f"remuneração média mensal de até R$ {ABONO_TETO_REMUNERACAO_MENSAL:,.2f} em "
+                f"remuneração média mensal de até {brl(ABONO_TETO_REMUNERACAO_MENSAL)} em "
                 f"{ABONO_ANO_BASE} pode ter direito ao Abono Salarial."
             ),
             estimated_amount=None,
@@ -102,8 +103,8 @@ class PisPasepChecker:
 
         if renda > ABONO_TETO_REMUNERACAO_MENSAL:
             return None, (
-                f"Renda média de R$ {renda:,.2f}/mês no período {ctx.janela} — acima do "
-                f"teto do abono (R$ {ABONO_TETO_REMUNERACAO_MENSAL:,.2f}). Ainda vale "
+                f"Renda média de {brl(renda)}/mês no período {ctx.janela} — acima do "
+                f"teto do abono ({brl(ABONO_TETO_REMUNERACAO_MENSAL)}). Ainda vale "
                 "verificar cotas PIS/PASEP anteriores a 04/10/1988."
             )
 
@@ -123,8 +124,8 @@ class PisPasepChecker:
                 ),
             ),
             (
-                f"Renda média de R$ {renda:,.2f}/mês no período {ctx.janela} — dentro do "
-                f"teto do abono (R$ {ABONO_TETO_REMUNERACAO_MENSAL:,.2f}). Isso é um dos "
+                f"Renda média de {brl(renda)}/mês no período {ctx.janela} — dentro do "
+                f"teto do abono ({brl(ABONO_TETO_REMUNERACAO_MENSAL)}). Isso é um dos "
                 f"quatro requisitos; confirme os outros no gov.br."
             ),
         )

@@ -19,6 +19,7 @@ from datetime import date
 from sqlalchemy import bindparam
 
 from app.viral.models import SavingsSource
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ class SavingsConsolidator:
                 reference_period_end=date(today.year, 12, 31),
                 description=(
                     f"Cartão {best.get('card_name', 'recomendado')}: "
-                    f"ganho líquido potencial estimado de até R$ {annual:,.2f}/ano em pontos e cashback."
+                    f"ganho líquido potencial estimado de até {brl(annual)}/ano em pontos e cashback."
                 ) if annual > 0 else "Nenhum ganho identificado no último relatório.",
             )
         except Exception as exc:
@@ -109,8 +110,8 @@ class SavingsConsolidator:
                 reference_period_start=date(today.year, today.month, 1),
                 reference_period_end=today,
                 description=(
-                    f"Tarifas identificadas como evitáveis: R$ {report.savings_opportunity:,.2f}/mês "
-                    f"(projeção anual: R$ {annual:,.2f}). Valor mensal é real; projeção anual é estimada."
+                    f"Tarifas identificadas como evitáveis: {brl(report.savings_opportunity)}/mês "
+                    f"(projeção anual: {brl(annual)}). Valor mensal é real; projeção anual é estimada."
                 ) if annual > 0 else "Nenhuma tarifa excessiva detectada.",
             )
         except Exception as exc:
@@ -146,7 +147,7 @@ class SavingsConsolidator:
                 amount_type="estimated_potential",
                 description=(
                     f"Potencial de ganho identificado em negociações com seus bancos: "
-                    f"R$ {mensal:,.2f}/mês (projeção anual: R$ {anual:,.2f}). "
+                    f"{brl(mensal)}/mês (projeção anual: {brl(anual)}). "
                     f"Anuidade e juros de rotativo não entram aqui — já estão no Raio-X "
                     f"de Tarifas, e contar duas vezes inflaria o total. "
                     f"Potencial estimado — sujeito a negociação."
@@ -188,8 +189,8 @@ class SavingsConsolidator:
                 amount_type="estimated_potential",
                 description=(
                     f"Dinheiro parado na conta corrente poderia render até "
-                    f"R$ {monthly_gain:,.2f}/mês aplicado em {bank} "
-                    f"(estimativa anual: R$ {annual:,.2f}). Sujeito a variação de CDI e IR."
+                    f"{brl(monthly_gain)}/mês aplicado em {bank} "
+                    f"(estimativa anual: {brl(annual)}). Sujeito a variação de CDI e IR."
                 ),
             )
         except Exception as exc:

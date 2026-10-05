@@ -16,6 +16,7 @@ a cargo do job diário e do GET explícito da API.
 import logging
 
 from langchain_core.tools import tool
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -66,25 +67,25 @@ def get_opportunities(user_id: str) -> str:
     lines = [
         "=== RADAR DE OPORTUNIDADES ===",
         "",
-        f"💤 Dinheiro parado estimado: R$ {result.idle_amount:,.2f}",
+        f"💤 Dinheiro parado estimado: {brl(result.idle_amount)}",
         status_label,
     ]
 
     if result.idle_amount > 0:
         lines += [
-            f"📉 Perda mensal por não investir: R$ {result.monthly_loss_in_checking:,.2f}",
-            f"📊 CDI atual utilizado: {result.cdi_annual_pct:.2f}% a.a.",
+            f"📉 Perda mensal por não investir: {brl(result.monthly_loss_in_checking)}",
+            f"📊 CDI atual utilizado: {numero(result.cdi_annual_pct, 2)}% a.a.",
         ]
 
         top = result.top_opportunity
         if top is not None:
-            ir_label = "ISENTO de IR" if top.is_exempt else f"IR {top.ir_rate * 100:.1f}%"
+            ir_label = "ISENTO de IR" if top.is_exempt else f"IR {numero(top.ir_rate * 100, 1)}%"
             lines += [
                 "",
                 "── Melhor opção disponível ──",
                 f"• {top.bank_name} {top.product_type} {top.cdi_pct:.0f}% CDI "
-                f"({top.annual_rate_net_pct:.2f}% a.a. líquido) — {ir_label}",
-                f"  Rendimento estimado: R$ {top.monthly_gain_brl:,.2f}/mês",
+                f"({numero(top.annual_rate_net_pct, 2)}% a.a. líquido) — {ir_label}",
+                f"  Rendimento estimado: {brl(top.monthly_gain_brl)}/mês",
             ]
             if top.steps:
                 lines += ["", "── Como fazer a troca (passo a passo) ──"]
@@ -135,7 +136,7 @@ def _build_savings_vs_cdi_section(user_id: str) -> list[str]:
     )
     return [
         header,
-        f"🐷 Poupança hoje: {result.savings_annual_pct:.2f}% a.a. | CDI: {result.cdi_annual_pct:.2f}% a.a.",
+        f"🐷 Poupança hoje: {numero(result.savings_annual_pct, 2)}% a.a. | CDI: {numero(result.cdi_annual_pct, 2)}% a.a.",
         result.reason,
     ]
 
@@ -155,7 +156,7 @@ def _get_latest_snapshot(user_id: str) -> str | None:
                 {"uid": user_id},
             ).fetchone()
         if row and row[0]:
-            gain = f" — ganho estimado R$ {float(row[1]):,.2f}" if row[1] else ""
+            gain = f" — ganho estimado {brl(float(row[1]))}" if row[1] else ""
             return f"{row[0]}{gain}"
     except Exception:
         pass

@@ -39,6 +39,7 @@ Usage:
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
+from app.core.formatacao import brl, numero
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -181,8 +182,8 @@ class LiquidityValidator:
             and monthly_payment > max_monthly_budget
         ):
             warnings.append(
-                f"Parcela mensal (R$ {monthly_payment:,.2f}) excede o "
-                f"max_monthly_budget declarado (R$ {max_monthly_budget:,.2f})."
+                f"Parcela mensal ({brl(monthly_payment)}) excede o "
+                f"max_monthly_budget declarado ({brl(max_monthly_budget)})."
             )
 
         return LiquidityResult(
@@ -248,17 +249,17 @@ class LiquidityValidator:
 
         if risk_level == RiskLevel.WARNING:
             warnings.append(
-                f"Comprometimento moderado: a estratégia consome {pct:.1f}% "
+                f"Comprometimento moderado: a estratégia consome {numero(pct, 1)}% "
                 f"do disponível mensal. Fique atento às despesas variáveis."
             )
         elif risk_level == RiskLevel.HIGH:
             warnings.append(
-                f"Comprometimento elevado: {pct:.1f}% do disponível mensal. "
+                f"Comprometimento elevado: {numero(pct, 1)}% do disponível mensal. "
                 "Recomenda-se revisar o orçamento antes de assumir este compromisso."
             )
         elif risk_level == RiskLevel.CRITICAL:
             warnings.append(
-                f"Comprometimento crítico: {pct:.1f}% do disponível mensal. "
+                f"Comprometimento crítico: {numero(pct, 1)}% do disponível mensal. "
                 "Esta estratégia pode inviabilizar despesas essenciais. "
                 "Considere aumentar o prazo, reduzir o valor alvo ou poupar antes."
             )

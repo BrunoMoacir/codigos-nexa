@@ -25,6 +25,7 @@ from app.tax.parametros_fiscais import (
     proximo_come_cotas,
 )
 from app.tax.services.ir_calculator import calc_breakeven
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -84,20 +85,20 @@ class ZeroTaxMode:
             results.append(
                 TaxOpportunity(
                     opportunity_type="switch_to_lci",
-                    title=f"CDB → LCI — {pos.bank_name} | R$ {pos.amount:,.0f}",
+                    title=f"CDB → LCI — {pos.bank_name} | {brl(pos.amount, 0)}",
                     description=(
-                        f"CDB atual: {pos.annual_rate_pct:.2f}% a.a. bruto → "
-                        f"{breakeven.cdb_net_rate_pct:.2f}% líquido após IR {breakeven.cdb_ir_rate*100:.0f}%. "
-                        f"Melhor LCI disponível: {best_lci['bank']} {lci_rate:.2f}% a.a. (isento). "
-                        f"Vantagem de {advantage_pct:.2f} p.p. em relação ao breakeven."
+                        f"CDB atual: {numero(pos.annual_rate_pct, 2)}% a.a. bruto → "
+                        f"{numero(breakeven.cdb_net_rate_pct, 2)}% líquido após IR de {numero(breakeven.cdb_ir_rate * 100, 1)}%. "
+                        f"Melhor LCI disponível: {best_lci['bank']} {numero(lci_rate, 2)}% a.a. (isento). "
+                        f"Vantagem de {numero(advantage_pct, 2)} p.p. em relação ao breakeven."
                     ),
                     position_ref=f"{pos.bank_name} — {pos.product_name}",
                     recommended_action=(
                         f"Resgatar o CDB (atenção ao prazo de carência) e aplicar em "
-                        f"LCI {best_lci['bank']} {lci_rate:.2f}% a.a. "
-                        f"Vantagem de taxa: R$ {vantagem_ano:,.2f}/ano (isento de IR). "
-                        f"Menos o IR de R$ {custo_resgate:,.2f} devido no resgate do CDB, "
-                        f"o ganho líquido no primeiro ano é de R$ {annual_saving:,.2f}."
+                        f"LCI {best_lci['bank']} {numero(lci_rate, 2)}% a.a. "
+                        f"Vantagem de taxa: {brl(vantagem_ano)}/ano (isento de IR). "
+                        f"Menos o IR de {brl(custo_resgate)} devido no resgate do CDB, "
+                        f"o ganho líquido no primeiro ano é de {brl(annual_saving)}."
                     ),
                     estimated_tax_saving_brl=annual_saving,
                     confidence="medium",
@@ -173,11 +174,11 @@ class ZeroTaxMode:
                     opportunity_type="avoid_come_cotas",
                     title=f"Evitar come-cotas — {pos.product_type} {pos.bank_name}",
                     description=(
-                        f"Fundo com come-cotas: cerca de R$ {come_cotas_ir:,.2f} de IR "
+                        f"Fundo com come-cotas: cerca de {brl(come_cotas_ir)} de IR "
                         f"serão antecipados em {data_fmt} ({nome_mes}). Migrar para CDB "
                         f"não elimina esse imposto — adia para o resgate. O ganho é o "
                         f"rendimento desse valor no meio-tempo: cerca de "
-                        f"R$ {ganho_diferimento:,.2f} em {_MESES_DE_DIFERIMENTO} meses ao CDI."
+                        f"{brl(ganho_diferimento)} em {_MESES_DE_DIFERIMENTO} meses ao CDI."
                     ),
                     position_ref=f"{pos.bank_name} — {pos.product_name}",
                     recommended_action=(

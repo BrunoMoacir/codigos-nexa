@@ -2,6 +2,7 @@
 import logging
 
 from langchain_core.tools import tool
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ def get_plan_info(user_id: str) -> str:
     lines = [
         "=== SEU PLANO NEXA ===",
         f"Plano atual: {plan.name if plan else plan_id}"
-        + (f" — R$ {plan.price_brl_monthly:.2f}/mês".replace(".", ",") if plan and plan.price_brl_monthly else " (gratuito)"),
+        + (f" — {brl(plan.price_brl_monthly)}/mês".replace(".", ",") if plan and plan.price_brl_monthly else " (gratuito)"),
     ]
     if record.get("cancel_at_period_end"):
         lines.append("⚠️ Assinatura marcada para cancelar no fim do período atual.")
@@ -45,7 +46,7 @@ def get_plan_info(user_id: str) -> str:
 
     lines += ["", "── Planos disponíveis ──"]
     for p in PLANS.values():
-        price = f"R$ {p.price_brl_monthly:.2f}/mês".replace(".", ",") if p.price_brl_monthly else "grátis"
+        price = f"{brl(p.price_brl_monthly)}/mês".replace(".", ",") if p.price_brl_monthly else "grátis"
         marker = " ← seu plano" if p.plan_id == plan_id else ""
         lines.append(f"• {p.name} ({price}){marker} — {p.tagline}")
         for feat in p.features[:4]:

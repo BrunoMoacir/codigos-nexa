@@ -12,6 +12,7 @@ import logging
 from datetime import date, timedelta
 
 import polars as pl
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -144,18 +145,18 @@ def get_financial_forecast(
         if safe:
             fontes.append("f1_safe_to_spend")
             lines.append("💰 **Margem disponível para gastar:**")
-            lines.append(f"   • Este mês: R$ {safe.safe_to_spend_total:,.2f}")
-            lines.append(f"   • Por dia com segurança: R$ {safe.safe_to_spend_daily:,.2f}")
+            lines.append(f"   • Este mês: {brl(safe.safe_to_spend_total)}")
+            lines.append(f"   • Por dia com segurança: {brl(safe.safe_to_spend_daily)}")
             lines.append(f"   • Nível de risco: {safe.risk_level}")
             lines.append("")
 
         # ── Renda ─────────────────────────────────────────────────────────
         if monthly_income:
-            lines.append(f"💵 Renda declarada: R$ {monthly_income:,.0f}/mês")
+            lines.append(f"💵 Renda declarada: {brl(monthly_income, 0)}/mês")
         elif income_profile and income_profile.confidence >= 0.5:
             fontes.append("income_profiler")
             lines.append(
-                f"💵 Renda estimada: R$ {income_profile.monthly_net_income:,.0f}/mês "
+                f"💵 Renda estimada: {brl(income_profile.monthly_net_income, 0)}/mês "
                 f"(padrão {income_profile.income_pattern.value}, "
                 f"confiança {income_profile.confidence:.0%})"
             )
@@ -191,15 +192,15 @@ def get_financial_forecast(
             fontes.append("cashflow_projector")
             lines.append("📈 **Projeção de Cashflow (30 dias):**")
             if hasattr(cf, "ending_balance"):
-                lines.append(f"   • Saldo esperado ao fim: R$ {cf.ending_balance:,.2f}")
+                lines.append(f"   • Saldo esperado ao fim: {brl(cf.ending_balance)}")
             elif hasattr(cf, "expected_balance"):
-                lines.append(f"   • Saldo esperado ao fim: R$ {cf.expected_balance:,.2f}")
+                lines.append(f"   • Saldo esperado ao fim: {brl(cf.expected_balance)}")
             if hasattr(cf, "monthly_income"):
-                lines.append(f"   • Receita estimada: R$ {cf.monthly_income:,.2f}")
+                lines.append(f"   • Receita estimada: {brl(cf.monthly_income)}")
             if hasattr(cf, "monthly_expense"):
-                lines.append(f"   • Despesas estimadas: R$ {cf.monthly_expense:,.2f}")
+                lines.append(f"   • Despesas estimadas: {brl(cf.monthly_expense)}")
             if hasattr(cf, "worst_balance"):
-                lines.append(f"   • Pior saldo projetado: R$ {cf.worst_balance:,.2f}")
+                lines.append(f"   • Pior saldo projetado: {brl(cf.worst_balance)}")
             lines.append("")
 
         # ── Shadow invoices ────────────────────────────────────────────────
@@ -209,7 +210,7 @@ def get_financial_forecast(
             count        = shadow.get("total_count", 0)
             if count > 0:
                 lines.append(f"👻 **Obrigações futuras:** {count} itens detectados")
-                lines.append(f"   • Impacto mensal: R$ {abs(total_impact):,.2f}")
+                lines.append(f"   • Impacto mensal: {brl(abs(total_impact))}")
                 lines.append("")
 
         # ── Cluster + FSS (ConsumptionProfiler) ───────────────────────────
@@ -233,7 +234,7 @@ def get_financial_forecast(
 
                 savings_rate = getattr(beh_profile, "savings_rate", None)
                 if savings_rate is not None:
-                    lines.append(f"   • Taxa de poupança: {savings_rate:.1f}%")
+                    lines.append(f"   • Taxa de poupança: {numero(savings_rate, 1)}%")
 
                 lines.append("")
 

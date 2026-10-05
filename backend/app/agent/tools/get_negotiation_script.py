@@ -7,6 +7,7 @@ from app.core.db.queries import get_transactions_for_user
 from app.negotiator.health_score import score_nexa
 from app.negotiator.opportunity_detector import NegotiationOpportunityDetector
 from app.negotiator.script_generator import NegotiationScriptGenerator
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ def get_negotiation_script(user_id: str, bank_name: str = "") -> str:
             f"Produto: {opp.product}",
         ]
         if opp.potential_saving_monthly > 0:
-            lines.append(f"Economia potencial: R$ {opp.potential_saving_monthly:.2f}/mês")
+            lines.append(f"Economia potencial: {brl(opp.potential_saving_monthly)}/mês")
         lines += [
             "",
             f"ABERTURA: {script.opening_line}",

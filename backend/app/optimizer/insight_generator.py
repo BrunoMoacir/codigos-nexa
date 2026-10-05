@@ -16,6 +16,7 @@ from app.optimizer.models import (
     InsightInterval,
     InsightType,
 )
+from app.core.formatacao import brl
 
 if TYPE_CHECKING:
     from app.optimizer.profiler import UserProfile
@@ -381,7 +382,7 @@ class InsightGenerator:
 
             if monthly_gap is not None and monthly_gap > 0:
                 description = (
-                    f"Gastando mais R${monthly_gap:,.0f}/mês no {result.card_name} "
+                    f"Gastando mais {brl(monthly_gap, 0)}/mês no {result.card_name} "
                     f"você elimina a anuidade de {interval.display_text()}."
                 )
             elif monthly_gap == 0.0:
@@ -441,7 +442,7 @@ class InsightGenerator:
             title="Considere cancelar este cartão",
             description=(
                 f"Seu cartão atual está gerando prejuízo de {interval.display_text()}. "
-                f"Cancelá-lo pode economizar R${annual_savings:.0f}/ano em anuidade "
+                f"Cancelá-lo pode economizar {brl(annual_savings, 0)}/ano em anuidade "
                 f"sem retorno correspondente."
             ),
             gain_interval=interval,
@@ -506,7 +507,7 @@ class InsightGenerator:
                 type=InsightType.MUDAR_CATEGORIA,
                 title=f"Otimizar gastos em {category}",
                 description=(
-                    f"Você gasta R${monthly_spend:.0f}/mês em {category}. "
+                    f"Você gasta {brl(monthly_spend, 0)}/mês em {category}. "
                     f"O {best.card_name} tem benefício {target_tag.value} que pode render "
                     f"{interval.display_text()} adicionais nesta categoria."
                 ),
@@ -642,7 +643,7 @@ class InsightGenerator:
             type=InsightType.MUDAR_CATEGORIA,
             title="Cashback em farmácia e supermercado para sua família",
             description=(
-                f"Com filho pequeno em casa, você gasta R${family_spend:.0f}/mês entre "
+                f"Com filho pequeno em casa, você gasta {brl(family_spend, 0)}/mês entre "
                 f"farmácia e supermercado. O {best.card_name} tem cashback nessas categorias "
                 f"e pode retornar {interval.display_text()}."
             ),
@@ -682,10 +683,10 @@ class InsightGenerator:
         confidence = round(min(stage_confidence * best.confidence_score * 1.2, 0.90), 3)
 
         desc_intl = (
-            f"Com R${intl_spend:.0f}/mês em gastos internacionais, "
-            f"o IOF pode custar R${iof_savings_monthly:.0f}/mês. "
+            f"Com {brl(intl_spend, 0)}/mês em gastos internacionais, "
+            f"o IOF pode custar {brl(iof_savings_monthly, 0)}/mês. "
         ) if intl_spend > 50 else (
-            f"Com R${travel_spend:.0f}/mês em viagens, "
+            f"Com {brl(travel_spend, 0)}/mês em viagens, "
         )
 
         return [ActionableInsight(
@@ -723,7 +724,7 @@ class InsightGenerator:
         if best.annuity_waived:
             annuity_note = f"anuidade isenta no seu volume de gastos"
         elif annuity_monthly > 0:
-            annuity_note = f"anuidade de R${annuity_monthly:.0f}/mês coberta pelo retorno"
+            annuity_note = f"anuidade de {brl(annuity_monthly, 0)}/mês coberta pelo retorno"
         else:
             annuity_note = "sem anuidade"
 
@@ -772,9 +773,9 @@ class InsightGenerator:
         confidence = round(min(stage_confidence * best.confidence_score * 1.2, 0.90), 3)
 
         if delivery_monthly > 0:
-            spend_desc = f"R${delivery_monthly:.0f}/mês em delivery"
+            spend_desc = f"{brl(delivery_monthly, 0)}/mês em delivery"
         else:
-            spend_desc = f"R${food_spend:.0f}/mês em alimentação"
+            spend_desc = f"{brl(food_spend, 0)}/mês em alimentação"
 
         return [ActionableInsight(
             type=InsightType.MUDAR_CATEGORIA,
@@ -839,7 +840,7 @@ class InsightGenerator:
                     type=InsightType.MUDAR_CATEGORIA,
                     title="Seu perfil de viajante merece milhas",
                     description=(
-                        f"Você gastou R${annual_travel:.0f}/ano em viagens "
+                        f"Você gastou {brl(annual_travel, 0)}/ano em viagens "
                         f"sem acumular milhas. Um cartão de milhas premium poderia gerar "
                         f"uma passagem gratuita por ano no seu padrão de uso."
                     ),
@@ -864,7 +865,7 @@ class InsightGenerator:
                     type=InsightType.MUDAR_CATEGORIA,
                     title="Anuidade alta reduz seu retorno real",
                     description=(
-                        f"Como investidor, cada R${top_card.annuity_effective:.0f}/ano em anuidade "
+                        f"Como investidor, cada {brl(top_card.annuity_effective, 0)}/ano em anuidade "
                         f"representa custo de oportunidade. Considere cartões com isenção "
                         f"por volume ou anuidade zero com cashback equivalente."
                     ),
@@ -910,7 +911,7 @@ class InsightGenerator:
                         type=InsightType.MUDAR_CATEGORIA,
                         title="Cashback em supermercado e farmácia",
                         description=(
-                            f"Sua família gasta R${family_spend:.0f}/mês em supermercado e farmácia. "
+                            f"Sua família gasta {brl(family_spend, 0)}/mês em supermercado e farmácia. "
                             f"O {top_card.card_name} pode devolver {interval.display_text()} "
                             f"nessas categorias do dia a dia."
                         ),
@@ -934,7 +935,7 @@ class InsightGenerator:
                     type=InsightType.MUDAR_CATEGORIA,
                     title="Seu gasto em alimentação merece cashback",
                     description=(
-                        f"Você gasta R${food_spend:.0f}/mês em alimentação e restaurantes. "
+                        f"Você gasta {brl(food_spend, 0)}/mês em alimentação e restaurantes. "
                         f"O {top_card.card_name} pode retornar {interval.display_text()} "
                         f"sobre esses gastos frequentes."
                     ),
@@ -1035,7 +1036,7 @@ class InsightGenerator:
 
             if direction == "REEMERGINDO":
                 desc = (
-                    f"{cat.capitalize()} voltou ao seu padrão: R${current:.0f}/mês. "
+                    f"{cat.capitalize()} voltou ao seu padrão: {brl(current, 0)}/mês. "
                     f"O {best.card_name} tem {target_tag.value} que pode retornar "
                     f"{interval.display_text()} nesta categoria."
                 )
@@ -1045,7 +1046,7 @@ class InsightGenerator:
                 pct_str = f"+{pct}%" if pct is not None else "comportamento novo"
                 desc = (
                     f"Seu gasto em {cat} subiu {pct_str} "
-                    f"(R${baseline:.0f} → R${current:.0f}/mês). "
+                    f"({brl(baseline, 0)} → {brl(current, 0)}/mês). "
                     f"O {best.card_name} tem {target_tag.value} que pode retornar "
                     f"{interval.display_text()} sobre esse crescimento."
                 )
@@ -1085,7 +1086,7 @@ class InsightGenerator:
                     confidence = round(best.confidence_score * 0.75, 3)
                     if del_direction == "REEMERGINDO":
                         desc = (
-                            f"Delivery voltou: R${del_current:.0f}/mês em iFood/Rappi. "
+                            f"Delivery voltou: {brl(del_current, 0)}/mês em iFood/Rappi. "
                             f"O {best.card_name} tem cashback que pode retornar "
                             f"{interval.display_text()}."
                         )
@@ -1093,7 +1094,7 @@ class InsightGenerator:
                     else:
                         desc = (
                             f"Seus pedidos de delivery cresceram "
-                            f"(R${del_baseline:.0f} → R${del_current:.0f}/mês). "
+                            f"({brl(del_baseline, 0)} → {brl(del_current, 0)}/mês). "
                             f"O {best.card_name} tem cashback que pode retornar "
                             f"{interval.display_text()} sobre esse gasto."
                         )
@@ -1138,7 +1139,7 @@ class InsightGenerator:
                             title="Renda em queda — prefira cartão sem anuidade",
                             description=(
                                 f"Sua renda caiu {drop_pct}% nos últimos meses "
-                                f"(R${hist_income:.0f} → R${curr_income:.0f}/mês). "
+                                f"({brl(hist_income, 0)} → {brl(curr_income, 0)}/mês). "
                                 f"O {best_free.card_name} não tem anuidade e mantém "
                                 f"os benefícios sem comprometer seu orçamento."
                             ),
@@ -1172,7 +1173,7 @@ class InsightGenerator:
         _desc = base_description[:1].lower() + base_description[1:] if base_description else base_description
         return (
             f"{tone['prefix']}, {_desc} "
-            f"Foco em {tone['emphasis']} — equivale a R${gain_annual:.0f}/ano."
+            f"Foco em {tone['emphasis']} — equivale a {brl(gain_annual, 0)}/ano."
         )
 
     def _make_interval(

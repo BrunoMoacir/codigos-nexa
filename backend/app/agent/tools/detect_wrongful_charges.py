@@ -7,6 +7,7 @@ from langchain_core.tools import tool
 
 from app.costs.bank_fee_analyzer import BankFeeAnalyzer
 from app.core.db.queries import get_transactions_for_user
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,7 @@ def detect_wrongful_charges(user_id: str) -> str:
             f"🆕 {len(new_fees)} tarifa(s) nova(s) sem histórico anterior:",
         ]
         for fee in new_fees:
-            lines.append(f"  • {fee.bank_name} — {fee.fee_type.value}: R$ {fee.amount:.2f}")
+            lines.append(f"  • {fee.bank_name} — {fee.fee_type.value}: {brl(fee.amount)}")
         lines += [
             "  → Tarifas sem histórico podem indicar cobrança não autorizada ou mudança de plano.",
             "  → Exija do banco comprovante do contrato que autoriza essa tarifa.",

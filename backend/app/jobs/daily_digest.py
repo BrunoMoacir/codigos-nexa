@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
 from app.jobs._base import get_active_user_ids, job_guard
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +179,7 @@ def _collect_tarifa_events(user_id: str, today: date) -> list[DigestEvent]:
             events.append(DigestEvent(
                 category="tarifa",
                 title=f"Tarifa aumentou: {fee_type} no {bank_name}",
-                detail=f"De R$ {float(old_amt):.2f} para R$ {float(new_amt):.2f} (+{delta_pct}%). "
+                detail=f"De {brl(float(old_amt))} para {brl(float(new_amt))} (+{delta_pct}%). "
                        "Você pode contestar com base na Resolução BACEN 3.919/2010.",
             ))
         return events
@@ -206,7 +207,7 @@ def _collect_negotiation_events(user_id: str, today: date) -> list[DigestEvent]:
 
         events = []
         for bank_name, trigger_type, gain in rows:
-            gain_str = f"R$ {float(gain):.2f}" if gain else "valor a confirmar"
+            gain_str = f"{brl(float(gain))}" if gain else "valor a confirmar"
             events.append(DigestEvent(
                 category="oportunidade",
                 title=f"Oportunidade em {bank_name}: {trigger_type}",

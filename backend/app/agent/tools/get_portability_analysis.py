@@ -2,6 +2,7 @@
 import logging
 
 from langchain_core.tools import tool
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ def get_portability_analysis(user_id: str) -> str:
     total_economy = sum(f.amount_disputed for f in findings)
     lines += [
         f"💰 {len(findings)} oportunidade(s) de portabilidade detectada(s)",
-        f"   Economia estimada total: R$ {total_economy:.2f}",
+        f"   Economia estimada total: {brl(total_economy)}",
         "",
     ]
 
@@ -67,7 +68,7 @@ def get_portability_analysis(user_id: str) -> str:
         lines += [
             f"🔵 {f.bank_name} — {f.title}",
             f"   {f.description[:250]}{'...' if len(f.description) > 250 else ''}",
-            f"   Economia estimada: R$ {f.amount_disputed:.2f} | Confiança: {conf_pct}",
+            f"   Economia estimada: {brl(f.amount_disputed)} | Confiança: {conf_pct}",
             "",
         ]
         if hasattr(f, "evidence_points") and f.evidence_points:

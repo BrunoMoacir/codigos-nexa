@@ -14,6 +14,7 @@ orientação prática, sempre acompanhados do disclaimer regulatório
 """
 
 from __future__ import annotations
+from app.core.formatacao import brl
 
 _FGC_LIMIT_BRL = 250_000.0
 
@@ -75,7 +76,7 @@ def build_switch_steps(
 
     apply_step = f"No app do {bank_name}, acesse a área de investimentos e aplique no {product_type}"
     if min_amount > 1:
-        apply_step += f" (aplicação mínima: R$ {min_amount:,.2f})"
+        apply_step += f" (aplicação mínima: {brl(min_amount)})"
     steps.append(apply_step + ".")
 
     if liquidity_days <= 1:
@@ -101,7 +102,7 @@ def build_switch_steps(
 
     if fgc_covered:
         fgc_step = (
-            f"O valor é garantido pelo FGC até R$ {_FGC_LIMIT_BRL:,.0f} por CPF por instituição."
+            f"O valor é garantido pelo FGC até {brl(_FGC_LIMIT_BRL, 0)} por CPF por instituição."
         )
         if amount is not None and amount > _FGC_LIMIT_BRL:
             fgc_step += (

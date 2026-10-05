@@ -3,6 +3,7 @@ import logging
 from datetime import date
 
 from langchain_core.tools import tool
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -90,15 +91,15 @@ def get_evidence_dossier(
         "⚠️ AVISO LEGAL: Documentos gerados como modelo educacional.",
         "Revise e preencha seus dados pessoais antes de protocolar.",
         "",
-        f"📋 {n} achado(s) | Estimativa total contestável: R$ {total:.2f}",
+        f"📋 {n} achado(s) | Estimativa total contestável: {brl(total)}",
     ]
 
     if dossier.monetary_correction:
         c = dossier.monetary_correction
         lines.append(
             f"📈 Correção monetária ({c.index}): "
-            f"R$ {c.original_value:.2f} → R$ {c.corrected_value:.2f} "
-            f"(+R$ {c.correction_brl:.2f} em {c.monthly_rates_used or 0} meses)"
+            f"{brl(c.original_value)} → {brl(c.corrected_value)} "
+            f"(+{brl(c.correction_brl)} em {c.monthly_rates_used or 0} meses)"
         )
 
     lines += [

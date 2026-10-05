@@ -14,6 +14,7 @@ radar).
 import logging
 
 from langchain_core.tools import tool
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -61,18 +62,18 @@ def simulate_investment(amount: float, holding_months: int = 12) -> str:
         return "Não consegui simular agora. Tente novamente em instantes."
 
     lines = [
-        f"=== SIMULAÇÃO: R$ {amount:,.2f} por {holding_months} meses ===",
-        f"Taxas de hoje — SELIC: {result.selic_annual_pct:.2f}% | CDI: {result.cdi_annual_pct:.2f}% | Poupança: {result.savings_annual_pct:.2f}% a.a.",
+        f"=== SIMULAÇÃO: {brl(amount)} por {holding_months} meses ===",
+        f"Taxas de hoje — SELIC: {numero(result.selic_annual_pct, 2)}% | CDI: {numero(result.cdi_annual_pct, 2)}% | Poupança: {numero(result.savings_annual_pct, 2)}% a.a.",
         "",
         "── Rendimento líquido no período (após IR e custos) ──",
     ]
 
     for i, entry in enumerate(result.entries, start=1):
-        ir_label = "isento de IR" if entry.is_exempt else f"IR {entry.ir_rate * 100:.1f}%"
+        ir_label = "isento de IR" if entry.is_exempt else f"IR {numero(entry.ir_rate * 100, 1)}%"
         guarantee = "FGC" if entry.fgc_covered else "Tesouro Nacional"
         lines.append(
-            f"{i}. {entry.label}: R$ {entry.net_yield_brl:,.2f} "
-            f"({entry.annual_rate_net_pct:.2f}% a.a. líquido) — {ir_label}, garantia {guarantee}"
+            f"{i}. {entry.label}: {brl(entry.net_yield_brl)} "
+            f"({numero(entry.annual_rate_net_pct, 2)}% a.a. líquido) — {ir_label}, garantia {guarantee}"
         )
 
     lines += ["", result.recommendation]

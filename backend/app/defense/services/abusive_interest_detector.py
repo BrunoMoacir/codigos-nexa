@@ -34,6 +34,7 @@ from app.architect.connectors.bacen_credit import (
     TETO_CHEQUE_ESPECIAL_MENSAL,
 )
 from app.defense.models import DefenseFinding
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -204,8 +205,8 @@ class AbusiveInterestDetector:
                     title=f"Indício de juros elevados — {ref_label} em {bank}",
                     description=(
                         f"Detectamos encargos de {ref_label} em {bank} com potencial de "
-                        f"economia de R$ {float(gain):.2f}/mês se reduzidos à taxa média "
-                        f"BACEN ({ref_rate*100:.2f}% a.m.). "
+                        f"economia de {brl(float(gain))}/mês se reduzidos à taxa média "
+                        f"BACEN ({numero(ref_rate*100, 2)}% a.m.). "
                         f"Isso é um {threshold.label} — vale contestar/negociar. "
                         f"{_DISCLAIMER}"
                     ),
@@ -215,8 +216,8 @@ class AbusiveInterestDetector:
                     evidence_points=[
                         f"Banco: {bank}",
                         f"Modalidade: {ref_label}",
-                        f"Economia mensal estimada se taxa = média BACEN: R$ {float(gain):.2f}",
-                        f"Taxa média BACEN de referência: {ref_rate*100:.2f}% a.m.",
+                        f"Economia mensal estimada se taxa = média BACEN: {brl(float(gain))}",
+                        f"Taxa média BACEN de referência: {numero(ref_rate*100, 2)}% a.m.",
                         *([] if is_rotativo else [
                             f"Teto regulatório: {TETO_CHEQUE_ESPECIAL_MENSAL*100:.0f}% a.m. — "
                             f"{TETO_CHEQUE_ESPECIAL_BASE_LEGAL} Confira a taxa no seu extrato: "
@@ -280,8 +281,8 @@ class AbusiveInterestDetector:
                     title=f"Encargos de juros detectados — {bank}",
                     description=(
                         f"{len(items)} lançamento(s) de juros/encargos em {bank}, "
-                        f"totalizando R$ {total:.2f}. "
-                        f"Taxa referência BACEN (rotativo PF): {ref_rate*100:.2f}% a.m. "
+                        f"totalizando {brl(total)}. "
+                        f"Taxa referência BACEN (rotativo PF): {numero(ref_rate*100, 2)}% a.m. "
                         f"Para comparação precisa, informe a taxa contratada. "
                         f"{_DISCLAIMER}"
                     ),
@@ -291,9 +292,9 @@ class AbusiveInterestDetector:
                     evidence_points=[
                         f"Banco: {bank}",
                         f"Lançamentos detectados: {len(items)}",
-                        f"Total cobrado: R$ {total:.2f}",
-                        f"Taxa referência BACEN (rotativo): {ref_rate*100:.2f}% a.m.",
-                        *[f"• {d}: R$ {a:.2f}" for d, a in items[:5]],
+                        f"Total cobrado: {brl(total)}",
+                        f"Taxa referência BACEN (rotativo): {numero(ref_rate*100, 2)}% a.m.",
+                        *[f"• {d}: {brl(a)}" for d, a in items[:5]],
                         "INDÍCIO — comparação precisa exige taxa contratada.",
                     ],
                 ))

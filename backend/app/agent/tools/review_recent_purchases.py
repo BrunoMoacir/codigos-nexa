@@ -2,6 +2,7 @@
 import logging
 
 from langchain_core.tools import tool
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -56,15 +57,15 @@ def review_recent_purchases(user_id: str) -> str:
     for i, f in enumerate(followups, 1):
         total += f.potential_savings_brl
         lines += [
-            f"── {i}. R$ {f.amount:,.2f} em {f.merchant.title()} ({f.purchase_date}) ──",
+            f"── {i}. {brl(f.amount)} em {f.merchant.title()} ({f.purchase_date}) ──",
             f"Como pagou: {f.paid_method_label}",
             f"Melhor opção: {f.best_method_label}",
-            f"Diferença: R$ {f.potential_savings_brl:,.2f} de custo líquido",
+            f"Diferença: {brl(f.potential_savings_brl)} de custo líquido",
             "",
         ]
 
     lines += [
-        f"Total deixado na mesa nessas compras: R$ {total:,.2f}.",
+        f"Total deixado na mesa nessas compras: {brl(total)}.",
         "Não é bronca — a compra já foi. O valor está em criar o hábito: "
         "antes da próxima compra grande, consulte o Modo Compra.",
     ]

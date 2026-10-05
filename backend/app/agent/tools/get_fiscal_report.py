@@ -14,6 +14,7 @@ from langchain_core.tools import tool
 from typing import Optional
 import logging
 from datetime import date
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -69,34 +70,34 @@ def get_fiscal_report(
 
         # Receitas
         if report.receitas:
-            lines.append(f"RECEITAS — Total: R$ {report.total_receita:,.2f}")
+            lines.append(f"RECEITAS — Total: {brl(report.total_receita)}")
             for r in report.receitas:
-                lines.append(f"  {r.label}: R$ {r.total:,.2f} ({r.count} transacoes)")
+                lines.append(f"  {r.label}: {brl(r.total)} ({r.count} transacoes)")
         else:
             lines.append("RECEITAS — Nenhuma receita PJ identificada no periodo.")
         lines.append("")
 
         # Despesas
         if report.despesas:
-            lines.append(f"DESPESAS DEDUTIVEIS — Total: R$ {report.total_despesa:,.2f}")
+            lines.append(f"DESPESAS DEDUTIVEIS — Total: {brl(report.total_despesa)}")
             for d in report.despesas:
-                lines.append(f"  {d.label}: R$ {d.total:,.2f} ({d.count} transacoes)")
+                lines.append(f"  {d.label}: {brl(d.total)} ({d.count} transacoes)")
         else:
             lines.append("DESPESAS — Nenhuma despesa PJ identificada no periodo.")
         lines.append("")
 
         # Resultado
         lucro_emoji = "✅" if report.lucro_estimado >= 0 else "⚠️"
-        lines.append(f"{lucro_emoji} Lucro Estimado: R$ {report.lucro_estimado:,.2f}")
+        lines.append(f"{lucro_emoji} Lucro Estimado: {brl(report.lucro_estimado)}")
         lines.append("")
 
         # DAS
         lines.append("DAS — Simples Nacional (Estimativa):")
         if report.das_estimado > 0:
             lines.append(f"  {report.das_faixa}")
-            lines.append(f"  RBT12 (receita bruta 12 meses): R$ {report.rbt12_anualizado:,.2f}")
-            lines.append(f"  Aliquota efetiva: {report.das_aliquota_efetiva:.2f}%")
-            lines.append(f"  DAS estimado sobre receita do periodo: R$ {report.das_estimado:,.2f}")
+            lines.append(f"  RBT12 (receita bruta 12 meses): {brl(report.rbt12_anualizado)}")
+            lines.append(f"  Aliquota efetiva: {numero(report.das_aliquota_efetiva, 2)}%")
+            lines.append(f"  DAS estimado sobre receita do periodo: {brl(report.das_estimado)}")
         elif report.das_faixa:
             lines.append(f"  {report.das_faixa}")
         else:

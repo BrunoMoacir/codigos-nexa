@@ -37,6 +37,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Literal, Optional
 
 import polars as pl
+from app.core.formatacao import brl, numero
 
 if TYPE_CHECKING:
     from app.forecast.etl.income_profiler import IncomeProfile
@@ -320,8 +321,8 @@ class SpendingAnomalyDetector:
                 anomaly_type=AnomalyType.UNUSUAL_AMOUNT,
                 severity="WARNING",
                 description=(
-                    f"Gasto de R$ {amount:,.2f} em {cat} — "
-                    f"{factor:.1f}x acima da sua média (R$ {avg:,.2f})"
+                    f"Gasto de {brl(amount)} em {cat} — "
+                    f"{numero(factor, 1)}x acima da sua média ({brl(avg)})"
                     f"{income_context}"
                 ),
                 baseline_value=round(avg, 2),
@@ -400,7 +401,7 @@ class SpendingAnomalyDetector:
                 anomaly_type=AnomalyType.NEW_MERCHANT,
                 severity="INFO",
                 description=(
-                    f"Novo estabelecimento: '{raw_desc}' (R$ {amount:,.2f}) "
+                    f"Novo estabelecimento: '{raw_desc}' ({brl(amount)}) "
                     f"— nunca visto no seu histórico"
                 ),
                 baseline_value=0.0,
@@ -469,7 +470,7 @@ class SpendingAnomalyDetector:
                 severity="WARNING",
                 description=(
                     f"{daily} transações em {cat} no dia {date_s} — "
-                    f"{factor:.1f}x acima da frequência habitual ({avg:.1f}/dia)"
+                    f"{numero(factor, 1)}x acima da frequência habitual ({numero(avg, 1)}/dia)"
                 ),
                 baseline_value=round(avg, 2),
                 actual_value=float(daily),
@@ -543,7 +544,7 @@ class SpendingAnomalyDetector:
                         severity="ALERT",
                         description=(
                             f"Possível cobrança duplicada: '{raw_desc}' "
-                            f"R$ {amount:,.2f} — transação similar há {days_apart} "
+                            f"{brl(amount)} — transação similar há {days_apart} "
                             f"{'dia' if days_apart == 1 else 'dias'}"
                         ),
                         baseline_value=round(prev["amount"], 2),

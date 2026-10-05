@@ -13,6 +13,7 @@ Use SEMPRE que o usuário perguntar sobre:
 from langchain_core.tools import tool
 from typing import Optional
 import logging
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -92,9 +93,9 @@ def get_peer_comparison(
 
         lines = [
             f"Comparacao com Pares — Faixa: {report.bracket_label}",
-            f"Renda referencia: R$ {monthly_income:,.0f}/mês",
-            f"Indice de Poupanca: {report.user_savings_rate * 100:.1f}% "
-            f"(benchmark: {report.benchmark_savings_rate * 100:.1f}%)",
+            f"Renda referencia: {brl(monthly_income, 0)}/mês",
+            f"Indice de Poupanca: {numero(report.user_savings_rate * 100, 1)}% "
+            f"(benchmark: {numero(report.benchmark_savings_rate * 100, 1)}%)",
             f"Seu percentil de poupanca: {report.savings_percentile_label}",
             "-" * 40,
         ]
@@ -108,8 +109,8 @@ def get_peer_comparison(
             lines.append("Voce gasta ACIMA da media em:")
             for c in acima:
                 lines.append(
-                    f"  {c.label}: {c.user_pct:.1f}% da renda "
-                    f"(media: {c.benchmark_pct:.1f}%, delta: +{c.delta_pct:.1f} p.p.)"
+                    f"  {c.label}: {numero(c.user_pct, 1)}% da renda "
+                    f"(media: {numero(c.benchmark_pct, 1)}%, delta: +{numero(c.delta_pct, 1)} p.p.)"
                 )
                 if c.insight:
                     lines.append(f"    → {c.insight}")
@@ -119,8 +120,8 @@ def get_peer_comparison(
             lines.append("Voce gasta ABAIXO da media em:")
             for c in abaixo:
                 lines.append(
-                    f"  {c.label}: {c.user_pct:.1f}% da renda "
-                    f"(media: {c.benchmark_pct:.1f}%, delta: {c.delta_pct:.1f} p.p.)"
+                    f"  {c.label}: {numero(c.user_pct, 1)}% da renda "
+                    f"(media: {numero(c.benchmark_pct, 1)}%, delta: {numero(c.delta_pct, 1)} p.p.)"
                 )
             lines.append("")
 

@@ -13,6 +13,7 @@ Use SEMPRE que o usuário perguntar sobre:
 from langchain_core.tools import tool
 from typing import Optional
 import logging
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -103,9 +104,9 @@ def get_leverage_simulation(
                     f"Encontrei dados para {city}"
                     + (f" / {neighborhood}" if neighborhood else "")
                     + f":\n"
-                    f"  Preço médio: R$ {loc['price_sqm']:,.0f}/m²\n"
-                    f"  Aluguel médio: R$ {loc['rent_sqm']:,.0f}/m²\n"
-                    f"  Yield: {loc['rent_yield_annual']*100:.2f}% a.a.\n\n"
+                    f"  Preço médio: {brl(loc['price_sqm'], 0)}/m²\n"
+                    f"  Aluguel médio: {brl(loc['rent_sqm'], 0)}/m²\n"
+                    f"  Yield: {numero(loc['rent_yield_annual']*100, 2)}% a.a.\n\n"
                     f"Para simular a alavancagem, informe a área do imóvel em m² (ex: sqm=70)."
                 )
 
@@ -121,9 +122,9 @@ def get_leverage_simulation(
             location_info = (
                 f"Localização: {location_display}{fallback_note}\n"
                 f"Fonte: FipeZAP fev/2026 | "
-                f"R$ {loc['price_sqm']:,.0f}/m² venda | "
-                f"R$ {loc['rent_sqm']:,.0f}/m² aluguel | "
-                f"Yield {loc['rent_yield_annual']*100:.2f}% a.a.\n"
+                f"{brl(loc['price_sqm'], 0)}/m² venda | "
+                f"{brl(loc['rent_sqm'], 0)}/m² aluguel | "
+                f"Yield {numero(loc['rent_yield_annual']*100, 2)}% a.a.\n"
             )
         else:
             if city and neighborhood:
@@ -157,14 +158,14 @@ def get_leverage_simulation(
         # ── Formatar saída ───────────────────────────────────────────────────
         sqm_str = f" ({sqm:.0f}m²)" if sqm else ""
         lines = [
-            f"Simulação de Alavancagem Patrimonial — Imóvel R$ {asset_value:,.0f}{sqm_str}",
+            f"Simulação de Alavancagem Patrimonial — Imóvel {brl(asset_value, 0)}{sqm_str}",
         ]
         if location_info:
             lines.append(location_info.strip())
         lines += [
-            f"Aluguel estimado: R$ {monthly_rent:,.0f}/mês "
-            f"(yield {result.rent_yield_monthly*100:.2f}%/mês = {result.rent_yield_annual*100:.1f}%/ano)",
-            f"SELIC: {selic_annual*100:.1f}% a.a. | Admin consórcio: {effective_admin*100:.0f}% | Prazo: {effective_months} meses",
+            f"Aluguel estimado: {brl(monthly_rent, 0)}/mês "
+            f"(yield {numero(result.rent_yield_monthly*100, 2)}%/mês = {numero(result.rent_yield_annual*100, 1)}%/ano)",
+            f"SELIC: {numero(selic_annual*100, 1)}% a.a. | Admin consórcio: {effective_admin*100:.0f}% | Prazo: {effective_months} meses",
             "-" * 44,
         ]
 
@@ -173,20 +174,20 @@ def get_leverage_simulation(
             lines += [
                 "VIÁVEL — A operação se paga sozinha ✓",
                 "",
-                f"Carta de consórcio ideal: R$ {o.letter_value:,.0f}  ({o.multiplier}x o imóvel)",
-                f"Surplus investido na SELIC: R$ {o.surplus_invested:,.0f}",
+                f"Carta de consórcio ideal: {brl(o.letter_value, 0)}  ({o.multiplier}x o imóvel)",
+                f"Surplus investido na SELIC: {brl(o.surplus_invested, 0)}",
                 "",
                 "Fluxo mensal (mês 1):",
-                f"  + Aluguel recebido:     R$ {o.monthly_rent_income:,.0f}",
-                f"  + Rendimento SELIC:     R$ {o.monthly_selic_income_initial:,.0f}",
-                f"  - Parcela consórcio:    R$ {o.monthly_payment:,.0f}",
-                f"  = Saldo líquido:        R$ {o.monthly_net_initial:,.0f}",
+                f"  + Aluguel recebido:     {brl(o.monthly_rent_income, 0)}",
+                f"  + Rendimento SELIC:     {brl(o.monthly_selic_income_initial, 0)}",
+                f"  - Parcela consórcio:    {brl(o.monthly_payment, 0)}",
+                f"  = Saldo líquido:        {brl(o.monthly_net_initial, 0)}",
                 f"  Cobertura total:        {o.total_coverage_pct:.0f}% da parcela",
                 "",
                 f"Resultado ao final de {effective_months} meses:",
-                f"  Imóvel quitado:          R$ {asset_value:,.0f}",
-                f"  Saldo investido restante: R$ {max(o.final_invested_balance, 0):,.0f}",
-                f"  Patrimônio total:         R$ {o.final_patrimony:,.0f}",
+                f"  Imóvel quitado:          {brl(asset_value, 0)}",
+                f"  Saldo investido restante: {brl(max(o.final_invested_balance, 0), 0)}",
+                f"  Patrimônio total:         {brl(o.final_patrimony, 0)}",
                 f"  Desembolso do bolso:      R$ 0 (100% auto-sustentável)",
                 "",
                 result.recommendation,
@@ -199,9 +200,9 @@ def get_leverage_simulation(
                 lines += ["", "Outros multiplicadores viáveis:"]
                 for s in top:
                     lines.append(
-                        f"  {s.multiplier}x — carta R$ {s.letter_value:,.0f} | "
-                        f"parcela R$ {s.monthly_payment:,.0f}/mês | "
-                        f"patrimônio final R$ {s.final_patrimony:,.0f}"
+                        f"  {s.multiplier}x — carta {brl(s.letter_value, 0)} | "
+                        f"parcela {brl(s.monthly_payment, 0)}/mês | "
+                        f"patrimônio final {brl(s.final_patrimony, 0)}"
                     )
         else:
             lines += [
@@ -214,9 +215,9 @@ def get_leverage_simulation(
                 p = result.best_partial
                 lines += [
                     f"Melhor cenário parcial ({p.multiplier}x):",
-                    f"  Carta: R$ {p.letter_value:,.0f} | Parcela: R$ {p.monthly_payment:,.0f}/mês",
+                    f"  Carta: {brl(p.letter_value, 0)} | Parcela: {brl(p.monthly_payment, 0)}/mês",
                     f"  Cobertura: {p.total_coverage_pct:.0f}% da parcela (faltam {100-p.total_coverage_pct:.0f}%)",
-                    f"  Déficit máximo: R$ {p.max_monthly_deficit:,.0f}/mês do seu bolso",
+                    f"  Déficit máximo: {brl(p.max_monthly_deficit, 0)}/mês do seu bolso",
                     "",
                 ]
             lines.append(result.recommendation)

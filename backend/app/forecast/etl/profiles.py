@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Optional
 
 import polars as pl
+from app.core.formatacao import brl
 
 if TYPE_CHECKING:
     from app.forecast.etl.income_profiler import IncomeProfile
@@ -312,8 +313,8 @@ class UserProfileAnalyzer:
             n_months = self._count_months(df)
             period_net = income_profile.monthly_net_income * max(n_months, 1)
             self.logger.debug(
-                f"Usando renda filtrada: R$ {income_profile.monthly_net_income:.0f}/mês "
-                f"× {n_months}m = R$ {period_net:.0f} "
+                f"Usando renda filtrada: {brl(income_profile.monthly_net_income, 0)}/mês "
+                f"× {n_months}m = {brl(period_net, 0)} "
                 f"(conf={income_profile.confidence:.2f}, padrão={income_profile.income_pattern})"
             )
             return period_net, income_profile.monthly_net_income

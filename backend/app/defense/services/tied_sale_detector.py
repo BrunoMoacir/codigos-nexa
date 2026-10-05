@@ -25,6 +25,7 @@ import unicodedata
 from datetime import date, timedelta
 
 from app.defense.models import DefenseFinding
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -184,8 +185,8 @@ class TiedSaleDetector:
                         bank_name=credit["bank"],
                         title=f"Possível venda casada — seguro/produto vinculado a crédito ({credit['bank']})",
                         description=(
-                            f"Detectamos crédito de R$ {credit['amount']:.2f} em {credit['date']} "
-                            f"seguido de débito de produto vinculado (R$ {debit['amount']:.2f}) "
+                            f"Detectamos crédito de {brl(credit['amount'])} em {credit['date']} "
+                            f"seguido de débito de produto vinculado ({brl(debit['amount'])}) "
                             f"{days_diff} dia(s) depois — mesmo banco ({credit['bank']}). "
                             f"Isso é um indício de venda casada (Tema 972/STJ). "
                             f"CONFIRME: você escolheu livremente esse produto? "
@@ -196,10 +197,10 @@ class TiedSaleDetector:
                         recommended_action=_ACTION,
                         evidence_points=[
                             f"Banco: {credit['bank']}",
-                            f"Crédito: R$ {credit['amount']:.2f} em {credit['date']} — '{credit['desc']}'",
-                            f"Produto vinculado: R$ {debit['amount']:.2f} em {debit['date']} — '{debit['desc']}'",
+                            f"Crédito: {brl(credit['amount'])} em {credit['date']} — '{credit['desc']}'",
+                            f"Produto vinculado: {brl(debit['amount'])} em {debit['date']} — '{debit['desc']}'",
                             f"Intervalo: {days_diff} dia(s) (janela de correlação: {_CORRELATION_WINDOW_DAYS} dias)",
-                            f"Estimativa anual do produto vinculado: R$ {annual_estimate:.2f}",
+                            f"Estimativa anual do produto vinculado: {brl(annual_estimate)}",
                             "Base: Tema 972/STJ — abusividade sem liberdade de escolha da seguradora",
                             "PRÉ-INDÍCIO — requer confirmação do usuário.",
                         ],
@@ -282,7 +283,7 @@ class TiedSaleDetector:
                     bank_name=entry.bank_name,
                     title=_TIED_FEE_TYPES[fee_key],
                     description=(
-                        f"{entry.bank_name} cobrou R$ {entry.amount:.2f} "
+                        f"{entry.bank_name} cobrou {brl(entry.amount)} "
                         f"em '{fee_key.replace('_', ' ').lower()}' detectado na análise de tarifas. "
                         f"{_DISCLAIMER_D1}"
                     ),
@@ -291,7 +292,7 @@ class TiedSaleDetector:
                     recommended_action=_ACTION,
                     evidence_points=[
                         f"Tipo de tarifa: {fee_key}",
-                        f"Valor: R$ {entry.amount:.2f}",
+                        f"Valor: {brl(entry.amount)}",
                         f"Banco: {entry.bank_name}",
                         entry.description or "",
                         "Tema 972/STJ — abusividade sem liberdade de escolha da seguradora.",
@@ -332,7 +333,7 @@ class TiedSaleDetector:
                     title=f"{label} — histórico de {months} mês(es)",
                     description=(
                         f"{bank} cobrou '{ftype.replace('_', ' ').lower()}' "
-                        f"por {months} mês(es), total R$ {float(total):.2f}. "
+                        f"por {months} mês(es), total {brl(float(total))}. "
                         f"{_DISCLAIMER_D1}"
                     ),
                     amount_disputed=round(float(total), 2),
@@ -342,7 +343,7 @@ class TiedSaleDetector:
                         f"Banco: {bank}",
                         f"Tipo: {ftype}",
                         f"Meses cobrados: {months}",
-                        f"Total acumulado: R$ {float(total):.2f}",
+                        f"Total acumulado: {brl(float(total))}",
                         "Tema 972/STJ — abusividade quando não há liberdade de escolha da seguradora.",
                         "PRÉ-INDÍCIO — confirme se você escolheu livremente este produto.",
                     ],

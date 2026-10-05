@@ -28,6 +28,7 @@ from app.opportunities.models import (
     OpportunityItem,
 )
 from app.opportunities.services.bank_comparator import BankComparator
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -82,9 +83,9 @@ class BankScorecardService:
             if not best.is_user_current_bank and switch_gain >= _MIN_SWITCH_GAIN_BRL:
                 suggestion = (
                     f"Abrir conta no {best.bank_name} renderia cerca de "
-                    f"R$ {switch_gain:,.2f}/ano a mais que "
+                    f"{brl(switch_gain)}/ano a mais que "
                     + (f"o seu banco atual ({current.bank_name})" if current else "deixar o dinheiro parado")
-                    + f" para R$ {amount:,.2f} em {holding_months} meses."
+                    + f" para {brl(amount)} em {holding_months} meses."
                 )
 
         return BankComparisonResponse(

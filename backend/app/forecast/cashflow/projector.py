@@ -31,6 +31,7 @@ from dataclasses import dataclass, asdict
 from typing import Optional, Literal, List, Dict, Any
 
 from app.forecast.cashflow.income_events import detect_income_events
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +206,7 @@ class CashflowProjector:
             )
 
         self.logger.info(
-            f"Inicializando projeção: saldo R$ {starting_balance:,.2f} em {start_date}"
+            f"Inicializando projeção: saldo {brl(starting_balance)} em {start_date}"
         )
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -328,8 +329,8 @@ class CashflowProjector:
         worst_balance = projection_df['projected_balance'].min() or 0.0
         self.logger.info(
             f"Projeção finalizada: "
-            f"Saldo final R$ {current_balance:,.2f} | "
-            f"Menor saldo R$ {worst_balance:,.2f}"
+            f"Saldo final {brl(current_balance)} | "
+            f"Menor saldo {brl(worst_balance)}"
         )
 
         return projection_df

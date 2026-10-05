@@ -34,6 +34,7 @@ import logging
 from app.rights.models import ForgottenRight, SinalDeRelevancia
 from app.rights.parametros_legais import FGTS_ALIQUOTA_MENSAL, FGTS_FONTE
 from app.rights.services.contexto_transacional import ContextoTransacional
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -97,12 +98,12 @@ class FgtsChecker:
                 valor=valor,
                 rotulo="Depósitos de FGTS estimados no período analisado (não é saldo)",
                 base=(
-                    f"R$ {salario:,.2f}/mês × {FGTS_ALIQUOTA_MENSAL:.0%} × {meses} "
+                    f"{brl(salario)}/mês × {FGTS_ALIQUOTA_MENSAL:.0%} × {meses} "
                     f"mês(es) com salário detectado ({ctx.janela}). {FGTS_FONTE}"
                 ),
             ),
             (
                 f"Salário CLT detectado em {meses} mês(es) do período {ctx.janela} "
-                f"(média R$ {salario:,.2f}/mês) — vínculo formal gera depósito de FGTS."
+                f"(média {brl(salario)}/mês) — vínculo formal gera depósito de FGTS."
             ),
         )

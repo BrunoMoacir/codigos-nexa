@@ -121,7 +121,7 @@ class TestToText:
         result = sim.simulate(card, _profile(monthly_avg_spend=3000.0, credit_spend_ratio=0.8))
         text = result.recommendation_explanation.to_text()
         # eligible = 3000 * 0.8 = 2400; Python `:,.0f` usa vírgula como separador de milhar
-        assert "2,400" in text
+        assert "2.400" in text
 
     def test_contains_cashback_monthly(self, sim):
         card = _cashback_cat_card()

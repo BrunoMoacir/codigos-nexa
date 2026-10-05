@@ -3,6 +3,7 @@ import logging
 from datetime import date
 
 from langchain_core.tools import tool
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ def get_annual_wrapped(user_id: str, year: int = 0) -> str:
         total_fees, worst_bank, worst_fee_type = fee_data
         lines += [
             f"── Tarifas Pagas em {target_year} ──",
-            f"Total pago em tarifas: R$ {total_fees:,.2f}",
+            f"Total pago em tarifas: {brl(total_fees)}",
         ]
         if worst_bank:
             lines.append(f"Banco que mais cobrou: {worst_bank}")
@@ -75,8 +76,8 @@ def get_annual_wrapped(user_id: str, year: int = 0) -> str:
         lines += [
             f"── Oportunidades de Negociação ──",
             f"{count} oportunidade(s) identificada(s) no ano",
-            f"Potencial de economia total: R$ {total_potential:,.2f}",
-            f"Economia anual projetada: R$ {total_potential * 12:,.2f} (se todas concretizadas)",
+            f"Potencial de economia total: {brl(total_potential)}",
+            f"Economia anual projetada: {brl(total_potential * 12)} (se todas concretizadas)",
             "",
         ]
 

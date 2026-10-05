@@ -74,8 +74,8 @@ class TestD1DisparaNoCasoDeManual:
             achado = TiedSaleDetector()._check_temporal_correlation("u")[0]
 
         assert any("3 dia(s)" in e for e in achado.evidence_points)
-        assert any("15000.00" in e for e in achado.evidence_points)
-        assert any("890.00" in e for e in achado.evidence_points)
+        assert any("15.000,00" in e for e in achado.evidence_points)
+        assert any("890,00" in e for e in achado.evidence_points)
 
     def test_continua_sendo_pre_indicio_e_nao_sentenca(self):
         """
@@ -319,7 +319,7 @@ class TestD2DuplicidadeEraImpossivel:
 
         # cobrança pós-30/03/2021 → em dobro
         assert achado.amount_disputed == pytest.approx(85.80, abs=0.01)
-        assert any("42.90" in e for e in achado.evidence_points)
+        assert any("42,90" in e for e in achado.evidence_points)
 
     def test_a_evidencia_traz_as_datas(self):
         """

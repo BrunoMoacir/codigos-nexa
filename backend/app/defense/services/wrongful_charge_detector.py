@@ -23,6 +23,7 @@ import unicodedata
 from datetime import date, timedelta
 
 from app.defense.models import DefenseFinding
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -232,10 +233,10 @@ class WrongfulChargeDetector:
                     title=f"Tarifa duplicada — {ftype.replace('_', ' ')} ({cnt}x)",
                     description=(
                         f"{bank} cobrou '{ftype.replace('_', ' ').lower()}' "
-                        f"{cnt}x no mesmo mês (total R$ {total_f:.2f}). "
+                        f"{cnt}x no mesmo mês (total {brl(total_f)}). "
                         f"Apenas 1 cobrança deveria ocorrer. "
-                        f"Valor contestável: R$ {excedente:.2f} — "
-                        f"estimativa {dobro_label} = R$ {contestavel:.2f}."
+                        f"Valor contestável: {brl(excedente)} — "
+                        f"estimativa {dobro_label} = {brl(contestavel)}."
                     ),
                     amount_disputed=contestavel,
                     legal_basis=_LEGAL_BASIS_D2,
@@ -245,9 +246,9 @@ class WrongfulChargeDetector:
                         f"Banco: {bank}",
                         f"Tipo de tarifa: {ftype}",
                         f"Ocorrências no mês: {cnt}x — dias {datas}",
-                        f"Total cobrado: R$ {total_f:.2f}",
-                        f"Excedente indevido (base): R$ {excedente:.2f}",
-                        f"Estimativa contestável ({dobro_label}): R$ {contestavel:.2f}",
+                        f"Total cobrado: {brl(total_f)}",
+                        f"Excedente indevido (base): {brl(excedente)}",
+                        f"Estimativa contestável ({dobro_label}): {brl(contestavel)}",
                     ],
                 ))
 
@@ -337,10 +338,10 @@ class WrongfulChargeDetector:
                     bank_name=bank,
                     title=f"Cobrança indevida — {svc['name']} {limit_text}",
                     description=(
-                        f"{bank} cobrou R$ {total:.2f} por {svc['name']} "
+                        f"{bank} cobrou {brl(total)} por {svc['name']} "
                         f"({count} ocorrência(s)), que é obrigatoriamente gratuito "
                         f"por lei (Res. CMN 3.919/2010, art. 7º). "
-                        f"Estimativa contestável {dobro_label}: R$ {contestavel:.2f}."
+                        f"Estimativa contestável {dobro_label}: {brl(contestavel)}."
                     ),
                     amount_disputed=contestavel,
                     legal_basis=_LEGAL_BASIS_ESSENCIAIS,
@@ -349,10 +350,10 @@ class WrongfulChargeDetector:
                         f"Banco: {bank}",
                         f"Serviço: {svc['name']}",
                         f"Ocorrências: {count}",
-                        f"Total cobrado: R$ {total:.2f}",
-                        f"Estimativa contestável ({dobro_label}): R$ {contestavel:.2f}",
+                        f"Total cobrado: {brl(total)}",
+                        f"Estimativa contestável ({dobro_label}): {brl(contestavel)}",
                         f"Base: Res. CMN 3.919/2010, art. 7º — gratuidade obrigatória",
-                        *[f"• {o['desc']}: R$ {o['amount']:.2f}" for o in ocorrencias[:5]],
+                        *[f"• {o['desc']}: {brl(o['amount'])}" for o in ocorrencias[:5]],
                     ],
                 ))
             return findings
@@ -413,19 +414,19 @@ class WrongfulChargeDetector:
                     bank_name=bank,
                     title=f"Cobrança em conta possivelmente encerrada — {bank}",
                     description=(
-                        f"{bank} cobrou R$ {total:.2f} este mês sem nenhuma "
+                        f"{bank} cobrou {brl(total)} este mês sem nenhuma "
                         f"transação nos últimos {self._STALE_DAYS} dias. "
                         f"Pode indicar conta não encerrada formalmente ou cobrança indevida. "
-                        f"Estimativa contestável {dobro_label}: R$ {contestavel:.2f}."
+                        f"Estimativa contestável {dobro_label}: {brl(contestavel)}."
                     ),
                     amount_disputed=contestavel,
                     legal_basis=_LEGAL_BASIS_D2,
                     recommended_action=_ACTION_INATIVA,
                     evidence_points=[
                         f"Banco: {bank}",
-                        f"Total cobrado no mês: R$ {total:.2f}",
+                        f"Total cobrado no mês: {brl(total)}",
                         f"Última transação: mais de {self._STALE_DAYS} dias atrás",
-                        f"Estimativa contestável ({dobro_label}): R$ {contestavel:.2f}",
+                        f"Estimativa contestável ({dobro_label}): {brl(contestavel)}",
                         "Ausência de transações sugere conta encerrada ou cancelada",
                     ],
                 ))
@@ -472,9 +473,9 @@ class WrongfulChargeDetector:
                     description=(
                         f"{fee.bank_name} cobrou "
                         f"'{fee.fee_type.value.replace('_', ' ').lower()}' "
-                        f"(R$ {fee.amount:.2f}) pela primeira vez — sem registros anteriores. "
+                        f"({brl(fee.amount)}) pela primeira vez — sem registros anteriores. "
                         f"Tarifas novas exigem notificação prévia de 30 dias (Res. CMN 3.919/2010, art. 3º). "
-                        f"Estimativa contestável {dobro_label}: R$ {contestavel:.2f}."
+                        f"Estimativa contestável {dobro_label}: {brl(contestavel)}."
                     ),
                     amount_disputed=contestavel,
                     legal_basis=(
@@ -486,8 +487,8 @@ class WrongfulChargeDetector:
                     evidence_points=[
                         f"Banco: {fee.bank_name}",
                         f"Tipo: {fee.fee_type.value}",
-                        f"Valor: R$ {fee.amount:.2f}",
-                        f"Estimativa contestável ({dobro_label}): R$ {contestavel:.2f}",
+                        f"Valor: {brl(fee.amount)}",
+                        f"Estimativa contestável ({dobro_label}): {brl(contestavel)}",
                         "Sem ocorrências anteriores no histórico bank_fee_history",
                     ],
                 ))

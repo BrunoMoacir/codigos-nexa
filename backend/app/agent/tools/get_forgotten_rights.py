@@ -16,6 +16,7 @@ nenhum deles é dinheiro que alguém deve ao usuário.
 import logging
 
 from langchain_core.tools import tool
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -72,11 +73,11 @@ def get_forgotten_rights(user_id: str) -> str:
         if d.sinal and d.sinal.valor:
             lines.append(
                 f"Sinal (NÃO é valor a receber) — {d.sinal.rotulo}: "
-                f"R$ {d.sinal.valor:,.2f}"
+                f"{brl(d.sinal.valor)}"
             )
             lines.append(f"  Como foi obtido: {d.sinal.base}")
         if d.estimated_amount:
-            lines.append(f"VALOR CONFIRMADO em consulta real: R$ {d.estimated_amount:,.2f}")
+            lines.append(f"VALOR CONFIRMADO em consulta real: {brl(d.estimated_amount)}")
         if d.warning:
             lines.append(f"⚠️ {d.warning}")
         lines.append(f"Canal oficial: {d.official_channel} — {d.official_url}")
@@ -97,7 +98,7 @@ def get_forgotten_rights(user_id: str) -> str:
         lines += [
             "",
             f"── Contexto Nexa ──",
-            f"O Negociador já identificou R$ {ganho:,.2f} de economia potencial com seus "
+            f"O Negociador já identificou {brl(ganho)} de economia potencial com seus "
             "bancos atuais — esse é um ganho estimado sobre contratos existentes, "
             "diferente dos direitos acima.",
         ]

@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+from app.core.formatacao import brl
 
 if TYPE_CHECKING:
     from app.optimizer.profiler import UserProfile
@@ -243,15 +244,15 @@ class GoalProfileAdvisor:
                 and needed > estimated_monthly_savings * _INFEASIBILITY_RATIO
             ):
                 warnings.append(
-                    f"⚠️ Esta meta exige R$ {needed:,.0f}/mês mas sua poupança estimada "
-                    f"é R$ {estimated_monthly_savings:,.0f}/mês — ritmo atual não suficiente. "
+                    f"⚠️ Esta meta exige {brl(needed, 0)}/mês mas sua poupança estimada "
+                    f"é {brl(estimated_monthly_savings, 0)}/mês — ritmo atual não suficiente. "
                     "Considere estender o prazo ou reduzir o valor alvo."
                 )
             # Sem poupança detectada e meta tem prazo
             elif estimated_monthly_savings <= 0 and goal.target_date and needed > 0:
                 warnings.append(
                     f"⚠️ Nenhuma poupança regular detectada. Para atingir esta meta "
-                    f"no prazo você precisaria guardar R$ {needed:,.0f}/mês."
+                    f"no prazo você precisaria guardar {brl(needed, 0)}/mês."
                 )
 
             if warnings:

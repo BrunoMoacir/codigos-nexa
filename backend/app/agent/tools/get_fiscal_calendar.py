@@ -2,6 +2,7 @@
 import logging
 
 from langchain_core.tools import tool
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ def get_fiscal_calendar(user_id: str) -> str:
         if evt.estimated_amount_brl is not None:
             origem = "dados reais das suas contas" if evt.is_personalized else "referência de mercado"
             lines.append(
-                f"Valor estimado: R$ {evt.estimated_amount_brl:,.2f} (fonte: {origem})"
+                f"Valor estimado: {brl(evt.estimated_amount_brl)} (fonte: {origem})"
             )
         lines += [f"Ação sugerida: {evt.action_hint}", ""]
 

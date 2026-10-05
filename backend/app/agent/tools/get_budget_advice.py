@@ -7,6 +7,7 @@ from app.agent.procedencia import com_procedencia, degradada
 from langchain_core.tools import tool
 from typing import Optional
 import logging
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ def get_budget_advice(
     # escolheu, com o rótulo "baseada nos seus gastos reais" em cima.
     logger.info(
         "[Tool] get_budget_advice para %s, renda declarada=%s",
-        user_id, f"R${monthly_income:.0f}" if monthly_income else "não informada",
+        user_id, f"{brl(monthly_income, 0)}" if monthly_income else "não informada",
     )
     renda_declarada = bool(monthly_income and monthly_income > 0)
     try:
@@ -96,7 +97,7 @@ def get_budget_advice(
         )
 
         lines = [
-            f"📋 **Plano de Orçamento 50/30/20 — Renda: R$ {monthly_income:,.0f}/mês**",
+            f"📋 **Plano de Orçamento 50/30/20 — Renda: {brl(monthly_income, 0)}/mês**",
             f"💾 *Base: {origem_gastos} · {origem_renda}*",
             "",
         ]
@@ -123,8 +124,8 @@ def get_budget_advice(
             icone = icone_por_status.get(g.status, "•")
             lines.append(
                 f"{icone} {label}: "
-                f"R$ {g.current_amount:,.0f} gastos / "
-                f"R$ {g.suggested_amount:,.0f} recomendado "
+                f"{brl(g.current_amount, 0)} gastos / "
+                f"{brl(g.suggested_amount, 0)} recomendado "
                 f"({g.current_pct:.0%} da renda)"
             )
 
@@ -135,9 +136,9 @@ def get_budget_advice(
             lines.append("✂️ **Onde reduzir:**")
             for cut in suggestion.actionable_cuts[:3]:
                 lines.append(
-                    f"   • {cut.category}: gastar R$ {cut.suggested:,.0f} "
-                    f"ao invés de R$ {cut.current:,.0f} "
-                    f"(economia: R$ {cut.saving:,.0f}/mês)"
+                    f"   • {cut.category}: gastar {brl(cut.suggested, 0)} "
+                    f"ao invés de {brl(cut.current, 0)} "
+                    f"(economia: {brl(cut.saving, 0)}/mês)"
                 )
             lines.append("")
 
@@ -167,10 +168,10 @@ def get_budget_advice(
         desejos    = monthly_income * 0.30
         poupanca   = monthly_income * 0.20
         return degradada(
-            f"📋 **Plano 50/30/20 para renda de R$ {monthly_income:,.0f}/mês:**\n\n"
-            f"🏠 Essenciais (moradia, alimentação, saúde, transporte): até R$ {essenciais:,.0f}/mês\n"
-            f"🎯 Desejos (lazer, assinaturas, vestuário): até R$ {desejos:,.0f}/mês\n"
-            f"💰 Poupança e investimentos: R$ {poupanca:,.0f}/mês\n\n"
+            f"📋 **Plano 50/30/20 para renda de {brl(monthly_income, 0)}/mês:**\n\n"
+            f"🏠 Essenciais (moradia, alimentação, saúde, transporte): até {brl(essenciais, 0)}/mês\n"
+            f"🎯 Desejos (lazer, assinaturas, vestuário): até {brl(desejos, 0)}/mês\n"
+            f"💰 Poupança e investimentos: {brl(poupanca, 0)}/mês\n\n"
             "Para uma análise com seus dados reais, as transações precisam estar disponíveis.",
             "advisor_falhou",
         )

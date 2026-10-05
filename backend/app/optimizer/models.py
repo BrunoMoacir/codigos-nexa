@@ -7,6 +7,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 from pydantic import BaseModel, field_validator, computed_field
+from app.core.formatacao import brl
 
 
 # ─── Enums ────────────────────────────────────────────────────────────────────
@@ -159,10 +160,10 @@ class RecommendationExplanation(BaseModel):
             f"- categoria canônica detectada com confiança {self.category_confidence:.2f}"
         )
         lines.append(
-            f"- gasto médio mensal elegível: R$ {self.eligible_monthly_spend:,.0f}"
+            f"- gasto médio mensal elegível: {brl(self.eligible_monthly_spend, 0)}"
         )
         lines.append(
-            f"- cashback esperado: R$ {self.expected_cashback_monthly:.0f}/mês"
+            f"- cashback esperado: {brl(self.expected_cashback_monthly, 0)}/mês"
         )
         return "\n".join(lines)
 
@@ -273,8 +274,8 @@ class InsightInterval(BaseModel):
     def display_text(self) -> str:
         """Texto pronto para exibição ao usuário."""
         if self.show_band:
-            return f"R${self.conservative:.0f}–R${self.optimistic:.0f}/mês"
-        return f"R${self.expected:.0f}/mês"
+            return f"{brl(self.conservative, 0)}–{brl(self.optimistic, 0)}/mês"
+        return f"{brl(self.expected, 0)}/mês"
 
 
 class ActionableInsight(BaseModel):

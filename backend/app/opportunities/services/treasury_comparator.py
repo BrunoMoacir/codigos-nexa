@@ -25,6 +25,7 @@ from app.opportunities.models import (
     TreasuryComparisonResponse,
 )
 from app.opportunities.services.savings_rate import calculate_savings_rate
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -190,9 +191,9 @@ class TreasuryComparatorService:
             else "garantia FGC até R$ 250 mil"
         )
         return (
-            f"Para R$ {amount:,.2f} por {holding_months} meses, {winner.label} rende "
-            f"R$ {winner.net_yield_brl:,.2f} líquidos — R$ {diff:,.2f} a mais que a "
-            f"poupança (R$ {savings.net_yield_brl:,.2f}), com liquidez diária e {guarantee}."
+            f"Para {brl(amount)} por {holding_months} meses, {winner.label} rende "
+            f"{brl(winner.net_yield_brl)} líquidos — {brl(diff)} a mais que a "
+            f"poupança ({brl(savings.net_yield_brl)}), com liquidez diária e {guarantee}."
         )
 
 

@@ -2,6 +2,7 @@
 import logging
 
 from langchain_core.tools import tool
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +38,8 @@ def get_transfer_promotions(user_id: str) -> str:
             f"── {promo.loyalty_program} → {promo.partner} ──",
             f"Bônus: +{promo.bonus_pct:.0f}% | válida até {promo.end_date.isoformat()} "
             f"({promo.days_remaining} dias restantes)",
-            f"1.000 pontos: R$ {promo.normal_rate_per_1000:.2f} → "
-            f"R$ {promo.effective_rate_per_1000:.2f} com o bônus",
+            f"1.000 pontos: {brl(promo.normal_rate_per_1000)} → "
+            f"{brl(promo.effective_rate_per_1000)} com o bônus",
             f"Mínimo: {promo.min_points:,} pontos"
             + (f" | máximo: {promo.max_points:,}" if promo.max_points else ""),
             f"{promo.description}",

@@ -65,7 +65,7 @@ class TestSavingsPersonalizado:
         assert result.savings_balance_brl == 15_000.0
         assert result.amount_reference_brl == 15_000.0
         assert "Você tem R$" in result.reason
-        assert "15,000.00" in result.reason
+        assert "15.000,00" in result.reason
 
     def test_perda_escala_com_o_saldo_real(self):
         service = _service_with_rates()

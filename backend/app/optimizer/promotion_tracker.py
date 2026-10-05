@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Optional
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -342,9 +343,9 @@ class PromotionTracker:
         return (
             f"🔥 {urgency}Promoção ativa: {promo.loyalty_program.title()} → {promo.partner} "
             f"com {promo.bonus_pct:.0f}% de bônus (até {promo.end_date.strftime('%d/%m/%Y')}). "
-            f"Seus {points:,} pontos via {card} valem R$ {val_promo:,.0f} agora "
-            f"(vs R$ {val_normal:,.0f} normalmente). "
-            f"Você ganha R$ {extra:,.0f} a mais transferindo agora."
+            f"Seus {points:,} pontos via {card} valem {brl(val_promo, 0)} agora "
+            f"(vs {brl(val_normal, 0)} normalmente). "
+            f"Você ganha {brl(extra, 0)} a mais transferindo agora."
         )
 
 

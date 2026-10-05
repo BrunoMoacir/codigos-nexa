@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import polars as pl
 
 from app.optimizer.detectors.evidence_scorer import compute_false_positive_risk
+from app.core.formatacao import brl
 
 if TYPE_CHECKING:
     from app.optimizer.detectors.personal_baseline import PersonalBaseline
@@ -106,7 +107,7 @@ class FamilyDetector:
         school_spend = _match_spend(expenses, _P_SCHOOL)
         if _monthly(school_spend) > thr_school:
             score += 30
-            signals.append(f"school_spend=R${school_spend:.0f}")
+            signals.append(f"school_spend={brl(school_spend, 0)}")
             if use_baseline:
                 ratio = baseline.deviation_ratio("educacao", school_spend / coverage_months)
                 if ratio != float("inf"):
@@ -119,7 +120,7 @@ class FamilyDetector:
         baby_spend = _match_spend(expenses, _P_BABY)
         if _monthly(baby_spend) > thr_baby:
             score += 25
-            signals.append(f"baby_products=R${baby_spend:.0f}")
+            signals.append(f"baby_products={brl(baby_spend, 0)}")
             if use_baseline:
                 ratio = baseline.deviation_ratio("farmacia", baby_spend / coverage_months)
                 if ratio != float("inf"):
@@ -139,7 +140,7 @@ class FamilyDetector:
         kids_clothing = _match_spend(expenses, _P_KIDS_CLOTHING)
         if _monthly(kids_clothing) > thr_clothing:
             score += 15
-            signals.append(f"kids_clothing=R${kids_clothing:.0f}")
+            signals.append(f"kids_clothing={brl(kids_clothing, 0)}")
             if use_baseline:
                 ratio = baseline.deviation_ratio("vestuario", kids_clothing / coverage_months)
                 if ratio != float("inf"):

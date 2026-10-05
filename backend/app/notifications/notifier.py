@@ -44,6 +44,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal, Optional
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -411,19 +412,19 @@ def generate_burn_rate_notifications(
         if pct > 1.0:
             title = f"⛔ Orçamento de {cat_label} estourado"
             message = (
-                f"Você gastou R${cat.spent_so_far:,.0f} em {cat_label} — "
-                f"R${overshoot:,.0f} acima do orçamento de R${cat.monthly_budget:,.0f}."
+                f"Você gastou {brl(cat.spent_so_far, 0)} em {cat_label} — "
+                f"{brl(overshoot, 0)} acima do orçamento de {brl(cat.monthly_budget, 0)}."
             )
             action_hint = f"Evite gastos em {cat_label} pelo resto do mês."
         else:
             title = f"⚠️ {pct_display}% do orçamento de {cat_label} usado"
             message = (
                 f"Você já gastou {pct_display}% do orçamento de {cat_label} "
-                f"(R${cat.spent_so_far:,.0f} de R${cat.monthly_budget:,.0f}) "
+                f"({brl(cat.spent_so_far, 0)} de {brl(cat.monthly_budget, 0)}) "
                 f"no dia {day}."
             )
             remaining = cat.monthly_budget - cat.spent_so_far
-            action_hint = f"Restam R${remaining:,.0f} até o fim do mês para {cat_label}."
+            action_hint = f"Restam {brl(remaining, 0)} até o fim do mês para {cat_label}."
 
         notes.append(Notification(
             id=_new_id(),
@@ -454,7 +455,7 @@ def generate_anomaly_notifications(
     """
     notes: list[Notification] = []
     for anomaly in anomalies[:max_alerts]:
-        factor_str = f"{anomaly.factor:.1f}x"
+        factor_str = f"{numero(anomaly.factor, 1)}x"
         merchant_label = anomaly.merchant.title()
         priority: NotificationPriority = "WARNING" if anomaly.factor < 3 else "CRITICAL"
 
@@ -464,7 +465,7 @@ def generate_anomaly_notifications(
             priority=priority,
             title=f"🔍 Gasto incomum em {merchant_label}",
             message=(
-                f"Gasto de R${anomaly.amount:,.0f} em {merchant_label} — "
+                f"Gasto de {brl(anomaly.amount, 0)} em {merchant_label} — "
                 f"{factor_str} acima do seu padrão habitual."
             ),
             generated_at=_now(),
@@ -500,9 +501,9 @@ def generate_subscription_increase_notifications(
             priority="WARNING",
             title=f"📈 {merchant} ficou +{pct}% mais caro",
             message=(
-                f"{merchant} aumentou de R${change.old_amount:,.2f} "
-                f"para R${change.new_amount:,.2f}/mês (+{pct}%). "
-                f"Isso representa R${annual_extra:,.0f} a mais por ano."
+                f"{merchant} aumentou de {brl(change.old_amount)} "
+                f"para {brl(change.new_amount)}/mês (+{pct}%). "
+                f"Isso representa {brl(annual_extra, 0)} a mais por ano."
             ),
             generated_at=_now(),
             metadata={
@@ -534,8 +535,8 @@ def generate_card_opportunity_notifications(
             title=f"💳 Oportunidade: {opp.card_name}",
             message=(
                 f"Nos últimos 3 meses você deixou de ganhar "
-                f"R${opp.monthly_gain_missed:,.0f}/mês — "
-                f"R${annual_missed:,.0f}/ano — com o {opp.card_name}. "
+                f"{brl(opp.monthly_gain_missed, 0)}/mês — "
+                f"{brl(annual_missed, 0)}/ano — com o {opp.card_name}. "
                 f"{opp.reason}"
             ),
             generated_at=_now(),
@@ -562,11 +563,11 @@ def generate_waiver_alert_notifications(
             id=_new_id(),
             type="WAIVER_ALERT",
             priority="INFO",
-            title=f"🎯 Faltam R${alert.amount_needed:,.0f} para isentar {alert.card_name}",
+            title=f"🎯 Faltam {brl(alert.amount_needed, 0)} para isentar {alert.card_name}",
             message=(
-                f"Faltam R${alert.amount_needed:,.0f} em gastos para você "
+                f"Faltam {brl(alert.amount_needed, 0)} em gastos para você "
                 f"isentar a anuidade do {alert.card_name}. "
-                f"Gaste mais R${alert.daily_spend_needed:,.0f}/dia até o fim do mês."
+                f"Gaste mais {brl(alert.daily_spend_needed, 0)}/dia até o fim do mês."
             ),
             generated_at=_now(),
             metadata={
@@ -678,7 +679,7 @@ def generate_goal_progress_notifications(
             title = f"🎯 {int(near_milestone)}% da meta '{goal.goal_name}'"
             message = (
                 f"A meta '{goal.goal_name}' está {pct:.0f}% concluída. "
-                f"Faltam R${goal.remaining_amount:,.0f} para o objetivo."
+                f"Faltam {brl(goal.remaining_amount, 0)} para o objetivo."
             )
             if goal.target_date:
                 message += f" Prazo: {goal.target_date}."
@@ -733,18 +734,18 @@ def generate_safe_to_spend_low_notification(
 
     if daily <= _LOW_STS_DAILY_ABS:
         priority = "CRITICAL"
-        title = f"⛔ Margem segura: apenas R${daily:,.0f}/dia"
+        title = f"⛔ Margem segura: apenas {brl(daily, 0)}/dia"
         message = (
-            f"Sua margem segura para gastar caiu para R${daily:,.0f}/dia "
-            f"(R${sts.monthly_safe_amount:,.0f}/mês). Cuidado com qualquer gasto elevado."
+            f"Sua margem segura para gastar caiu para {brl(daily, 0)}/dia "
+            f"({brl(sts.monthly_safe_amount, 0)}/mês). Cuidado com qualquer gasto elevado."
         )
         action_hint = "Evite gastos não essenciais esta semana."
     elif daily <= _WARN_STS_DAILY_ABS:
         priority = "WARNING"
-        title = f"⚠️ Margem segura baixa: R${daily:,.0f}/dia"
+        title = f"⚠️ Margem segura baixa: {brl(daily, 0)}/dia"
         message = (
-            f"Sua margem segura caiu para R${daily:,.0f}/dia — "
-            f"abaixo do recomendado (R${_WARN_STS_DAILY_ABS:.0f}/dia). "
+            f"Sua margem segura caiu para {brl(daily, 0)}/dia — "
+            f"abaixo do recomendado ({brl(_WARN_STS_DAILY_ABS, 0)}/dia). "
             f"Planeje seus gastos com cuidado."
         )
         action_hint = "Revise gastos variáveis nos próximos dias."
@@ -794,8 +795,8 @@ def generate_tarifa_aumento_notifications(
             title=f"⚠️ {delta.bank_name}: {fee_label} +{pct_display}%",
             message=(
                 f"{delta.bank_name} aumentou sua {fee_label} de "
-                f"R${delta.old_amount:.2f} para R${delta.new_amount:.2f} "
-                f"(+{pct_display}%). Isso representa R${extra_annual:.2f} a mais por ano."
+                f"{brl(delta.old_amount)} para {brl(delta.new_amount)} "
+                f"(+{pct_display}%). Isso representa {brl(extra_annual)} a mais por ano."
             ),
             generated_at=_now(),
             metadata={
@@ -940,7 +941,7 @@ def generate_savings_below_cdi_notification(
         return []
 
     if data.is_personalized and data.savings_balance_brl:
-        title = f"🐷 Sua poupança está perdendo R$ {data.estimated_loss_annual_brl:,.0f}/ano"
+        title = f"🐷 Sua poupança está perdendo {brl(data.estimated_loss_annual_brl, 0)}/ano"
         action_hint = (
             "Veja no Radar de Oportunidades alternativas com liquidez diária "
             "que rendem mais que a sua poupança."
@@ -958,8 +959,8 @@ def generate_savings_below_cdi_notification(
         priority="INFO",
         title=title,
         message=(
-            f"Hoje a poupança rende {data.savings_annual_pct:.2f}% a.a. contra "
-            f"{data.cdi_annual_pct:.2f}% a.a. do CDI. {data.reason}"
+            f"Hoje a poupança rende {numero(data.savings_annual_pct, 2)}% a.a. contra "
+            f"{numero(data.cdi_annual_pct, 2)}% a.a. do CDI. {data.reason}"
         ),
         generated_at=_now(),
         metadata={
@@ -990,12 +991,12 @@ def generate_idle_money_notification(
         id=_new_id(),
         type="IDLE_MONEY_DETECTED",
         priority="INFO",
-        title=f"💤 R$ {data.idle_amount:,.0f} parados na sua conta",
+        title=f"💤 {brl(data.idle_amount, 0)} parados na sua conta",
         message=(
-            f"Você tem cerca de R$ {data.idle_amount:,.2f} parados, perdendo "
-            f"R$ {data.monthly_loss:,.2f}/mês. Melhor alternativa hoje: "
-            f"{data.top_opportunity} — renderia R$ {data.top_gain_monthly_brl:,.2f}/mês "
-            f"(R$ {annual_gain:,.2f}/ano)."
+            f"Você tem cerca de {brl(data.idle_amount)} parados, perdendo "
+            f"{brl(data.monthly_loss)}/mês. Melhor alternativa hoje: "
+            f"{data.top_opportunity} — renderia {brl(data.top_gain_monthly_brl)}/mês "
+            f"({brl(annual_gain)}/ano)."
         ),
         generated_at=_now(),
         metadata={
@@ -1152,13 +1153,13 @@ def generate_purchase_followup_notifications(
             id=_new_id(),
             type="PURCHASE_FOLLOWUP",
             priority="INFO",
-            title=f"💡 R$ {fu.potential_savings_brl:,.0f} a menos na compra em {fu.merchant.title()}",
+            title=f"💡 {brl(fu.potential_savings_brl, 0)} a menos na compra em {fu.merchant.title()}",
             message=(
-                f"Na sua compra de R$ {fu.amount:,.0f} em {fu.merchant.title()} "
+                f"Na sua compra de {brl(fu.amount, 0)} em {fu.merchant.title()} "
                 f"({fu.purchase_date}), pagar com {fu.best_method_label} teria "
-                f"custado R$ {fu.potential_savings_brl:,.2f} a menos que "
+                f"custado {brl(fu.potential_savings_brl)} a menos que "
                 f"{fu.paid_method_label}. Em compras assim todo mês, são "
-                f"R$ {annual_habit:,.0f}/ano."
+                f"{brl(annual_habit, 0)}/ano."
             ),
             generated_at=_now(),
             metadata={

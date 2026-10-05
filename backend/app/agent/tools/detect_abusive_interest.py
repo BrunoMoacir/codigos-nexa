@@ -5,6 +5,7 @@ from langchain_core.tools import tool
 
 from app.architect.connectors.bacen_credit import TETO_CHEQUE_ESPECIAL_MENSAL
 from app.core.db.queries import get_transactions_for_user
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +43,10 @@ def detect_abusive_interest(user_id: str) -> str:
         "=== DETECTOR DE JUROS ABUSIVOS (D3) ===",
         "",
         "── Taxas de Referência BACEN (SGS) ──",
-        f"Crédito Rotativo PF (média mercado): {market_rates['rotativo_pct']:.2f}% a.m.",
-        f"Crédito Rotativo PF (máximo mercado): {market_rates['rotativo_max_pct']:.2f}% a.m.",
-        f"Cheque Especial (média mercado):       {market_rates['cheque_pct']:.2f}% a.m.",
-        f"Cheque Especial (TETO LEGAL):          {market_rates['cheque_teto_pct']:.2f}% a.m. "
+        f"Crédito Rotativo PF (média mercado): {numero(market_rates['rotativo_pct'], 2)}% a.m.",
+        f"Crédito Rotativo PF (máximo mercado): {numero(market_rates['rotativo_max_pct'], 2)}% a.m.",
+        f"Cheque Especial (média mercado):       {numero(market_rates['cheque_pct'], 2)}% a.m.",
+        f"Cheque Especial (TETO LEGAL):          {numero(market_rates['cheque_teto_pct'], 2)}% a.m. "
         f"— Res. CMN 4.765/2019, art. 2º",
         "",
     ]
@@ -64,7 +65,7 @@ def detect_abusive_interest(user_id: str) -> str:
         for opp in rotativo_opps:
             lines.append(
                 f"  • {opp['bank_name']}: "
-                f"economia potencial R$ {opp['gain']:.2f}/mês "
+                f"economia potencial {brl(opp['gain'])}/mês "
                 f"se migrar para o limite da série BACEN"
             )
         lines += [
@@ -80,7 +81,7 @@ def detect_abusive_interest(user_id: str) -> str:
         for opp in cheque_opps:
             lines.append(
                 f"  • {opp['bank_name']}: "
-                f"economia potencial R$ {opp['gain']:.2f}/mês"
+                f"economia potencial {brl(opp['gain'])}/mês"
             )
         lines += [
             "  → O cheque especial é o crédito mais caro do mercado. "
@@ -95,7 +96,7 @@ def detect_abusive_interest(user_id: str) -> str:
             f"💳 {len(detected_interest_fees)} cobrança(s) de juros identificada(s) nas transações:",
         ]
         for bank, desc, amount in detected_interest_fees:
-            lines.append(f"  • {bank}: {desc} — R$ {amount:.2f}")
+            lines.append(f"  • {bank}: {desc} — {brl(amount)}")
         lines.append("")
 
     if not has_finding:

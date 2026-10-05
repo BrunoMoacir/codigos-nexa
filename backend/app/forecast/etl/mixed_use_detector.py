@@ -13,6 +13,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 from app.core.db.queries import get_transactions_for_user
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +127,7 @@ class MixedUseDetector:
 
         logger.info(
             f"Uso misto: {len(report.candidates)} candidatos, "
-            f"dedutivel PJ estimado = R$ {report.total_pj_deductible:.2f}"
+            f"dedutivel PJ estimado = {brl(report.total_pj_deductible)}"
         )
         return report
 
@@ -179,7 +180,7 @@ class MixedUseDetector:
 
                 explanation = (
                     f"{rule_label}: {pct_display}% pode ser deduzido como despesa PJ "
-                    f"(R$ {pj_amount:.2f} de R$ {amount:.2f}). "
+                    f"({brl(pj_amount)} de {brl(amount)}). "
                     f"Registre o rateio na sua contabilidade."
                 )
 

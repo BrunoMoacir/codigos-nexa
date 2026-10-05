@@ -38,6 +38,7 @@ from datetime import timedelta
 from enum import Enum
 
 import polars as pl
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -414,8 +415,8 @@ class IncomeProfiler:
         if is_clt and is_pj:
             pattern = IncomePattern.MIXED
             signals.append(
-                f"MIXED: salário CLT (~R$ {salary_monthly:.0f}/mês) "
-                f"+ renda PJ (~R$ {freelance_monthly:.0f}/mês)"
+                f"MIXED: salário CLT (~{brl(salary_monthly, 0)}/mês) "
+                f"+ renda PJ (~{brl(freelance_monthly, 0)}/mês)"
             )
         elif is_clt:
             pattern = IncomePattern.CLT
@@ -427,7 +428,7 @@ class IncomeProfiler:
             salary_monthly = salary_monthly if has_salary_kw else total_monthly
             signals.append(
                 f"CLT detectado via {source} "
-                f"(~R$ {salary_monthly:.0f}/mês)"
+                f"(~{brl(salary_monthly, 0)}/mês)"
             )
         elif is_pj:
             pattern = IncomePattern.PJ

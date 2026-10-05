@@ -46,6 +46,7 @@ from app.rights.services.pis_pasep_checker import PisPasepChecker
 from app.rights.services.ir_restituicao_checker import IrRestituicaoChecker
 from app.rights.services.contexto_transacional import ContextoTransacional
 from app.rights.services.capacidades import anotar_capacidade
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/rights", tags=["Rights (T3 — Direitos Esquecidos)"])
@@ -145,7 +146,7 @@ def get_forgotten_rights(
     negotiation_gain = _get_negotiation_gain(user_id)
     if negotiation_gain > 0:
         context_note = (
-            f"O Negociador Nexa já identificou R$ {negotiation_gain:,.2f} em ganhos potenciais "
+            f"O Negociador Nexa já identificou {brl(negotiation_gain)} em ganhos potenciais "
             "com seus bancos atuais. Combine com os direitos esquecidos acima para maximizar sua recuperação."
         )
 

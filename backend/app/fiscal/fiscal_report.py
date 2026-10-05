@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 from app.core.db.queries import get_transactions_for_user
 from app.tax.parametros_fiscais import BASE_LEGAL_FATOR_R, anexo_por_fator_r
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -440,8 +441,8 @@ class FiscalReportService:
                 )
             else:
                 report.das_observacao = (
-                    f"Fator R = {fator_r:.1%} (folha de R$ {folha_12m:,.2f} sobre "
-                    f"receita de R$ {rbt12:,.2f} nos 12 meses anteriores) → Anexo "
+                    f"Fator R = {numero(fator_r * 100, 1)}% (folha de {brl(folha_12m)} sobre "
+                    f"receita de {brl(rbt12)} nos 12 meses anteriores) → Anexo "
                     f"{anexo}. {BASE_LEGAL_FATOR_R}"
                 )
 

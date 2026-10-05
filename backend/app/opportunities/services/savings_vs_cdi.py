@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 from app.opportunities.models import SavingsVsCdiResult
 from app.opportunities.services.savings_rate import calculate_savings_rate
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -80,10 +81,10 @@ class SavingsVsCdiService:
             return result
 
         personalized_reason = (
-            f"Você tem R$ {snapshot.balance:,.2f} na poupança"
+            f"Você tem {brl(snapshot.balance)} na poupança"
             + (f" ({snapshot.bank_name})" if snapshot.bank_name else "")
             + f". Ao CDI de hoje, isso significa cerca de "
-            f"R$ {result.estimated_loss_annual_brl:,.2f}/ano rendendo a menos."
+            f"{brl(result.estimated_loss_annual_brl)}/ano rendendo a menos."
         ) if result.status == "BELOW_CDI" else result.reason
 
         return result.model_copy(update={
@@ -162,13 +163,13 @@ class SavingsVsCdiService:
         if status == "NEAR_CDI":
             return (
                 f"A diferença estimada entre poupança e CDI é pequena hoje: cerca de "
-                f"R$ {estimated_loss_annual_brl:,.2f}/ano para cada "
-                f"R$ {amount_reference_brl:,.2f} na poupança."
+                f"{brl(estimated_loss_annual_brl)}/ano para cada "
+                f"{brl(amount_reference_brl)} na poupança."
             )
         return (
             f"Hoje a poupança tende a render menos que o CDI. Para cada "
-            f"R$ {amount_reference_brl:,.2f} na poupança, a diferença estimada é de "
-            f"R$ {estimated_loss_annual_brl:,.2f}/ano."
+            f"{brl(amount_reference_brl)} na poupança, a diferença estimada é de "
+            f"{brl(estimated_loss_annual_brl)}/ano."
         )
 
     @staticmethod

@@ -6,6 +6,7 @@ from langchain_core.tools import tool
 
 from app.costs.bank_fee_analyzer import BankFeeAnalyzer
 from app.core.db.queries import get_transactions_for_user
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ def detect_abusive_fees(user_id: str) -> str:
             is_new = (fee.bank_name, fee.fee_type.value) in new_fee_keys
             new_tag = " 🆕 NOVA" if is_new else ""
             lines.append(
-                f"• {fee.bank_name} — {fee.fee_type.value}{new_tag}: R$ {fee.amount:.2f}"
+                f"• {fee.bank_name} — {fee.fee_type.value}{new_tag}: {brl(fee.amount)}"
             )
             if fee.description:
                 lines.append(f"  Descrição: {fee.description}")
@@ -106,7 +107,7 @@ def detect_abusive_fees(user_id: str) -> str:
     if truly_new:
         lines += ["", f"🆕 {len(truly_new)} tarifa(s) nova(s) detectada(s) este mês:"]
         for fee in truly_new:
-            lines.append(f"• {fee.bank_name} — {fee.fee_type.value}: R$ {fee.amount:.2f}")
+            lines.append(f"• {fee.bank_name} — {fee.fee_type.value}: {brl(fee.amount)}")
         lines += [
             "",
             "Tarifas novas sem aviso prévio (30 dias) violam a Resolução BACEN 3.919/2010. "

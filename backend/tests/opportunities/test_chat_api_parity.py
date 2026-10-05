@@ -59,7 +59,8 @@ def test_chat_e_engine_retornam_o_mesmo_idle_amount():
 
     text = chat_tool_module.get_opportunities.invoke({"user_id": USER_ID})
 
-    assert f"R$ {expected.idle_amount:,.2f}" in text
+    from app.core.formatacao import brl
+    assert brl(expected.idle_amount) in text
 
 
 def test_chat_tool_sem_transacoes_nao_quebra(monkeypatch):

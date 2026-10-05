@@ -34,6 +34,7 @@ from datetime import date
 
 from app.architect.models import AssetType, SimulationRequest
 from app.architect.utils.date_helpers import months_between
+from app.core.formatacao import brl
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -140,8 +141,8 @@ class InputValidator:
         MIN_PRINCIPAL = 1_000.0
         if req.principal < MIN_PRINCIPAL:
             result.add_error(
-                f"O valor a financiar (R$ {req.principal:,.2f}) é muito baixo. "
-                f"Mínimo: R$ {MIN_PRINCIPAL:,.2f}. "
+                f"O valor a financiar ({brl(req.principal)}) é muito baixo. "
+                f"Mínimo: {brl(MIN_PRINCIPAL)}. "
                 "Reduza o down_payment ou aumente o target_amount."
             )
 
@@ -178,8 +179,8 @@ class InputValidator:
         MIN_BUDGET = 100.0
         if req.max_monthly_budget is not None and req.max_monthly_budget < MIN_BUDGET:
             result.add_error(
-                f"max_monthly_budget (R$ {req.max_monthly_budget:,.2f}) é muito baixo. "
-                f"Mínimo aceito: R$ {MIN_BUDGET:,.2f}/mês."
+                f"max_monthly_budget ({brl(req.max_monthly_budget)}) é muito baixo. "
+                f"Mínimo aceito: {brl(MIN_BUDGET)}/mês."
             )
 
     @staticmethod
@@ -214,9 +215,9 @@ class InputValidator:
         min_amount = _MIN_TARGET_AMOUNT[req.asset_type]
         if req.target_amount < min_amount:
             result.add_error(
-                f"target_amount (R$ {req.target_amount:,.2f}) é muito baixo para "
+                f"target_amount ({brl(req.target_amount)}) é muito baixo para "
                 f"o tipo de bem '{req.asset_type.value}'. "
-                f"Mínimo esperado: R$ {min_amount:,.2f}."
+                f"Mínimo esperado: {brl(min_amount)}."
             )
 
     # ── Avisos não-bloqueantes ───────────────────────────────────────

@@ -47,6 +47,7 @@ from app.tax.parametros_fiscais import (
     ganho_de_bolsa_e_isento,
     proximo_degrau,
 )
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -170,15 +171,15 @@ class TaxLossHarvester:
                     opportunity_type="harvest_loss",
                     title=f"Colheita de perda — {pos.product_type} {pos.bank_name}",
                     description=(
-                        f"Posição com perda não realizada de R$ {perda:,.2f}. "
-                        f"Nesta carteira há R$ {ganho_total:,.2f} de ganho tributável em "
-                        f"{escopo}, com R$ {ir_dos_ganhos:,.2f} de IR. Realizar a perda "
+                        f"Posição com perda não realizada de {brl(perda)}. "
+                        f"Nesta carteira há {brl(ganho_total)} de ganho tributável em "
+                        f"{escopo}, com {brl(ir_dos_ganhos)} de IR. Realizar a perda "
                         f"abate parte desse ganho e economiza cerca de "
-                        f"R$ {parcela:,.2f} de IR."
+                        f"{brl(parcela)} de IR."
                     ),
                     position_ref=f"{pos.bank_name} — {pos.product_name}",
                     recommended_action=(
-                        f"Resgatar a posição (perda de R$ {perda:,.2f}) e reinvestir em "
+                        f"Resgatar a posição (perda de {brl(perda)}) e reinvestir em "
                         f"ativo equivalente. A perda abate ganhos de {escopo} apurados no "
                         f"mesmo mês, e o saldo não usado fica acumulado para os meses "
                         f"seguintes. {BASE_LEGAL_COMPENSACAO}"
@@ -220,16 +221,16 @@ class TaxLossHarvester:
                     opportunity_type="hold_longer",
                     title=f"Aguardar bracket de IR — {pos.product_type} {pos.bank_name}",
                     description=(
-                        f"Resgate hoje: {aliquota_atual*100:.1f}% de IR sobre o ganho de "
-                        f"R$ {pos.unrealized_gain:,.2f}. "
+                        f"Resgate hoje: {numero(aliquota_atual*100, 1)}% de IR sobre o ganho de "
+                        f"{brl(pos.unrealized_gain)}. "
                         f"{self._frase_prazo(faltam_dias, exato)} a alíquota cai para "
-                        f"{nova_aliquota*100:.1f}%. Economia estimada: R$ {economia:,.2f}."
+                        f"{numero(nova_aliquota*100, 1)}%. Economia estimada: {brl(economia)}."
                     ),
                     position_ref=f"{pos.bank_name} — {pos.product_name}",
                     recommended_action=(
                         f"Não resgatar {self._frase_prazo(faltam_dias, exato).lower()} "
-                        f"para cair da faixa {aliquota_atual*100:.1f}% → "
-                        f"{nova_aliquota*100:.1f}% de IR. {BASE_LEGAL_REGRESSIVA}"
+                        f"para cair da faixa {numero(aliquota_atual*100, 1)}% → "
+                        f"{numero(nova_aliquota*100, 1)}% de IR. {BASE_LEGAL_REGRESSIVA}"
                     ),
                     estimated_tax_saving_brl=economia,
                     confidence="high" if exato else "medium",

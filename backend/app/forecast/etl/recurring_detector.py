@@ -73,6 +73,7 @@ from typing import Optional
 
 from app.subscriptions.shadow_invoices.subscription_detector import SubscriptionDetector
 from app.subscriptions.shadow_invoices.installment_detector import InstallmentDetector
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -610,8 +611,8 @@ def print_recurring_stats(df: pl.DataFrame):
     
     # Assinaturas
     print(f"\n🔁 ASSINATURAS (is_recurring=True):")
-    print(f"    - Quantidade: {sub_count} ({sub_pct:.1f}%)")
-    print(f"    - Valor médio: R$ {sub_avg:.2f}")
+    print(f"    - Quantidade: {sub_count} ({numero(sub_pct, 1)}%)")
+    print(f"    - Valor médio: {brl(sub_avg)}")
     
     if top_subs:
         print(f"    - Top 3:")
@@ -623,8 +624,8 @@ def print_recurring_stats(df: pl.DataFrame):
     
     # Parcelamentos
     print(f"\n📦 PARCELAMENTOS (is_installment=True):")
-    print(f"    - Quantidade: {inst_count} ({inst_pct:.1f}%)")
-    print(f"    - Valor médio: R$ {inst_avg:.2f}")
+    print(f"    - Quantidade: {inst_count} ({numero(inst_pct, 1)}%)")
+    print(f"    - Valor médio: {brl(inst_avg)}")
     
     if top_insts:
         print(f"    - Top 3:")

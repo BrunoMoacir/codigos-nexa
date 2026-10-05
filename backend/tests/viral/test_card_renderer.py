@@ -80,7 +80,7 @@ class TestSavingsCardSVG:
 
     def test_total_aparece_no_svg(self, renderer):
         svg = renderer.render_savings_card(_make_card(1500.0))
-        assert "1,500.00" in svg
+        assert "1.500,00" in svg
 
     def test_disclaimer_presente(self, renderer):
         svg = renderer.render_savings_card(_make_card())

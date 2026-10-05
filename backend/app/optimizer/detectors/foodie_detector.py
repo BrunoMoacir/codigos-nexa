@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import polars as pl
 
 from app.optimizer.detectors.evidence_scorer import compute_false_positive_risk
+from app.core.formatacao import brl
 
 if TYPE_CHECKING:
     from app.optimizer.detectors.personal_baseline import PersonalBaseline
@@ -171,7 +172,7 @@ class FoodieDetector:
         if diversity_score > 0:
             supporting_signals.append(f"merchants_distintos={restaurant_diversity}")
         if ticket_score > 0:
-            supporting_signals.append(f"ticket_medio=R${avg_ticket:.0f}")
+            supporting_signals.append(f"ticket_medio={brl(avg_ticket, 0)}")
         if fine_dining:
             supporting_signals.append("fine_dining=True")
         supporting_signals.extend(baseline_signals)

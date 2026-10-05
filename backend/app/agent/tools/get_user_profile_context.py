@@ -11,6 +11,7 @@ em cada mensagem do chat.
 import logging
 from app.agent.procedencia import com_procedencia, degradada
 from langchain_core.tools import tool
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -245,7 +246,7 @@ def _format_profile(user_id: str, profile) -> str:
         signals.append(
             f"Viajante {travel_label} "
             f"(score {profile.travel_frequency_score:.0f}/100, "
-            f"R$ {profile.travel_spend_monthly:.0f}/mês em viagens)"
+            f"{brl(profile.travel_spend_monthly, 0)}/mês em viagens)"
         )
     if profile.foodie_score > 0:
         foodie_label = profile.foodie_profile if hasattr(profile, "foodie_profile") else "—"
@@ -273,15 +274,15 @@ def _format_profile(user_id: str, profile) -> str:
     savings_pct = getattr(profile, "savings_rate", 0.0)
     committed_pct = getattr(profile, "committed_percentage", 0.0)
     lines.append(
-        f"Finanças: gasto médio R$ {profile.monthly_avg_spend:.0f}/mês | "
-        f"poupança {savings_pct:.1f}% | "
+        f"Finanças: gasto médio {brl(profile.monthly_avg_spend, 0)}/mês | "
+        f"poupança {numero(savings_pct, 1)}% | "
         f"comprometimento {committed_pct * 100:.0f}%"
     )
 
     # Subscrições
     sub_burn = getattr(profile, "subscription_burn_monthly", 0.0)
     if sub_burn > 0:
-        lines.append(f"Assinaturas: R$ {sub_burn:.0f}/mês em streaming/serviços")
+        lines.append(f"Assinaturas: {brl(sub_burn, 0)}/mês em streaming/serviços")
     lines.append("")
 
     # Timing

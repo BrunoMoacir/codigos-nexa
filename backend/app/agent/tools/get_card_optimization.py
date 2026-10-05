@@ -6,6 +6,7 @@ import logging
 
 from app.optimizer.models import OptimizationRequest
 from app.optimizer.services.optimizer_service import OptimizerService
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -95,14 +96,14 @@ def get_card_optimization(
         income_context_lines = []
         if monthly_income:
             income_context_lines.append(
-                f"Renda: R$ {monthly_income:,.0f}/mês (declarada pelo usuário — alta confiança)"
+                f"Renda: {brl(monthly_income, 0)}/mês (declarada pelo usuário — alta confiança)"
             )
         else:
             # Tenta estimar via IncomeProfiler no df vazio → UNKNOWN, mas traz o padrão de aviso
             income_est = IncomeProfiler().build(transactions_df)
             if income_est.confidence >= 0.5:
                 income_context_lines.append(
-                    f"Renda estimada: R$ {income_est.monthly_net_income:,.0f}/mês "
+                    f"Renda estimada: {brl(income_est.monthly_net_income, 0)}/mês "
                     f"(padrão {income_est.income_pattern.value}, "
                     f"confiança {income_est.confidence:.0%})"
                 )
@@ -133,9 +134,9 @@ def get_card_optimization(
         if report.best_card:
             c = report.best_card
             output.append(f"Card Vencedor: {c.card_name} (ID: {c.card_id})")
-            output.append(f"Valor de Benefícios Projetado: R$ {c.points_value_expected:.2f}")
-            output.append(f"Anuidade Efetiva: R$ {c.annuity_effective:.2f}")
-            output.append(f"> Lucro Líquido Anual: R$ {c.net_gain_expected:.2f} <")
+            output.append(f"Valor de Benefícios Projetado: {brl(c.points_value_expected)}")
+            output.append(f"Anuidade Efetiva: {brl(c.annuity_effective)}")
+            output.append(f"> Lucro Líquido Anual: {brl(c.net_gain_expected)} <")
             output.append(f"Confiança da simulação: {c.confidence_score:.0%}")
             if c.eligibility_reasons:
                 output.append(f"Elegibilidade: {'; '.join(c.eligibility_reasons[:2])}")
@@ -151,7 +152,7 @@ def get_card_optimization(
             output.append("-" * 30)
             output.append("Outros cartões analisados no top 3:")
             for rank_card in report.all_cards[1:4]:
-                output.append(f"- {rank_card.card_name} (Lucro Liq: R$ {rank_card.net_gain_expected:.2f})")
+                output.append(f"- {rank_card.card_name} (Lucro Liq: {brl(rank_card.net_gain_expected)})")
                 
         return "\n".join(output)
         

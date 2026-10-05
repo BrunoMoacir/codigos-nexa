@@ -12,6 +12,7 @@ Use SEMPRE que o usuário perguntar sobre:
 from langchain_core.tools import tool
 from typing import Optional
 import logging
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -114,8 +115,8 @@ def get_timing_scenarios(
 
         asset_label = asset_type.upper() if asset_type.upper() in asset_map else "Bem"
         lines = [
-            f"Análise de Timing — {asset_label} R$ {target_amount:,.0f}",
-            f"Poupança mensal durante espera: R$ {monthly_savings:,.0f}/mês",
+            f"Análise de Timing — {asset_label} {brl(target_amount, 0)}",
+            f"Poupança mensal durante espera: {brl(monthly_savings, 0)}/mês",
             "-" * 40,
         ]
 
@@ -125,16 +126,16 @@ def get_timing_scenarios(
             else:
                 lines.append(f"Esperar {s.wait_months} meses:")
 
-            lines.append(f"  Entrada acumulada: R$ {s.accumulated_down_payment:,.0f}")
-            lines.append(f"  Principal financiado: R$ {s.new_principal:,.0f}")
-            lines.append(f"  Parcela mensal: R$ {s.monthly_payment:,.2f}")
-            lines.append(f"  Custo total esperado: R$ {s.total_cost_expected:,.0f}")
+            lines.append(f"  Entrada acumulada: {brl(s.accumulated_down_payment, 0)}")
+            lines.append(f"  Principal financiado: {brl(s.new_principal, 0)}")
+            lines.append(f"  Parcela mensal: {brl(s.monthly_payment)}")
+            lines.append(f"  Custo total esperado: {brl(s.total_cost_expected, 0)}")
 
             if s.wait_months > 0:
                 if s.saving_vs_now > 0:
-                    lines.append(f"  Economia vs agora: R$ {s.saving_vs_now:,.0f} (VPL)")
+                    lines.append(f"  Economia vs agora: {brl(s.saving_vs_now, 0)} (VPL)")
                 elif s.saving_vs_now < 0:
-                    lines.append(f"  Custo extra vs agora: R$ {abs(s.saving_vs_now):,.0f} (VPL)")
+                    lines.append(f"  Custo extra vs agora: {brl(abs(s.saving_vs_now), 0)} (VPL)")
                 else:
                     lines.append(f"  Sem diferença significativa vs agora")
 
@@ -148,7 +149,7 @@ def get_timing_scenarios(
         else:
             lines.append(
                 f"Recomendação: Esperar {best.wait_months} meses oferece a melhor relação "
-                f"custo-benefício — economia de R$ {best.saving_vs_now:,.0f} em valor presente."
+                f"custo-benefício — economia de {brl(best.saving_vs_now, 0)} em valor presente."
             )
 
         return "\n".join(lines)

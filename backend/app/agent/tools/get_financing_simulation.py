@@ -13,6 +13,7 @@ Use SEMPRE que o usuário perguntar sobre:
 from langchain_core.tools import tool
 from typing import Optional
 import logging
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,7 @@ def _infer_financing_months(
                     if n_needed > months:
                         notes.append(
                             f"estendido para {n_needed}m para manter parcela ≤ 40% do disponível mensal "
-                            f"(R$ {budget_cap:,.0f}/mês)"
+                            f"({brl(budget_cap, 0)}/mês)"
                         )
                         months = n_needed
                 else:
@@ -192,7 +193,7 @@ def _format_output(
     recommended = strategy_labels.get(response.recommended_strategy, response.recommended_strategy)
 
     lines = [
-        f"Simulacao de Aquisicao — R$ {target_amount:,.0f} ({asset_type})",
+        f"Simulacao de Aquisicao — {brl(target_amount, 0)} ({asset_type})",
         f"Estrategia Recomendada: {recommended}",
         f"Confianca da Analise: {response.confidence_score:.0%}",
         "-" * 40,
@@ -206,17 +207,17 @@ def _format_output(
 
     npv = response.npv
     lines.append("Custos Comparados (NPV — valor presente):")
-    lines.append(f"  Financiamento: R$ {npv.financing:,.0f}")
-    lines.append(f"  Poupar/Investir: R$ {npv.save_invest:,.0f}")
+    lines.append(f"  Financiamento: {brl(npv.financing, 0)}")
+    lines.append(f"  Poupar/Investir: {brl(npv.save_invest, 0)}")
     if npv.consortium is not None:
-        lines.append(f"  Consorcio: R$ {npv.consortium:,.0f}")
+        lines.append(f"  Consorcio: {brl(npv.consortium, 0)}")
     if npv.financing_rental is not None:
-        lines.append(f"  Financiamento+Aluguel (Estrategia 4): R$ {npv.financing_rental:,.0f}")
+        lines.append(f"  Financiamento+Aluguel (Estrategia 4): {brl(npv.financing_rental, 0)}")
     if npv.consortium_selic_rental is not None:
-        lines.append(f"  Consorcio+SELIC+Aluguel (Estrategia 5): R$ {npv.consortium_selic_rental:,.0f}")
+        lines.append(f"  Consorcio+SELIC+Aluguel (Estrategia 5): {brl(npv.consortium_selic_rental, 0)}")
     lines.append(
-        f"  Custo esperado da estrategia recomendada: R$ {response.costs.expected_cost:,.0f} "
-        f"(min: R$ {response.costs.min_cost:,.0f} / max: R$ {response.costs.max_cost:,.0f})"
+        f"  Custo esperado da estrategia recomendada: {brl(response.costs.expected_cost, 0)} "
+        f"(min: {brl(response.costs.min_cost, 0)} / max: {brl(response.costs.max_cost, 0)})"
     )
     lines.append("")
 
@@ -230,23 +231,23 @@ def _format_output(
         b = response.card_optimization_bonus
         lines.append("Bonus de Pontos (M3.3):")
         lines.append(f"  {b.narrative}")
-        lines.append(f"  Retorno mensal estimado: R$ {b.monthly_bonus_brl:,.2f}")
-        lines.append(f"  Retorno total no prazo: R$ {b.total_bonus_brl:,.2f}")
-        lines.append(f"  Reducao efetiva de custo: {b.effective_cost_reduction_pct:.1f}%")
+        lines.append(f"  Retorno mensal estimado: {brl(b.monthly_bonus_brl)}")
+        lines.append(f"  Retorno total no prazo: {brl(b.total_bonus_brl)}")
+        lines.append(f"  Reducao efetiva de custo: {numero(b.effective_cost_reduction_pct, 1)}%")
         lines.append("")
 
     if response.rental_leverage_plan:
         r = response.rental_leverage_plan
         lines.append("Plano de Alavancagem por Aluguel:")
         lines.append(f"  {r.narrative}")
-        lines.append(f"  Aluguel estimado: R$ {r.monthly_rental_income:,.0f}/mes")
-        lines.append(f"  Parcela da estrategia: R$ {r.monthly_payment:,.0f}/mes")
+        lines.append(f"  Aluguel estimado: {brl(r.monthly_rental_income, 0)}/mes")
+        lines.append(f"  Parcela da estrategia: {brl(r.monthly_payment, 0)}/mes")
         lines.append(f"  Cobertura do aluguel: {r.rental_coverage_pct:.0f}% da parcela")
         if r.is_self_sustaining:
-            lines.append(f"  O imovel se paga sozinho — sobram R$ {abs(r.monthly_out_of_pocket):,.0f}/mes")
+            lines.append(f"  O imovel se paga sozinho — sobram {brl(abs(r.monthly_out_of_pocket), 0)}/mes")
         else:
-            lines.append(f"  Seu desembolso real: R$ {r.monthly_out_of_pocket:,.0f}/mes")
-        lines.append(f"  Custo liquido real da aquisicao: R$ {r.net_acquisition_cost:,.0f}")
+            lines.append(f"  Seu desembolso real: {brl(r.monthly_out_of_pocket, 0)}/mes")
+        lines.append(f"  Custo liquido real da aquisicao: {brl(r.net_acquisition_cost, 0)}")
         lines.append("")
 
     if response.compound_strategies:
@@ -262,10 +263,10 @@ def _format_output(
 
             if leg.strategy_type.value == "FINANCING_RENTAL":
                 lines.append(
-                    f"  1. Voce financia o imovel AGORA (parcela: R$ {leg.monthly_gross_payment:,.0f}/mes)"
+                    f"  1. Voce financia o imovel AGORA (parcela: {brl(leg.monthly_gross_payment, 0)}/mes)"
                 )
                 lines.append(
-                    f"  2. Coloca o imovel para alugar (renda: R$ {leg.monthly_rental_income:,.0f}/mes)"
+                    f"  2. Coloca o imovel para alugar (renda: {brl(leg.monthly_rental_income, 0)}/mes)"
                 )
                 coverage = (
                     leg.monthly_rental_income / leg.monthly_gross_payment * 100
@@ -273,37 +274,37 @@ def _format_output(
                 )
                 lines.append(
                     f"  3. O aluguel cobre {coverage:.0f}% da parcela — voce paga apenas "
-                    f"R$ {leg.monthly_net_cost:,.0f}/mes do bolso"
+                    f"{brl(leg.monthly_net_cost, 0)}/mes do bolso"
                 )
             elif leg.strategy_type.value == "CONSORTIUM_SELIC_RENTAL":
                 lines.append(
-                    f"  1. Voce entra no consorcio (parcela: R$ {leg.monthly_gross_payment:,.0f}/mes)"
+                    f"  1. Voce entra no consorcio (parcela: {brl(leg.monthly_gross_payment, 0)}/mes)"
                 )
                 lines.append(
-                    f"  2. Investe a entrada (R$ {down_payment:,.0f}) na SELIC"
-                    f" — rende R$ {leg.monthly_selic_contribution:,.0f}/mes"
+                    f"  2. Investe a entrada ({brl(down_payment, 0)}) na SELIC"
+                    f" — rende {brl(leg.monthly_selic_contribution, 0)}/mes"
                 )
                 lines.append(
-                    f"  3. O aluguel (R$ {leg.monthly_rental_income:,.0f}/mes)"
-                    f" + SELIC (R$ {leg.monthly_selic_contribution:,.0f}/mes)"
-                    f" = R$ {leg.monthly_rental_income + leg.monthly_selic_contribution:,.0f}/mes para pagar a parcela"
+                    f"  3. O aluguel ({brl(leg.monthly_rental_income, 0)}/mes)"
+                    f" + SELIC ({brl(leg.monthly_selic_contribution, 0)}/mes)"
+                    f" = {brl(leg.monthly_rental_income + leg.monthly_selic_contribution, 0)}/mes para pagar a parcela"
                 )
                 if leg.monthly_net_cost == 0:
                     lines.append(
                         "  4. RESULTADO: zero desembolso do bolso no inicio — operacao quase auto-sustentavel"
                     )
                 else:
-                    lines.append(f"  4. Desembolso real estimado: R$ {leg.monthly_net_cost:,.0f}/mes")
+                    lines.append(f"  4. Desembolso real estimado: {brl(leg.monthly_net_cost, 0)}/mes")
 
             lines.append(f"")
             if leg.is_self_sustaining:
                 lines.append(f"  STATUS: AUTO-SUSTENTAVEL — o imovel se paga sozinho")
             else:
-                lines.append(f"  STATUS: Desembolso mensal do bolso: R$ {leg.monthly_net_cost:,.0f}/mes")
-            lines.append(f"  Custo total de aquisicao (bruto): R$ {leg.total_gross_cost:,.0f}")
-            lines.append(f"  Total de aluguel recebido no periodo: R$ {leg.total_rental_income:,.0f}")
-            lines.append(f"  Custo LIQUIDO real (o que voce realmente paga): R$ {leg.net_acquisition_cost:,.0f}")
-            lines.append(f"  NPV (valor presente do custo): R$ {leg.npv:,.0f}")
+                lines.append(f"  STATUS: Desembolso mensal do bolso: {brl(leg.monthly_net_cost, 0)}/mes")
+            lines.append(f"  Custo total de aquisicao (bruto): {brl(leg.total_gross_cost, 0)}")
+            lines.append(f"  Total de aluguel recebido no periodo: {brl(leg.total_rental_income, 0)}")
+            lines.append(f"  Custo LIQUIDO real (o que voce realmente paga): {brl(leg.net_acquisition_cost, 0)}")
+            lines.append(f"  NPV (valor presente do custo): {brl(leg.npv, 0)}")
         lines.append("")
         lines.append(
             "NOTA: O custo de oportunidade do aluguel perdido ja foi incluido na "

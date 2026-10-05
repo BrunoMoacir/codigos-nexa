@@ -20,6 +20,7 @@ from app.optimizer.models import (
 )
 from app.optimizer.profiler import UserProfile
 from app.optimizer.validators.liquidity_checker import LiquidityChecker
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -592,9 +593,9 @@ class CardSimulator:
         if annuity_waived and card.base_annuity > 0:
             threshold = card.waiver_rules.threshold or 0
             reasons.append(
-                f"Seu gasto anual projetado de R$ {spend_annual:,.0f} "
-                f"isenta a anuidade de R$ {card.base_annuity:,.0f}"
-                + (f" (threshold: R$ {threshold:,.0f})" if threshold else "")
+                f"Seu gasto anual projetado de {brl(spend_annual, 0)} "
+                f"isenta a anuidade de {brl(card.base_annuity, 0)}"
+                + (f" (threshold: {brl(threshold, 0)})" if threshold else "")
             )
 
         # Cashback em categoria relevante — M2.5 ou flat
@@ -615,23 +616,23 @@ class CardSimulator:
                     if cat_spend > 100:
                         annual_cashback = cat_spend * 12 * card.cashback_pct
                         reasons.append(
-                            f"Seu gasto médio de R$ {cat_spend:,.0f}/mês em {cat} "
+                            f"Seu gasto médio de {brl(cat_spend, 0)}/mês em {cat} "
                             f"rende {card.cashback_pct * 100:.0f}% de cashback "
-                            f"= R$ {annual_cashback:,.0f}/ano"
+                            f"= {brl(annual_cashback, 0)}/ano"
                         )
                         break
 
         # Gasto internacional expressivo
         if profile.international_spend_monthly > 300 and BenefitTag.INTERNACIONAL in card.benefit_tags:
             reasons.append(
-                f"Seu gasto de R$ {profile.international_spend_monthly:,.0f}/mês no exterior "
+                f"Seu gasto de {brl(profile.international_spend_monthly, 0)}/mês no exterior "
                 f"se beneficia do câmbio diferenciado e zero IOF deste cartão"
             )
 
         # Frequência de viagens + acesso a lounge
         if profile.travel_spend_monthly > 600 and BenefitTag.LOUNGE in card.benefit_tags:
             reasons.append(
-                f"Com seus gastos de R$ {profile.travel_spend_monthly:,.0f}/mês em viagens, "
+                f"Com seus gastos de {brl(profile.travel_spend_monthly, 0)}/mês em viagens, "
                 f"o acesso a salas VIP incluso pode valer R$ 500/ano ou mais"
             )
 
@@ -652,30 +653,30 @@ class CardSimulator:
         months = profile.data_coverage_months
 
         steps.append(
-            f"Gasto mensal observado: R$ {profile.monthly_avg_spend:,.2f} "
+            f"Gasto mensal observado: {brl(profile.monthly_avg_spend)} "
             f"(média dos últimos {months} {'mês' if months == 1 else 'meses'})"
         )
         steps.append(
-            f"Gasto anual projetado: R$ {profile.monthly_avg_spend:,.2f} × 12 "
-            f"= R$ {spend_annual:,.2f}"
+            f"Gasto anual projetado: {brl(profile.monthly_avg_spend)} × 12 "
+            f"= {brl(spend_annual)}"
         )
 
         if annuity_waived:
             threshold = card.waiver_rules.threshold
             if threshold:
                 steps.append(
-                    f"Anuidade: isenta — gasto anual de R$ {spend_annual:,.0f} "
-                    f"≥ threshold de R$ {threshold:,.0f}"
+                    f"Anuidade: isenta — gasto anual de {brl(spend_annual, 0)} "
+                    f"≥ threshold de {brl(threshold, 0)}"
                 )
             else:
                 steps.append("Anuidade: sem cobrança (sempre isento)")
         else:
-            steps.append(f"Anuidade: R$ {annuity_effective:,.2f}/ano")
+            steps.append(f"Anuidade: {brl(annuity_effective)}/ano")
 
         if card.card_type == CardType.POINTS and card.points_per_brl:
             pts_annual = spend_annual * card.points_per_brl
             steps.append(
-                f"Pontos gerados: R$ {spend_annual:,.0f} × {card.points_per_brl} "
+                f"Pontos gerados: {brl(spend_annual, 0)} × {card.points_per_brl} "
                 f"= {pts_annual:,.0f} pontos/ano"
             )
             # M2.3: usar taxa real do MilesValuator (P50) em vez do fallback estático
@@ -684,43 +685,43 @@ class CardSimulator:
                 if dynamic_rate:
                     steps.append(
                         f"Valor dos pontos ({card.loyalty_program} P50): "
-                        f"{pts_annual:,.0f} ÷ 1.000 × R$ {dynamic_rate:.1f} "
-                        f"= R$ {values['expected']:,.2f}/ano"
+                        f"{pts_annual:,.0f} ÷ 1.000 × {brl(dynamic_rate, 1)} "
+                        f"= {brl(values['expected'])}/ano"
                     )
                 else:
                     steps.append(
                         f"Valor dos pontos: {pts_annual:,.0f} ÷ 1.000 "
                         f"× R$ {card.points_conversion_rate} "
-                        f"= R$ {values['expected']:,.2f}/ano"
+                        f"= {brl(values['expected'])}/ano"
                     )
             else:
                 steps.append(
                     f"Valor dos pontos: {pts_annual:,.0f} ÷ 1.000 "
                     f"× R$ {card.points_conversion_rate} "
-                    f"= R$ {values['expected']:,.2f}/ano"
+                    f"= {brl(values['expected'])}/ano"
                 )
         elif card.card_type in (CardType.CASHBACK, CardType.INVESTBACK):
             if card.cashback_categories and profile is not None:
                 rules_by_pct = sorted(card.cashback_categories, key=lambda r: r.pct, reverse=True)
                 cat_desc = ", ".join(f"{r.category} {r.pct * 100:.0f}%" for r in rules_by_pct[:2])
                 steps.append(
-                    f"Cashback por categoria ({cat_desc}...): R$ {values['expected']:,.2f}/ano"
+                    f"Cashback por categoria ({cat_desc}...): {brl(values['expected'])}/ano"
                 )
             elif card.cashback_pct:
                 steps.append(
-                    f"Cashback: R$ {spend_annual:,.0f} × {card.cashback_pct * 100:.1f}% "
-                    f"= R$ {values['expected']:,.2f}/ano"
+                    f"Cashback: {brl(spend_annual, 0)} × {numero(card.cashback_pct * 100, 1)}% "
+                    f"= {brl(values['expected'])}/ano"
                 )
 
         steps.append(
-            f"Ganho líquido esperado: R$ {values['expected']:,.2f} − "
-            f"R$ {annuity_effective:,.2f} = R$ {net_gain_expected:,.2f}/ano"
+            f"Ganho líquido esperado: {brl(values['expected'])} − "
+            f"{brl(annuity_effective)} = {brl(net_gain_expected)}/ano"
         )
         steps.append(
-            f"Cenário pessimista (gasto −20%): R$ {values['min'] - annuity_effective:,.2f}"
+            f"Cenário pessimista (gasto −20%): {brl(values['min'] - annuity_effective)}"
         )
         steps.append(
-            f"Cenário otimista (gasto +20%): R$ {values['max'] - annuity_effective:,.2f}"
+            f"Cenário otimista (gasto +20%): {brl(values['max'] - annuity_effective)}"
         )
 
         return steps
@@ -863,35 +864,35 @@ class CardSimulator:
         if annuity_waived:
             parts.append(
                 f"Sua anuidade do {card.name} está **isenta** — "
-                f"seu gasto anual (R$ {spend_annual:,.0f}) supera o threshold necessário."
+                f"seu gasto anual ({brl(spend_annual, 0)}) supera o threshold necessário."
             )
         else:
             parts.append(
-                f"Você paga **R$ {annuity_paid:,.0f}/ano** de anuidade no {card.name}."
+                f"Você paga **{brl(annuity_paid, 0)}/ano** de anuidade no {card.name}."
             )
 
         if reward_value > 0:
             parts.append(
-                f"Com seu gasto médio de R$ {monthly_spend:,.0f}/mês, "
-                f"você gera **R$ {reward_value:,.0f}/ano** em pontos/cashback."
+                f"Com seu gasto médio de {brl(monthly_spend, 0)}/mês, "
+                f"você gera **{brl(reward_value, 0)}/ano** em pontos/cashback."
             )
         else:
             parts.append("O cartão não gera retorno mensurável em pontos ou cashback.")
 
         if verdict == CardROIVerdict.VALE_A_PENA:
             parts.append(
-                f"Resultado: **ganho líquido de R$ {net_roi:,.0f}/ano** — "
+                f"Resultado: **ganho líquido de {brl(net_roi, 0)}/ano** — "
                 "a anuidade está se pagando."
             )
         elif verdict == CardROIVerdict.MARGINAL:
             parts.append(
-                f"Resultado: **prejuízo de R$ {abs(net_roi):,.0f}/ano** — "
+                f"Resultado: **prejuízo de {brl(abs(net_roi), 0)}/ano** — "
                 "o cartão pode valer pelos benefícios extras (lounge, seguro, etc.), "
                 "mas em termos de pontos/cashback não cobre a anuidade."
             )
         else:
             parts.append(
-                f"Resultado: **prejuízo de R$ {abs(net_roi):,.0f}/ano** — "
+                f"Resultado: **prejuízo de {brl(abs(net_roi), 0)}/ano** — "
                 "a anuidade não está sendo justificada pelo uso atual. "
                 "Vale considerar um cartão sem anuidade ou com melhor retorno."
             )
@@ -899,7 +900,7 @@ class CardSimulator:
         if spend_needed_for_waiver and spend_needed_for_waiver > 0:
             parts.append(
                 f"Para isentar a anuidade, você precisaria gastar mais "
-                f"**R$ {spend_needed_for_waiver:,.0f}/mês** (hoje gasta R$ {monthly_spend:,.0f}/mês)."
+                f"**{brl(spend_needed_for_waiver, 0)}/mês** (hoje gasta {brl(monthly_spend, 0)}/mês)."
             )
 
         return " ".join(parts)

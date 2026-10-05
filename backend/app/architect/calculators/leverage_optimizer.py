@@ -56,6 +56,7 @@ import math
 import logging
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Optional
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -398,7 +399,7 @@ class LeverageOptimizer:
         asset_value: float,
         months: int,
     ) -> str:
-        fmt = lambda v: f"R$ {v:,.0f}".replace(",", ".")
+        fmt = lambda v: f"{brl(v, 0)}".replace(",", ".")
         return (
             f"Alavancagem viável. Carta ideal: {fmt(optimal.letter_value)} "
             f"({optimal.multiplier}x o valor do imóvel de {fmt(asset_value)}). "
@@ -421,18 +422,18 @@ class LeverageOptimizer:
         admin_rate: float,
         best_partial: Optional[ScenarioResult],
     ) -> tuple:
-        fmt = lambda v: f"R$ {v:,.0f}".replace(",", ".")
+        fmt = lambda v: f"{brl(v, 0)}".replace(",", ".")
 
         reasons = []
         if rent_yield_m < 0.003:
             reasons.append(
                 f"o aluguel ({fmt(monthly_rent)}/mês) representa apenas "
-                f"{rent_yield_m*100:.2f}% do valor do imóvel — muito baixo "
+                f"{numero(rent_yield_m*100, 2)}% do valor do imóvel — muito baixo "
                 f"para cobrir parcelas de consórcio"
             )
         if selic_annual < 0.08:
             reasons.append(
-                f"a SELIC está em {selic_annual*100:.1f}% a.a., rendimento "
+                f"a SELIC está em {numero(selic_annual*100, 1)}% a.a., rendimento "
                 f"insuficiente para complementar o aluguel"
             )
         if admin_rate > 0.20:

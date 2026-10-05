@@ -55,6 +55,7 @@ from app.architect.simulators.strategy_selector import (
 from app.architect.utils.formatters import format_currency
 from app.architect.rate_defaults import rate, rate_int
 from app.architect.simulators import cost_basis
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -242,7 +243,7 @@ class StrategyEngine:
                 for result in [fin_result, cons_result, comp4_result, comp5_result]:
                     _add_cost_to_result(result, transaction_costs_applied)
                 ownership_warnings.append(
-                    f"Custos de transação de R$ {transaction_costs_applied:,.0f} "
+                    f"Custos de transação de {brl(transaction_costs_applied, 0)} "
                     f"({tc_pct:.1%} do valor) incluídos no custo total "
                     "(ITBI, cartório, registro)."
                 )
@@ -270,7 +271,7 @@ class StrategyEngine:
             asset_label = "imóvel" if request.asset_type == AssetType.IMOVEL else "veículo"
             ownership_warnings.append(
                 f"Custo de manutenção estimado para o {asset_label}: "
-                f"R$ {maintenance_cost_annual:,.0f}/ano "
+                f"{brl(maintenance_cost_annual, 0)}/ano "
                 f"(incluído no custo total das estratégias de aquisição)."
             )
 
@@ -1193,7 +1194,7 @@ class StrategyEngine:
         elif rental_coverage_pct >= 50:
             narrative = (
                 f"O aluguel estimado de {fmt(monthly_rental_income)}/mês cobre "
-                f"{rental_coverage_pct:.1f}% da parcela de {fmt(monthly_payment)}/mês. "
+                f"{numero(rental_coverage_pct, 1)}% da parcela de {fmt(monthly_payment)}/mês. "
                 f"Seu desembolso real mensal será apenas {fmt(monthly_out_of_pocket)}. "
                 f"Ao longo de {months} meses, o aluguel contribui com {fmt(total_rental_income)}, "
                 f"reduzindo o custo efetivo da aquisição para {fmt(net_acquisition_cost)}."
@@ -1201,7 +1202,7 @@ class StrategyEngine:
         else:
             narrative = (
                 f"O aluguel estimado de {fmt(monthly_rental_income)}/mês cobre "
-                f"{rental_coverage_pct:.1f}% da parcela de {fmt(monthly_payment)}/mês. "
+                f"{numero(rental_coverage_pct, 1)}% da parcela de {fmt(monthly_payment)}/mês. "
                 f"Ainda há um desembolso mensal de {fmt(monthly_out_of_pocket)}. "
                 f"Mesmo assim, ao longo de {months} meses o aluguel economiza "
                 f"{fmt(total_rental_income)}, baixando o custo total para {fmt(net_acquisition_cost)}."

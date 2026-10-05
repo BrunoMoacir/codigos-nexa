@@ -22,6 +22,7 @@ from app.viral.models import SavingsCard, ShareEvent, ShareResponse, WrappedRepo
 from app.viral.services.card_renderer import CardRenderer
 from app.viral.services.savings_consolidator import SavingsConsolidator
 from app.viral.services.wrapped_generator import WrappedGenerator
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/viral", tags=["Viral (V1/V2 — Savings Card & Wrapped)"])
@@ -53,7 +54,7 @@ def get_savings_card(
 
     if total > 0:
         tagline = (
-            f"A Nexa identificou até R$ {total:,.2f} em oportunidades anuais "
+            f"A Nexa identificou até {brl(total)} em oportunidades anuais "
             f"em {months_active} mês(es) de uso. Potencial estimado."
         )
     else:

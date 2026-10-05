@@ -28,6 +28,7 @@ import logging
 import polars as pl
 from dataclasses import dataclass, field
 from typing import Literal, Optional
+from app.core.formatacao import brl
 
 
 logger = logging.getLogger(__name__)
@@ -194,8 +195,8 @@ class SafeToSpendCalculator:
         total_shadow_invoices = float(projection_df["expenses"].sum())
         
         self.logger.debug(
-            f"Saldo atual: R$ {current_balance:,.2f}, "
-            f"Mínimo projetado: R$ {min_projected_balance:,.2f}"
+            f"Saldo atual: {brl(current_balance)}, "
+            f"Mínimo projetado: {brl(min_projected_balance)}"
         )
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -209,8 +210,8 @@ class SafeToSpendCalculator:
         safety_buffer = max(buffer_pct, self.min_buffer_absolute)
         
         self.logger.debug(
-            f"Buffer calculado: R$ {safety_buffer:,.2f} "
-            f"({self.safety_buffer_pct:.1%} de R$ {abs(total_shadow_invoices):,.2f})"
+            f"Buffer calculado: {brl(safety_buffer)} "
+            f"({self.safety_buffer_pct:.1%} de {brl(abs(total_shadow_invoices))})"
         )
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -229,8 +230,8 @@ class SafeToSpendCalculator:
         )
         
         self.logger.info(
-            f"Safe-to-spend: R$ {safe_to_spend_total:,.2f} total "
-            f"(R$ {safe_to_spend_daily:,.2f}/dia)"
+            f"Safe-to-spend: {brl(safe_to_spend_total)} total "
+            f"({brl(safe_to_spend_daily)}/dia)"
         )
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

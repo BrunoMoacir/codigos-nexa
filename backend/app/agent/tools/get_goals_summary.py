@@ -12,6 +12,7 @@ Use SEMPRE que o usuário perguntar sobre:
 from langchain_core.tools import tool
 from typing import Optional
 import logging
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ def get_goals_summary(
 
             lines.append(f"📌 **{name}**")
             lines.append(f"   [{bar}] {pct:.0f}%")
-            lines.append(f"   R$ {current:,.0f} de R$ {target:,.0f} (faltam R$ {remaining:,.0f})")
+            lines.append(f"   {brl(current, 0)} de {brl(target, 0)} (faltam {brl(remaining, 0)})")
 
             # Projeção (GoalProjection: on_track, projected_completion_date,
             # months_remaining) — não um dicionário com "status"/"estimated_*".
@@ -96,7 +97,7 @@ def get_goals_summary(
             # Se temos monthly_savings, calcular projeção simples
             if monthly_savings and remaining > 0 and not eta:
                 months_needed = remaining / monthly_savings
-                lines.append(f"   ⏳ Com R$ {monthly_savings:,.0f}/mês → {months_needed:.0f} meses para atingir")
+                lines.append(f"   ⏳ Com {brl(monthly_savings, 0)}/mês → {months_needed:.0f} meses para atingir")
 
             lines.append("")
 

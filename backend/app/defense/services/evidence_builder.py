@@ -27,6 +27,7 @@ from app.defense.models import (
     MonetaryCorrection,
     CorrectionIndex,
 )
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -230,13 +231,13 @@ def _resumo_achados(dossier) -> str:
     lines = [
         "RESUMO DOS ACHADOS",
         f"Total de achados: {dossier.total_findings}",
-        f"Valor estimado contestável: R$ {dossier.total_disputed_amount:.2f}",
+        f"Valor estimado contestável: {brl(dossier.total_disputed_amount)}",
         "",
     ]
     for f in dossier.findings:
         lines.append(
             f"[{f.detector} | {f.severity.upper()}] {f.bank_name}: {f.title} "
-            f"— R$ {f.amount_disputed:.2f}"
+            f"— {brl(f.amount_disputed)}"
         )
     return "\n".join(lines)
 
@@ -274,7 +275,7 @@ def _findings_summary(ctx: _Ctx) -> str:
         return "Nenhuma irregularidade identificada."
     return "\n".join(
         f"- [{f.detector} | {f.severity.upper()}] {f.bank_name}: {f.title} "
-        f"— Estimativa contestável: R$ {f.amount_disputed:.2f}"
+        f"— Estimativa contestável: {brl(f.amount_disputed)}"
         for f in ctx.findings
     )
 
@@ -303,9 +304,9 @@ def _correction_text(ctx: _Ctx) -> str:
     months_info = f" ({c.monthly_rates_used} meses acumulados)" if c.monthly_rates_used else ""
     return (
         f"Correção monetária ({c.index}{months_info}): "
-        f"R$ {c.original_value:.2f} × {c.correction_factor:.4f} = "
-        f"R$ {c.corrected_value:.2f} "
-        f"(acréscimo de R$ {c.correction_brl:.2f} "
+        f"{brl(c.original_value)} × {c.correction_factor:.4f} = "
+        f"{brl(c.corrected_value)} "
+        f"(acréscimo de {brl(c.correction_brl)} "
         f"no período de {c.charge_date.strftime('%d/%m/%Y')} "
         f"a {c.reference_date.strftime('%d/%m/%Y')})"
     )
@@ -336,9 +337,9 @@ irregularidades identificadas em minha conta:
 
 {_findings_summary(ctx)}
 
-Total estimado contestável: R$ {ctx.total_disputed:.2f}
+Total estimado contestável: {brl(ctx.total_disputed)}
 {_correction_text(ctx)}
-Total com correção monetária: R$ {ctx.corrected_total:.2f}
+Total com correção monetária: {brl(ctx.corrected_total)}
 
 ━━━━ DETALHAMENTO DAS IRREGULARIDADES ━━━━
 
@@ -390,9 +391,9 @@ Identifiquei as seguintes irregularidades em minha(s) conta(s) bancária(s):
 
 {_findings_summary(ctx)}
 
-VALOR TOTAL ESTIMADO: R$ {ctx.total_disputed:.2f}
+VALOR TOTAL ESTIMADO: {brl(ctx.total_disputed)}
 {_correction_text(ctx)}
-COM CORREÇÃO MONETÁRIA: R$ {ctx.corrected_total:.2f}
+COM CORREÇÃO MONETÁRIA: {brl(ctx.corrected_total)}
 
 DETALHAMENTO:
 
@@ -468,13 +469,13 @@ juros legais (para cobranças a partir de 30/03/2021 — EAREsp 676.608/STJ).
 
 Ante o exposto, requer:
 
-a) A condenação da ré ao pagamento de R$ {ctx.corrected_total:.2f} (total corrigido),
+a) A condenação da ré ao pagamento de {brl(ctx.corrected_total)} (total corrigido),
    acrescido de juros de mora de 1% ao mês a partir da citação;
-b) Estimativa de juros de mora ({estimated_months} meses): R$ {mora:.2f};
-c) VALOR DA CAUSA: R$ {valor_causa:.2f};
+b) Estimativa de juros de mora ({estimated_months} meses): {brl(mora)};
+c) VALOR DA CAUSA: {brl(valor_causa)};
 d) Condenação em honorários advocatícios e custas processuais, se cabível.
 
-Dá-se à causa o valor de R$ {valor_causa:.2f}.
+Dá-se à causa o valor de {brl(valor_causa)}.
 
 Termos em que, pede deferimento.
 [CIDADE/UF], {ctx.generated_at.strftime('%d de %B de %Y')}

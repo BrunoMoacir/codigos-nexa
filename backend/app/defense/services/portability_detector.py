@@ -18,6 +18,7 @@ from datetime import date, timedelta
 from typing import Optional
 
 from app.defense.models import DefenseFinding
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -135,10 +136,10 @@ class PortabilityDetector:
                     bank_name=bank,
                     title=f"Portabilidade recomendada — {loan_type or modality} ({bank})",
                     description=(
-                        f"Sua taxa contratada em {bank} ({rate_f*100:.2f}% a.m.) está "
+                        f"Sua taxa contratada em {bank} ({numero(rate_f*100, 2)}% a.m.) está "
                         f"{multiple:.1f}× acima da média de mercado "
-                        f"({market_avg*100:.2f}% a.m.). "
-                        f"Economia estimada com portabilidade: R$ {economy:.2f} no período. "
+                        f"({numero(market_avg*100, 2)}% a.m.). "
+                        f"Economia estimada com portabilidade: {brl(economy)} no período. "
                         f"Portabilidade é GRATUITA (Res. CMN 5.057/2022)."
                     ),
                     amount_disputed=round(economy, 2),
@@ -147,12 +148,12 @@ class PortabilityDetector:
                     evidence_points=[
                         f"Banco atual: {bank}",
                         f"Modalidade: {loan_type or modality}",
-                        f"Taxa contratada: {rate_f*100:.2f}% a.m.",
-                        f"Taxa média de mercado ({modality}): {market_avg*100:.2f}% a.m.",
+                        f"Taxa contratada: {numero(rate_f*100, 2)}% a.m.",
+                        f"Taxa média de mercado ({modality}): {numero(market_avg*100, 2)}% a.m.",
                         f"Múltiplo: {multiple:.1f}×",
-                        f"Saldo devedor: R$ {float(balance or 0):.2f}",
+                        f"Saldo devedor: {brl(float(balance or 0))}",
                         f"Prazo remanescente: {rem_months} meses",
-                        f"Economia estimada: R$ {economy:.2f}",
+                        f"Economia estimada: {brl(economy)}",
                         "Portabilidade gratuita — Res. CMN 5.057/2022.",
                     ],
                     confidence=0.90,
@@ -205,13 +206,13 @@ class PortabilityDetector:
                     detector="D6",
                     severity="medium",
                     bank_name=bank,
-                    title=f"Portabilidade pode economizar R$ {annual_economy:.2f}/ano — {bank}",
+                    title=f"Portabilidade pode economizar {brl(annual_economy)}/ano — {bank}",
                     description=(
                         f"Encargos de {trigger.replace('_', ' ').lower()} em {bank} "
-                        f"indicam potencial de economia de R$ {gain_f:.2f}/mês "
-                        f"(R$ {annual_economy:.2f}/ano) com portabilidade para IF "
+                        f"indicam potencial de economia de {brl(gain_f)}/mês "
+                        f"({brl(annual_economy)}/ano) com portabilidade para IF "
                         f"com taxa próxima à média de mercado "
-                        f"({market_avg*100:.2f}% a.m.). "
+                        f"({numero(market_avg*100, 2)}% a.m.). "
                         f"Portabilidade é gratuita (Res. CMN 5.057/2022). "
                         "Forneça a taxa contratada para análise mais precisa."
                     ),
@@ -221,9 +222,9 @@ class PortabilityDetector:
                     evidence_points=[
                         f"Banco: {bank}",
                         f"Gatilho: {trigger}",
-                        f"Economia mensal estimada: R$ {gain_f:.2f}",
-                        f"Economia anual estimada: R$ {annual_economy:.2f}",
-                        f"Taxa referência mercado: {market_avg*100:.2f}% a.m.",
+                        f"Economia mensal estimada: {brl(gain_f)}",
+                        f"Economia anual estimada: {brl(annual_economy)}",
+                        f"Taxa referência mercado: {numero(market_avg*100, 2)}% a.m.",
                         "Portabilidade gratuita — Res. CMN 5.057/2022.",
                         "Estimativa baseada em histórico — forneça taxa contratada para precisão.",
                     ],

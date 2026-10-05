@@ -20,6 +20,7 @@ import logging
 from datetime import date, timedelta
 
 from app.rights.models import ForgottenRight
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ class SvrBacenClient:
                 )
             if total_fees > 0:
                 return None, (
-                    f"Foram identificadas tarifas bancárias (total R$ {total_fees:.2f}). "
+                    f"Foram identificadas tarifas bancárias (total {brl(total_fees)}). "
                     "Tarifas cobradas indevidamente podem aparecer como crédito no SVR."
                 )
             return None, "Consulte o SVR mesmo sem cobranças recentes — contas antigas também podem ter valores."

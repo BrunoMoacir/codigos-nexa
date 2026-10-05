@@ -11,6 +11,7 @@ cálculo duplicado aqui.
 import logging
 
 from langchain_core.tools import tool
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ def get_best_bank(user_id: str, amount: float = 0.0) -> str:
         f"investidor {result.profile_used.get('investor_type')} | "
         f"pesos: rendimento {weights.get('yield', 0):.0%}, tarifas {weights.get('fees', 0):.0%}, "
         f"cartões {weights.get('card', 0):.0%}, perfil {weights.get('fit', 0):.0%}",
-        f"Valor simulado: R$ {result.amount_simulated:,.2f} por {result.holding_months} meses",
+        f"Valor simulado: {brl(result.amount_simulated)} por {result.holding_months} meses",
         "",
         "── Top 5 bancos pelo seu perfil ──",
     ]
@@ -91,7 +92,7 @@ def get_best_bank(user_id: str, amount: float = 0.0) -> str:
         marker = " ← seu banco atual" if entry.is_user_current_bank else ""
         lines.append(
             f"{i}. {entry.bank_name} — match {entry.match_score:.0f}/100 "
-            f"(rende R$ {entry.projected_annual_gain_brl:,.2f}/ano no melhor produto)"
+            f"(rende {brl(entry.projected_annual_gain_brl)}/ano no melhor produto)"
             f"{marker}"
         )
         if entry.top_card_name:

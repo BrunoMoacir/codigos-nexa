@@ -22,6 +22,7 @@ from app.defense.services.abusive_interest_detector import AbusiveInterestDetect
 from app.defense.services.unilateral_change_detector import UnilateralChangeDetector
 from app.defense.services.portability_detector import PortabilityDetector
 from app.defense.services.evidence_builder import EvidenceBuilder
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/defense", tags=["Defense (D1–D6)"])
@@ -93,7 +94,7 @@ def get_defense_analysis(
         banks = ", ".join(dict.fromkeys(f.bank_name for f in all_findings))
         summary = (
             f"{len(all_findings)} indício(s) detectado(s) em: {banks}. "
-            f"Estimativa contestável: R$ {total_disputed:.2f}. "
+            f"Estimativa contestável: {brl(total_disputed)}. "
             f"Severidade — alta: {high}, média: {medium}, baixa: {low}. "
             f"Valores são estimativas educacionais — consulte advogado."
         )
@@ -257,7 +258,7 @@ def get_portability_analysis(
         banks = ", ".join(dict.fromkeys(f.bank_name for f in findings))
         summary = (
             f"{len(findings)} oportunidade(s) de portabilidade em: {banks}. "
-            f"Economia estimada total: R$ {total:.2f}. "
+            f"Economia estimada total: {brl(total)}. "
             f"Portabilidade é gratuita (Res. CMN 5.057/2022)."
         )
 

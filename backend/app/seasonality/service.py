@@ -20,6 +20,7 @@ from datetime import date
 from app.seasonality.fiscal_calendar import CalendarEvent, active_events
 from app.seasonality.models import SeasonalEventOut, SeasonalityResponse
 from app.seasonality.profile_probe import SeasonalProfile, build_profile
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -79,21 +80,21 @@ class SeasonalityService:
             personalized = True
             description += (
                 f" Pela sua renda recorrente, esta parcela deve ficar perto de "
-                f"R$ {estimated:,.0f}."
+                f"{brl(estimated, 0)}."
             )
 
         elif raw.event_code == "DAS_MEI" and profile.last_das_amount_brl:
             estimated = profile.last_das_amount_brl
             personalized = True
             description += (
-                f" Seu último DAS foi de R$ {estimated:,.2f}."
+                f" Seu último DAS foi de {brl(estimated)}."
             )
 
         elif raw.event_code == "IPVA_IPTU" and profile.ipva_iptu_last_year_brl:
             estimated = profile.ipva_iptu_last_year_brl
             personalized = True
             description += (
-                f" No ano passado você pagou R$ {estimated:,.0f} em IPVA/IPTU — "
+                f" No ano passado você pagou {brl(estimated, 0)} em IPVA/IPTU — "
                 f"use esse valor como referência para a reserva."
             )
 
@@ -109,7 +110,7 @@ class SeasonalityService:
             else:
                 description += (
                     f" Renda anual detectada nas contas conectadas: "
-                    f"R$ {profile.annual_income_brl:,.0f} — declaração obrigatória."
+                    f"{brl(profile.annual_income_brl, 0)} — declaração obrigatória."
                 )
 
         return SeasonalEventOut(

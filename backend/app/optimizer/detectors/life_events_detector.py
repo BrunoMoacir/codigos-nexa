@@ -37,6 +37,7 @@ from app.optimizer.detectors.evidence_scorer import (
     compute_false_positive_risk,
     missing_signals_from_evidence,
 )
+from app.core.formatacao import brl
 
 if TYPE_CHECKING:
     from app.optimizer.detectors.personal_baseline import PersonalBaseline
@@ -196,8 +197,8 @@ class LifeEventsDetector:
             return None
 
         signals = [
-            f"baby_spend_recent=R${recent_spend:.0f}",
-            f"baby_spend_historical=R${hist_spend:.0f}",
+            f"baby_spend_recent={brl(recent_spend, 0)}",
+            f"baby_spend_historical={brl(hist_spend, 0)}",
             f"txn_count={txn_count}",
             f"merchant_diversity={merchant_count}",
         ] + ev.as_signals()
@@ -243,8 +244,8 @@ class LifeEventsDetector:
             return None
 
         signals = [
-            f"moving_spend=R${recent_spend:.0f}",
-            f"moving_historical=R${hist_spend:.0f}",
+            f"moving_spend={brl(recent_spend, 0)}",
+            f"moving_historical={brl(hist_spend, 0)}",
             f"txn_count={txn_count}",
             f"merchant_diversity={merchant_count}",
         ] + ev.as_signals()
@@ -298,8 +299,8 @@ class LifeEventsDetector:
             return None
 
         signals = [
-            f"wedding_spend=R${recent_spend:.0f}",
-            f"wedding_historical=R${hist_spend:.0f}",
+            f"wedding_spend={brl(recent_spend, 0)}",
+            f"wedding_historical={brl(hist_spend, 0)}",
             f"txn_count={txn_count}",
             f"merchant_diversity={merchant_count}",
             f"wedding_anchor={'sim' if has_anchor else 'nao'}",
@@ -345,7 +346,7 @@ class LifeEventsDetector:
             return None
 
         signals = [
-            f"edu_spend_recent=R${recent_spend:.0f}",
+            f"edu_spend_recent={brl(recent_spend, 0)}",
             f"txn_count={txn_count}",
             f"merchant_diversity={merchant_count}",
         ] + ev.as_signals()
