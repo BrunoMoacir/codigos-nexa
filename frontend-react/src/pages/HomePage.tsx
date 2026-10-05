@@ -1,6 +1,10 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { AppShell } from '../components/layout/AppShell';
+import { painelApi, dataLonga } from '../api/painel';
+import { getUserId } from '../api/session';
+import { useSession } from '../hooks/useAuth';
 
 interface Module {
   icon: string;
@@ -16,7 +20,7 @@ const modules: Module[] = [
     label: 'Meu Dinheiro',
     desc: 'KPIs, cashflow, regra 50/30/20 e operações em tempo real.',
     path: '/dashboard',
-    tag: 'Dados reais',
+    tag: 'Painel',
   },
   {
     icon: '◈',
@@ -54,12 +58,18 @@ export const HomePage: React.FC = () => {
   const hora = new Date().getHours();
   const saudacao = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
 
-  const userName = localStorage.getItem('user_name') || '';
-  const userEmail = localStorage.getItem('user_email') || '';
-  const firstName = userName ? userName.split(' ')[0] : '';
-  const displayName = firstName || (userEmail ? userEmail.split('@')[0] : 'Usuário');
+  const { displayName: nome } = useSession();
+  const displayName = nome.split(' ')[0];
+  const userId = getUserId();
 
-  const dataOrigin = localStorage.getItem('nexa_data_origin') === 'sandbox' ? 'sandbox' : 'real';
+  // "Produção · Dados reais" e "Pluggy integrado" eram texto fixo — o selo
+  // aparecia até para a persona de demonstração. Agora vêm do servidor: as
+  // conexões persistidas e a data do último lançamento.
+  const conexoesQ = useQuery({ queryKey: ['home', 'conexoes', userId], queryFn: painelApi.conexoes, enabled: !!userId });
+  const resumoQ = useQuery({ queryKey: ['painel', 'resumo', userId], queryFn: () => painelApi.resumo(userId, 12), enabled: !!userId });
+  const saudeQ = useQuery({ queryKey: ['painel', 'saude', userId], queryFn: () => painelApi.saude(userId, 6), enabled: !!userId });
+  const conexoes = conexoesQ.data;
+  const bancos = (conexoes?.connections || []).map(c => c.connector_name).filter(Boolean);
 
   return (
     <>
@@ -463,7 +473,7 @@ export const HomePage: React.FC = () => {
       `}</style>
 
       <div className="hp-root">
-        <AppShell current="home" title="Início" subtitle="Aqui está seu cockpit financeiro. Escolha um módulo para começar.">
+        <AppShell current="home">
           <main className="hp-main">
             {/* Greeting */}
             <div className="hp-greeting-wrap">
@@ -480,19 +490,32 @@ export const HomePage: React.FC = () => {
             <p className="hp-section-label">Visão Rápida</p>
             <div className="hp-stats">
               <div className="hp-stat">
-                <div className="hp-stat-label">Modo</div>
-                <div className="hp-stat-value">{dataOrigin === 'sandbox' ? 'Sandbox' : 'Produção'}</div>
-                <div className="hp-stat-sub">{dataOrigin === 'sandbox' ? 'Com dados de teste' : 'Dados reais'}</div>
+                <div className="hp-stat-label">Bancos conectados</div>
+                <div className="hp-stat-value">
+                  {conexoesQ.isLoading ? '…' : conexoes ? String(conexoes.total) : '—'}
+                </div>
+                <div className="hp-stat-sub">
+                  {bancos.length ? bancos.join(', ') : conexoesQ.isError ? 'não foi possível consultar' : 'nenhum ainda'}
+                  {conexoes && !conexoes.pluggy_configured && ' · sincronização indisponível neste servidor'}
+                </div>
               </div>
               <div className="hp-stat">
-                <div className="hp-stat-label">Fonte</div>
-                <div className="hp-stat-value">Open Finance</div>
-                <div className="hp-stat-sub">Pluggy integrado</div>
+                <div className="hp-stat-label">Extrato</div>
+                <div className="hp-stat-value">
+                  {resumoQ.data ? resumoQ.data.n_transactions.toLocaleString('pt-BR') : resumoQ.isLoading ? '…' : '—'}
+                </div>
+                <div className="hp-stat-sub">
+                  {resumoQ.data?.data_as_of ? `lançamentos até ${dataLonga(resumoQ.data.data_as_of)}` : 'sem lançamentos'}
+                </div>
               </div>
               <div className="hp-stat">
-                <div className="hp-stat-label">Módulos</div>
-                <div className="hp-stat-value">4 ativos</div>
-                <div className="hp-stat-sub">Dashboard + IA</div>
+                <div className="hp-stat-label">Saúde financeira</div>
+                <div className="hp-stat-value">
+                  {saudeQ.data?.current_score != null ? `${saudeQ.data.current_score}/100` : saudeQ.isLoading ? '…' : '—'}
+                </div>
+                <div className="hp-stat-sub">
+                  {saudeQ.data?.trend === 'IMPROVING' ? 'melhorando' : saudeQ.data?.trend === 'DECLINING' ? 'piorando' : saudeQ.data ? 'estável' : ''}
+                </div>
               </div>
             </div>
 

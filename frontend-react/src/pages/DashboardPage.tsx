@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { AppShell } from '../components/layout/AppShell';
-import { nexaApi } from '../api/nexa';
+import { painelApi, brl, dataCurta, dataLonga, diasDesde, rotuloMes } from '../api/painel';
+import { getErrorMessage } from '../api/errors';
+import { getUserId } from '../api/session';
+import { useSession } from '../hooks/useAuth';
 
 const css = `
   .db { display: flex; flex-direction: column; min-height: 100vh; background: #0A0806; padding: 28px 28px 40px; gap: 22px; }
@@ -108,27 +112,7 @@ const css = `
   }
 `;
 
-const MONTHS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-
-const DEMO_SPEND = [4200, 3800, 5100, 4600, 5800, 6200, 5500, 7100, 6800, 5200, 4900, 7400];
-const DEMO_TXNS = [
-  { dir: 'out' as const, icon: '🛒', name: 'Supermercado Extra',  cat: 'Alimentação',  date: '27 ago, 14:32', amount: -284.90 },
-  { dir: 'in'  as const, icon: '💼', name: 'Salário',              cat: 'Receita',       date: '25 ago, 09:00', amount: 6500.00 },
-  { dir: 'out' as const, icon: '⛽', name: 'Shell Combustível',    cat: 'Transporte',   date: '24 ago, 18:15', amount: -190.00 },
-  { dir: 'out' as const, icon: '📱', name: 'Nubank — Fatura',     cat: 'Cartão',        date: '22 ago, 12:00', amount: -1340.00 },
-  { dir: 'in'  as const, icon: '↩', name: 'Reembolso iFood',     cat: 'Estorno',       date: '20 ago, 10:30', amount: 42.00 },
-  { dir: 'out' as const, icon: '🎬', name: 'Netflix',              cat: 'Assinatura',   date: '18 ago, 00:01', amount: -55.90 },
-  { dir: 'out' as const, icon: '🏋', name: 'Smart Fit',            cat: 'Saúde',         date: '15 ago, 08:00', amount: -99.90 },
-];
-
-const DEMO_CATS = [
-  { name: 'Alimentação',  pct: 32, color: '#D4A820' },
-  { name: 'Cartão',       pct: 24, color: '#60B0F2' },
-  { name: 'Transporte',   pct: 14, color: '#2EC8A4' },
-  { name: 'Assinaturas',  pct: 9,  color: '#F07A64'  },
-  { name: 'Saúde',        pct: 8,  color: '#B08A2A'  },
-  { name: 'Outros',       pct: 13, color: 'rgba(243,239,234,0.15)' },
-];
+const CORES_CATEGORIA = ['#D4A820', '#60B0F2', '#2EC8A4', '#F07A64', '#B08A2A', 'rgba(243,239,234,0.15)'];
 
 function fmt(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(Math.abs(v));
@@ -214,49 +198,75 @@ function BarChart({ data, months, period }: { data: number[]; months: string[]; 
 
 type Period = '1a' | '6m' | '3m' | '1m';
 
+// O painel era inteiro fixo no código: gráfico (DEMO_SPEND), receita R$ 6.500,
+// saldo R$ 4.820, poupança 26% e categorias DEMO_CATS — com o rótulo "Dados
+// reais · abr/25" aparecendo assim que existia QUALQUER transação. Agora cada
+// número vem do servidor, e o que não veio aparece como ausente, não inventado.
 export const DashboardPage: React.FC = () => {
+  const navigate = useNavigate();
   const [period, setPeriod] = useState<Period>('1a');
   const [chartTab, setChartTab] = useState<'total' | 'media'>('total');
-  const userId = localStorage.getItem('user_id') || '';
-  const userName = localStorage.getItem('user_name') || localStorage.getItem('user_email') || '';
-  const displayName = userName ? userName.split(' ')[0] || userName.split('@')[0] : 'você';
+  const userId = getUserId();
+  const { displayName } = useSession();
+  const primeiroNome = displayName.split(' ')[0];
 
-  const txnQ = useQuery({
-    queryKey: ['transactions', userId],
-    queryFn: () => nexaApi.getTransactions(userId),
-    enabled: !!userId, retry: 1, staleTime: 5 * 60 * 1000,
+  const resumoQ = useQuery({
+    queryKey: ['painel', 'resumo', userId],
+    queryFn: () => painelApi.resumo(userId, 12),
+    enabled: !!userId,
+  });
+  const previsaoQ = useQuery({
+    queryKey: ['painel', 'previsao', userId],
+    queryFn: () => painelApi.previsao(userId),
+    enabled: !!userId,
+  });
+  const saudeQ = useQuery({
+    queryKey: ['painel', 'saude', userId],
+    queryFn: () => painelApi.saude(userId, 6),
+    enabled: !!userId,
+  });
+  const recentesQ = useQuery({
+    queryKey: ['painel', 'recentes', userId],
+    queryFn: () => painelApi.lancamentos(userId, 7, 0),
+    enabled: !!userId,
   });
 
-  const loading = txnQ.isLoading;
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rawTxns: any[] = txnQ.data?.transactions || [];
-  const hasReal = rawTxns.length > 0;
-
-  const txns = hasReal
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ? rawTxns.slice(0, 7).map((t: any) => ({
-        dir: (t.amount > 0 ? 'in' : 'out') as 'in' | 'out',
-        icon: t.amount > 0 ? '↑' : '↓',
-        name: t.description || t.name || 'Transação',
-        cat: t.category || 'Geral',
-        date: t.date || '',
-        amount: t.amount,
-      }))
-    : DEMO_TXNS;
+  const resumo = resumoQ.data;
+  const previsao = previsaoQ.data;
+  const saude = saudeQ.data;
+  const semExtrato = !!resumo && resumo.n_transactions === 0;
 
   const sliceMap: Record<Period, number> = { '1a': 12, '6m': 6, '3m': 3, '1m': 1 };
-  const sliceN = sliceMap[period];
-  const spendData = DEMO_SPEND.slice(12 - sliceN);
-  const monthsData = MONTHS.slice(12 - sliceN);
-
+  const meses = (resumo?.months || []).slice(-sliceMap[period]);
+  const spendData = meses.map(m => m.expenses);
+  const monthsData = meses.map(m => rotuloMes(m.month));
   const totalSpend = spendData.reduce((a, b) => a + b, 0);
-  const avgSpend   = Math.round(totalSpend / spendData.length);
-  const thisMonth  = spendData[spendData.length - 1];
-  const lastMonth  = spendData[spendData.length - 2] ?? thisMonth;
-  const spendDelta = ((thisMonth - lastMonth) / lastMonth) * 100;
+  const avgSpend = spendData.length ? totalSpend / spendData.length : 0;
+  const chartData = chartTab === 'total' ? spendData : spendData.map(() => avgSpend);
 
-  const chartData   = chartTab === 'total' ? spendData : spendData.map(() => avgSpend);
+  const ultimo = meses[meses.length - 1];
+  const anterior = meses[meses.length - 2];
+  // O mês do último lançamento ainda pode estar em curso (dado até dia 5):
+  // comparar com o mês anterior inteiro dava "−88% vs. mês ant.".
+  const mesEmCurso = !!ultimo && !!resumo?.data_as_of && resumo.data_as_of.slice(0, 7) === ultimo.month
+    && Number(resumo.data_as_of.slice(8, 10)) < 28;
+  const delta = (atual?: number, antes?: number) =>
+    !mesEmCurso && atual !== undefined && antes ? ((atual - antes) / antes) * 100 : null;
+  const pctDelta = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1).replace('.', ',')}% vs. mês ant.`;
+  const semDelta = mesEmCurso ? `mês incompleto (dados até dia ${Number(resumo!.data_as_of!.slice(8, 10))})` : 'sem mês anterior';
+  const deltaGasto = delta(ultimo?.expenses, anterior?.expenses);
+  const deltaEntrada = delta(ultimo?.income, anterior?.income);
+  const entradasPeriodo = meses.reduce((a, m) => a + m.income, 0);
+  const poupancaPeriodo = entradasPeriodo ? ((entradasPeriodo - totalSpend) / entradasPeriodo) * 100 : null;
+
+  const categorias = (resumo?.by_category || []).slice(0, 5);
+  const resto = (resumo?.by_category || []).slice(5).reduce((a, c) => a + c.pct, 0);
+  const listaCategorias = resto > 0.5
+    ? [...categorias, { category: 'Outras', pct: Math.round(resto * 10) / 10, total: 0, count: 0 }]
+    : categorias;
+
+  const idadeDoDado = diasDesde(resumo?.data_as_of);
+  const erro = resumoQ.error || previsaoQ.error;
 
   return (
     <AppShell current="dashboard">
@@ -269,7 +279,7 @@ export const DashboardPage: React.FC = () => {
             <div className="db-greeting">Painel de controle</div>
             <div className="db-title">
               Bem-vindo de volta,{' '}
-              <span>{displayName.charAt(0).toUpperCase() + displayName.slice(1)}!</span>
+              <span>{primeiroNome.charAt(0).toUpperCase() + primeiroNome.slice(1)}!</span>
             </div>
           </div>
           <div className="db-period">
@@ -282,15 +292,47 @@ export const DashboardPage: React.FC = () => {
           </div>
         </div>
 
+        {erro && (
+          <div className="db-card" role="alert" style={{ borderColor: 'rgba(240,122,100,0.35)' }}>
+            <div className="db-sum-title">Não foi possível carregar o painel</div>
+            <div className="db-txn-date" style={{ margin: '6px 0 10px' }}>{getErrorMessage(erro)}</div>
+            <button className="db-period-btn on" onClick={() => { resumoQ.refetch(); previsaoQ.refetch(); }}>
+              Tentar de novo
+            </button>
+          </div>
+        )}
+
+        {semExtrato && (
+          <div className="db-card">
+            <div className="db-sum-title">Nenhum lançamento ainda</div>
+            <div className="db-txn-date" style={{ margin: '6px 0 10px' }}>
+              Conecte um banco pelo Open Finance para o HIVE montar o seu painel com os seus dados.
+            </div>
+            <button className="db-period-btn on" onClick={() => navigate('/connections')}>Conectar banco</button>
+          </div>
+        )}
+
+        {idadeDoDado !== null && idadeDoDado > 7 && (
+          <div className="db-card" style={{ borderColor: 'rgba(236,176,64,0.35)' }}>
+            <div className="db-txn-date">
+              Seu extrato vai até {dataLonga(resumo?.data_as_of)} ({idadeDoDado} dias atrás).
+              Os números abaixo não incluem o que aconteceu depois disso —{' '}
+              <a href="/connections" style={{ color: '#D4A820' }}>sincronize o banco</a>.
+            </div>
+          </div>
+        )}
+
         {/* Row 1: Chart + KPIs */}
         <div className="db-grid">
           {/* Bar Chart */}
           <div className="db-card db-chart-card">
             <div className="db-chart-header">
               <div>
-                <div className="db-chart-label">Gastos no período</div>
+                <div className="db-chart-label">
+                  Gastos {meses.length ? `de ${monthsData[0]} a ${monthsData[monthsData.length - 1]}` : 'no período'}
+                </div>
                 <div className="db-chart-val">
-                  {fmt(totalSpend)} <span>BRL</span>
+                  {resumoQ.isLoading ? '…' : fmt(totalSpend)} <span>BRL</span>
                 </div>
               </div>
               <div className="db-chart-tabs">
@@ -300,36 +342,52 @@ export const DashboardPage: React.FC = () => {
                   onClick={() => setChartTab('media')}>Média</button>
               </div>
             </div>
-            <BarChart data={chartData} months={monthsData} period={sliceN} />
+            {resumoQ.isLoading
+              ? <div className="db-skel" style={{ height: 120 }} />
+              : spendData.length
+                ? <BarChart data={chartData} months={monthsData} period={meses.length} />
+                : <div className="db-txn-date">Sem gastos no período.</div>}
           </div>
 
           {/* KPI 2×2 */}
           <div className="db-kpis">
             <div className="db-kpi green">
               <div className="db-kpi-icon">↑</div>
-              <div className="db-kpi-label">Receita mensal</div>
-              <div className="db-kpi-val">R$ 6.500</div>
-              <div className="db-kpi-delta up">+8% vs. mês ant.</div>
+              <div className="db-kpi-label">Entradas {ultimo ? `em ${rotuloMes(ultimo.month)}` : 'do mês'}</div>
+              <div className="db-kpi-val">{ultimo ? fmt(ultimo.income) : '—'}</div>
+              <div className={`db-kpi-delta ${deltaEntrada === null ? 'neu' : deltaEntrada >= 0 ? 'up' : 'down'}`}>
+                {deltaEntrada === null ? semDelta : pctDelta(deltaEntrada)}
+              </div>
             </div>
             <div className="db-kpi red">
               <div className="db-kpi-icon">↓</div>
-              <div className="db-kpi-label">Gastos mês</div>
-              <div className="db-kpi-val">{fmt(thisMonth)}</div>
-              <div className={`db-kpi-delta ${spendDelta > 0 ? 'down' : 'up'}`}>
-                {spendDelta > 0 ? '+' : ''}{spendDelta.toFixed(1)}% vs. mês ant.
+              <div className="db-kpi-label">Gastos {ultimo ? `em ${rotuloMes(ultimo.month)}` : 'do mês'}</div>
+              <div className="db-kpi-val">{ultimo ? fmt(ultimo.expenses) : '—'}</div>
+              <div className={`db-kpi-delta ${deltaGasto === null ? 'neu' : deltaGasto > 0 ? 'down' : 'up'}`}>
+                {deltaGasto === null ? semDelta : pctDelta(deltaGasto)}
               </div>
             </div>
             <div className="db-kpi gold">
               <div className="db-kpi-icon">◈</div>
-              <div className="db-kpi-label">Saldo atual</div>
-              <div className="db-kpi-val">R$ 4.820</div>
-              <div className="db-kpi-delta neu">Conta + poupança</div>
+              <div className="db-kpi-label">Pode gastar por dia</div>
+              <div className="db-kpi-val">
+                {previsao ? brl(previsao.safe_to_spend.safe_to_spend_daily) : previsaoQ.isLoading ? '…' : '—'}
+              </div>
+              <div className={`db-kpi-delta ${previsao?.cashflow.negative_day ? 'down' : 'neu'}`}>
+                {previsao?.cashflow.negative_day
+                  ? `Saldo fica negativo em ${dataCurta(previsao.cashflow.first_negative_date)}`
+                  : typeof previsao?.safe_to_spend.current_balance === 'number'
+                    ? `Saldo atual ${fmt(previsao.safe_to_spend.current_balance)}`
+                    : 'margem segura de 30 dias'}
+              </div>
             </div>
             <div className="db-kpi blue">
               <div className="db-kpi-icon">%</div>
-              <div className="db-kpi-label">Taxa poupança</div>
-              <div className="db-kpi-val">26%</div>
-              <div className="db-kpi-delta up">Meta: 20% ✓</div>
+              <div className="db-kpi-label">Taxa de poupança</div>
+              <div className="db-kpi-val">{poupancaPeriodo === null ? '—' : `${Math.round(poupancaPeriodo)}%`}</div>
+              <div className="db-kpi-delta neu">
+                {saude?.current_score != null ? `Saúde financeira ${saude.current_score}/100` : 'no período selecionado'}
+              </div>
             </div>
           </div>
         </div>
@@ -340,40 +398,46 @@ export const DashboardPage: React.FC = () => {
           <div className="db-card db-txn-card">
             <div className="db-txn-top">
               <div className="db-txn-title">Transações Recentes</div>
-              <button className="db-txn-link">Ver todas →</button>
+              <button className="db-txn-link" onClick={() => navigate('/organizar')}>Ver todas →</button>
             </div>
 
-            {loading ? (
+            {recentesQ.isLoading ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {[1,2,3,4].map(i => <div key={i} className="db-skel" style={{ height: 44 }} />)}
               </div>
+            ) : recentesQ.error ? (
+              <div className="db-txn-date">{getErrorMessage(recentesQ.error)}</div>
+            ) : !recentesQ.data?.transactions.length ? (
+              <div className="db-txn-date">Nenhum lançamento.</div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: '30px 1fr auto auto', gap: '0 12px', alignItems: 'center' }}>
-                {/* Header cols */}
                 <div style={{ gridColumn: '1/2' }} />
                 <div className="db-txn-col-hd">Transação</div>
                 <div className="db-txn-col-hd">Categoria</div>
                 <div className="db-txn-col-hd" style={{ textAlign: 'right' }}>Valor</div>
 
-                {txns.map((t, i) => (
-                  <div key={i} style={{ display: 'contents' }}>
-                    <div style={{ padding: '9px 0', borderBottom: '1px solid rgba(243,239,234,0.04)' }}>
-                      <div className={`db-txn-ico ${t.dir}`}>{t.icon}</div>
-                    </div>
-                    <div style={{ padding: '9px 0', borderBottom: '1px solid rgba(243,239,234,0.04)' }}>
-                      <div className="db-txn-name">{t.name}</div>
-                      <div className="db-txn-date">{t.date}</div>
-                    </div>
-                    <div style={{ padding: '9px 0', borderBottom: '1px solid rgba(243,239,234,0.04)' }}>
-                      <div className="db-txn-cat">{t.cat}</div>
-                    </div>
-                    <div style={{ padding: '9px 0', borderBottom: '1px solid rgba(243,239,234,0.04)' }}>
-                      <div className={`db-txn-amt ${t.dir}`}>
-                        {t.dir === 'out' ? '−' : '+'}{fmt(t.amount)}
+                {recentesQ.data.transactions.map(t => {
+                  const dir = t.amount >= 0 ? 'in' : 'out';
+                  return (
+                    <div key={t.id} style={{ display: 'contents' }}>
+                      <div style={{ padding: '9px 0', borderBottom: '1px solid rgba(243,239,234,0.04)' }}>
+                        <div className={`db-txn-ico ${dir}`}>{dir === 'in' ? '↑' : '↓'}</div>
+                      </div>
+                      <div style={{ padding: '9px 0', borderBottom: '1px solid rgba(243,239,234,0.04)' }}>
+                        <div className="db-txn-name">{t.description || 'Transação'}</div>
+                        <div className="db-txn-date">{dataCurta(t.date)}</div>
+                      </div>
+                      <div style={{ padding: '9px 0', borderBottom: '1px solid rgba(243,239,234,0.04)' }}>
+                        <div className="db-txn-cat">{t.category || 'Outros'}</div>
+                      </div>
+                      <div style={{ padding: '9px 0', borderBottom: '1px solid rgba(243,239,234,0.04)' }}>
+                        <div className={`db-txn-amt ${dir}`}>
+                          {dir === 'out' ? '−' : '+'}{brl(Math.abs(t.amount))}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -382,20 +446,23 @@ export const DashboardPage: React.FC = () => {
           <div className="db-card db-sum-card">
             <div className="db-sum-title">Gasto por Categoria</div>
             <div className="db-sum-divider" />
-            {DEMO_CATS.map((c, i) => (
-              <div key={i} className="db-sum-item">
+            {!listaCategorias.length && <div className="db-txn-date">Sem gastos categorizados.</div>}
+            {listaCategorias.map((c, i) => (
+              <div key={c.category} className="db-sum-item">
                 <div className="db-sum-row">
-                  <div className="db-sum-name">{c.name}</div>
-                  <div className="db-sum-pct">{c.pct}%</div>
+                  <div className="db-sum-name">{c.category}</div>
+                  <div className="db-sum-pct">{c.pct.toFixed(0)}%</div>
                 </div>
                 <div className="db-sum-bar">
-                  <div className="db-sum-fill" style={{ width: `${c.pct}%`, background: c.color }} />
+                  <div className="db-sum-fill" style={{ width: `${c.pct}%`, background: CORES_CATEGORIA[i % CORES_CATEGORIA.length] }} />
                 </div>
               </div>
             ))}
             <div className="db-sum-divider" />
-            <div style={{ fontSize: '0.7rem', color: 'rgba(243,239,234,0.2)', fontWeight: 500 }}>
-              {hasReal ? 'Dados reais · abr/25' : 'Dados de demonstração'}
+            <div style={{ fontSize: '0.7rem', color: 'rgba(243,239,234,0.28)', fontWeight: 500 }}>
+              {resumo?.data_as_of
+                ? `Últimos 12 meses do extrato · até ${dataLonga(resumo.data_as_of)}`
+                : resumoQ.isLoading ? 'Carregando…' : 'Sem extrato'}
             </div>
           </div>
         </div>

@@ -1,8 +1,14 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppShell } from '../components/layout/AppShell';
-import { nexaApi } from '../api/nexa';
-import type { GoalType, GoalStatus } from '../api/types';
+import { organizarApi, amanhaISO } from '../api/organizar';
+import type { Meta, TipoMeta, StatusMeta } from '../api/organizar';
+import { brl, dataLonga } from '../api/painel';
+import { getErrorMessage } from '../api/errors';
+import { getUserId } from '../api/session';
+
+type GoalType = TipoMeta;
+type GoalStatus = StatusMeta;
 
 const cardStyle: React.CSSProperties = {
   background: 'var(--bg-surface)',
@@ -44,8 +50,14 @@ const dangerButtonStyle: React.CSSProperties = {
   border: '1px solid #fecaca',
 };
 
-function currency(value: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
+const currency = (value: number | null | undefined) => brl(value || 0);
+
+/** Número digitado no padrão brasileiro ("1.234,56") ou com ponto ("1234.56"). */
+function lerValor(txt: string): number {
+  const t = txt.trim();
+  if (!t) return NaN;
+  const normal = t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t;
+  return Number(normal);
 }
 
 const goalTypeLabels: Record<GoalType, { icon: string; label: string }> = {
@@ -57,15 +69,18 @@ const goalTypeLabels: Record<GoalType, { icon: string; label: string }> = {
   outros: { icon: '🎯', label: 'Outros' },
 };
 
+// SEM_DADOS: ainda não há ritmo de aporte registrado — antes a página caía num
+// "Moderada" que ninguém calculou.
 const feasibilityConfig = {
   EASY: { label: 'Fácil', color: '#10b981' },
   MODERATE: { label: 'Moderada', color: '#0978F6' },
   HARD: { label: 'Difícil', color: '#F39C12' },
   UNREALISTIC: { label: 'Irrealista', color: '#E74C3C' },
+  SEM_DADOS: { label: 'Sem ritmo registrado', color: '#94a3b8' },
 };
 
 export const GoalsPage: React.FC = () => {
-  const userId = localStorage.getItem('user_id') || '';
+  const userId = getUserId();
   const queryClient = useQueryClient();
 
   const [statusFilter, setStatusFilter] = useState<GoalStatus>('ACTIVE');
@@ -83,20 +98,22 @@ export const GoalsPage: React.FC = () => {
   });
 
   const [progressAmount, setProgressAmount] = useState('');
+  const [monthlyRhythm, setMonthlyRhythm] = useState('');
+  const [abandonError, setAbandonError] = useState<string | null>(null);
 
   const goalsQuery = useQuery({
     queryKey: ['goals', userId, statusFilter],
-    queryFn: () => nexaApi.getGoals(userId, statusFilter),
+    queryFn: () => organizarApi.metas(userId, statusFilter),
     enabled: !!userId,
   });
 
   const createMutation = useMutation({
     mutationFn: (data: typeof formData) =>
-      nexaApi.createGoal(userId, {
-        name: data.name,
+      organizarApi.criarMeta(userId, {
+        name: data.name.trim(),
         goal_type: data.goal_type,
-        target_amount: Number(data.target_amount),
-        current_amount: data.current_amount ? Number(data.current_amount) : 0,
+        target_amount: lerValor(data.target_amount),
+        current_amount: data.current_amount ? lerValor(data.current_amount) : 0,
         target_date: data.target_date || undefined,
       }),
     onSuccess: () => {
@@ -113,42 +130,55 @@ export const GoalsPage: React.FC = () => {
   });
 
   const updateProgressMutation = useMutation({
-    mutationFn: ({ goalId, amount }: { goalId: string; amount: number }) =>
-      nexaApi.updateGoalProgress(userId, goalId, { amount_to_add: amount }),
+    mutationFn: ({ goalId, amount, rhythm }: { goalId: string; amount: number; rhythm?: number }) =>
+      organizarApi.aportar(userId, goalId, amount, rhythm),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['goals', userId] });
-      setShowProgressModal(false);
-      setSelectedGoal(null);
-      setProgressAmount('');
+      queryClient.invalidateQueries({ queryKey: ['metas', userId] });
+      fecharAporte();
     },
   });
 
   const abandonMutation = useMutation({
-    mutationFn: (goalId: string) => nexaApi.abandonGoal(userId, goalId),
+    mutationFn: (goalId: string) => organizarApi.abandonar(userId, goalId),
+    onMutate: () => setAbandonError(null),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['goals', userId] });
+      queryClient.invalidateQueries({ queryKey: ['metas', userId] });
     },
+    // antes a falha era silenciosa: o card continuava ali e nada dizia por quê
+    onError: (err) => setAbandonError(getErrorMessage(err, 'Não foi possível encerrar a meta.')),
   });
 
-  const goals = goalsQuery.data?.goals || [];
+  const goals: Meta[] = goalsQuery.data?.goals || [];
+
+  function fecharAporte() {
+    setShowProgressModal(false);
+    setSelectedGoal(null);
+    setProgressAmount('');
+    setMonthlyRhythm('');
+  }
 
   const handleCreateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.target_amount) return;
+    if (!formData.name.trim() || !(lerValor(formData.target_amount) > 0)) return;
     createMutation.mutate(formData);
   };
 
   const handleProgressSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedGoal || !progressAmount) return;
+    const amount = lerValor(progressAmount);
+    if (!selectedGoal || !(amount > 0)) return;
+    const rhythm = lerValor(monthlyRhythm);
     updateProgressMutation.mutate({
       goalId: selectedGoal,
-      amount: Number(progressAmount),
+      amount,
+      rhythm: rhythm > 0 ? rhythm : undefined,
     });
   };
 
   const handleAbandon = (goalId: string, goalName: string) => {
-    if (confirm(`Tem certeza que deseja abandonar a meta "${goalName}"?`)) {
+    if (confirm(`Encerrar a meta "${goalName}"? Ela vai para "Abandonadas" e sai das projeções.`)) {
       abandonMutation.mutate(goalId);
     }
   };
@@ -190,8 +220,20 @@ export const GoalsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Empty state */}
-      {!goalsQuery.isLoading && goals.length === 0 && (
+      {goalsQuery.isError && (
+        <div style={{ ...cardStyle, color: '#b91c1c', marginBottom: 16 }}>
+          {getErrorMessage(goalsQuery.error, 'Não foi possível carregar suas metas.')}{' '}
+          <button onClick={() => goalsQuery.refetch()} style={{ ...secondaryButtonStyle, padding: '4px 10px', marginLeft: 8 }}>
+            Tentar de novo
+          </button>
+        </div>
+      )}
+      {abandonError && (
+        <div style={{ ...cardStyle, color: '#b91c1c', marginBottom: 16 }}>{abandonError}</div>
+      )}
+
+      {/* Empty state — só quando a lista veio e está vazia (erro não é "nenhuma meta") */}
+      {goalsQuery.isSuccess && goals.length === 0 && (
         <div style={{ ...cardStyle, textAlign: 'center', padding: 60 }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🎯</div>
           <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>
@@ -212,11 +254,10 @@ export const GoalsPage: React.FC = () => {
 
       {/* Goals grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
-        {goals.map((goal: any) => {
-          const pct = goal.target_amount > 0 ? (goal.current_amount / goal.target_amount) * 100 : 0;
-          const typeInfo = goalTypeLabels[goal.goal_type as GoalType] || goalTypeLabels.outros;
-          const feasibility = goal.projection?.feasibility || 'MODERATE';
-          const feasibilityInfo = feasibilityConfig[feasibility as keyof typeof feasibilityConfig];
+        {goals.map((goal) => {
+          const pct = goal.progress_pct ?? (goal.target_amount > 0 ? (goal.current_amount / goal.target_amount) * 100 : 0);
+          const typeInfo = goalTypeLabels[goal.goal_type] || goalTypeLabels.outros;
+          const feasibilityInfo = goal.projection ? feasibilityConfig[goal.projection.feasibility] : null;
 
           return (
             <div key={goal.goal_id} style={{ ...cardStyle, position: 'relative' }}>
@@ -249,7 +290,7 @@ export const GoalsPage: React.FC = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                   <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Progresso</span>
                   <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
-                    {pct.toFixed(1)}%
+                    {pct.toFixed(1).replace('.', ',')}%
                   </span>
                 </div>
                 <div style={{ height: 10, background: 'var(--bg-hover)', borderRadius: 999, overflow: 'hidden' }}>
@@ -281,7 +322,7 @@ export const GoalsPage: React.FC = () => {
 
                 {goal.target_date && (
                   <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    📅 Prazo: {new Date(goal.target_date).toLocaleDateString('pt-BR')}
+                    📅 Prazo: {dataLonga(goal.target_date)}
                   </div>
                 )}
               </div>
@@ -297,15 +338,22 @@ export const GoalsPage: React.FC = () => {
                   }}
                 >
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>PROJEÇÃO</div>
-                  {goal.projection.months_to_complete && (
+                  {goal.projection.months_to_complete != null && goal.projection.months_to_complete > 0 && (
                     <div style={{ fontSize: 13, marginBottom: 4 }}>
-                      ⏱️ {goal.projection.months_to_complete} meses para conclusão
+                      ⏱️ {goal.projection.months_to_complete} {goal.projection.months_to_complete === 1 ? 'mês' : 'meses'} para conclusão no ritmo atual
                     </div>
                   )}
-                  <div style={{ fontSize: 13, marginBottom: 4 }}>
-                    💰 {currency(goal.projection.monthly_contribution_needed)}/mês necessários
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                  {goal.projection.monthly_contribution_needed > 0 && (
+                    <div style={{ fontSize: 13, marginBottom: 4 }}>
+                      💰 {currency(goal.projection.monthly_contribution_needed)}/mês necessários
+                    </div>
+                  )}
+                  {goal.projection.current_monthly_actual > 0 && (
+                    <div style={{ fontSize: 13, marginBottom: 4 }}>
+                      📈 Você aporta {currency(goal.projection.current_monthly_actual)}/mês
+                    </div>
+                  )}
+                  {feasibilityInfo && <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
                     <div
                       style={{
                         width: 8,
@@ -317,7 +365,10 @@ export const GoalsPage: React.FC = () => {
                     <span style={{ fontSize: 12, fontWeight: 600, color: feasibilityInfo.color }}>
                       {feasibilityInfo.label}
                     </span>
-                  </div>
+                  </div>}
+                  {goal.projection.suggestion && (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>{goal.projection.suggestion}</div>
+                  )}
                 </div>
               )}
 
@@ -332,7 +383,7 @@ export const GoalsPage: React.FC = () => {
                     marginBottom: 16,
                   }}
                 >
-                  {goal.projection.alerts.slice(0, 2).map((alert: string, idx: number) => (
+                  {goal.projection.alerts.slice(0, 2).map((alert, idx) => (
                     <div key={idx} style={{ fontSize: 12, color: '#92400e', marginBottom: 4 }}>
                       ⚠️ {alert}
                     </div>
@@ -350,12 +401,14 @@ export const GoalsPage: React.FC = () => {
                     }}
                     style={{ ...secondaryButtonStyle, flex: 1 }}
                   >
-                    💵 Adicionar Progresso
+                    💵 Registrar aporte
                   </button>
                   <button
                     onClick={() => handleAbandon(goal.goal_id, goal.name)}
                     style={dangerButtonStyle}
                     disabled={abandonMutation.isPending}
+                    title="Encerrar meta"
+                    aria-label={`Encerrar a meta ${goal.name}`}
                   >
                     🗑️
                   </button>
@@ -404,7 +457,8 @@ export const GoalsPage: React.FC = () => {
         >
           <div
             style={{
-              background: 'white',
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-color)',
               borderRadius: 16,
               padding: 24,
               width: '90%',
@@ -465,12 +519,11 @@ export const GoalsPage: React.FC = () => {
                   Valor da Meta (R$) *
                 </label>
                 <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={formData.target_amount}
                   onChange={(e) => setFormData({ ...formData, target_amount: e.target.value })}
-                  placeholder="Valor alvo da meta"
+                  placeholder="Ex.: 25.000,00"
                   required
                   style={{
                     width: '100%',
@@ -487,12 +540,11 @@ export const GoalsPage: React.FC = () => {
                   Valor Já Acumulado (R$)
                 </label>
                 <input
-                  type="number"
-                  step="0.01"
-                  min="0"
+                  type="text"
+                  inputMode="decimal"
                   value={formData.current_amount}
                   onChange={(e) => setFormData({ ...formData, current_amount: e.target.value })}
-                  placeholder="0.00"
+                  placeholder="0,00"
                   style={{
                     width: '100%',
                     padding: 10,
@@ -511,7 +563,7 @@ export const GoalsPage: React.FC = () => {
                   type="date"
                   value={formData.target_date}
                   onChange={(e) => setFormData({ ...formData, target_date: e.target.value })}
-                  min={new Date().toISOString().split('T')[0]}
+                  min={amanhaISO()}
                   style={{
                     width: '100%',
                     padding: 10,
@@ -538,7 +590,7 @@ export const GoalsPage: React.FC = () => {
 
               {createMutation.isError && (
                 <div style={{ marginTop: 12, padding: 10, background: '#fee', borderRadius: 8, color: '#b91c1c', fontSize: 13 }}>
-                  Erro ao criar meta. Tente novamente.
+                  {getErrorMessage(createMutation.error, 'Erro ao criar meta. Tente novamente.')}
                 </div>
               )}
             </form>
@@ -561,15 +613,12 @@ export const GoalsPage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 1000,
           }}
-          onClick={() => {
-            setShowProgressModal(false);
-            setSelectedGoal(null);
-            setProgressAmount('');
-          }}
+          onClick={fecharAporte}
         >
           <div
             style={{
-              background: 'white',
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-color)',
               borderRadius: 16,
               padding: 24,
               width: '90%',
@@ -577,7 +626,7 @@ export const GoalsPage: React.FC = () => {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>Adicionar Progresso</h2>
+            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>Registrar aporte</h2>
 
             <form onSubmit={handleProgressSubmit}>
               <div style={{ marginBottom: 20 }}>
@@ -585,14 +634,35 @@ export const GoalsPage: React.FC = () => {
                   Valor a Adicionar (R$) *
                 </label>
                 <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={progressAmount}
                   onChange={(e) => setProgressAmount(e.target.value)}
-                  placeholder="500.00"
+                  placeholder="500,00"
                   required
                   autoFocus
+                  style={{
+                    width: '100%',
+                    padding: 12,
+                    borderRadius: 8,
+                    border: '1px solid var(--border-color)',
+                    fontSize: 16,
+                  }}
+                />
+              </div>
+
+              {/* Sem o ritmo mensal a projeção não tem como dizer quando a meta
+                  fecha — é o que deixa a viabilidade em "Sem ritmo registrado". */}
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                  Quanto você costuma guardar por mês para ela? (opcional)
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={monthlyRhythm}
+                  onChange={(e) => setMonthlyRhythm(e.target.value)}
+                  placeholder="Ex.: 300,00"
                   style={{
                     width: '100%',
                     padding: 12,
@@ -606,24 +676,20 @@ export const GoalsPage: React.FC = () => {
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowProgressModal(false);
-                    setSelectedGoal(null);
-                    setProgressAmount('');
-                  }}
+                  onClick={fecharAporte}
                   style={secondaryButtonStyle}
                   disabled={updateProgressMutation.isPending}
                 >
                   Cancelar
                 </button>
                 <button type="submit" style={primaryButtonStyle} disabled={updateProgressMutation.isPending}>
-                  {updateProgressMutation.isPending ? 'Salvando...' : 'Adicionar'}
+                  {updateProgressMutation.isPending ? 'Salvando...' : 'Registrar'}
                 </button>
               </div>
 
               {updateProgressMutation.isError && (
                 <div style={{ marginTop: 12, padding: 10, background: '#fee', borderRadius: 8, color: '#b91c1c', fontSize: 13 }}>
-                  Erro ao atualizar progresso. Tente novamente.
+                  {getErrorMessage(updateProgressMutation.error, 'Erro ao registrar o aporte. Tente novamente.')}
                 </div>
               )}
             </form>
