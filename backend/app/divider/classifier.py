@@ -21,6 +21,36 @@ from app.divider.subcategory_classifier import get_pj_subcategory_classifier
 
 logger = logging.getLogger(__name__)
 
+# ── Regras que dependem da DIREÇÃO do dinheiro ──────────────────────────────
+#
+# As regras antigas olhavam só a palavra: "salario" e "aluguel" eram PJ, e
+# qualquer valor acima de R$ 2.000 também. O salário CLT da Ana ("credito
+# salario folha mensal acme ltda") virava receita de empresa — o relatório
+# fiscal cobrava DAS de R$ 10 mil de quem não é MEI e o IncomeProfiler (que
+# lê só PF) zerava a renda dela. Ao mesmo tempo, os recebimentos da
+# maquininha do Bruno, que É MEI, ficavam UNCERTAIN e o fiscal dele dizia
+# "sem receita".
+
+# Crédito que é renda de pessoa física (CLT, benefício, restituição)
+RENDA_PF_RE = (
+    r"\b(salario|folha|13o?\s*salario|decimo\s*terceiro|ferias|plr|"
+    r"adiantamento\s*salarial|restituicao|inss|aposentadoria|pensao|fgts)\b"
+)
+# Crédito que é receita de negócio: liquidação de maquininha/adquirente,
+# cliente PJ, nota fiscal, prestação de serviço
+RECEITA_PJ_RE = (
+    r"(maquininha|\*\s*vendas?\b|\bstone\b|getnet|pagseguro|pagbank|cielo|"
+    r"\brede\s*(card)?\b|sumup|mercado\s*pago\s*vendas?|cliente\s*pj|"
+    r"nota\s*fiscal|\bnfs?-?e\b|prestacao\s*(de\s*)?servico)"
+)
+# Débito que é despesa de negócio (folha paga, aluguel comercial, imposto do MEI)
+DESPESA_PJ_RE = (
+    r"(pagamento\s*(de\s*)?(salario|folha)|folha\s*de\s*pagamento|"
+    r"aluguel\s*(sala|escritorio|comercial|loja|galpao|ponto)|"
+    r"\bdas\s*(mei|simples)\b|simples\s*nacional)"
+)
+
+
 class PFPJClassifier:
     """
     Classificador PF/PJ baseado em regras vetorizadas (Polars expressions).
@@ -67,20 +97,26 @@ class PFPJClassifier:
             if "merchant" in transactions_df.columns
             else pl.lit("")
         )
-        amount_abs = pl.col("amount").abs()
 
         # Padrões regex: une keywords com "|" para uma única passagem por linha
         pj_kw  = "|".join(re.escape(k) for k in fb.pj_keywords)
         pf_kw  = "|".join(re.escape(k) for k in fb.pf_keywords)
-        pj_mch = "|".join(re.escape(m) for m in ["microsoft", "fornecedor", "imobiliaria", "cemig", "contador"])
-        pf_mch = "|".join(re.escape(m) for m in ["uber", "netflix", "starbucks", "cinepolis", "spotify"])
+        pj_mch = "|".join(re.escape(m) for m in fb.pj_merchants)
+        pf_mch = "|".join(re.escape(m) for m in fb.pf_merchants)
+        credito = pl.col("amount") > 0
+        categoria = pl.col("category").fill_null("")
 
+        # Mesma ordem de PFPJFallbackClassifier.classify (testada lá).
         label_expr = (
-            pl.when(pl.col("category").fill_null("").is_in(fb.pj_categories))
+            pl.when(credito & desc_col.str.contains(RECEITA_PJ_RE))
+            .then(pl.lit("PJ"))
+            .when(credito & desc_col.str.contains(RENDA_PF_RE))
+            .then(pl.lit("PF"))
+            .when(~credito & desc_col.str.contains(DESPESA_PJ_RE))
+            .then(pl.lit("PJ"))
+            .when(categoria.is_in(fb.pj_categories) | (~credito & (categoria == "SALARY")))
             .then(pl.lit("PJ"))
             .when(desc_col.str.contains(pj_kw))
-            .then(pl.lit("PJ"))
-            .when(amount_abs > 2000)
             .then(pl.lit("PJ"))
             .when(desc_col.str.contains(pf_kw))
             .then(pl.lit("PF"))
@@ -98,12 +134,16 @@ class PFPJClassifier:
         #   o filtro de confiança do agente — ficava sempre nulo porque
         #   nenhuma via o produzia.
         confidence_expr = (
-            pl.when(pl.col("category").fill_null("").is_in(fb.pj_categories))
+            pl.when(credito & desc_col.str.contains(RECEITA_PJ_RE))
+            .then(pl.lit(0.85))   # liquidação de adquirente / nota fiscal
+            .when(credito & desc_col.str.contains(RENDA_PF_RE))
+            .then(pl.lit(0.85))   # salário / benefício
+            .when(~credito & desc_col.str.contains(DESPESA_PJ_RE))
+            .then(pl.lit(0.80))
+            .when(categoria.is_in(fb.pj_categories) | (~credito & (categoria == "SALARY")))
             .then(pl.lit(0.85))   # categoria estruturada do banco
             .when(desc_col.str.contains(pj_kw))
             .then(pl.lit(0.80))   # keyword inequívoca na descrição
-            .when(amount_abs > 2000)
-            .then(pl.lit(0.60))   # só o valor: heurística fraca
             .when(desc_col.str.contains(pf_kw))
             .then(pl.lit(0.80))
             .when(merch_col.str.contains(pj_mch))
@@ -149,20 +189,30 @@ class PFPJFallbackClassifier:
     """
 
     def __init__(self):
+        # Sem 'salario' (crédito de salário é PF; débito é coberto por
+        # DESPESA_PJ_RE), 'aluguel' e 'imobiliaria' (aluguel residencial é PF;
+        # o comercial está em DESPESA_PJ_RE).
         self.pj_keywords = [
-            'empresa', 'ltda', 'fornecedor', 'aluguel', 'escritorio', 'imobiliaria',
+            'empresa', 'ltda', 'fornecedor', 'escritorio',
             'viagem negocios', 'software', 'corporativo', 'marketing', 'cemig empresas',
-            'consultoria', 'contador', 'salario', 'papelaria'
+            'consultoria', 'contador', 'papelaria'
         ]
         self.pf_keywords = [
             'uber', 'netflix', 'carrefour', 'academia', 'restaurante', 'drogaria',
             'shopping', 'cinepolis', 'padaria', 'spotify', 'lavanderia', 'starbucks',
-            'pet shop', 'livraria', 'pix recebido', 'amigo'
+            'pet shop', 'livraria', 'pix recebido', 'amigo',
+            # moradia da família — o aluguel comercial está em DESPESA_PJ_RE
+            'aluguel apartamento', 'aluguel casa', 'aluguel kitnet', 'aluguel residencial',
+            'condominio',
         ]
+        # Só categorias de negócio. SALARY conta como PJ apenas no débito
+        # (empresa pagando folha); RENT, UTILITIES e TELEPHONE são contas de
+        # casa na maioria dos extratos e iam todas para a empresa.
         self.pj_categories = [
-            'SALARY', 'OFFICE_SUPPLIES', 'RENT', 'SOFTWARE', 'CONSULTING',
-            'MARKETING', 'UTILITIES', 'TELEPHONE'
+            'OFFICE_SUPPLIES', 'SOFTWARE', 'CONSULTING', 'MARKETING',
         ]
+        self.pj_merchants = ['microsoft', 'fornecedor', 'cemig', 'contador']
+        self.pf_merchants = ['uber', 'netflix', 'starbucks', 'cinepolis', 'spotify']
 
     def classify(self, transaction: Dict[str, Any]) -> str:
         """Classifica usando regras determinísticas"""
@@ -184,17 +234,27 @@ class PFPJFallbackClassifier:
         # Converte para tipos apropriados
         description = description.lower()
         merchant = merchant.lower()
+        credito = amount > 0
         amount = abs(amount)
 
-        # Regras de alta prioridade
-        if category in self.pj_categories:
+        # Direção primeiro: o mesmo texto é renda PF num crédito e despesa PJ
+        # num débito ("salario").
+        if credito and re.search(RECEITA_PJ_RE, description):
+            return 'PJ'
+        if credito and re.search(RENDA_PF_RE, description):
+            return 'PF'
+        if not credito and re.search(DESPESA_PJ_RE, description):
+            return 'PJ'
+
+        if category in self.pj_categories or (not credito and category == 'SALARY'):
             return 'PJ'
 
         if any(kw in description for kw in self.pj_keywords):
             return 'PJ'
 
-        if amount > 2000:
-            return 'PJ'
+        # Sem a regra "valor > R$ 2.000 → PJ": smartphone, eletrodoméstico e
+        # aluguel de casa viravam despesa da empresa. Valor alto sem outro
+        # sinal fica UNCERTAIN.
 
         if any(kw in description for kw in self.pf_keywords):
             return 'PF'
@@ -203,9 +263,9 @@ class PFPJFallbackClassifier:
             return 'PF'
 
         # Merchants conhecidos
-        if any(m in merchant for m in ['microsoft', 'fornecedor', 'imobiliaria', 'cemig', 'contador']):
+        if any(m in merchant for m in self.pj_merchants):
             return 'PJ'
-        if any(m in merchant for m in ['uber', 'netflix', 'starbucks', 'cinepolis', 'spotify']):
+        if any(m in merchant for m in self.pf_merchants):
             return 'PF'
 
         return 'UNCERTAIN'

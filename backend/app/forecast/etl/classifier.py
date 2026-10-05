@@ -98,7 +98,10 @@ CATEGORY_KEYWORDS = {
         r"\b(cdb|lci|lca|tesouro|fundo)\b",
         r"\b(acoes|stock|bolsa|b3)\b",
         r"\b(bitcoin|cripto|crypto)\b",
-        r"\b(rendimento|dividend|juros)\b",
+        # "juros" sozinho casava com "juros rotativo cartao": o encargo do
+        # rotativo virava Investimento e o 50/30/20 contava como poupança.
+        # Só juros que o cliente RECEBE (JCP) são rendimento.
+        r"\b(rendimento|dividend|jcp|juros\s+sobre\s+(o\s+)?capital)\b",
         r"\b(poupanca|savings)\b",
     ],
     

@@ -174,8 +174,9 @@ def test_fallback_rules():
     test_cases = [
         # Regra 1: Categoria PJ exclusiva
         {
-            "name": "2.1 Categoria SALARY → PJ",
-            "transaction": {"description": "Pagamento", "category": "SALARY", "amount": 1000, "hour_of_day": 10},
+            # SALARY só é PJ no débito (empresa pagando folha); no crédito é renda PF
+            "name": "2.1 Categoria SALARY no débito → PJ",
+            "transaction": {"description": "Pagamento", "category": "SALARY", "amount": -1000, "hour_of_day": 10},
             "expected": "PJ"
         },
         # Regra 2: Categoria PF exclusiva
@@ -198,9 +199,10 @@ def test_fallback_rules():
         },
         # Regra 5: Valor alto
         {
-            "name": "2.5 Valor > R$ 2000 → PJ",
+            # Sem a regra "valor alto = empresa": smartphone e aluguel de casa viravam PJ
+            "name": "2.5 Valor > R$ 2000 sem outro sinal → UNCERTAIN",
             "transaction": {"description": "Pagamento", "category": "OTHER", "amount": 3000, "hour_of_day": 10},
-            "expected": "PJ"
+            "expected": "UNCERTAIN"
         },
         # Regra 6: Valor baixo + fora horário comercial
         {
@@ -285,7 +287,7 @@ def test_hybrid_classifier():
             "expected": "PF"
         },
         {
-            "name": "Salário (PJ claro)",
+            "name": "Salário recebido (PF — renda do CLT)",
             "transaction": {
                 "description": "SALARIO EMPRESA LTDA",
                 "category": "SALARY",
@@ -293,7 +295,7 @@ def test_hybrid_classifier():
                 "transaction_date": "2024-01-30T08:00:00Z",
                 "merchant": "Empresa XYZ"
             },
-            "expected": "PJ"
+            "expected": "PF"
         }
     ]
     

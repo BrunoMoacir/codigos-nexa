@@ -140,7 +140,10 @@ class PJSubcategoryClassifier:
 
         # 2. Receita por sinal positivo + keywords fortes (apenas keywords explícitas aqui)
         if amount > 0:
-            for kw in ["cliente", "pagamento recebido", "nf ", "nota fiscal", "recebimento"]:
+            # Liquidação de maquininha/adquirente = venda.
+            if re.search(r"(maquininha|\*\s*vendas?\b|\bvendas?\b|\bstone\b|getnet|pagseguro|pagbank|cielo|sumup)", text):
+                return "receita_produtos"
+            for kw in ["cliente", "pagamento recebido", "nf ", "nota fiscal", "recebimento", "prestacao"]:
                 if kw in text:
                     return "receita_servicos"
 
@@ -155,8 +158,9 @@ class PJSubcategoryClassifier:
 
         # 4. Heuristicas por valor — so chegam aqui transacoes sem nenhuma keyword
         amount_abs = abs(amount)
-        if amount > 0 and amount_abs > 500:
-            # Credito alto sem keyword identificada: provavelmente receita de servico
+        if amount > 0:
+            # Crédito PJ é receita — o pequeno (≤ R$ 500) caía em
+            # "despesa_outros_pj" e virava despesa no relatório fiscal.
             return "receita_servicos"
         if amount < 0 and amount_abs > 5000:
             # Debito muito alto sem keyword: provavelmente pessoal/fornecedor
