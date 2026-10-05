@@ -30,6 +30,13 @@ _comparator = PeerComparator()
 # ENDPOINT: GET /peers/compare/{user_id}
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def _sem_acento(texto: str) -> str:
+    import unicodedata
+    return "".join(
+        c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn"
+    ).lower().strip()
+
+
 @router.get(
     "/compare/{user_id}",
     status_code=status.HTTP_200_OK,
@@ -42,7 +49,7 @@ _comparator = PeerComparator()
     ),
 )
 @cache_response(prefix="peers", ttl=1800)  # 30 min
-async def compare_peers(
+def compare_peers(
     user_id: str = Depends(require_owner),
     monthly_income: float | None = Query(
         default=None,
@@ -119,10 +126,21 @@ async def compare_peers(
     except Exception as exc:
         logger.debug("Peers: ConsumptionProfiler indisponível para %s: %s", user_id, exc)
 
-    # Filtrar pela janela de meses e apenas débitos
-    if "date" in df.columns:
-        cutoff = datetime.date.today() - datetime.timedelta(days=history_months * 30)
-        df = df.filter(pl.col("date").cast(pl.Date) >= cutoff)
+    # Filtrar pela janela de meses e apenas débitos. A janela ancora no
+    # último lançamento quando o extrato está parado — contada a partir de
+    # hoje, ela pegava ~2 meses de dado e o total ainda era dividido por 3.
+    meses_com_dado = history_months
+    if "date" in df.columns and not df.is_empty():
+        ultimo = df.select(pl.col("date").cast(pl.Date).max()).item()
+        ancora = min(ultimo, datetime.date.today()) if ultimo else datetime.date.today()
+        cutoff = ancora - datetime.timedelta(days=history_months * 30)
+        df = df.filter(pl.col("date").cast(pl.Date) > cutoff)
+        meses_com_dado = max(
+            1,
+            df.filter(pl.col("amount") < 0)
+            .select(pl.col("date").cast(pl.Date).dt.strftime("%Y-%m").n_unique())
+            .item() or 1,
+        )
 
     debit_rows = df.filter(pl.col("amount") < 0).select(["amount", "category"]).to_dicts()
 
@@ -135,14 +153,13 @@ async def compare_peers(
     # ── 3. Agregar por categoria e calcular média mensal ──────────────
     raw: dict[str, float] = {}
     for row in debit_rows:
-        cat = (row.get("category") or "outros").lower().strip()
+        # sem acento: "Alimentação" não casava com a chave "alimentacao" do
+        # benchmark e o gasto caía em "outros"
+        cat = _sem_acento(row.get("category") or "outros")
         raw[cat] = raw.get(cat, 0.0) + abs(float(row["amount"]))
 
-    category_spending = (
-        {k: v / history_months for k, v in raw.items()}
-        if history_months > 1
-        else raw
-    )
+    # Divide pelos meses que TÊM dado na janela, não pelo pedido.
+    category_spending = {k: v / meses_com_dado for k, v in raw.items()}
 
     # ── 4. Comparar com benchmarks ────────────────────────────────────
     try:

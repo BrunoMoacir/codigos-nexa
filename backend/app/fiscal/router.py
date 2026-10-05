@@ -48,8 +48,41 @@ class FiscalReportResponse(BaseModel):
     das_aliquota_efetiva: float   # em %
     das_estimado: float
     das_faixa: str
+    # O relatório calculava e o contrato descartava: sem eles a tela não
+    # tinha como explicar "Sem receita bruta no período" nem Anexo III × V.
+    das_anexo: str = "III"
+    fator_r: Optional[float] = None
+    das_observacao: str = ""
 
     total_transactions: int
+
+
+# Antes de "/{user_id}": declarada depois, "/forgotten-rights" casava com
+# "/{user_id}" (user_id="forgotten-rights") e respondia 403 — era inalcançável.
+@router.get("/forgotten-rights", response_model=ForgottenRightsReport)
+async def get_forgotten_rights(
+    user_id: str = Depends(require_owner),
+):
+    """
+    T3 - Monitor de Direitos Esquecidos (visão fiscal).
+
+    Retorna o status de verificação por fonte, sem fabricar valores:
+    - SVR BACEN → consulta REAL assistida em `POST /rights/{user_id}/svr/check`
+    - Restituição IRPF → consulta REAL autorizada em `POST /rights/{user_id}/ir/check`
+    - FGTS → orientação (sem API pública para terceiros)
+
+    O parâmetro `cpf` foi REMOVIDO: era obrigatório, viajava na query string —
+    e portanto em access log, proxy, histórico do navegador e header Referer —
+    numa funcionalidade cujo compromisso declarado é registrar só CPF
+    mascarado. E nenhum dos três conectores chegava a usá-lo. Onde o CPF é de
+    fato necessário (`POST /rights/{user_id}/svr/check`), ele vai no corpo.
+    """
+    try:
+        report = await _rights_monitor.run_scan(user_id=user_id)
+        return report
+    except Exception as exc:
+        logger.error("Erro ao buscar direitos esquecidos user=%s: %s", user_id, exc)
+        raise HTTPException(status_code=500, detail="Erro ao buscar direitos esquecidos.")
 
 
 @router.get("/{user_id}", response_model=FiscalReportResponse)
@@ -94,6 +127,9 @@ async def get_fiscal_report(
         das_aliquota_efetiva=report.das_aliquota_efetiva,
         das_estimado=report.das_estimado,
         das_faixa=report.das_faixa,
+        das_anexo=report.das_anexo,
+        fator_r=report.fator_r,
+        das_observacao=report.das_observacao,
         total_transactions=report.total_transactions,
     )
 
@@ -272,28 +308,3 @@ def get_ir_pf_breakeven(
 # ---------------------------------------------------------------------------
 # T3 — Monitor de Direitos Esquecidos
 # ---------------------------------------------------------------------------
-
-@router.get("/forgotten-rights", response_model=ForgottenRightsReport)
-async def get_forgotten_rights(
-    user_id: str = Depends(require_owner),
-):
-    """
-    T3 - Monitor de Direitos Esquecidos (visão fiscal).
-
-    Retorna o status de verificação por fonte, sem fabricar valores:
-    - SVR BACEN → consulta REAL assistida em `POST /rights/{user_id}/svr/check`
-    - Restituição IRPF → consulta REAL autorizada em `POST /rights/{user_id}/ir/check`
-    - FGTS → orientação (sem API pública para terceiros)
-
-    O parâmetro `cpf` foi REMOVIDO: era obrigatório, viajava na query string —
-    e portanto em access log, proxy, histórico do navegador e header Referer —
-    numa funcionalidade cujo compromisso declarado é registrar só CPF
-    mascarado. E nenhum dos três conectores chegava a usá-lo. Onde o CPF é de
-    fato necessário (`POST /rights/{user_id}/svr/check`), ele vai no corpo.
-    """
-    try:
-        report = await _rights_monitor.run_scan(user_id=user_id)
-        return report
-    except Exception as exc:
-        logger.error("Erro ao buscar direitos esquecidos user=%s: %s", user_id, exc)
-        raise HTTPException(status_code=500, detail="Erro ao buscar direitos esquecidos.")

@@ -40,6 +40,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Optional
+from app.core.formatacao import numero
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -365,7 +366,10 @@ class PeerComparator:
             "moda": "vestuario",
             "assinaturas": "outros",
         }
-        key = cat.lower().strip()
+        import unicodedata
+        key = "".join(
+            c for c in unicodedata.normalize("NFD", cat or "") if unicodedata.category(c) != "Mn"
+        ).lower().strip().replace(" ", "_")
         return mapping.get(key, key)
 
     # ── Método principal ─────────────────────────────────────────────
@@ -440,21 +444,21 @@ class PeerComparator:
             if delta > _DELTA_THRESHOLD:
                 status  = "acima"
                 insight = (
-                    f"Você gasta {user_pct*100:.1f}% da renda em {label.lower()} "
-                    f"— {delta*100:.1f} p.p. acima do esperado para {peer_ref} ({bench_pct*100:.1f}%)."
+                    f"Você gasta {numero(user_pct*100, 1)}% da renda em {label.lower()} "
+                    f"— {numero(delta*100, 1)} p.p. acima do esperado para {peer_ref} ({numero(bench_pct*100, 1)}%)."
                 )
             elif delta < -_DELTA_THRESHOLD:
                 status  = "abaixo"
                 insight = (
-                    f"Você gasta {user_pct*100:.1f}% em {label.lower()} "
-                    f"— {abs(delta)*100:.1f} p.p. abaixo do esperado para {peer_ref} ({bench_pct*100:.1f}%). "
+                    f"Você gasta {numero(user_pct*100, 1)}% em {label.lower()} "
+                    f"— {numero(abs(delta)*100, 1)} p.p. abaixo do esperado para {peer_ref} ({numero(bench_pct*100, 1)}%). "
                     "Ótimo controle."
                 )
             else:
                 status  = "na_media"
                 insight = (
-                    f"Seu gasto em {label.lower()} ({user_pct*100:.1f}%) "
-                    f"está dentro do esperado para {peer_ref} ({bench_pct*100:.1f}%)."
+                    f"Seu gasto em {label.lower()} ({numero(user_pct*100, 1)}%) "
+                    f"está dentro do esperado para {peer_ref} ({numero(bench_pct*100, 1)}%)."
                 )
 
             comparisons.append(CategoryComparison(
@@ -479,22 +483,22 @@ class PeerComparator:
         if savings_delta > _DELTA_THRESHOLD:
             savings_status  = "acima"
             savings_insight = (
-                f"Seu índice de poupança ({user_savings_rate*100:.1f}%) está "
-                f"{savings_delta*100:.1f} p.p. acima do esperado para {peer_ref_savings} "
-                f"({benchmark_savings_rate*100:.1f}%). Excelente!"
+                f"Seu índice de poupança ({numero(user_savings_rate*100, 1)}%) está "
+                f"{numero(savings_delta*100, 1)} p.p. acima do esperado para {peer_ref_savings} "
+                f"({numero(benchmark_savings_rate*100, 1)}%). Excelente!"
             )
         elif savings_delta < -_DELTA_THRESHOLD:
             savings_status  = "abaixo"
             savings_insight = (
-                f"Seu índice de poupança ({user_savings_rate*100:.1f}%) está "
-                f"{abs(savings_delta)*100:.1f} p.p. abaixo do esperado para {peer_ref_savings} "
-                f"({benchmark_savings_rate*100:.1f}%)."
+                f"Seu índice de poupança ({numero(user_savings_rate*100, 1)}%) está "
+                f"{numero(abs(savings_delta)*100, 1)} p.p. abaixo do esperado para {peer_ref_savings} "
+                f"({numero(benchmark_savings_rate*100, 1)}%)."
             )
         else:
             savings_status  = "na_media"
             savings_insight = (
-                f"Seu índice de poupança ({user_savings_rate*100:.1f}%) "
-                f"está dentro do esperado para {peer_ref_savings} ({benchmark_savings_rate*100:.1f}%)."
+                f"Seu índice de poupança ({numero(user_savings_rate*100, 1)}%) "
+                f"está dentro do esperado para {peer_ref_savings} ({numero(benchmark_savings_rate*100, 1)}%)."
             )
 
         comparisons.append(CategoryComparison(
@@ -533,7 +537,7 @@ class PeerComparator:
         if highlights_below:
             parts.append(f"Controle acima do esperado em: {', '.join(highlights_below[:3])}.")
         parts.append(
-            f"Índice de poupança ({user_savings_rate*100:.1f}%) — {percentile_label} "
+            f"Índice de poupança ({numero(user_savings_rate*100, 1)}%) — {percentile_label} "
             f"dos {peer_group}."
         )
         summary_text = " ".join(parts)
