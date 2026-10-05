@@ -12,7 +12,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # Reutiliza o mesmo tipo já definido no projeto
-RiskLevel = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+# UNKNOWN: sem margem segura calculada — não é o mesmo que "estoura a margem".
+RiskLevel = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL", "UNKNOWN"]
 
 
 class PaymentMethod(str, Enum):
@@ -51,6 +52,15 @@ class PurchaseRequest(BaseModel):
     apply_opportunity_cost: bool = Field(
         default=True,
         description="Aplicar custo de oportunidade de capital (CDI) no ranking de opções",
+    )
+    safe_to_spend: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Margem segura do mês (R$) que o app já mostra (GET /forecast). "
+            "Ausente = o backend calcula; sem saldo conhecido, usa o mesmo "
+            "pipeline do /forecast."
+        ),
     )
 
     @model_validator(mode="after")
@@ -151,7 +161,9 @@ class FollowUpQuestion(BaseModel):
 class LiquidityImpact(BaseModel):
     safe_to_spend_before: float
     safe_to_spend_after: float
-    affordable: bool                        # True se net_cost <= safe_to_spend_before
+    # None = margem desconhecida. Era False com safe-to-spend 0, e a resposta
+    # dizia "estoura sua margem" (risco CRITICAL) por falta de DADO.
+    affordable: Optional[bool]
     risk_level: RiskLevel
 
 
@@ -162,6 +174,10 @@ class PurchaseRecommendation(BaseModel):
     recommended_method: PaymentMethod
     recommended_label: str
     recommended_net_cost: float             # custo líquido da opção recomendada (total - reward)
+    # Mesmo critério do ranking (inclui o rendimento do CDI no parcelado): o
+    # topo mostrava `recommended_net_cost` e a lista `net_cost_real`, e a
+    # mesma opção aparecia com dois valores.
+    recommended_net_cost_real: Optional[float] = None
     reasoning: str                          # explicação em linguagem natural
     options: list[PaymentOption]            # todas as opções ranqueadas (melhor → pior)
     liquidity_impact: LiquidityImpact

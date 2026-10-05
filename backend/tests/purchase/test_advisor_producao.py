@@ -55,11 +55,26 @@ def _extrato(renda=9_000.0, aluguel=2_800.0, saldo=14_000.0, meses=8) -> pl.Data
     return pl.DataFrame(linhas)
 
 
+# O extrato do teste é fixo (jan–ago/2026, salário no dia 5). A projeção
+# ancorava em HOJE: no dia 5 de qualquer mês o salário entrava no início da
+# janela e o "usuário apertado" ganhava folga — os testes de margem venciam
+# com o calendário. A referência é o fim do extrato, como para o burn rate.
+_HOJE_DO_EXTRATO = dt.date(2026, 8, 20)
+
+
 def _analisar(df: pl.DataFrame | None = None, **kw):
+    from app.forecast.cashflow.projector import CashflowProjector
+
     df = _extrato() if df is None else df
     pedido = {"user_id": "u", "amount": 3_000.0, "category": "Eletrônicos",
               "installments": 12, **kw}
-    with patch.object(PurchaseAdvisor, "_fetch_transactions", return_value=df):
+    projetar = CashflowProjector.project
+
+    def em_agosto(self, *args, reference_date=None, **kwargs):
+        return projetar(self, *args, reference_date=reference_date or _HOJE_DO_EXTRATO, **kwargs)
+
+    with patch.object(PurchaseAdvisor, "_fetch_transactions", return_value=df), \
+         patch.object(CashflowProjector, "project", em_agosto):
         return PurchaseAdvisor().analyze(PurchaseRequest(**pedido))
 
 
@@ -281,7 +296,21 @@ class TestPenalidadeDeRitmo:
         assert parcelado.net_cost_real <= vpl + 0.01
 
     def test_sem_folga_penaliza(self):
-        rec = _analisar(_extrato(renda=4_000.0, aluguel=3_200.0, saldo=1_200.0))
+        """
+        O ritmo é medido no MÊS DE REFERÊNCIA. O extrato do teste é fixo
+        (jan–ago/2026) e o advisor usava a data de hoje: escrito em agosto, o
+        teste passava; em outubro o mês corrente não tinha gasto nenhum, a
+        penalidade não disparava, e o teste vencia com o calendário.
+        """
+        from app.forecast.cashflow.burn_rate import BurnRateAnalyzer
+
+        original = BurnRateAnalyzer.analyze
+
+        def em_agosto(self, df, current_date=None, monthly_income=None):
+            return original(self, df, current_date=dt.date(2026, 8, 20), monthly_income=monthly_income)
+
+        with patch.object(BurnRateAnalyzer, "analyze", em_agosto):
+            rec = _analisar(_extrato(renda=4_000.0, aluguel=3_200.0, saldo=1_200.0))
         ordem = [o.method for o in rec.options]
         assert ordem.index(PaymentMethod.CARTAO_AVISTA) < ordem.index(PaymentMethod.CARTAO_PARCELADO)
 

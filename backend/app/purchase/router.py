@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from app.core.security import get_current_user, require_owner
 from app.purchase.models import PurchaseRequest, PurchaseRecommendation
 from app.purchase.purchase_advisor import PurchaseAdvisor
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/purchase", tags=["Purchase Advisor (F7)"])
@@ -43,7 +44,7 @@ class CheckoutContext(BaseModel):
     recommended_label: str
     recommended_method: str
     savings_vs_worst: float = Field(..., description="R$ economizados vs. a pior opção listada")
-    affordable: bool
+    affordable: Optional[bool]  # None = margem segura desconhecida
     risk_level: str
     safe_to_spend_after: float
     options: list[CheckoutOption]
@@ -70,7 +71,7 @@ class RecentReviewResponse(BaseModel):
 
 
 @router.post("/analyze", response_model=PurchaseRecommendation)
-async def analyze_purchase(
+def analyze_purchase(
     request: PurchaseRequest,
     current_user: str = Depends(get_current_user),
 ) -> PurchaseRecommendation:
@@ -125,7 +126,7 @@ async def analyze_purchase(
     response_model=CheckoutContext,
     summary="R1.a — Contexto compacto do F7 para o momento da compra",
 )
-async def get_checkout_context(
+def get_checkout_context(
     user_id: str = Depends(require_owner),
     amount: float = Query(..., gt=0, description="Valor da compra (R$)"),
     category: str = Query(default="Outros", description="Categoria da compra"),
@@ -159,14 +160,22 @@ async def get_checkout_context(
     def _cost(o) -> float:
         return o.net_cost_real if o.net_cost_real is not None else o.net_cost
 
+    # Mesmo critério de custo para recomendada e pior: comparava o
+    # net_cost da recomendada com o net_cost_real da pior.
+    custo_recomendada = (
+        result.recommended_net_cost_real
+        if result.recommended_net_cost_real is not None else result.recommended_net_cost
+    )
     worst = max(result.options, key=_cost) if result.options else None
     savings_vs_worst = (
-        round(_cost(worst) - result.recommended_net_cost, 2) if worst else 0.0
+        round(_cost(worst) - custo_recomendada, 2) if worst else 0.0
     )
 
     # Veredito em uma frase: recomendação + situação de liquidez
     liquidity = result.liquidity_impact
-    if not liquidity.affordable:
+    if liquidity.affordable is None:
+        caution = " Não consegui calcular sua margem segura — confira o saldo."
+    elif not liquidity.affordable:
         caution = " Atenção: essa compra estoura sua margem segura do mês."
     elif liquidity.risk_level in ("HIGH", "CRITICAL"):
         caution = " Cabe no orçamento, mas aperta sua margem segura."
@@ -174,8 +183,8 @@ async def get_checkout_context(
         caution = ""
     verdict = (
         f"Pague com {result.recommended_label} — custo líquido de "
-        f"R$ {result.recommended_net_cost:,.2f}"
-        + (f", R$ {savings_vs_worst:,.2f} mais barato que a pior opção" if savings_vs_worst > 0 else "")
+        f"{brl(custo_recomendada)}"
+        + (f", {brl(savings_vs_worst)} mais barato que a pior opção" if savings_vs_worst > 0 else "")
         + f".{caution}"
     )
 
@@ -209,7 +218,7 @@ async def get_checkout_context(
     response_model=RecentReviewResponse,
     summary="R1.a — Revisão retroativa das compras grandes recentes",
 )
-async def get_recent_review(user_id: str = Depends(require_owner)) -> RecentReviewResponse:
+def get_recent_review(user_id: str = Depends(require_owner)) -> RecentReviewResponse:
     """
     **R1.a — o F7 olhando para trás.**
 

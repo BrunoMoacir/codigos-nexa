@@ -37,6 +37,7 @@ from app.purchase.models import (
 )
 from app.purchase.opportunity_cost import apply_opportunity_cost
 from app.purchase.profile_context import build_profile_context, apply_profile_fit
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -126,16 +127,27 @@ class PurchaseAdvisor:
             data_sources.append("user_profile_analyzer")
 
         # ── 5. Safe-to-spend (com renda para limiares relativos) ─────
-        safe_to_spend_result = self._fetch_safe_to_spend_result(
-            request.user_id, transactions_df, monthly_income or None
-        )
-        safe_to_spend: float = (
-            safe_to_spend_result.safe_to_spend_total if safe_to_spend_result else 0.0
-        )
-        if safe_to_spend_result is not None:
+        # Ordem: o valor que o app já mostra (vem do /forecast) → cálculo
+        # local (precisa de saldo do Open Finance) → o pipeline do /forecast.
+        # Antes só havia o cálculo local, que exige snapshot de saldo: sem ele
+        # a análise dizia "Safe-to-spend indisponível" ao lado da tela que
+        # exibia o safe-to-spend.
+        safe_to_spend_conhecido: Optional[float] = request.safe_to_spend
+        if safe_to_spend_conhecido is not None:
             data_sources.append("f1_safe_to_spend")
         else:
-            warnings.append("Safe-to-spend indisponível: impacto no orçamento não calculado.")
+            safe_to_spend_result = self._fetch_safe_to_spend_result(
+                request.user_id, transactions_df, monthly_income or None
+            )
+            if safe_to_spend_result is not None:
+                safe_to_spend_conhecido = float(safe_to_spend_result.safe_to_spend_total)
+            else:
+                safe_to_spend_conhecido = self._safe_to_spend_do_forecast(request.user_id)
+            if safe_to_spend_conhecido is not None:
+                data_sources.append("f1_safe_to_spend")
+            else:
+                warnings.append("Safe-to-spend indisponível: impacto no orçamento não calculado.")
+        safe_to_spend: float = safe_to_spend_conhecido or 0.0
 
         # ── 6. Pressão de fatura ─────────────────────────────────────
         invoice_horizon = self._fetch_invoice_horizon(
@@ -299,12 +311,13 @@ class PurchaseAdvisor:
         liquidity = self._build_liquidity_impact(
             option=recommended,
             safe_to_spend=safe_to_spend,
+            conhecido=safe_to_spend_conhecido is not None,
         )
 
         # ── 18. Confidence score ─────────────────────────────────────
         confidence = self._compute_confidence(
             has_transactions=not transactions_df.is_empty(),
-            has_safe_to_spend=safe_to_spend_result is not None,
+            has_safe_to_spend=safe_to_spend_conhecido is not None,
             has_income=monthly_income > 0,
             has_profile=fin_profile is not None,
             warning_count=len(warnings),
@@ -343,6 +356,7 @@ class PurchaseAdvisor:
             recommended_method=recommended.method,
             recommended_label=recommended.label,
             recommended_net_cost=recommended.net_cost,
+            recommended_net_cost_real=recommended.net_cost_real,
             reasoning=reasoning,
             options=options,
             liquidity_impact=liquidity,
@@ -453,6 +467,17 @@ class PurchaseAdvisor:
             )
         except Exception as exc:
             logger.warning("PurchaseAdvisor | safe_to_spend falhou: %s", exc)
+            return None
+
+    @staticmethod
+    def _safe_to_spend_do_forecast(user_id: str) -> Optional[float]:
+        """O mesmo safe-to-spend que o GET /forecast e o widget mostram."""
+        try:
+            from app.runner import get_runner, safe_to_spend_total
+
+            return safe_to_spend_total(get_runner().run_from_db(user_id=user_id, horizon_days=30))
+        except Exception as exc:
+            logger.warning("PurchaseAdvisor | safe_to_spend do forecast indisponível: %s", exc)
             return None
 
     @staticmethod
@@ -654,7 +679,7 @@ class PurchaseAdvisor:
     def _build_pix_option(self, amount: float, cheio: Optional[float] = None) -> PaymentOption:
         desconto = (cheio - amount) if (cheio and cheio > amount) else 0.0
         notes = (
-            f"Desconto à vista de R$ {desconto:.2f} sobre o preço cheio."
+            f"Desconto à vista de {brl(desconto)} sobre o preço cheio."
             if desconto > 0
             else "Sem juros, sem cashback. Melhor para negociar desconto à vista."
         )
@@ -679,7 +704,7 @@ class PurchaseAdvisor:
             monthly_cost=None,
             installments=1,
             reward_value=reward,
-            notes=f"Gera ~R$ {reward:.2f} em cashback/pontos ({reward_rate:.1%} do valor).",
+            notes=f"Gera ~{brl(reward)} em cashback/pontos ({reward_rate:.1%} do valor).",
         )
 
     def _build_card_parcelado_option(
@@ -695,8 +720,8 @@ class PurchaseAdvisor:
             installments=installments,
             reward_value=reward,
             notes=(
-                f"{installments}x de R$ {monthly:.2f} sem juros. "
-                f"Gera ~R$ {reward:.2f} em cashback/pontos."
+                f"{installments}x de {brl(monthly)} sem juros. "
+                f"Gera ~{brl(reward)} em cashback/pontos."
             ),
         )
 
@@ -715,8 +740,8 @@ class PurchaseAdvisor:
             installments=installments,
             reward_value=0.0,
             notes=(
-                f"Taxa {monthly_rate * 100:.2f}% a.m. | {installments}x de R$ {pmt:.2f} | "
-                f"Custo total: R$ {total:.2f} (+R$ {total - amount:.2f} de juros)."
+                f"Taxa {numero(monthly_rate * 100, 2)}% a.m. | {installments}x de {brl(pmt)} | "
+                f"Custo total: {brl(total)} (+{brl(total - amount)} de juros)."
             ),
         )
 
@@ -800,8 +825,8 @@ class PurchaseAdvisor:
 
         # Nenhuma opção acessível mensalmente: avisar e retornar a de menor custo real
         warnings.append(
-            f"Esta compra (R$ {options[0].net_cost_real or options[0].net_cost:.2f}) excede sua margem atual "
-            f"(R$ {safe_to_spend:.2f}). Considere adiar ou reduzir o valor."
+            f"Esta compra ({brl(options[0].net_cost_real or options[0].net_cost)}) excede sua margem atual "
+            f"({brl(safe_to_spend)}). Considere adiar ou reduzir o valor."
         )
         return _best_by_cost(options)
 
@@ -849,7 +874,7 @@ class PurchaseAdvisor:
                     question_id="cash_price",
                     question=(
                         f"A loja dá desconto no Pix ou dinheiro? "
-                        f"Se o à vista sair por menos de R$ {preco_virada:,.2f} "
+                        f"Se o à vista sair por menos de {brl(preco_virada)} "
                         f"({desconto_pct:.1%} de desconto), ele passa a ser a melhor opção."
                     ),
                     field_to_populate="cash_price",
@@ -857,7 +882,7 @@ class PurchaseAdvisor:
                     rationale=(
                         f"Sem essa informação as duas modalidades são tratadas pelo mesmo "
                         f"preço, e aí o Pix perde por construção — hoje ele fica "
-                        f"R$ {pix.net_cost_real - melhor_outro.net_cost_real:,.2f} atrás. "
+                        f"{brl(pix.net_cost_real - melhor_outro.net_cost_real)} atrás. "
                         f"Desconto à vista é prática comum no varejo e legal desde 2022."
                     ),
                     breakeven=round(preco_virada, 2),
@@ -891,8 +916,8 @@ class PurchaseAdvisor:
                             question_id="installments_total",
                             question=(
                                 f"O total em {request.installments}x é os mesmos "
-                                f"R$ {request.amount:,.2f} ou sai mais caro? "
-                                f"Acima de R$ {total_virada:,.2f} "
+                                f"{brl(request.amount)} ou sai mais caro? "
+                                f"Acima de {brl(total_virada)} "
                                 f"(+{acrescimo:.1%}) o parcelamento deixa de valer."
                             ),
                             field_to_populate="installments_total",
@@ -939,12 +964,18 @@ class PurchaseAdvisor:
         return perguntas
 
     def _build_liquidity_impact(
-        self, option: PaymentOption, safe_to_spend: float
+        self, option: PaymentOption, safe_to_spend: float, conhecido: bool = True
     ) -> LiquidityImpact:
         """
         Calcula impacto de liquidez comparando a saída mensal esperada com o safe_to_spend.
         Para parcelado sem juros usa `monthly_cost`; para à vista/PIX considera o total no mês corrente.
+        Sem safe-to-spend conhecido → UNKNOWN (não CRITICAL).
         """
+        if not conhecido:
+            return LiquidityImpact(
+                safe_to_spend_before=0.0, safe_to_spend_after=0.0,
+                affordable=None, risk_level="UNKNOWN",
+            )
         monthly = option.monthly_cost if (option.monthly_cost is not None and option.installments and option.installments > 1) else option.total_cost
         after = max(0.0, safe_to_spend - monthly)
         affordable = monthly <= safe_to_spend
@@ -986,20 +1017,20 @@ class PurchaseAdvisor:
         # ── Bloco 1: O que recomendo e por quê ──────────────────────
         cost_real = recommended.net_cost_real if recommended.net_cost_real is not None else recommended.net_cost
         lines.append(
-            f"Para R$ {request.amount:,.2f} em {request.category}, "
+            f"Para {brl(request.amount)} em {request.category}, "
             f"a recomendação é **{recommended.label}** "
-            f"(custo efetivo: R$ {cost_real:,.2f})."
+            f"(custo efetivo: {brl(cost_real)})."
         )
 
         if recommended.opportunity_cost_gain > 0 and recommended.method == PaymentMethod.CARTAO_PARCELADO:
             lines.append(
-                f"O capital parcelado rende ~R$ {recommended.opportunity_cost_gain:.2f} no CDI "
+                f"O capital parcelado rende ~{brl(recommended.opportunity_cost_gain)} no CDI "
                 f"({cdi_annual:.1%} a.a.) durante as {recommended.installments} parcelas — "
-                f"tornando o parcelamento R$ {recommended.opportunity_cost_gain:.2f} mais barato que à vista."
+                f"tornando o parcelamento {brl(recommended.opportunity_cost_gain)} mais barato que à vista."
             )
         elif recommended.reward_value > 0:
             lines.append(
-                f"Você gera R$ {recommended.reward_value:.2f} em cashback/pontos, reduzindo o custo real."
+                f"Você gera {brl(recommended.reward_value)} em cashback/pontos, reduzindo o custo real."
             )
         # Comparação com a pior opção (considerando net_cost_real quando disponível)
         worst = max(all_options, key=lambda o: (o.net_cost_real if getattr(o, 'net_cost_real', None) is not None else o.net_cost))
@@ -1007,26 +1038,31 @@ class PurchaseAdvisor:
         if worst_cost > cost_real:
             saved = round(worst_cost - cost_real, 2)
             lines.append(
-                f"Comparado à pior opção ({worst.label}), você economiza R$ {saved:.2f}."
+                f"Comparado à pior opção ({worst.label}), você economiza {brl(saved)}."
             )
 
         # ── Bloco 2: Como isso afeta sua situação atual ─────────────
-        if not liquidity.affordable:
+        if liquidity.affordable is None:
+            lines.append(
+                "Não consegui calcular sua margem segura do mês — confira o "
+                "saldo antes de decidir pelo à vista."
+            )
+        elif not liquidity.affordable:
             lines.append(
                 f"⚠️ Esta compra excede sua margem disponível "
-                f"(R$ {liquidity.safe_to_spend_before:,.2f}). "
+                f"({brl(liquidity.safe_to_spend_before)}). "
                 "Considere parcelas menores ou adiar a compra."
             )
         elif monthly_income > 0:
             ratio_pct = liquidity.safe_to_spend_before / monthly_income * 100
             lines.append(
-                f"Seu safe-to-spend é R$ {liquidity.safe_to_spend_before:,.2f} "
+                f"Seu safe-to-spend é {brl(liquidity.safe_to_spend_before)} "
                 f"({ratio_pct:.0f}% da renda). "
-                f"Após a compra: R$ {liquidity.safe_to_spend_after:,.2f}."
+                f"Após a compra: {brl(liquidity.safe_to_spend_after)}."
             )
         else:
             lines.append(
-                f"Após a compra, sua margem restante será de R$ {liquidity.safe_to_spend_after:,.2f}."
+                f"Após a compra, sua margem restante será de {brl(liquidity.safe_to_spend_after)}."
             )
 
         if invoice_horizon:
@@ -1034,14 +1070,14 @@ class PurchaseAdvisor:
             if pressure == "CRITICAL":
                 lines.append(
                     f"⚠️ Fatura fecha em {invoice_horizon.days_to_close} dia(s) com "
-                    f"R$ {invoice_horizon.current_cycle_committed:,.2f} já comprometidos "
+                    f"{brl(invoice_horizon.current_cycle_committed)} já comprometidos "
                     f"({invoice_horizon.total_committed / invoice_horizon.monthly_income:.0%} da renda) — "
                     "prefira PIX para evitar rotativo."
                 )
             elif pressure == "HEAVY":
                 lines.append(
                     f"Fatura fecha em {invoice_horizon.days_to_close} dias com "
-                    f"R$ {invoice_horizon.total_committed:,.2f} comprometidos — "
+                    f"{brl(invoice_horizon.total_committed)} comprometidos — "
                     "atenção ao impacto no ciclo atual."
                 )
 
@@ -1089,9 +1125,9 @@ class PurchaseAdvisor:
                 if gap > 0:
                     lines.append(
                         f"Meta '{most_urgent.name}': você precisa de "
-                        f"R$ {most_urgent.monthly_contribution_needed:,.0f}/mês e está guardando "
-                        f"R$ {most_urgent.monthly_contribution_actual or 0:,.0f}/mês "
-                        f"(falta R$ {gap:,.0f}/mês) — considere o impacto desta compra nos aportes."
+                        f"{brl(most_urgent.monthly_contribution_needed, 0)}/mês e está guardando "
+                        f"{brl(most_urgent.monthly_contribution_actual or 0, 0)}/mês "
+                        f"(falta {brl(gap, 0)}/mês) — considere o impacto desta compra nos aportes."
                     )
 
         # ── Bloco 4: Histórico e alertas de perfil ──────────────────

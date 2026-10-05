@@ -7,6 +7,7 @@ from langchain_core.tools import tool
 
 from app.purchase.models import PurchaseRequest
 from app.purchase.purchase_advisor import PurchaseAdvisor
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +72,9 @@ def get_purchase_recommendation(
 
         # ── Formatar saída para o LLM ────────────────────────────────
         lines = [
-            f"=== ANÁLISE DE COMPRA: {category} — R$ {amount:,.2f} ===",
+            f"=== ANÁLISE DE COMPRA: {category} — {brl(amount)} ===",
             f"Recomendação: {result.recommended_label}",
-            f"Custo líquido: R$ {result.recommended_net_cost:,.2f}",
+            f"Custo líquido: {brl(result.recommended_net_cost)}",
             "",
             result.reasoning,
             "",
@@ -81,17 +82,17 @@ def get_purchase_recommendation(
         ]
 
         for i, opt in enumerate(result.options, start=1):
-            reward_str = f" | Reward: R$ {opt.reward_value:.2f}" if opt.reward_value > 0 else ""
+            reward_str = f" | Reward: {brl(opt.reward_value)}" if opt.reward_value > 0 else ""
             installment_str = (
-                f" | {opt.installments}x de R$ {opt.monthly_cost:.2f}"
+                f" | {opt.installments}x de {brl(opt.monthly_cost)}"
                 if opt.monthly_cost and opt.installments and opt.installments > 1
                 else ""
             )
             lines.append(
                 f"{i}. {opt.label}"
-                f" | Custo total: R$ {opt.total_cost:,.2f}"
+                f" | Custo total: {brl(opt.total_cost)}"
                 f"{reward_str}"
-                f" | Custo líquido: R$ {opt.net_cost:,.2f}"
+                f" | Custo líquido: {brl(opt.net_cost)}"
                 f"{installment_str}"
             )
             if opt.notes:
@@ -100,9 +101,9 @@ def get_purchase_recommendation(
         lines += [
             "",
             "── Impacto no orçamento ──",
-            f"Margem atual (safe-to-spend): R$ {result.liquidity_impact.safe_to_spend_before:,.2f}",
-            f"Margem após a compra: R$ {result.liquidity_impact.safe_to_spend_after:,.2f}",
-            f"Acessível: {'Sim' if result.liquidity_impact.affordable else 'Não ⚠️'}",
+            f"Margem atual (safe-to-spend): {brl(result.liquidity_impact.safe_to_spend_before)}",
+            f"Margem após a compra: {brl(result.liquidity_impact.safe_to_spend_after)}",
+            f"Acessível: {'não calculado (sem margem segura)' if result.liquidity_impact.affordable is None else ('Sim' if result.liquidity_impact.affordable else 'Não ⚠️')}",
             f"Risco: {result.liquidity_impact.risk_level}",
         ]
 
