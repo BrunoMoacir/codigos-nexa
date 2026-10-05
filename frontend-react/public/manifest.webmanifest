@@ -28,6 +28,17 @@
       "name": "Feed de Oportunidades",
       "short_name": "Feed",
       "url": "/feed"
+    },
+    {
+      "name": "Quanto posso gastar hoje",
+      "short_name": "Hoje",
+      "url": "/widget",
+      "description": "Margem segura do dia"
+    },
+    {
+      "name": "Organizar",
+      "short_name": "Organizar",
+      "url": "/organizar"
     }
   ]
 }

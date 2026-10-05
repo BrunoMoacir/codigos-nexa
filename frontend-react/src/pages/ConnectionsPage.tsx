@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { AppShell } from '../components/layout/AppShell';
-import { nexaApi } from '../api/nexa';
-import { API_BASE_URL } from '../api/client';
+import { painelApi, dataLonga, diasDesde, ROTULO_ORIGEM } from '../api/painel';
+import { conexoesApi, htmlDoWidget } from '../api/conexoes';
 import { followSyncJob, pluggySyncApi } from '../api/pluggySync';
 import type { SyncJobState } from '../api/pluggySync';
+import { describeError, getErrorMessage } from '../api/errors';
+import { getUserId } from '../api/session';
 
 const card: React.CSSProperties = {
   background: 'var(--bg-surface)',
@@ -13,7 +15,6 @@ const card: React.CSSProperties = {
   borderRadius: 12,
   padding: 18,
 };
-
 const button: React.CSSProperties = {
   border: '1px solid #111',
   background: 'var(--text-primary)',
@@ -23,354 +24,235 @@ const button: React.CSSProperties = {
   fontSize: 13,
   cursor: 'pointer',
 };
+const rotulo: React.CSSProperties = { fontSize: 11, letterSpacing: 0.8, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 };
+const faixa = (cor: 'erro' | 'aviso' | 'info'): React.CSSProperties => ({
+  fontSize: 12, borderRadius: 8, padding: 10, marginBottom: 10,
+  ...(cor === 'erro' ? { color: '#991b1b', background: '#fef2f2', border: '1px solid #fecaca' }
+    : cor === 'aviso' ? { color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a' }
+      : { color: '#1d4ed8', background: '#eff6ff', border: '1px solid #bfdbfe' }),
+});
+
+/** Dados que dependem do extrato: invalidar depois de um sync. */
+const CHAVES_DO_EXTRATO = [['painel'], ['organizar'], ['feed'], ['metas'], ['goals'], ['estrategias'], ['optimizer'], ['fiscal'], ['costs'], ['peers']];
 
 export const ConnectionsPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [perfMultiplier, setPerfMultiplier] = useState(100);
-  const [connectToken, setConnectToken] = useState<string>('');
-  const [widgetError, setWidgetError] = useState<string>('');
-  const [widgetInfo, setWidgetInfo] = useState<string>('');
+  const [widget, setWidget] = useState<{ token: string; atualizar?: string } | null>(null);
+  const [widgetErro, setWidgetErro] = useState('');
   const [syncProgress, setSyncProgress] = useState<SyncJobState | null>(null);
-  const token = localStorage.getItem('jwt_token') || '';
-  const apiBase = API_BASE_URL;
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
-  const setDataOrigin = (mode: 'real' | 'sandbox') => {
-    localStorage.setItem('nexa_data_origin', mode);
-    localStorage.setItem('nexa_data_origin_updated_at', new Date().toISOString());
-  };
-
-  const itemsQuery = useQuery({
-    queryKey: ['pluggy-items'],
-    queryFn: () => nexaApi.getPluggyItems(),
+  // Lista persistida: funciona mesmo sem credenciais da Pluggy (o /items
+  // responde 503 e a tela dizia "Nenhuma conta conectada").
+  const conexoesQ = useQuery({ queryKey: ['pluggy', 'conexoes'], queryFn: painelApi.conexoes });
+  const conexoes = conexoesQ.data?.connections || [];
+  const qualidadeQ = useQuery({
+    queryKey: ['pluggy', 'qualidade', getUserId()],
+    queryFn: () => conexoesApi.qualidade(getUserId()),
+    enabled: conexoes.length > 0, retry: false,
   });
+  const pluggyOk = conexoesQ.data?.pluggy_configured ?? false;
 
-  useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      const payload = event.data;
-      if (!payload || typeof payload !== 'object') {
-        return;
-      }
+  const terminarSync = useCallback((state: SyncJobState) => {
+    if (state.status === 'ERROR') {
+      // a mensagem de progresso ("Baixando transações…") aparecia como erro
+      toast.error(state.error || state.message || 'Falha ao sincronizar transações.');
+      return;
+    }
+    const totais = state.totals || { saved: 0, accounts: 0 };
+    (state.status === 'PARTIAL' ? toast : toast.success)(
+      state.message || `Sincronizado: ${totais.saved} lançamentos em ${totais.accounts} conta(s).`,
+    );
+    conexoesQ.refetch();
+    qualidadeQ.refetch();
+    CHAVES_DO_EXTRATO.forEach(queryKey => queryClient.invalidateQueries({ queryKey }));
+  }, [conexoesQ, qualidadeQ, queryClient]);
 
-      if (payload.type === 'pluggy-success') {
-        setWidgetError('');
-        setWidgetInfo('Conta conectada com sucesso. Atualize a lista para ver o item.');
-        setDataOrigin('real');
-        toast.success('Conta conectada com sucesso.');
-        itemsQuery.refetch();
-      }
+  const acompanhar = useCallback(async (job: SyncJobState): Promise<SyncJobState> => {
+    setSyncProgress(job);
+    if (job.done) return job;
+    return followSyncJob({ jobId: job.job_id, cursor: job.cursor, onState: setSyncProgress });
+  }, []);
 
-      if (payload.type === 'pluggy-error') {
-        const code = payload.errorCode || payload.code || payload.error?.code || 'desconhecido';
-        const message = payload.message || payload.error?.message || 'Falha ao conectar conta na Pluggy.';
-        const composed = `Erro Pluggy (${code}): ${message}`;
-        setWidgetError(composed);
-        setWidgetInfo('');
-        toast.error(composed);
-      }
-
-      if (payload.type === 'pluggy-close') {
-        setWidgetInfo('Widget fechado.');
-      }
-    };
-
-    window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  }, [itemsQuery.refetch]);
-
-  // Sync assíncrono: o backend devolve um job na hora e o progresso chega por
-  // SSE (com fallback para long-polling). O sync bloqueante antigo devolvia
-  // zero transações numa conexão recém-criada — o banco ainda não tinha
-  // entregado os dados quando a resposta saía.
   const syncMutation = useMutation({
-    mutationFn: async () => {
-      const job = await pluggySyncApi.startSyncJob();
-      setSyncProgress(job);
-      if (job.done) return job;
-
-      return followSyncJob({
-        jobId: job.job_id,
-        cursor: job.cursor,
-        onState: setSyncProgress,
-      });
-    },
-    onSuccess: (state) => {
-      const totals = state?.totals || { saved: 0, accounts: 0 };
-
-      if (state.status === 'ERROR') {
-        toast.error(state.message || state.error || 'Falha ao sincronizar transações.');
-        return;
-      }
-
-      setDataOrigin('real');
-      const notify = state.status === 'PARTIAL' ? toast : toast.success;
-      notify(
-        state.message ||
-          `Sync concluído: ${totals.saved} transações em ${totals.accounts} contas.`
-      );
-
-      itemsQuery.refetch();
-      // Invalidar queries que dependem de transações
-      queryClient.invalidateQueries({ queryKey: ['forecast'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['goals'] });
-    },
-    onError: () => toast.error('Falha ao sincronizar transações.'),
+    mutationFn: async (jobExistente?: SyncJobState) => acompanhar(jobExistente ?? await pluggySyncApi.startSyncJob()),
+    onSuccess: terminarSync,
+    onError: (err) => toast.error(getErrorMessage(err, 'Falha ao sincronizar transações.')),
     onSettled: () => setSyncProgress(null),
   });
 
-  const tokenMutation = useMutation({
-    mutationFn: () => nexaApi.createPluggyToken(),
-    onSuccess: (data) => {
-      if (data?.connect_token) {
-        setConnectToken(data.connect_token);
-        toast.success('Token Pluggy gerado.');
-      } else {
-        toast.error('Token não retornado pela API.');
-      }
+  // Sync em andamento é retomado ao reabrir a tela (antes se perdia o progresso).
+  const retomado = useRef(false);
+  useEffect(() => {
+    if (retomado.current || !pluggyOk) return;
+    retomado.current = true;
+    pluggySyncApi.listSyncJobs(1)
+      .then(({ jobs }) => { if (jobs[0] && !jobs[0].done) syncMutation.mutate(jobs[0]); })
+      .catch(() => { /* histórico indisponível: nada a retomar */ });
+  }, [pluggyOk, syncMutation]);
+
+  const salvarItemM = useMutation({
+    mutationFn: ({ itemId, conector }: { itemId: string; conector?: string | null }) => conexoesApi.salvarItem(itemId, conector),
+    onSuccess: () => {
+      toast.success('Banco conectado. Buscando os lançamentos…');
+      setWidget(null);
+      conexoesQ.refetch();
+      syncMutation.mutate(undefined);
     },
-    onError: () => toast.error('Erro ao gerar token Pluggy.'),
+    onError: (err) => setWidgetErro(`O banco conectou, mas não conseguimos registrar a conexão: ${getErrorMessage(err)}`),
+  });
+
+  // O iframe só repassa o resultado; quem registra é o app, com a sessão atual.
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      const msg = event.data;
+      if (!msg || typeof msg !== 'object' || msg.origem !== 'hive-pluggy') return;
+      if (msg.type === 'pluggy-success' && msg.itemId) {
+        setWidgetErro('');
+        salvarItemM.mutate({ itemId: String(msg.itemId), conector: msg.connectorName });
+      } else if (msg.type === 'pluggy-error') {
+        setWidgetErro(`Erro da Pluggy${msg.code ? ` (${msg.code})` : ''}: ${msg.message || 'falha ao conectar a conta.'}`);
+      } else if (msg.type === 'pluggy-close') {
+        setWidget(null);
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [salvarItemM]);
+
+  const tokenMutation = useMutation({
+    mutationFn: (atualizar?: string) => conexoesApi.tokenDoWidget().then(token => ({ token, atualizar })),
+    onSuccess: (w) => { setWidgetErro(''); setWidget(w); },
+    onError: (err) => toast.error(getErrorMessage(err, 'Não foi possível abrir o widget da Pluggy.')),
   });
 
   const sandboxMutation = useMutation({
-    mutationFn: () => nexaApi.createSandboxItem(perfMultiplier),
-    onSuccess: () => {
-      setDataOrigin('sandbox');
-      toast.success('Item sandbox criado com sucesso.');
-      toast('Modo sandbox ativo: os dados de transações são fictícios para teste.', { icon: '⚠️' });
-      itemsQuery.refetch();
-      // Invalidar queries pois sandbox cria transações mock
-      queryClient.invalidateQueries({ queryKey: ['forecast'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+    mutationFn: async () => {
+      const { job } = await conexoesApi.criarSandbox(perfMultiplier);
+      // o sync do sandbox também é um job — antes o app dizia "criado com
+      // sucesso" e ignorava o resultado do sync
+      return job ? acompanhar(job) : null;
     },
-    onError: () => toast.error('Erro ao criar item sandbox.'),
+    onSuccess: (state) => {
+      toast('Sandbox ativo: os lançamentos são fictícios, para teste.', { icon: '⚠️' });
+      if (state) terminarSync(state); else conexoesQ.refetch();
+    },
+    onError: (err) => toast.error(getErrorMessage(err, 'Não foi possível criar o item sandbox.')),
+    onSettled: () => setSyncProgress(null),
   });
 
-  const items = useMemo(() => {
-    const raw = itemsQuery.data?.results || itemsQuery.data?.items || [];
-    return Array.isArray(raw) ? raw : [];
-  }, [itemsQuery.data]);
+  const ocupado = syncMutation.isPending || sandboxMutation.isPending;
 
   return (
-    <AppShell
-      current="connections"
-      title="Conexões Open Finance"
-      subtitle="Gerencie contas conectadas via Pluggy e sincronize dados reais."
-    >
-      <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 12, marginBottom: 12 }}>
+    <AppShell current="connections" title="Conexões Open Finance" subtitle="Bancos conectados via Pluggy e sincronização do extrato.">
+      {conexoesQ.isError && (
+        <div style={faixa('erro')}>
+          {getErrorMessage(conexoesQ.error, 'Não foi possível carregar suas conexões.')}{' '}
+          <button style={{ ...button, padding: '4px 10px', fontSize: 12 }} onClick={() => conexoesQ.refetch()}>Tentar de novo</button>
+        </div>
+      )}
+      {conexoesQ.data && !pluggyOk && (
+        <div style={faixa('aviso')}>
+          O Open Finance não está configurado neste servidor (faltam as credenciais da Pluggy). Dá para ver as conexões já registradas, mas conectar banco, sincronizar e criar sandbox ficam indisponíveis.
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 12 }}>
         <div style={card}>
-          <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>
-            Contas conectadas
-          </div>
-          {itemsQuery.isLoading && <p style={{ color: 'var(--text-muted)' }}>Carregando conexões...</p>}
-          {!itemsQuery.isLoading && items.length === 0 && (
-            <p style={{ color: 'var(--text-muted)' }}>Nenhuma conta conectada no momento.</p>
+          <div style={rotulo}>Bancos conectados</div>
+          {conexoesQ.data && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>Origem dos dados: <strong>{ROTULO_ORIGEM[conexoesQ.data.data_source]}</strong></div>}
+          {conexoesQ.isLoading && <p style={{ color: 'var(--text-muted)' }}>Carregando conexões…</p>}
+          {conexoesQ.data && conexoes.length === 0 && <p style={{ color: 'var(--text-muted)' }}>Nenhum banco conectado ainda.</p>}
+          {qualidadeQ.data && (
+            <div style={{ fontSize: 12, color: qualidadeQ.data.total_rejeitadas > 0 ? '#b45309' : 'var(--text-muted)', marginBottom: 10 }}>
+              Qualidade do extrato (últimos 7 dias): {qualidadeQ.data.diagnostico}
+            </div>
           )}
-          {items.map((item: any) => {
-            const connector = item.connector || {};
-            const name = connector.name || item.connector_name || 'Banco';
-            const status = item.status || 'UNKNOWN';
-            const lastUpdated = (item.lastUpdatedAt || item.updated_at || '').toString().slice(0, 10);
+          {conexoes.map(c => {
+            const diasParaVencer = c.consent_expires_estimate ? -(diasDesde(c.consent_expires_estimate) ?? 0) : null;
+            const vencendo = diasParaVencer !== null && diasParaVencer <= 30;
             return (
-              <div
-                key={item.id || item.item_id || `${name}-${status}`}
-                style={{
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 10,
-                  padding: 12,
-                  marginBottom: 8,
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                }}
-              >
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{name}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Status: {status}</div>
+              <div key={c.item_id} style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 12, marginBottom: 8, display: 'grid', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <strong style={{ fontSize: 14 }}>{c.connector_name || 'Banco'}</strong>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{ROTULO_ORIGEM[c.source]}</span>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                  {lastUpdated ? `Atualizado: ${lastUpdated}` : 'Sem atualização'}
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Conectado em {dataLonga(c.connected_at?.slice(0, 10))}
+                  {c.consent_expires_estimate && <> · consentimento até ~{dataLonga(c.consent_expires_estimate)}</>}
                 </div>
+                {vencendo && c.source === 'open_finance' && (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12, color: '#b45309' }}>{diasParaVencer! <= 0 ? 'Consentimento vencido' : `Vence em ${diasParaVencer} dia(s)`}</span>
+                    <button style={{ ...button, padding: '4px 10px', fontSize: 12 }} disabled={!pluggyOk || tokenMutation.isPending}
+                      onClick={() => tokenMutation.mutate(c.item_id)}>Renovar consentimento</button>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
 
         <div style={card}>
-          <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10, fontWeight: 600 }}>
-            Ações rápidas
-          </div>
+          <div style={rotulo}>Ações</div>
           <div style={{ display: 'grid', gap: 8 }}>
-            <button
-              style={button}
-              onClick={() => tokenMutation.mutate()}
-              disabled={tokenMutation.isPending}
-            >
-              {tokenMutation.isPending ? 'Gerando token...' : 'Gerar Token Pluggy'}
+            <button style={button} onClick={() => tokenMutation.mutate(undefined)} disabled={!pluggyOk || tokenMutation.isPending}>
+              {tokenMutation.isPending ? 'Abrindo widget…' : 'Conectar um banco'}
             </button>
-            <button
-              style={button}
-              onClick={() => syncMutation.mutate()}
-              disabled={syncMutation.isPending}
-            >
-              {syncMutation.isPending
-                ? `Sincronizando... ${syncProgress?.progress ?? 0}%`
-                : 'Sincronizar transações'}
-            </button>
-            <button
-              style={{ ...button, background: 'var(--bg-surface)', color: 'var(--text-primary)' }}
-              onClick={() => itemsQuery.refetch()}
-            >
-              Atualizar lista
+            <button style={button} onClick={() => syncMutation.mutate(undefined)} disabled={!pluggyOk || ocupado || conexoes.length === 0}>
+              {syncMutation.isPending ? `Sincronizando… ${syncProgress?.progress ?? 0}%` : 'Sincronizar extrato'}
             </button>
           </div>
 
           {syncProgress && (
             <div style={{ marginTop: 12 }}>
               <div style={{ height: 6, background: 'var(--border-color)', borderRadius: 999 }}>
-                <div
-                  style={{
-                    height: 6,
-                    width: `${syncProgress.progress}%`,
-                    background: 'var(--text-primary)',
-                    borderRadius: 999,
-                    transition: 'width 240ms ease',
-                  }}
-                />
+                <div style={{ height: 6, width: `${syncProgress.progress}%`, background: 'var(--text-primary)', borderRadius: 999, transition: 'width 240ms ease' }} />
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
-                {syncProgress.message || 'Sincronizando...'}
-                {syncProgress.items.total > 1 &&
-                  ` (${syncProgress.items.done}/${syncProgress.items.total} conexões)`}
+                {syncProgress.message || 'Sincronizando…'}
+                {syncProgress.items.total > 1 && ` (${syncProgress.items.done}/${syncProgress.items.total} conexões)`}
               </div>
             </div>
           )}
 
-          <div style={{ marginTop: 14, borderTop: '1px solid #f0f0f0', paddingTop: 12 }}>
-            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Sandbox Pluggy</div>
-            <select
-              value={perfMultiplier}
-              onChange={(e) => setPerfMultiplier(Number(e.target.value))}
-              style={{ width: '100%', padding: 9, border: '1px solid var(--border-color)', borderRadius: 8, marginBottom: 8 }}
-            >
+          <div style={{ marginTop: 14, borderTop: '1px solid var(--border-color)', paddingTop: 12 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>Sandbox da Pluggy (teste)</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Cria um banco fictício com lançamentos de teste.</div>
+            <select value={perfMultiplier} onChange={(e) => setPerfMultiplier(Number(e.target.value))} aria-label="Volume do sandbox"
+              style={{ width: '100%', padding: 9, border: '1px solid var(--border-color)', borderRadius: 8, marginBottom: 8 }}>
               <option value={1}>Padrão (1x)</option>
               <option value={100}>Médio (100x)</option>
               <option value={500}>Alto (500x)</option>
               <option value={1000}>Stress (1000x)</option>
             </select>
-            <button
-              style={{ ...button, width: '100%' }}
-              onClick={() => sandboxMutation.mutate()}
-              disabled={sandboxMutation.isPending}
-            >
-              {sandboxMutation.isPending ? 'Criando sandbox...' : 'Criar item Sandbox'}
+            <button style={{ ...button, width: '100%' }} onClick={() => sandboxMutation.mutate()} disabled={!pluggyOk || ocupado}>
+              {sandboxMutation.isPending ? 'Criando sandbox…' : 'Criar banco sandbox'}
             </button>
           </div>
         </div>
       </div>
 
-      {connectToken && (
+      {widget && (
         <div style={card}>
-          <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>
-            Widget Pluggy
+          <div style={rotulo}>{widget.atualizar ? 'Renovar consentimento' : 'Conectar banco'}</div>
+          <div style={faixa('aviso')}>
+            Se o widget mostrar "Aplicação demo", a Pluggy pode estar permitindo só o sandbox neste ambiente.
           </div>
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>
-            Token gerado com sucesso. Use o widget oficial para conectar um banco real.
-          </p>
-          <div
-            style={{
-              fontSize: 12,
-              color: '#92400e',
-              background: '#fffbeb',
-              border: '1px solid #fde68a',
-              borderRadius: 8,
-              padding: 10,
-              marginBottom: 10,
-            }}
-          >
-            Se o widget exibir "Aplicação demo", a própria Pluggy pode bloquear conexões reais neste ambiente e permitir apenas Sandbox.
-          </div>
-          {widgetError && (
-            <div
-              style={{
-                fontSize: 12,
-                color: '#991b1b',
-                background: '#fef2f2',
-                border: '1px solid #fecaca',
-                borderRadius: 8,
-                padding: 10,
-                marginBottom: 10,
-              }}
-            >
-              {widgetError}
-            </div>
-          )}
-          {widgetInfo && (
-            <div
-              style={{
-                fontSize: 12,
-                color: '#1d4ed8',
-                background: '#eff6ff',
-                border: '1px solid #bfdbfe',
-                borderRadius: 8,
-                padding: 10,
-                marginBottom: 10,
-              }}
-            >
-              {widgetInfo}
-            </div>
-          )}
+          {widgetErro && <div style={faixa('erro')}>{widgetErro}</div>}
+          {salvarItemM.isPending && <div style={faixa('info')}>Registrando a conexão…</div>}
           <iframe
+            ref={iframeRef}
             title="pluggy-connect"
-            srcDoc={`
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <script src="https://cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js"></script>
-  </head>
-  <body style="margin:0;padding:0;background:#fff;">
-    <div id="pluggy-container" style="width:100%;height:640px;"></div>
-    <script>
-      const pluggy = new PluggyConnect({
-        connectToken: '${connectToken}',
-        container: document.getElementById('pluggy-container'),
-        onSuccess: function(itemData) {
-          fetch('${apiBase}/pluggy/items', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer ${token}',
-            },
-            body: JSON.stringify({
-              item_id: itemData?.item?.id,
-              connector_name: itemData?.item?.connector?.name,
-            }),
-          });
-          window.parent.postMessage({ type: 'pluggy-success' }, '*');
-        },
-        onError: function(error) {
-          window.parent.postMessage({
-            type: 'pluggy-error',
-            errorCode: error?.code || error?.errorCode,
-            message: error?.message || error?.description,
-            error,
-          }, '*');
-        },
-        onClose: function() {
-          window.parent.postMessage({ type: 'pluggy-close' }, '*');
-        },
-      });
-      pluggy.init();
-    </script>
-  </body>
-</html>
-            `}
+            srcDoc={htmlDoWidget(widget.token, widget.atualizar)}
             style={{ width: '100%', height: 660, border: '1px solid var(--border-color)', borderRadius: 10 }}
           />
         </div>
+      )}
+      {tokenMutation.isError && describeError(tokenMutation.error).kind === 'unavailable' && (
+        <div style={faixa('aviso')}>{getErrorMessage(tokenMutation.error)}</div>
       )}
     </AppShell>
   );

@@ -11,8 +11,11 @@
  * chegam como notificação de sistema com o app fechado).
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import apiClient from '../api/client';
+import { describeError } from '../api/errors';
+import { getUserId } from '../api/session';
+import { dataCurta } from '../api/painel';
 import { getPushState, subscribeToPush, unsubscribeFromPush } from '../pwa/push';
 import type { PushState } from '../pwa/push';
 
@@ -24,6 +27,10 @@ interface WidgetData {
   color: string;
   headline: string;
   subline: string;
+  /** data do último lançamento do extrato ('YYYY-MM-DD') */
+  data_as_of: string | null;
+  /** extrato com mais de 7 dias — o número é de antes disso */
+  stale: boolean;
   updated_at: string;
 }
 
@@ -34,7 +41,7 @@ const brl = (v: number) =>
 
 export const WidgetPage: React.FC = () => {
   const navigate = useNavigate();
-  const userId = localStorage.getItem('user_id');
+  const userId = getUserId();
   const [data, setData] = useState<WidgetData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pushState, setPushState] = useState<PushState>('unsupported');
@@ -46,8 +53,8 @@ export const WidgetPage: React.FC = () => {
       const { data } = await apiClient.get<WidgetData>(`/safe-to-spend/${userId}/widget`);
       setData(data);
       setError(null);
-    } catch {
-      setError('Não foi possível atualizar agora.');
+    } catch (err) {
+      setError(describeError(err, 'Não foi possível atualizar agora.').message);
     }
   }, [userId]);
 
@@ -61,13 +68,16 @@ export const WidgetPage: React.FC = () => {
     getPushState().then(setPushState).catch(() => setPushState('unsupported'));
   }, []);
 
+  const [pushErro, setPushErro] = useState<string | null>(null);
   const togglePush = async () => {
     setPushBusy(true);
+    setPushErro(null);
     try {
       const next = pushState === 'subscribed' ? await unsubscribeFromPush() : await subscribeToPush();
       setPushState(next);
-    } catch {
-      // permanece no estado atual
+    } catch (err) {
+      // antes: falha silenciosa, o botão só voltava ao estado anterior
+      setPushErro(describeError(err, 'Não foi possível mudar os alertas push.').message);
     } finally {
       setPushBusy(false);
     }
@@ -75,7 +85,7 @@ export const WidgetPage: React.FC = () => {
 
   const pushLabel: Record<PushState, string> = {
     unsupported: 'Push não suportado neste navegador',
-    'not-configured': 'Push indisponível no servidor',
+    'not-configured': 'Alertas push ainda não configurados no servidor',
     denied: 'Notificações bloqueadas no navegador',
     subscribed: '🔕 Desativar alertas push',
     unsubscribed: '🔔 Ativar alertas push',
@@ -101,7 +111,7 @@ export const WidgetPage: React.FC = () => {
       {!userId && (
         <p style={{ opacity: 0.8 }}>
           Faça login para ver sua margem segura.{' '}
-          <a href="/login" style={{ color: '#818cf8' }}>Entrar</a>
+          <Link to="/login?next=/widget" style={{ color: '#818cf8' }}>Entrar</Link>
         </p>
       )}
 
@@ -156,8 +166,18 @@ export const WidgetPage: React.FC = () => {
             />
           </div>
           <div style={{ fontSize: 12, opacity: 0.6 }}>
-            {data.pct_consumed.toFixed(0)}% do mês usado · {brl(data.remaining_month)} restantes
+            {/* com margem zero, "0% do mês usado · R$ 0 restantes" ao lado de
+                "Segure os gastos" se contradizia */}
+            {data.remaining_month <= 0
+              ? 'Sem margem segura este mês'
+              : `${data.pct_consumed.toFixed(0)}% do mês usado · ${brl(data.remaining_month)} restantes`}
           </div>
+          {data.data_as_of && (
+            <div style={{ fontSize: 11, opacity: data.stale ? 0.9 : 0.45, color: data.stale ? '#eab308' : undefined }}>
+              {data.stale ? 'Extrato desatualizado: ' : 'Dados do extrato até '}{dataCurta(data.data_as_of)}
+              {data.stale && <> · <Link to="/connections" style={{ color: 'inherit' }}>sincronizar</Link></>}
+            </div>
+          )}
 
           {error && <div style={{ fontSize: 11, opacity: 0.5 }}>{error}</div>}
         </>
@@ -182,9 +202,10 @@ export const WidgetPage: React.FC = () => {
           >
             {pushBusy ? '…' : pushLabel[pushState]}
           </button>
+          {pushErro && <div style={{ fontSize: 11, color: '#f87171' }}>{pushErro}</div>}
 
           <button
-            onClick={() => navigate('/strategies')}
+            onClick={() => navigate('/feed')}
             style={{
               padding: '8px 18px',
               borderRadius: 10,

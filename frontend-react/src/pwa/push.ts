@@ -10,6 +10,7 @@
  * notificação de sistema mesmo com o app fechado.
  */
 import apiClient from '../api/client';
+import { getUserId } from '../api/session';
 
 export type PushState = 'unsupported' | 'not-configured' | 'denied' | 'subscribed' | 'unsubscribed';
 
@@ -24,22 +25,36 @@ function isSupported(): boolean {
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 }
 
+/**
+ * Estado conciliado navegador × servidor. O navegador podia ter inscrição que
+ * o servidor perdeu (banco recriado, outra conta no mesmo aparelho): a tela
+ * dizia "ativado" e nenhum alerta chegava. Nesse caso reenvia a inscrição.
+ */
 export async function getPushState(): Promise<PushState> {
   if (!isSupported()) return 'unsupported';
   if (Notification.permission === 'denied') return 'denied';
 
-  const { data } = await apiClient.get('/push/vapid-public-key');
+  const userId = getUserId();
+  const { data } = await apiClient.get(userId ? `/push/status/${userId}` : '/push/vapid-public-key');
   if (!data.configured) return 'not-configured';
 
   const registration = await navigator.serviceWorker.ready;
   const subscription = await registration.pushManager.getSubscription();
-  return subscription ? 'subscribed' : 'unsubscribed';
+  if (!subscription) return 'unsubscribed';
+  if (userId && data.subscribed === false) {
+    try {
+      await apiClient.post(`/push/subscribe/${userId}`, subscription.toJSON());
+    } catch {
+      return 'unsubscribed';
+    }
+  }
+  return 'subscribed';
 }
 
 export async function subscribeToPush(): Promise<PushState> {
   if (!isSupported()) return 'unsupported';
 
-  const userId = localStorage.getItem('user_id');
+  const userId = getUserId();
   if (!userId) throw new Error('Usuário não autenticado');
 
   const { data } = await apiClient.get('/push/vapid-public-key');
@@ -63,7 +78,7 @@ export async function subscribeToPush(): Promise<PushState> {
 export async function unsubscribeFromPush(): Promise<PushState> {
   if (!isSupported()) return 'unsupported';
 
-  const userId = localStorage.getItem('user_id');
+  const userId = getUserId();
   const registration = await navigator.serviceWorker.ready;
   const subscription = await registration.pushManager.getSubscription();
 

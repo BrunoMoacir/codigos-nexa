@@ -14,6 +14,7 @@
  */
 
 import apiClient, { API_BASE_URL } from './client';
+import { session } from './session';
 
 export type SyncJobStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'PARTIAL' | 'ERROR';
 
@@ -111,7 +112,9 @@ function parseSseFrame(frame: string): { event: string; data: unknown } | null {
 
 /** Consome o SSE até o job terminar. Lança se o stream cair no meio. */
 async function streamSyncJob({ jobId, cursor = 0, onState, signal }: FollowOptions): Promise<SyncJobState> {
-  const token = localStorage.getItem('jwt_token');
+  // fetch não passa pelo interceptor do axios: com o access vencido o stream
+  // volta 401 e o followSyncJob cai no long-polling, que renova o token.
+  const token = session.accessToken;
   const url = `${API_BASE_URL}/pluggy/sync/jobs/${jobId}/stream?cursor=${cursor}`;
 
   const response = await fetch(url, {

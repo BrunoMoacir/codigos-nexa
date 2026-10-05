@@ -1,16 +1,23 @@
 /*
- * Nexa — Service Worker (PWA, R1.d)
+ * HIVE — Service Worker (PWA, R1.d)
  *
  * Responsabilidades:
- *   1. push            → exibe a notificação (payload {title, body, url, tag}
- *                        montado pelo backend em push_sender.send_to_user)
- *   2. notificationclick → foca/abre o app na URL do card
- *   3. fetch            → cache-first do shell estático (instalabilidade);
- *                        chamadas de API nunca são cacheadas
+ *   1. push              → exibe a notificação (payload {title, body, url, tag}
+ *                          montado pelo backend em push_sender.send_to_user)
+ *   2. notificationclick → foca/abre o app na URL do card (padrão: o Feed)
+ *   3. fetch             → navegação e arquivos do app pela REDE primeiro; o
+ *                          cache é só a cópia para abrir offline. Chamadas de
+ *                          API nunca passam por aqui.
+ *
+ * Era cache-first para tudo: depois de um deploy o navegador seguia servindo
+ * o HTML e o bundle antigos (com a URL de API antiga) até alguém limpar o
+ * cache na mão. Os /assets/* têm hash no nome, então podem ser cache-first;
+ * o HTML não.
  */
 
-const CACHE_NAME = 'nexa-shell-v1';
+const CACHE_NAME = 'hive-shell-v2';
 const SHELL_URLS = ['/', '/manifest.webmanifest', '/favicon.svg'];
+const URL_PADRAO = '/feed';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -27,32 +34,41 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
+function guardar(request, response) {
+  if (response && response.ok) {
+    const copia = response.clone();
+    caches.open(CACHE_NAME).then((cache) => cache.put(request, copia));
+  }
+  return response;
+}
 
-  // API e requests não-GET: rede sempre, sem cache (dados financeiros)
-  if (event.request.method !== 'GET' || url.pathname.startsWith('/api/')) {
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  const url = new URL(request.url);
+
+  // Só GET da própria origem; API (dados financeiros) nunca é cacheada.
+  if (request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) {
     return;
   }
 
-  // Shell estático: cache-first com atualização em background
+  // Arquivo com hash no nome não muda: cache-first é seguro.
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(caches.match(request).then((c) => c || fetch(request).then((r) => guardar(request, r))));
+    return;
+  }
+
+  // Navegação e demais arquivos: rede primeiro, cache só se estiver offline.
   event.respondWith(
-    caches.match(event.request).then(
-      (cached) =>
-        cached ||
-        fetch(event.request).then((response) => {
-          if (response.ok && url.origin === self.location.origin) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        })
-    )
+    fetch(request)
+      .then((r) => guardar(request, r))
+      .catch(() =>
+        caches.match(request).then((c) => c || (request.mode === 'navigate' ? caches.match('/') : undefined))
+      )
   );
 });
 
 self.addEventListener('push', (event) => {
-  let data = { title: 'Nexa', body: '', url: '/strategies', tag: '' };
+  let data = { title: 'HIVE', body: '', url: URL_PADRAO, tag: '' };
   try {
     data = { ...data, ...event.data.json() };
   } catch {
@@ -65,7 +81,7 @@ self.addEventListener('push', (event) => {
       tag: data.tag || undefined, // mesmo tag → substitui, não empilha
       icon: '/favicon.svg',
       badge: '/favicon.svg',
-      data: { url: data.url },
+      data: { url: data.url || URL_PADRAO },
       lang: 'pt-BR',
     })
   );
@@ -73,7 +89,7 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = (event.notification.data && event.notification.data.url) || '/strategies';
+  const targetUrl = (event.notification.data && event.notification.data.url) || URL_PADRAO;
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
