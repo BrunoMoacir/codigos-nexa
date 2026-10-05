@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
+from app.core.formatacao import brl, numero
 
 if TYPE_CHECKING:
     from app.optimizer.models import CardRecord
@@ -189,21 +190,44 @@ class MultiCardStrategist:
         ]
         if not final:
             final = sorted_all[:1]  # manter ao menos 1
+        # As categorias do cartão descartado iam embora junto com ele: o gasto
+        # sumia da carteira e ela rendia MENOS que um cartão só (Ana: R$ 739
+        # contra R$ 763). Elas vão para o melhor cartão que ficou.
+        for removido in [a for a in sorted_all if a not in final]:
+            self._reatribuir(removido, final, profile)
+        for a in final:
+            a.effective_annuity = self._effective_annuity(a.card, a.monthly_spend_directed)
 
         # ── 5. Totais e comparação vs cartão único ──────────────────────
         total_return = sum(a.annual_return_from_this_card for a in final)
         total_annuity = sum(a.effective_annuity for a in final)
         net_gain = total_return - total_annuity
 
-        single_best = self._single_best_net_gain(eligible_cards, profile)
+        melhor_unico, single_best = self._single_best(eligible_cards, profile)
+        # Garantia: carteira que não supera o melhor cartão único não é
+        # recomendação — é o próprio cartão único, com todo o gasto nele.
+        if melhor_unico is not None and net_gain < single_best - 0.01:
+            unico = CardAssignment(card=melhor_unico)
+            for cat, gasto in profile.spend_by_category.items():
+                if gasto > 0:
+                    unico.assigned_categories.append(cat)
+                    unico.monthly_spend_directed += gasto
+                    unico.annual_return_from_this_card += self._return_for_category(melhor_unico, cat, gasto) * 12
+            unico.effective_annuity = self._effective_annuity(melhor_unico, profile.monthly_avg_spend)
+            unico.reason = "Um cartão só rende mais que dividir os gastos neste perfil"
+            final = [unico]
+            total_return = unico.annual_return_from_this_card
+            total_annuity = unico.effective_annuity
+            net_gain = total_return - total_annuity
+
         vs_single_best = net_gain - single_best
 
         explanation = self._build_explanation(final, net_gain, vs_single_best)
 
         logger.info(
             f"[multi-card] Carteira montada: {len(final)} cartão(ns), "
-            f"retorno líquido R$ {net_gain:.2f}/ano, "
-            f"R$ {vs_single_best:.2f} a mais que cartão único"
+            f"retorno líquido {brl(net_gain)}/ano, "
+            f"{brl(vs_single_best)} a mais que cartão único"
         )
 
         return CardPortfolio(
@@ -293,12 +317,12 @@ class MultiCardStrategist:
                     rule = next((r for r in card.cashback_categories if r.category == category), None)
                     pct_used = (rule.pct * 100) if rule else ((card.cashback_pct or 0) * 100)
                     label_type = "cashback" if card.card_type == CardType.CASHBACK else "investback"
-                    best_reason = f"Melhor {label_type} em {category} ({pct_used:.1f}%)"
+                    best_reason = f"Melhor {label_type} em {category} ({numero(pct_used, 1)}%)"
                 else:  # POINTS
                     best_reason = (
                         f"Melhor retorno em {category} "
                         f"({card.points_per_brl} pts/R$ → "
-                        f"R$ {best_return:.2f}/mês)"
+                        f"{brl(best_return)}/mês)"
                     )
 
         return best_card, best_return, best_reason
@@ -332,7 +356,13 @@ class MultiCardStrategist:
         Retorno líquido anual do melhor cartão único sobre todo o gasto do usuário.
         Usado como baseline para calcular vs_single_best.
         """
-        best = 0.0
+        return self._single_best(eligible_cards, profile)[1]
+
+    def _single_best(
+        self, eligible_cards: list["CardRecord"], profile: "UserProfile"
+    ) -> tuple[Optional["CardRecord"], float]:
+        """(melhor cartão único, retorno líquido anual dele) — (None, 0.0) se nenhum rende."""
+        best, best_card = 0.0, None
         for card in eligible_cards:
             annual_return = sum(
                 self._return_for_category(card, cat, spend) * 12
@@ -341,8 +371,26 @@ class MultiCardStrategist:
             annuity = self._effective_annuity(card, profile.monthly_avg_spend)
             net = annual_return - annuity
             if net > best:
-                best = net
-        return best
+                best, best_card = net, card
+        return best_card, best
+
+    def _reatribuir(
+        self, removido: CardAssignment, destino: list[CardAssignment], profile: "UserProfile"
+    ) -> None:
+        """Move as categorias de `removido` para o melhor cartão de `destino`."""
+        cartoes = [a.card for a in destino]
+        for category in removido.assigned_categories:
+            gasto = profile.spend_by_category.get(category, 0)
+            if gasto <= 0:
+                continue
+            best_card, monthly_return, _ = self._best_card_for_category(cartoes, category, gasto)
+            alvo = next((a for a in destino if best_card is not None and a.card.card_id == best_card.card_id), None)
+            if alvo is None:
+                continue
+            if category not in alvo.assigned_categories:
+                alvo.assigned_categories.append(category)
+            alvo.monthly_spend_directed += gasto
+            alvo.annual_return_from_this_card += monthly_return * 12
 
     def _build_explanation(
         self,
@@ -352,11 +400,11 @@ class MultiCardStrategist:
     ) -> str:
         n = len(assignments)
         parts = [
-            f"Carteira ideal com {n} cartão(ns) gera R$ {net_gain:.0f}/ano líquido."
+            f"Carteira ideal com {n} cartão(ns) gera {brl(net_gain, 0)}/ano líquido."
         ]
         if vs_single_best > 0:
             parts.append(
-                f"R$ {vs_single_best:.0f} a mais que usar somente o melhor cartão."
+                f"{brl(vs_single_best, 0)} a mais que usar somente o melhor cartão."
             )
         elif vs_single_best <= 0:
             parts.append(
@@ -366,10 +414,10 @@ class MultiCardStrategist:
             cats = ", ".join(a.assigned_categories[:3])
             if len(a.assigned_categories) > 3:
                 cats += f" +{len(a.assigned_categories) - 3}"
-            annuity_note = f" (anuidade R$ {a.effective_annuity:.0f}/ano)" if a.effective_annuity > 0 else " (sem anuidade)"
+            annuity_note = f" (anuidade {brl(a.effective_annuity, 0)}/ano)" if a.effective_annuity > 0 else " (sem anuidade)"
             parts.append(
                 f"• {a.card.name}: {cats}{annuity_note} → "
-                f"R$ {a.annual_return_from_this_card:.0f}/ano"
+                f"{brl(a.annual_return_from_this_card, 0)}/ano"
             )
         return " ".join(parts)
 

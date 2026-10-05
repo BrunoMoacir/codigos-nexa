@@ -18,8 +18,10 @@ INTEGRAÇÃO:
 
 LIMITAÇÕES CONHECIDAS:
     - Cashback cap é tratado como mensal (conforme CardRecord.cashback_cap).
-    - Anuidade não é subtraída aqui — foco é em reward bruto.
-      O ROI líquido (reward - annuity) é responsabilidade da M2.4.
+    - A anuidade efetiva do período (com a regra de isenção por gasto) é
+      descontada de cada cartão ANTES de eleger o melhor: comparar só a
+      recompensa bruta elegia cartão de anuidade alta que, no líquido, rende
+      menos que o atual. `hypothetical_reward_value` continua bruto.
 
 M2.5: Para cartões com cashback_categories, o cálculo usa taxas por categoria
 cruzadas com profile.spend_by_category quando o perfil está disponível.
@@ -34,6 +36,7 @@ from dataclasses import dataclass, field
 from app.optimizer.miles_valuator import get_valuator
 from app.optimizer.models import CardRecord, CardType
 from app.optimizer.profiler import UserProfile
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +134,16 @@ class OpportunityCostReport:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # HELPER INTERNO
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _anuidade_no_periodo(card: CardRecord, gasto_mensal: float, months: int) -> float:
+    """Anuidade efetiva proporcional ao período (mesma regra do multi-cartão)."""
+    regras = card.waiver_rules
+    if regras.type == "always_free":
+        return 0.0
+    if regras.type == "spend_threshold" and regras.threshold and gasto_mensal * 12 >= regras.threshold:
+        return 0.0
+    return (card.base_annuity or 0.0) * months / 12
+
 
 def _compute_card_reward(
     card: CardRecord,
@@ -285,6 +298,7 @@ class OpportunityCostCalculator:
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
         current_reward = _compute_total_reward_with_profile(current_card, profile, months)
+        current_net = current_reward - _anuidade_no_periodo(current_card, profile.monthly_avg_spend, months)
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # COMPARAR COM CADA CANDIDATO
@@ -297,7 +311,9 @@ class OpportunityCostCalculator:
                 continue  # não comparar consigo mesmo
 
             candidate_reward = _compute_total_reward_with_profile(candidate, profile, months)
-            difference = candidate_reward - current_reward
+            anuidade_candidato = _anuidade_no_periodo(candidate, profile.monthly_avg_spend, months)
+            # Diferença LÍQUIDA de anuidade dos dois lados.
+            difference = (candidate_reward - anuidade_candidato) - current_net
 
             # Só reportar candidatos melhores que o atual
             if difference <= 0:
@@ -315,6 +331,11 @@ class OpportunityCostCalculator:
                 current_reward, candidate_reward,
                 difference, difference_annualized, months,
             )
+            if anuidade_candidato > 0:
+                explanation += (
+                    f" Já descontada a anuidade do {candidate.name} no período "
+                    f"({brl(anuidade_candidato)})."
+                )
 
             opportunities.append(CardOpportunity(
                 card_id=candidate.card_id,
@@ -412,21 +433,21 @@ class OpportunityCostCalculator:
         if candidate.card_type == CardType.POINTS:
             reward_desc = (
                 f"{candidate.points_per_brl or 0:.1f} pts/R$ "
-                f"→ R$ {candidate.points_conversion_rate:.0f}/mil pts"
+                f"→ {brl(candidate.points_conversion_rate, 0)}/mil pts"
             )
         elif candidate.card_type in (CardType.CASHBACK, CardType.INVESTBACK):
             pct = (candidate.cashback_pct or 0) * 100
-            reward_desc = f"{pct:.1f}% de cashback"
+            reward_desc = f"{numero(pct, 1)}% de cashback"
         else:
             reward_desc = "benefícios"
 
         return (
-            f"Nos últimos {period_label} você gastou R$ {total_spend:,.0f} "
-            f"no {current_card.name} e gerou R$ {current_reward:,.2f} em recompensas. "
+            f"Nos últimos {period_label} você gastou {brl(total_spend, 0)} "
+            f"no {current_card.name} e gerou {brl(current_reward)} em recompensas. "
             f"Se tivesse usado o {candidate.name} ({reward_desc}), "
-            f"teria ganho R$ {candidate_reward:,.2f} — "
-            f"R$ {difference:,.2f} a mais no período "
-            f"(R$ {difference_annualized:,.0f}/ano projetado)."
+            f"teria ganho {brl(candidate_reward)} em recompensas — "
+            f"{brl(difference)} a mais no período, no líquido "
+            f"({brl(difference_annualized, 0)}/ano projetado)."
         )
 
     def _empty_report(self, current_card: CardRecord, months: int) -> OpportunityCostReport:

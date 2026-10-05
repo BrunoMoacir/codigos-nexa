@@ -21,6 +21,10 @@ _B2B_SPEND_THRESHOLD = 50.0
 _MIN_CNPJ_PAYERS = 3
 # income_stability abaixo deste valor indica renda irregular (sinal PJ/MEI)
 _INSTABILITY_THRESHOLD = 0.45
+# Parcela dos créditos que o classificador PF/PJ marcou como receita da empresa
+_MIN_PJ_RECEIPT_SHARE = 0.30
+# Guia do MEI / Simples paga na conta
+_DAS_RE = r"\bdas\b.*\b(mei|simples)\b|simples\s+nacional|pgmei"
 
 
 class MEIDetector:
@@ -40,16 +44,20 @@ class MEIDetector:
         self,
         df: pl.DataFrame,
         income_profile: IncomeProfile | None,
+        df_completo: pl.DataFrame | None = None,
     ) -> dict:
         """
         Args:
             df: transactions_clean já enriquecido (T1.1).
             income_profile: saída do IncomeProfiler (pode ser None).
+            df_completo: extrato SEM o filtro de PF do profiler. O `df` chega
+                só com o consumo pessoal, então nenhum sinal enxergava as
+                receitas da empresa — o MEI da persona Bruno saía "não MEI".
 
         Returns:
             dict com is_likely_mei, mei_confidence (0.0–1.0) e mei_signals.
         """
-        if df.is_empty():
+        if df.is_empty() and (df_completo is None or df_completo.is_empty()):
             return self._zero_result()
 
         signals: list[str] = []
@@ -104,10 +112,27 @@ class MEIDetector:
         if income_profile and income_profile.income_stability < _INSTABILITY_THRESHOLD:
             signals.append("unstable_income")
 
+        # ── Sinais 5 e 6: o que o classificador PF/PJ já marcou como empresa ─
+        if df_completo is not None and not df_completo.is_empty():
+            if "context_type" in df_completo.columns:
+                creditos = df_completo.filter(pl.col("amount") > 0)
+                total = float(creditos["amount"].sum()) if not creditos.is_empty() else 0.0
+                pj = float(creditos.filter(pl.col("context_type") == "PJ")["amount"].sum()) if total > 0 else 0.0
+                if total > 0 and pj / total >= _MIN_PJ_RECEIPT_SHARE:
+                    signals.append("pj_receipts")
+            if "description" in df_completo.columns:
+                pagou_das = df_completo.filter(
+                    (pl.col("amount") < 0)
+                    & pl.col("description").fill_null("").str.to_lowercase().str.contains(_DAS_RE)
+                ).height
+                if pagou_das:
+                    signals.append("das_payment")
+
         is_likely_mei = len(signals) >= 2
         confidence = round(min(len(signals) / 4, 1.0), 2)
 
-        _ALL_SIGNALS = {"income_pattern_pj", "b2b_tools", "multiple_cnpj_payers", "unstable_income"}
+        _ALL_SIGNALS = {"income_pattern_pj", "b2b_tools", "multiple_cnpj_payers", "unstable_income",
+                        "pj_receipts", "das_payment"}
         missing_signals = [s for s in _ALL_SIGNALS if s not in signals]
 
         return {
@@ -126,7 +151,8 @@ class MEIDetector:
 
     @staticmethod
     def _zero_result() -> dict:
-        _all = ["income_pattern_pj", "b2b_tools", "multiple_cnpj_payers", "unstable_income"]
+        _all = ["income_pattern_pj", "b2b_tools", "multiple_cnpj_payers", "unstable_income",
+                "pj_receipts", "das_payment"]
         return {
             "is_likely_mei": False,
             "mei_confidence": 0.0,

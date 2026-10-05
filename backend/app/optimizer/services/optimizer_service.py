@@ -24,6 +24,7 @@ from app.optimizer.insight_generator import InsightGenerator
 from app.optimizer.validators.input_validator import InputValidator
 from app.optimizer.queries import get_feedback_weights, save_optimization_report
 from app.optimizer.opportunity_score import compute_opportunity_score
+from app.core.formatacao import brl
 
 # ── Camada 3 Anti-Falsos-Positivos — Gates globais ───────────────────────
 # ConfidenceGate: threshold abaixo do qual o resultado não é surfaçado ao usuário
@@ -178,6 +179,19 @@ class OptimizerService:
             from app.optimizer.feature_store import TransactionFeatureEnricher
             transactions_df = TransactionFeatureEnricher().enrich(transactions_df)
 
+        # Extrato parado (sync atrasado): as janelas de 60/90 dias contadas a
+        # partir de HOJE pegavam um mês de salário ou nenhum, e o detector
+        # anunciava "income_drop" de −100% para quem tem salário estável.
+        # Ancora no último lançamento, como o OPP e o /forecast já fazem.
+        if reference_date is None and transactions_df is not None and "date" in transactions_df.columns \
+                and not transactions_df.is_empty():
+            from datetime import date as _d, datetime as _dt
+            ultimo = transactions_df.select(pl.col("date").max()).item()
+            if isinstance(ultimo, _dt):
+                ultimo = ultimo.date()
+            if isinstance(ultimo, _d) and ultimo < _d.today():
+                reference_date = ultimo
+
         # 2. Construir perfil de consumo
         profile = self.profiler.build(
             transactions_df=transactions_df,
@@ -303,28 +317,31 @@ class OptimizerService:
                     (pl.col("date") < _cutoff_hist_end)
                 )
 
-                # Renda recente: do perfil atual (90 dias, já filtrado pelo profiler)
-                _income_recent = (
+                # Renda recente × histórica pela MESMA régua: mediana dos
+                # créditos mensais em cada janela. A recente vinha do perfil de
+                # consumo (que exclui movimento PJ) e a histórica somava todos
+                # os créditos: o MEI aparecia com renda recente 0 e "queda de
+                # 100%", e o 13º salário na janela antiga simulava queda para
+                # quem tem salário fixo. A mediana também absorve o 13º.
+                def _mediana_mensal(janela: pl.DataFrame) -> float:
+                    if janela.is_empty() or "amount" not in janela.columns:
+                        return 0.0
+                    mensal = (
+                        janela.filter(pl.col("amount") > 0)
+                        .with_columns((pl.col("date").dt.year() * 100 + pl.col("date").dt.month()).alias("ym"))
+                        .group_by("ym").agg(pl.col("amount").sum().alias("t"))
+                    )
+                    return float(mensal["t"].median()) if mensal.height else 0.0
+
+                _janela_recente = transactions_df.filter(
+                    (pl.col("date") > _ref - _timedelta(days=90)) & (pl.col("date") <= _ref)
+                )
+                _income_recent = _mediana_mensal(_janela_recente) or (
                     profile.income_profile.monthly_net_income
                     if profile.income_profile
                     else profile.estimated_monthly_income
                 )
-
-                # Renda histórica: média de créditos na janela 6–18 meses
-                # Calculada diretamente da série histórica para detectar variações reais.
-                _income_historical = _income_recent  # fallback se sem histórico
-                if not _txns_history.is_empty() and "amount" in _txns_history.columns:
-                    _hist_credits = _txns_history.filter(pl.col("amount") > 0)
-                    if not _hist_credits.is_empty():
-                        _hist_months = (
-                            _hist_credits
-                            .with_columns(
-                                (pl.col("date").dt.year() * 100 + pl.col("date").dt.month()).alias("ym")
-                            )
-                            .select("ym").unique().height
-                        )
-                        if _hist_months > 0:
-                            _income_historical = float(_hist_credits["amount"].sum()) / _hist_months
+                _income_historical = _mediana_mensal(_txns_history) or _income_recent
 
                 from app.optimizer.detectors.personal_baseline import compute_personal_baseline
                 _life_baseline = compute_personal_baseline(transactions_df, reference_date=_ref)
@@ -504,9 +521,9 @@ class OptimizerService:
             estimated_savings = profile_data.monthly_avg_spend * getattr(profile_data, "savings_rate", 0.0) / 100
             if estimated_savings > 0 and total_committed > estimated_savings * 0.80:
                 warnings.append(
-                    f"A anuidade do {best_card_result.card_name} (R$ {annuity_monthly:,.0f}/mês) "
-                    f"somada aos aportes nas metas ativas (R$ {request.monthly_goals_commitment:,.0f}/mês) "
-                    f"totaliza R$ {total_committed:,.0f}/mês — verifique a compatibilidade com sua margem disponível."
+                    f"A anuidade do {best_card_result.card_name} ({brl(annuity_monthly, 0)}/mês) "
+                    f"somada aos aportes nas metas ativas ({brl(request.monthly_goals_commitment, 0)}/mês) "
+                    f"totaliza {brl(total_committed, 0)}/mês — verifique a compatibilidade com sua margem disponível."
                 )
         recommendation_type = RecommendationType.SWITCH_RECOMMENDED
 

@@ -281,7 +281,7 @@ class ConsumptionProfiler:
         travel_result = travel_detector.calc_travel_score(df, total_spend_period, baseline=personal_baseline)
         foodie_result = FoodieDetector().calc_foodie_score(df, monthly_avg_spend, baseline=personal_baseline)
         investor_result = InvestorDetector().calc_investor_profile(df)
-        mei_result = MEIDetector().detect_mei_pattern(df, income_profile)
+        mei_result = MEIDetector().detect_mei_pattern(df, income_profile, df_completo=transactions_df)
         merchant_diversity = _calc_merchant_diversity(df)
         subscription_burn = _calc_subscription_burn(df, window_months)
 

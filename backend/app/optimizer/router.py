@@ -1,6 +1,7 @@
 # app/api/v1/routes/optimizer.py
 # Rotas REST da Funcionalidade 2: Nexa Optimizer
 
+import json
 import logging
 from datetime import datetime as _datetime
 from typing import Optional
@@ -44,7 +45,7 @@ router = APIRouter(prefix="/optimizer", tags=["Optimizer (F2)"])
 
 
 @router.post("/analyze", response_model=OptimizationReport)
-async def analyze_cards(
+def analyze_cards(
     request: OptimizationRequest,
     current_user: str = Depends(get_current_user),
 ) -> OptimizationReport:
@@ -98,6 +99,13 @@ async def analyze_cards(
             except Exception as goal_exc:
                 logger.debug("[API] GoalTracker indisponível para optimizer user=%s: %s", request.user_id, goal_exc)
 
+        # Contexto da F1 quando o cliente não manda: o modelo prometia
+        # "safe_to_spend injetado pela rota via F1" e a rota nunca injetava —
+        # o botão "Rodar análise completa" voltava 400 "informe safe_to_spend
+        # ou monthly_income" para quem não tinha aberto outra aba antes.
+        if request.safe_to_spend is None and request.monthly_income is None:
+            request = request.model_copy(update=_contexto_da_f1(request.user_id, transactions_df))
+
         service = OptimizerService()
 
         report = service.analyze(
@@ -139,14 +147,59 @@ async def analyze_cards(
         logger.error("[API] Erro interno durante otimização: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno ao processar a otimização de cartões.")
 
+def _contexto_da_f1(user_id: str, transactions_df: pl.DataFrame) -> dict:
+    """safe_to_spend (o do /forecast) e renda estimada, quando disponíveis."""
+    contexto: dict = {}
+    try:
+        from app.runner import get_runner, safe_to_spend_total
+
+        sts = safe_to_spend_total(get_runner().run_from_db(user_id=user_id, horizon_days=30))
+        if sts is not None and sts >= 0:
+            contexto["safe_to_spend"] = sts
+    except Exception as exc:
+        logger.debug("[API] safe_to_spend da F1 indisponível para %s: %s", user_id, exc)
+    renda = _renda_estimada(transactions_df)
+    if renda:
+        contexto["monthly_income"] = renda
+    return contexto
+
+
+def _renda_estimada(transactions_df: pl.DataFrame) -> float | None:
+    """Renda mensal líquida pelo extrato (confiança ≥ 0,5), ou None."""
+    try:
+        from app.forecast.etl.income_profiler import IncomeProfiler
+
+        if not transactions_df.is_empty():
+            perfil = IncomeProfiler().build(transactions_df)
+            if perfil.confidence >= 0.5 and perfil.monthly_net_income > 0:
+                return float(perfil.monthly_net_income)
+    except Exception as exc:
+        logger.debug("[API] renda estimada indisponível: %s", exc)
+    return None
+
+
+def _json_ou_lista(valor):
+    """warnings/data_sources são gravados como texto JSON; a lista os devolvia crus."""
+    if isinstance(valor, str):
+        try:
+            return json.loads(valor)
+        except ValueError:
+            return [valor] if valor else []
+    return valor if valor is not None else []
+
+
 @router.get("/reports/{user_id}")
-async def list_user_reports(user_id: str = Depends(require_owner)):
+def list_user_reports(user_id: str = Depends(require_owner)):
     """Retorna o histórico resumido de otimizações de um usuário."""
     reports = get_optimization_reports(user_id)
+    for r in reports:
+        for campo in ("warnings", "data_sources"):
+            if campo in r:
+                r[campo] = _json_ou_lista(r[campo])
     return {"reports": reports}
 
 @router.get("/reports/{report_id}/detail")
-async def get_report_detail(
+def get_report_detail(
     report_id: str,
     current_user: str = Depends(get_current_user),
 ):
@@ -159,7 +212,7 @@ async def get_report_detail(
     return report
 
 @router.get("/cards")
-async def list_available_cards():
+def list_available_cards():
     """Lista todos os cartões disponíveis na base de conhecimento do Nexa."""
     loader = CardKnowledgeBase()
     try:
@@ -170,7 +223,7 @@ async def list_available_cards():
         raise HTTPException(status_code=500, detail="Erro ao carregar base de cartões.")
 
 @router.get("/opportunity-cost")
-async def get_opportunity_cost(
+def get_opportunity_cost(
     current_card_id: str,
     months: int = 3,
     user_id: str = Depends(require_owner),
@@ -221,8 +274,14 @@ async def get_opportunity_cost(
                 detail=f"Cartão '{current_card_id}' não encontrado na base de conhecimento."
             )
 
-        # Candidatos = todos exceto o atual
+        # Candidatos = todos exceto o atual — e só os que o usuário pode
+        # contratar: sem o filtro, o "melhor" podia ser um cartão de renda
+        # mínima R$ 20 mil para quem ganha R$ 4 mil.
         candidates = [c for c in all_cards if c.card_id != current_card_id]
+        renda_mensal = _renda_estimada(transactions_df)
+        if renda_mensal:
+            elegiveis = {c.card_id for c in CardKnowledgeBase().filter_eligible(annual_income=renda_mensal * 12)}
+            candidates = [c for c in candidates if c.card_id in elegiveis]
 
         report = OpportunityCostCalculator().calculate(
             profile=profile,
@@ -273,7 +332,7 @@ class _CardPortfolioResponse(_BaseModel):
 
 
 @router.get("/portfolio/{user_id}", response_model=_CardPortfolioResponse)
-async def get_card_portfolio(
+def get_card_portfolio(
     user_id: str = Depends(require_owner),
     max_cards: int = Query(default=3, ge=1, le=5, description="Máximo de cartões na carteira"),
     monthly_income: Optional[float] = Query(default=None, description="Renda mensal (R$) para cálculo de elegibilidade"),
@@ -406,7 +465,7 @@ async def get_card_portfolio(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.get("/roi/{card_id}", response_model=CurrentCardROI)
-async def get_card_roi(
+def get_card_roi(
     card_id: str,
     user_id: str = Depends(require_owner),
     monthly_spend: Optional[float] = Query(
@@ -473,7 +532,7 @@ async def get_card_roi(
     response_model=RecommendationFeedbackResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def submit_recommendation_feedback(
+def submit_recommendation_feedback(
     recommendation_id: str,
     body: RecommendationFeedbackRequest,
     current_user: str = Depends(get_current_user),
@@ -530,7 +589,7 @@ async def submit_recommendation_feedback(
 
 
 @router.get("/feedback/stats", response_model=list[FeedbackStats])
-async def feedback_stats(
+def feedback_stats(
     insight_type: Optional[str] = None,
     detector: Optional[str] = None,
     current_user: str = Depends(get_current_user),
@@ -545,7 +604,7 @@ async def feedback_stats(
 
 
 @router.get("/feedback/weights")
-async def feedback_weights(current_user: str = Depends(get_current_user)):
+def feedback_weights(current_user: str = Depends(get_current_user)):
     """
     Retorna os pesos finais por insight_type para o usuário autenticado.
 
@@ -569,7 +628,7 @@ async def feedback_weights(current_user: str = Depends(get_current_user)):
 
 
 @router.get("/health")
-async def optimizer_health_check():
+def optimizer_health_check():
     """Health check do módulo Optimizer."""
     return {"status": "ok", "module": "optimizer"}
 
@@ -579,7 +638,7 @@ async def optimizer_health_check():
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/promotions")
-async def list_active_promotions(
+def list_active_promotions(
     include_expired: bool = Query(default=False, description="Incluir promoções encerradas"),
 ):
     """
@@ -608,7 +667,7 @@ async def list_active_promotions(
 
 
 @router.get("/promotions/opportunities")
-async def check_promotion_opportunities(
+def check_promotion_opportunities(
     user_id: str = Query(..., description="ID do usuário"),
     cards: str = Query(
         default="",

@@ -268,12 +268,52 @@ class TestLifeEventsDetectorNegativeEvidence:
 
     def test_sinal_isolado_registrado_em_missing_signals(self):
         # CERIMONIAL × 2 no mesmo mês → neg=0.5 → "sinal_isolado_sem_corroboracao"
+        # Os dois no MESMO mês: "3 e 5 dias atrás" caía em meses diferentes
+        # nos primeiros dias do mês e o teste falhava conforme o calendário.
+        # dia+3 e dia+5 dias atrás = sempre no fim do mês anterior.
+        hoje = date.today().day
         recent = _txns(
             ["CERIMONIAL EVENTOS", "CERIMONIAL EVENTOS"],
             [3000.0, 2000.0],
-            [3, 5],  # ambos em junho
+            [hoje + 3, hoje + 5],
         )
         events = self._detector().detect_all(recent, _empty(), 5000.0, 5000.0)
         wedding = next((e for e in events if e.event == "wedding"), None)
         assert wedding is not None
         assert "sinal_isolado_sem_corroboracao" in wedding.missing_signals
+
+
+# ── MEI: o detector recebia só o consumo PF e nunca via a receita da empresa ──
+
+def test_mei_reconhecido_pela_receita_pj_e_pelo_das():
+    import polars as pl
+
+    from app.optimizer.detectors.mei_detector import MEIDetector
+
+    hoje = date.today()
+    completo = pl.DataFrame({
+        "date": [hoje - timedelta(days=d) for d in (5, 15, 25, 35, 10)],
+        "amount": [800.0, 650.0, 900.0, 700.0, -76.9],
+        "description": ["pagbank *venda maquininha"] * 4 + ["das mei competencia 09"],
+        "context_type": ["PJ", "PJ", "PJ", "PJ", "PJ"],
+    })
+    so_pf = completo.filter(pl.col("context_type") != "PJ")  # o que o profiler entrega
+    r = MEIDetector().detect_mei_pattern(so_pf if not so_pf.is_empty() else completo.head(0), None, df_completo=completo)
+    assert r["is_likely_mei"] is True
+    assert {"pj_receipts", "das_payment"} <= set(r["mei_signals"])
+
+
+def test_clt_com_salario_pf_nao_vira_mei():
+    import polars as pl
+
+    from app.optimizer.detectors.mei_detector import MEIDetector
+
+    hoje = date.today()
+    completo = pl.DataFrame({
+        "date": [hoje - timedelta(days=d) for d in (5, 35, 65)],
+        "amount": [8500.0, 8500.0, -2100.0],
+        "description": ["credito salario folha", "credito salario folha", "aluguel apartamento"],
+        "context_type": ["PF", "PF", "PF"],
+    })
+    r = MEIDetector().detect_mei_pattern(completo, None, df_completo=completo)
+    assert r["is_likely_mei"] is False
