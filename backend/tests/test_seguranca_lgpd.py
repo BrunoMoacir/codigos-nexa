@@ -362,6 +362,7 @@ _PUBLICAS: dict[str, str] = {
     "/auth/reset-password": "consome token de conta",
     "/auth/verify-email": "consome token de conta",
     "/auth/resend-verification": "fluxo de verificação",
+    "/auth/check-email": "passo 1 do cadastro, antes de existir conta — limitado a 20/min",
     "/webhook": "webhook Pluggy — autenticado por assinatura HMAC",
     "/transactions/webhook": "webhook Pluggy — assinatura HMAC",
     "/billing/webhook": "webhook Stripe — assinatura + anti-replay",

@@ -1,26 +1,15 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { register, resendVerification } from '../api/auth';
-import { describeError } from '../api/errors';
+import toast from 'react-hot-toast';
+import { API_BASE_URL } from '../api/client';
 
 // ─── Utils ───────────────────────────────────────────────────────────────────
-const pwStrength = (pw: string) => {
-  if (!pw) return 0;
-  let s = 0;
-  if (pw.length >= 8) s++;
-  if (pw.length >= 12) s++;
-  if (/[A-Z]/.test(pw)) s++;
-  if (/[0-9]/.test(pw)) s++;
-  if (/[^A-Za-z0-9]/.test(pw)) s++;
-  return s;
-};
-const PW_LABEL = ['', 'Muito fraca', 'Fraca', 'Média', 'Forte', 'Muito forte'];
-const PW_COLOR = ['', '#F07A64', '#F5A94A', '#ECC94B', '#68D391', '#2EC8A4'];
-
-/** Celular em dígitos com DDI, como o backend aceita (10–15 dígitos). */
-const phoneE164 = (v: string) => {
-  const d = v.replace(/\D/g, '');
-  return d.length === 10 || d.length === 11 ? `55${d}` : d;
+const fmtCPF = (v: string) => {
+  const d = v.replace(/\D/g, '').slice(0, 11);
+  return d
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})\.(\d{3})(\d)/, '$1.$2.$3')
+    .replace(/(\d{3})\.(\d{3})\.(\d{3})(\d{1,2})/, '$1.$2.$3-$4');
 };
 
 const fmtPhone = (v: string) => {
@@ -31,129 +20,14 @@ const fmtPhone = (v: string) => {
   return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
 };
 
-// ─── Honeycomb canvas ────────────────────────────────────────────────────────
-const HoneycombCanvas: React.FC = () => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const mouse = useRef({ x: -9999, y: -9999 });
-  const clicks = useRef<Array<{ x: number; y: number; t: number }>>([]);
-  const rafRef = useRef<number | undefined>(undefined);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d')!;
-    const DPR = Math.min(window.devicePixelRatio || 1, 2);
-    const SIZE = 22, GAP = 5, SQRT3 = Math.sqrt(3);
-    const GLOW_R = 160, WAVE_SPEED = 270, WAVE_WIDTH = 55;
-    type Hex = { cx: number; cy: number; phase: number };
-    let hexes: Hex[] = [];
-    const resize = () => {
-      canvas.width = window.innerWidth * DPR;
-      canvas.height = window.innerHeight * DPR;
-      ctx.scale(DPR, DPR); build();
-    };
-    const build = () => {
-      hexes = [];
-      const W = window.innerWidth, H = window.innerHeight;
-      const cw = (SIZE + GAP) * 1.5, rh = SQRT3 * (SIZE + GAP * 0.5);
-      for (let c = -1; c <= Math.ceil(W / cw) + 1; c++)
-        for (let r = -1; r <= Math.ceil(H / rh) + 1; r++)
-          hexes.push({ cx: c * cw + SIZE, cy: r * rh + (c % 2 !== 0 ? rh / 2 : 0) + SIZE, phase: Math.random() * Math.PI * 2 });
-    };
-    resize();
-    window.addEventListener('resize', resize);
-    const drawHex = (cx: number, cy: number, r: number) => {
-      ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const a = (Math.PI / 3) * i;
-        i === 0 ? ctx.moveTo(cx + r * Math.cos(a), cy + r * Math.sin(a)) : ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
-      }
-      ctx.closePath();
-    };
-    const t0 = performance.now();
-    const frame = (now: number) => {
-      const t = (now - t0) / 1000;
-      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-      const { x: mx, y: my } = mouse.current;
-      clicks.current = clicks.current.filter(c => now - c.t < 1100);
-      for (const h of hexes) {
-        const dist = Math.hypot(h.cx - mx, h.cy - my);
-        const hover = Math.max(0, 1 - dist / GLOW_R);
-        let ripple = 0;
-        for (const ck of clicks.current) {
-          const age = (now - ck.t) / 1000, wave = age * WAVE_SPEED, d = Math.hypot(h.cx - ck.x, h.cy - ck.y);
-          ripple = Math.max(ripple, Math.max(0, 1 - Math.abs(d - wave) / WAVE_WIDTH) * Math.max(0, 1 - age * 1.2));
-        }
-        const breathe = Math.sin(t * 0.65 + h.phase) * 0.5 + 0.5;
-        const baseA = 0.012 + breathe * 0.022, total = Math.max(hover, ripple), s = SIZE - GAP * 0.5;
-        drawHex(h.cx, h.cy, s);
-        ctx.fillStyle = total > 0.02 ? `rgba(212,168,32,${total * 0.22})` : `rgba(243,239,234,${baseA * 0.38})`;
-        ctx.fill();
-        drawHex(h.cx, h.cy, s);
-        ctx.strokeStyle = total > 0.02 ? `rgba(212,168,32,${0.07 + total * 0.75})` : `rgba(243,239,234,${baseA * 1.3})`;
-        ctx.lineWidth = total > 0.15 ? 1.2 : 0.55;
-        ctx.stroke();
-      }
-      rafRef.current = requestAnimationFrame(frame);
-    };
-    rafRef.current = requestAnimationFrame(frame);
-    const onMove  = (e: MouseEvent) => { mouse.current = { x: e.clientX, y: e.clientY }; };
-    const onClick = (e: MouseEvent) => { clicks.current.push({ x: e.clientX, y: e.clientY, t: performance.now() }); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('click', onClick);
-    return () => {
-      window.removeEventListener('resize', resize);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('click', onClick);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
-
-  return <canvas ref={canvasRef} style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 0 }} />;
-};
-
-// ─── Dados dos bancos ─────────────────────────────────────────────────────────
+// ─── Dados dos bancos (ícones oficiais via favicon do domínio) ───────────────
 const BANKS = [
-  { name: 'Nubank',   abbr: 'Nu', bg: '#820AD1', fg: '#fff' },
-  { name: 'Itaú',     abbr: 'IT', bg: '#EC7000', fg: '#fff' },
-  { name: 'Bradesco', abbr: 'BD', bg: '#CC092F', fg: '#fff' },
-  { name: 'C6 Bank',  abbr: 'C6', bg: '#2B2D33', fg: '#FFD700' },
-  { name: 'Inter',    abbr: 'IN', bg: '#FF7A00', fg: '#fff' },
-  { name: 'BTG',      abbr: 'BT', bg: '#1A1A2E', fg: '#D4A820' },
-];
-
-// Contexto para o painel esquerdo em cada step
-const LEFT_CTX = [
-  {
-    step: '01',
-    title: 'Conta protegida\ndesde o início.',
-    bullets: [
-      'Senha guardada só como hash bcrypt',
-      'Telefone e e-mail usados só para a sua conta',
-      'Nenhum dado bancário sem o seu consentimento',
-      'Confirmação da conta por e-mail',
-    ],
-  },
-  {
-    step: '02',
-    title: 'Transparência\nem tudo.',
-    bullets: [
-      'Tratamento de dados conforme a LGPD',
-      'Dados usados somente para análise financeira',
-      'Exporte ou apague seus dados quando quiser (Perfil)',
-      'Sem anúncios, sem venda de dados',
-    ],
-  },
-  {
-    step: '03',
-    title: 'Seu banco,\nsua decisão.',
-    bullets: [
-      'Conexão pelo Open Finance regulado (via Pluggy)',
-      'Você escolhe quais contas compartilhar',
-      'Revogue o acesso a qualquer momento',
-      'Dados nunca repassados a terceiros',
-    ],
-  },
+  { name: 'Nubank',   domain: 'nubank.com.br' },
+  { name: 'Itaú',     domain: 'itau.com.br' },
+  { name: 'Bradesco', domain: 'bradesco.com.br' },
+  { name: 'C6 Bank',  domain: 'c6bank.com.br' },
+  { name: 'Inter',    domain: 'bancointer.com.br' },
+  { name: 'BTG',      domain: 'btgpactual.com' },
 ];
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────
@@ -170,17 +44,6 @@ const css = `
     overflow: hidden;
   }
 
-  .rp-root::after {
-    content: '';
-    position: fixed;
-    width: 520px; height: 520px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(212,168,32,0.05) 0%, transparent 65%);
-    transform: translate(var(--cx,-9999px), var(--cy,-9999px)) translate(-50%,-50%);
-    pointer-events: none; z-index: 1;
-    transition: transform 0.08s linear;
-  }
-
   .rp-wm {
     position: fixed;
     left: 50%; top: 50%;
@@ -192,6 +55,17 @@ const css = `
     -webkit-text-stroke: 1px rgba(212,168,32,0.03);
     pointer-events: none; z-index: 0;
     user-select: none; line-height: 1; white-space: nowrap;
+  }
+
+  /* Vinheta estática — sem forma geométrica, sem animação */
+  .rp-glow {
+    position: fixed;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 1000px; height: 1000px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(212,168,32,0.22) 0%, rgba(212,168,32,0.08) 42%, transparent 72%);
+    pointer-events: none; z-index: 0;
   }
 
   @keyframes rp-up {
@@ -208,24 +82,27 @@ const css = `
     100% { background-position: -200% center; }
   }
 
-  /* ── Layout 2 colunas ── */
+  /* ── Layout 2 colunas, centralizado como grupo ── */
   .rp-layout {
     position: relative;
     z-index: 2;
-    display: grid;
-    grid-template-columns: 1fr 500px;
-    min-height: 100vh;
-    max-width: 1280px;
-    margin: 0 auto;
+    display: flex;
     align-items: stretch;
+    justify-content: center;
+    gap: 76px;
+    min-height: 100vh;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 32px;
   }
 
   /* ── ESQUERDO ── */
   .rp-left {
+    width: 440px;
+    flex-shrink: 0;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    padding: 40px 32px 40px 56px;
     animation: rp-up 0.6s cubic-bezier(.16,1,.3,1) both;
   }
 
@@ -234,6 +111,13 @@ const css = `
     align-items: center;
     gap: 12px;
   }
+  .rp-logo-icon {
+    transition: transform 0.25s cubic-bezier(.16,1,.3,1);
+    transform-origin: center;
+  }
+  .rp-logo-icon:hover {
+    transform: scale(1.22);
+  }
   .rp-logo-word {
     font-size: 1.1rem;
     font-weight: 900;
@@ -241,130 +125,75 @@ const css = `
     color: #D4A820;
   }
 
-  /* Step progress — vertical */
+  /* Step progress — vertical, números grandes estilo "01" */
   .rp-step-nav {
     display: flex;
     flex-direction: column;
     gap: 0;
-    margin: 22px 0;
+    margin: 40px 0;
+    flex: 1;
   }
   .rp-step-row {
     display: flex;
     align-items: flex-start;
-    gap: 16px;
+    gap: 20px;
     position: relative;
   }
   .rp-step-col {
     display: flex;
     flex-direction: column;
     align-items: center;
-    width: 28px;
+    width: 62px;
     flex-shrink: 0;
   }
-  .rp-step-ball {
-    width: 28px; height: 28px;
-    border-radius: 50%;
-    border: 1.5px solid rgba(243,239,234,0.15);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.66rem;
-    font-weight: 800;
-    color: rgba(243,239,234,0.3);
-    background: transparent;
+  .rp-step-num {
+    font-size: 2.6rem;
+    font-weight: 900;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    color: transparent;
+    -webkit-text-stroke: 1px rgba(243,239,234,0.16);
     transition: all 0.35s ease;
-    flex-shrink: 0;
+    user-select: none;
   }
-  .rp-step-ball.active {
-    border-color: #D4A820;
-    background: rgba(212,168,32,0.1);
+  .rp-step-num.active {
+    -webkit-text-stroke: 1.4px #D4A820;
+    filter: drop-shadow(0 0 10px rgba(212,168,32,0.3));
+  }
+  .rp-step-num.done {
     color: #D4A820;
-    box-shadow: 0 0 0 4px rgba(212,168,32,0.08);
-  }
-  .rp-step-ball.done {
-    border-color: #D4A820;
-    background: #D4A820;
-    color: #0A0800;
+    -webkit-text-stroke: 0;
+    opacity: 0.5;
   }
   .rp-step-vline {
     width: 1px;
-    height: 26px;
+    height: 34px;
     background: rgba(243,239,234,0.08);
     transition: background 0.4s ease;
-    margin: 4px 0;
+    margin: 10px 0;
   }
   .rp-step-vline.done { background: rgba(212,168,32,0.35); }
   .rp-step-info {
-    padding-top: 3px;
-    padding-bottom: 22px;
+    padding-top: 8px;
+    padding-bottom: 34px;
   }
   .rp-step-name {
-    font-size: 0.8rem;
+    font-size: 1rem;
     font-weight: 700;
     color: rgba(243,239,234,0.42);
     letter-spacing: 0.01em;
-    margin-bottom: 2px;
+    margin-bottom: 4px;
     transition: color 0.3s;
   }
   .rp-step-name.active { color: #F3EFEA; }
   .rp-step-name.done   { color: rgba(212,168,32,0.7); }
   .rp-step-desc {
-    font-size: 0.72rem;
+    font-size: 0.82rem;
     color: rgba(243,239,234,0.28);
     line-height: 1.5;
   }
   .rp-step-row:last-child .rp-step-vline { display: none; }
   .rp-step-row:last-child .rp-step-info  { padding-bottom: 0; }
-
-  /* Context area */
-  .rp-ctx {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    padding-bottom: 12px;
-  }
-  .rp-ctx-num {
-    font-size: 3rem;
-    font-weight: 900;
-    letter-spacing: -0.06em;
-    color: transparent;
-    -webkit-text-stroke: 1px rgba(212,168,32,0.18);
-    line-height: 1;
-    margin-bottom: 16px;
-    user-select: none;
-  }
-  .rp-ctx-title {
-    font-size: clamp(1.25rem, 2vw, 1.65rem);
-    font-weight: 900;
-    letter-spacing: -0.04em;
-    line-height: 1.15;
-    color: #F3EFEA;
-    margin-bottom: 24px;
-    white-space: pre-line;
-  }
-  .rp-ctx-bullets {
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
-  }
-  .rp-ctx-bullet {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    font-size: 0.78rem;
-    color: rgba(243,239,234,0.62);
-    line-height: 1.5;
-  }
-  .rp-ctx-bullet::before {
-    content: '';
-    width: 5px; height: 5px;
-    border-radius: 50%;
-    background: #D4A820;
-    flex-shrink: 0;
-    margin-top: 7px;
-    opacity: 0.7;
-  }
 
   .rp-left-footer {
     font-size: 0.68rem;
@@ -374,10 +203,11 @@ const css = `
 
   /* ── DIREITO ── */
   .rp-right {
+    width: 500px;
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 36px 40px 36px 16px;
     animation: rp-up 0.6s cubic-bezier(.16,1,.3,1) 0.1s both;
   }
 
@@ -480,33 +310,23 @@ const css = `
   .rp-input::placeholder { color: rgba(243,239,234,0.28); }
   .rp-input:focus { border-color: rgba(212,168,32,0.5); background: rgba(212,168,32,0.03); }
   .rp-input.err { border-color: rgba(240,122,100,0.55); background: rgba(240,122,100,0.04); }
+  /* Navegador pinta autofill de branco por padrão — força manter o escuro */
+  .rp-input:-webkit-autofill,
+  .rp-input:-webkit-autofill:hover,
+  .rp-input:-webkit-autofill:focus,
+  .rp-input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 100px #171310 inset !important;
+    -webkit-text-fill-color: #F3EFEA !important;
+    caret-color: #F3EFEA;
+    transition: background-color 9999s ease-in-out 0s;
+  }
   .rp-field-err {
     font-size: 0.7rem;
     color: #F07A64;
     margin-top: 4px;
     font-weight: 500;
   }
-
-  /* ── Senha strength ── */
-  .rp-pw-bars {
-    display: flex;
-    gap: 3px;
-    margin-top: 7px;
-  }
-  .rp-pw-bar {
-    flex: 1;
-    height: 3px;
-    border-radius: 2px;
-    background: rgba(243,239,234,0.08);
-    transition: background 0.3s;
-  }
-  .rp-pw-label {
-    font-size: 0.65rem;
-    font-weight: 600;
-    margin-top: 4px;
-    transition: color 0.3s;
-    min-height: 1em;
-  }
+  .rp-field-err a { color: #D4A820; font-weight: 700; text-decoration: underline; }
 
   /* ── Botão principal ── */
   .rp-btn {
@@ -534,76 +354,107 @@ const css = `
   .rp-btn:active:not(:disabled) { transform: translateY(0); }
   .rp-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
-  .rp-btn-ghost {
-    width: 100%;
-    padding: 11px;
-    background: transparent;
-    color: rgba(243,239,234,0.5);
-    border: 1px solid rgba(243,239,234,0.1);
-    border-radius: 10px;
-    font-family: inherit;
-    font-size: 0.78rem;
-    font-weight: 500;
-    cursor: pointer;
-    margin-top: 8px;
-    transition: border-color 0.15s, color 0.15s;
-  }
-  .rp-btn-ghost:hover { border-color: rgba(243,239,234,0.2); color: rgba(243,239,234,0.75); }
 
-  /* ── Banks ── */
+  /* ── Banks — fila de prioridade, não grade de "em breve" ── */
+  .rp-bank-eyebrow {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(212,168,32,0.7);
+    margin-bottom: 6px;
+  }
   .rp-bank-info {
     font-size: 0.79rem;
-    color: rgba(243,239,234,0.52);
+    color: rgba(243,239,234,0.5);
     line-height: 1.65;
-    margin-bottom: 16px;
+    margin-bottom: 20px;
   }
   .rp-banks {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 7px;
-    margin-bottom: 16px;
+    gap: 9px;
+    margin-bottom: 14px;
   }
   .rp-bank-card {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 9px;
-    padding: 10px 12px;
+    gap: 10px;
+    padding: 11px 12px;
     background: rgba(243,239,234,0.03);
-    border: 1px solid rgba(243,239,234,0.07);
-    border-radius: 9px;
-    opacity: 0.62;
+    border: 1px solid rgba(243,239,234,0.08);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, transform 0.15s;
+    text-align: left;
+    font-family: inherit;
+  }
+  .rp-bank-card:hover {
+    border-color: rgba(243,239,234,0.18);
+    transform: translateY(-1px);
+  }
+  .rp-bank-card.picked {
+    border-color: rgba(212,168,32,0.55);
+    background: rgba(212,168,32,0.07);
+    box-shadow: 0 0 0 1px rgba(212,168,32,0.15);
   }
   .rp-bank-icon {
-    width: 26px; height: 26px;
-    border-radius: 6px;
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: #F3EFEA;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.62rem;
-    font-weight: 900;
+    padding: 6px;
     flex-shrink: 0;
+    overflow: hidden;
+  }
+  .rp-bank-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    border-radius: 4px;
+    display: block;
   }
   .rp-bank-name {
-    font-size: 0.72rem;
+    flex: 1;
+    min-width: 0;
+    font-size: 0.78rem;
     font-weight: 600;
-    color: rgba(243,239,234,0.65);
+    color: rgba(243,239,234,0.82);
     line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .rp-bank-soon {
-    font-size: 0.53rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: rgba(212,168,32,0.48);
+  .rp-bank-check {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(243,239,234,0.2);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
   }
+  .rp-bank-card.picked .rp-bank-check {
+    background: #D4A820;
+    border-color: #D4A820;
+  }
+  .rp-bank-note {
+    font-size: 0.74rem;
+    color: rgba(212,168,32,0.8);
+    line-height: 1.5;
+    margin-bottom: 16px;
+    min-height: 1.1em;
+  }
+  .rp-bank-note b { color: rgba(212,168,32,0.95); }
 
   /* ── Termos ── */
-  .rp-form-err {
-    font-size: 0.78rem; color: #F8AEA0; background: rgba(240,122,100,0.08);
-    border: 1px solid rgba(240,122,100,0.25); border-radius: 10px;
-    padding: 10px 12px; margin: 4px 0 12px;
-  }
   .rp-terms-summary {
+    width: 82%;
+    margin: 0 auto 16px;
     background: rgba(243,239,234,0.03);
     border: 1px solid rgba(243,239,234,0.08);
     border-radius: 10px;
@@ -611,8 +462,7 @@ const css = `
     font-size: 0.76rem;
     color: rgba(243,239,234,0.52);
     line-height: 1.7;
-    margin-bottom: 16px;
-    max-height: 120px;
+    max-height: 340px;
     overflow-y: auto;
   }
   .rp-terms-summary::-webkit-scrollbar { width: 4px; }
@@ -660,53 +510,91 @@ const css = `
   .rp-check-label a { color: #D4A820; text-decoration: none; }
   .rp-check-label a:hover { text-decoration: underline; }
 
-  /* ── Sucesso ── */
-  .rp-success {
+  /* ── Sucesso — hero em tela cheia, sem etapas ── */
+  .rp-hero {
+    position: relative;
+    z-index: 2;
+    min-height: 100vh;
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     text-align: center;
-    padding: 8px 0 12px;
+    padding: 40px 24px;
+    animation: rp-up 0.7s cubic-bezier(.16,1,.3,1) both;
   }
-  .rp-success-icon {
-    width: 60px; height: 68px;
-    margin-bottom: 20px;
-    animation: rp-pop 0.55s cubic-bezier(.16,1,.3,1) both;
-  }
-  .rp-success-title {
-    font-size: 1.35rem;
-    font-weight: 900;
-    color: #F3EFEA;
-    letter-spacing: -0.03em;
-    margin-bottom: 8px;
-    line-height: 1.2;
-  }
-  .rp-success-sub {
-    font-size: 0.8rem;
-    color: rgba(243,239,234,0.48);
-    line-height: 1.75;
-    max-width: 280px;
-    margin-bottom: 24px;
-  }
-  .rp-success-stats {
+  .rp-hero-ring {
+    position: relative;
+    width: 132px; height: 132px;
     display: flex;
-    gap: 20px;
-    margin-bottom: 24px;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 40px;
   }
-  .rp-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-  .rp-stat-val {
-    font-size: 1.15rem;
+  .rp-hero-ring::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg, transparent, rgba(212,168,32,0.75), transparent 55%);
+    animation: rp-hero-spin 3.2s linear infinite;
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+            mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  }
+  .rp-hero-ring::after {
+    content: '';
+    position: absolute;
+    inset: 16px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(212,168,32,0.2) 0%, transparent 72%);
+  }
+  .rp-hero-icon {
+    position: relative;
+    width: 64px; height: 72px;
+    animation: rp-hero-pulse 2.6s ease-in-out infinite, rp-pop 0.6s cubic-bezier(.16,1,.3,1) both;
+  }
+  .rp-hero-title {
+    font-size: clamp(2.1rem, 5vw, 3.2rem);
     font-weight: 900;
-    color: #D4A820;
-    letter-spacing: -0.02em;
-    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.04em;
+    color: #F3EFEA;
+    line-height: 1.08;
+    margin-bottom: 18px;
   }
-  .rp-stat-lbl {
-    font-size: 0.6rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
+  .rp-hero-sub {
+    font-size: 0.95rem;
+    color: rgba(243,239,234,0.5);
+    line-height: 1.75;
+    max-width: 380px;
+    margin-bottom: 40px;
+  }
+  .rp-hero-btn {
+    padding: 16px 56px;
+    background: linear-gradient(135deg, #C89010, #D4A820, #E8C030);
+    background-size: 200% auto;
+    color: #0A0800;
+    border: none;
+    border-radius: 999px;
+    font-family: inherit;
+    font-size: 0.86rem;
+    font-weight: 900;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: rgba(243,239,234,0.3);
+    cursor: pointer;
+    transition: background-position 0.3s, transform 0.15s, box-shadow 0.25s;
+    box-shadow: 0 8px 30px rgba(212,168,32,0.28);
+  }
+  .rp-hero-btn:hover {
+    background-position: right center;
+    transform: translateY(-2px) scale(1.03);
+    box-shadow: 0 12px 40px rgba(212,168,32,0.42);
+  }
+  .rp-hero-btn:active { transform: translateY(0) scale(0.98); }
+
+  @keyframes rp-hero-spin { to { transform: rotate(360deg); } }
+  @keyframes rp-hero-pulse {
+    0%, 100% { filter: drop-shadow(0 0 10px rgba(212,168,32,0.35)); transform: scale(1); }
+    50%      { filter: drop-shadow(0 0 22px rgba(212,168,32,0.6)); transform: scale(1.05); }
   }
 
   /* ── Login link ── */
@@ -716,13 +604,13 @@ const css = `
     text-align: center;
     margin-top: 4px;
   }
-  .rp-login-link a { color: #D4A820; text-decoration: none; font-weight: 600; }
+  .rp-login-link a { color: #D4A820; text-decoration: none; font-weight: 600; margin-left: 6px; }
 
   /* ── Mobile ── */
   @media (max-width: 900px) {
-    .rp-layout { grid-template-columns: 1fr; min-height: auto; }
+    .rp-layout { flex-direction: column; min-height: auto; gap: 0; padding: 40px 24px 48px; }
     .rp-left { display: none; }
-    .rp-right { padding: 40px 24px 48px; align-items: flex-start; }
+    .rp-right { width: 100%; max-width: 420px; align-items: flex-start; }
     .rp-root { display: flex; align-items: center; justify-content: center; }
   }
 `;
@@ -735,38 +623,36 @@ export const RegisterPage: React.FC = () => {
   // Step 1
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [cpf, setCpf] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [errs1, setErrs1] = useState({ name: '', email: '', phone: '', password: '', confirm: '' });
+  const [errs1, setErrs1] = useState({ name: '', email: '', cpf: '', phone: '', password: '', confirm: '' });
+  const [checkingEmail, setCheckingEmail] = useState(false);
+  const [emailTaken, setEmailTaken] = useState(false);
 
-  // Step 2 — termos e criação da conta
+  const [loading, setLoading] = useState(false);
+
+  // Step 2
+  const [pickedBanks, setPickedBanks] = useState<string[]>([]);
+  const toggleBank = (name: string) =>
+    setPickedBanks(p => p.includes(name) ? p.filter(n => n !== name) : [...p, name]);
+
+  // Step 3
   const [termAccepted, setTermAccepted] = useState(false);
   const [privAccepted, setPrivAccepted] = useState(false);
   const [termErr, setTermErr] = useState(false);
-  const [criando, setCriando] = useState(false);
-  const [erroCadastro, setErroCadastro] = useState('');
-  const [reenviado, setReenviado] = useState(false);
 
-  const strength = pwStrength(password);
   const firstName = name.trim().split(' ')[0] || '';
 
-  useEffect(() => {
-    const mm = (e: MouseEvent) => {
-      document.documentElement.style.setProperty('--cx', `${e.clientX}px`);
-      document.documentElement.style.setProperty('--cy', `${e.clientY}px`);
-    };
-    window.addEventListener('mousemove', mm);
-    return () => window.removeEventListener('mousemove', mm);
-  }, []);
-
   const validate1 = () => {
-    const e = { name: '', email: '', phone: '', password: '', confirm: '' };
+    const e = { name: '', email: '', cpf: '', phone: '', password: '', confirm: '' };
     if (!name.trim()) e.name = 'Preencha seu nome';
     if (!email.trim()) e.email = 'Preencha o e-mail';
-    else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) e.email = 'E-mail inválido';
-    const digitos = phone.replace(/\D/g, '');
-    if (digitos && digitos.length < 10) e.phone = 'Telefone incompleto';
+    else if (!/\S+@\S+\.\S+/.test(email)) e.email = 'E-mail inválido';
+    // CPF e telefone são opcionais — backend não armazena ainda
+    if (cpf && cpf.replace(/\D/g, '').length < 11) e.cpf = 'CPF incompleto';
+    if (phone && phone.replace(/\D/g, '').length < 10) e.phone = 'Telefone incompleto';
     if (!password) e.password = 'Preencha a senha';
     else if (password.length < 8) e.password = 'Mínimo 8 caracteres';
     if (!confirm) e.confirm = 'Confirme a senha';
@@ -775,70 +661,116 @@ export const RegisterPage: React.FC = () => {
     return !Object.values(e).some(Boolean);
   };
 
-  const handleStep1 = (ev: React.FormEvent) => { ev.preventDefault(); if (validate1()) setStep(2); };
+  const handleStep1 = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    setEmailTaken(false);
+    if (!validate1()) return;
 
-  // A conta nasce AQUI, depois do aceite — o backend exige accepted_terms e
-  // grava o instante do consentimento. Antes, nenhuma etapa chamava o
-  // servidor e a tela final dizia "sua conta está criada".
-  const criarConta = async () => {
-    if (!termAccepted || !privAccepted) { setTermErr(true); return; }
-    setCriando(true);
-    setErroCadastro('');
+    setCheckingEmail(true);
     try {
-      await register({
-        email,
-        password,
-        full_name: name.trim(),
-        phone: phone ? phoneE164(phone) : undefined,
-        accepted_terms: true,
-      });
-      setStep(3);
-    } catch (err) {
-      const info = describeError(err);
-      if (info.kind === 'validation' && /registrado/i.test(info.message)) {
-        setErrs1(p => ({ ...p, email: 'Este e-mail já tem conta. Entre ou recupere a senha.' }));
-        setStep(1);
-      } else if (info.kind === 'validation') {
-        setErroCadastro(info.message);
-      } else {
-        setErroCadastro(info.message || 'Não foi possível criar a conta agora.');
+      const res = await fetch(`${API_BASE_URL}/auth/check-email?email=${encodeURIComponent(email.trim())}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (!data.available) {
+          setEmailTaken(true);
+          return;
+        }
       }
+      // Se a verificação falhar por erro de rede, segue em frente —
+      // o /auth/register do passo 3 ainda pega um e-mail duplicado.
+      setStep(2);
+    } catch {
+      setStep(2);
     } finally {
-      setCriando(false);
+      setCheckingEmail(false);
     }
   };
 
-  const reenviarConfirmacao = async () => {
+  const handleStep3 = async () => {
+    if (!termAccepted || !privAccepted) { setTermErr(true); return; }
+    setLoading(true);
     try {
-      await resendVerification(email);
-      setReenviado(true);
+      // Registrar
+      const res = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // accepted_terms: o backend exige o aceite e grava o instante (LGPD); só
+        // chega aqui com os dois termos marcados. Telefone vai só os dígitos.
+        body: JSON.stringify({
+          email: email.trim(), password, full_name: name.trim(), accepted_terms: true,
+          ...(phone.replace(/\D/g, '') ? { phone: `55${phone.replace(/\D/g, '')}` } : {}),
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.detail || 'Erro ao criar conta. Tente novamente.');
+        return;
+      }
+
+      // Auto-login
+      const params = new URLSearchParams();
+      params.append('username', email.trim());
+      params.append('password', password);
+      const loginRes = await fetch(`${API_BASE_URL}/auth/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      if (loginRes.ok) {
+        const loginData = await loginRes.json();
+        localStorage.setItem('jwt_token', loginData.access_token);
+        if (loginData.user_id)      localStorage.setItem('user_id', loginData.user_id);
+        if (loginData.refresh_token) localStorage.setItem('refresh_token', loginData.refresh_token);
+        localStorage.setItem('user_name', loginData.full_name || name.trim());
+        localStorage.setItem('user_email', email.trim());
+      }
+
+      setStep(4);
     } catch {
-      setReenviado(false);
+      toast.error('Erro de conexão. Verifique sua internet.');
+    } finally {
+      setLoading(false);
     }
   };
 
   const dot = (n: number) => step > n ? 'done' : step === n ? 'active' : '';
-  const ctx = LEFT_CTX[Math.min(step, 3) - 1];
 
-  const STEPS = ['Criar conta', 'Termos de uso', 'Conectar banco'];
+  const STEPS = ['Criar conta', 'Conectar banco', 'Termos de uso'];
   const STEP_DESC = [
     'Dados e credenciais de acesso',
-    'Leitura e aceite dos termos',
     'Vincule sua conta bancária',
+    'Leitura e aceite dos termos',
   ];
 
   return (
     <>
       <style>{css}</style>
       <div className="rp-root">
-        <HoneycombCanvas />
+        <div className="rp-glow" aria-hidden="true" />
         <div className="rp-wm" aria-hidden="true">HIVE</div>
 
+        {step === 4 ? (
+          <div className="rp-hero">
+            <div className="rp-hero-ring">
+              <svg className="rp-hero-icon" viewBox="0 0 180 200" fill="none">
+                <polygon points="90,10 168,55 168,145 90,190 12,145 12,55" fill="#7A5002"/>
+                <polygon points="90,10 12,55 12,145 90,190 105,181 105,19" fill="#D4A820"/>
+                <polygon points="100,16 110,22 110,178 100,184" fill="#090500"/>
+                <path d="M58 100 L78 120 L122 78" stroke="#0A0800" strokeWidth="11" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <h1 className="rp-hero-title">{firstName ? `Bem-vindo, ${firstName}.` : 'Tudo certo.'}</h1>
+            <p className="rp-hero-sub">
+              Sua conta está criada. Agora você tem acesso à inteligência financeira que os bancos não querem que você veja.
+            </p>
+            <button className="rp-hero-btn" onClick={() => navigate('/chat')}>Entrar</button>
+          </div>
+        ) : (
         <div className="rp-layout">
           {/* ── ESQUERDO ── */}
           <div className="rp-left">
             <div className="rp-logo">
-              <svg width="24" height="28" viewBox="0 0 180 200" fill="none">
+              <svg className="rp-logo-icon" width="24" height="28" viewBox="0 0 180 200" fill="none">
                 <polygon points="90,10 168,55 168,145 90,190 12,145 12,55" fill="#7A5002"/>
                 <polygon points="90,10 12,55 12,145 90,190 105,181 105,19" fill="#D4A820"/>
                 <polygon points="100,16 110,22 110,178 100,184" fill="#090500"/>
@@ -846,16 +778,12 @@ export const RegisterPage: React.FC = () => {
               <span className="rp-logo-word">HIVE</span>
             </div>
 
-            {/* Progress vertical */}
+            {/* Progress vertical — números grandes estilo "01" */}
             <div className="rp-step-nav">
               {STEPS.map((s, i) => (
                 <div key={i} className="rp-step-row">
                   <div className="rp-step-col">
-                    <div className={`rp-step-ball ${dot(i + 1)}`}>
-                      {step > i + 1
-                        ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="#0A0800" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                        : i + 1}
-                    </div>
+                    <div className={`rp-step-num ${dot(i + 1)}`}>{String(i + 1).padStart(2, '0')}</div>
                     <div className={`rp-step-vline ${step > i + 1 ? 'done' : ''}`} />
                   </div>
                   <div className="rp-step-info">
@@ -864,17 +792,6 @@ export const RegisterPage: React.FC = () => {
                   </div>
                 </div>
               ))}
-            </div>
-
-            {/* Contexto do step atual */}
-            <div className="rp-ctx">
-              <div className="rp-ctx-num">{ctx.step}</div>
-              <div className="rp-ctx-title">{ctx.title}</div>
-              <div className="rp-ctx-bullets">
-                {ctx.bullets.map((b, i) => (
-                  <div key={i} className="rp-ctx-bullet">{b}</div>
-                ))}
-              </div>
             </div>
 
             <div className="rp-left-footer">© 2025 HIVE · Todos os direitos reservados</div>
@@ -890,6 +807,18 @@ export const RegisterPage: React.FC = () => {
                     <div className="rp-card-label">Passo 1 de 3</div>
                     <div className="rp-card-title">Crie sua conta</div>
 
+                    {/* Google */}
+                    <button type="button" className="rp-google" onClick={() => alert('OAuth Google em breve')}>
+                      <svg width="16" height="16" viewBox="0 0 24 24">
+                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                      </svg>
+                      Continuar com Google
+                    </button>
+                    <div className="rp-or">ou</div>
+
                     <form onSubmit={handleStep1} noValidate>
                       <div className="rp-fields">
                         <div>
@@ -902,18 +831,32 @@ export const RegisterPage: React.FC = () => {
 
                         <div>
                           <label className="rp-field-label">E-mail</label>
-                          <input className={`rp-input${errs1.email ? ' err' : ''}`} type="email" placeholder="seu@email.com"
-                            value={email} onChange={e => { setEmail(e.target.value); if (errs1.email) setErrs1(p => ({...p, email: ''})); }}
+                          <input className={`rp-input${errs1.email || emailTaken ? ' err' : ''}`} type="email" placeholder="seu@email.com"
+                            value={email} onChange={e => { setEmail(e.target.value); if (errs1.email) setErrs1(p => ({...p, email: ''})); setEmailTaken(false); }}
                             autoComplete="email" />
                           {errs1.email && <div className="rp-field-err">{errs1.email}</div>}
+                          {emailTaken && (
+                            <div className="rp-field-err">
+                              Este e-mail já tem uma conta. <Link to="/login">Entrar</Link>
+                            </div>
+                          )}
                         </div>
 
-                        <div>
-                          <label className="rp-field-label">Celular (opcional)</label>
-                          <input className={`rp-input${errs1.phone ? ' err' : ''}`} type="tel" placeholder="(00) 00000-0000"
-                            value={phone} onChange={e => { setPhone(fmtPhone(e.target.value)); if (errs1.phone) setErrs1(p => ({...p, phone: ''})); }}
-                            inputMode="numeric" autoComplete="tel" />
-                          {errs1.phone && <div className="rp-field-err">{errs1.phone}</div>}
+                        <div className="rp-row2">
+                          <div>
+                            <label className="rp-field-label">CPF</label>
+                            <input className={`rp-input${errs1.cpf ? ' err' : ''}`} type="text" placeholder="000.000.000-00"
+                              value={cpf} onChange={e => { setCpf(fmtCPF(e.target.value)); if (errs1.cpf) setErrs1(p => ({...p, cpf: ''})); }}
+                              inputMode="numeric" />
+                            {errs1.cpf && <div className="rp-field-err">{errs1.cpf}</div>}
+                          </div>
+                          <div>
+                            <label className="rp-field-label">Telefone</label>
+                            <input className={`rp-input${errs1.phone ? ' err' : ''}`} type="tel" placeholder="(00) 00000-0000"
+                              value={phone} onChange={e => { setPhone(fmtPhone(e.target.value)); if (errs1.phone) setErrs1(p => ({...p, phone: ''})); }}
+                              inputMode="numeric" />
+                            {errs1.phone && <div className="rp-field-err">{errs1.phone}</div>}
+                          </div>
                         </div>
 
                         <div>
@@ -921,19 +864,6 @@ export const RegisterPage: React.FC = () => {
                           <input className={`rp-input${errs1.password ? ' err' : ''}`} type="password" placeholder="Mínimo 8 caracteres"
                             value={password} onChange={e => { setPassword(e.target.value); if (errs1.password) setErrs1(p => ({...p, password: ''})); }}
                             autoComplete="new-password" />
-                          {password && (
-                            <>
-                              <div className="rp-pw-bars">
-                                {[1,2,3,4,5].map(i => (
-                                  <div key={i} className="rp-pw-bar"
-                                    style={{ background: i <= strength ? PW_COLOR[strength] : undefined }} />
-                                ))}
-                              </div>
-                              <div className="rp-pw-label" style={{ color: PW_COLOR[strength] }}>
-                                {PW_LABEL[strength]}
-                              </div>
-                            </>
-                          )}
                           {errs1.password && <div className="rp-field-err">{errs1.password}</div>}
                         </div>
 
@@ -946,31 +876,67 @@ export const RegisterPage: React.FC = () => {
                         </div>
                       </div>
 
-                      <button type="submit" className="rp-btn">Continuar</button>
+                      <button type="submit" className="rp-btn" disabled={checkingEmail}>
+                        {checkingEmail ? 'Verificando…' : 'Continuar'}
+                      </button>
                     </form>
                   </>
                 )}
 
-                {/* ── Step 2: Termos (cria a conta) ── */}
+                {/* ── Step 2: Banco — vira fila de prioridade, não grade morta ── */}
                 {step === 2 && (
                   <>
                     <div className="rp-card-label">Passo 2 de 3</div>
+                    <div className="rp-bank-eyebrow">Open Banking em construção</div>
+                    <div className="rp-card-title">Qual banco a gente conecta primeiro?</div>
+                    <p className="rp-bank-info">
+                      Ainda estamos construindo a conexão real via Open Banking. Marque o(s) banco(s) que você usa — isso entra direto na fila de prioridade de quem estamos construindo agora.
+                    </p>
+                    <div className="rp-banks">
+                      {BANKS.map(b => {
+                        const picked = pickedBanks.includes(b.name);
+                        return (
+                          <button key={b.name} type="button" className={`rp-bank-card${picked ? ' picked' : ''}`} onClick={() => toggleBank(b.name)}>
+                            <div className="rp-bank-icon">
+                              <img src={`https://www.google.com/s2/favicons?sz=128&domain=${b.domain}`} alt={b.name} />
+                            </div>
+                            <div className="rp-bank-name">{b.name}</div>
+                            <span className="rp-bank-check">
+                              {picked && <svg width="9" height="9" viewBox="0 0 10 10" fill="none"><path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="#0A0800" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="rp-bank-note">
+                      {pickedBanks.length > 0
+                        ? <>Beleza — assim que <b>{pickedBanks.join(', ')}</b> estiver pronto, você é avisado primeiro.</>
+                        : 'Nenhum banco marcado ainda — tudo bem seguir sem escolher.'}
+                    </p>
+                    <button className="rp-btn" onClick={() => setStep(3)}>Continuar</button>
+                  </>
+                )}
+
+                {/* ── Step 3: Termos ── */}
+                {step === 3 && (
+                  <>
+                    <div className="rp-card-label">Passo 3 de 3</div>
                     <div className="rp-card-title">Termos e privacidade</div>
                     <div className="rp-terms-summary">
                       <strong style={{ color: 'rgba(243,239,234,0.75)', display: 'block', marginBottom: 6 }}>Termos de Uso</strong>
                       O HIVE é uma plataforma de análise financeira pessoal. Ao utilizar nossos serviços, você concorda que seus dados financeiros serão usados exclusivamente para gerar insights personalizados dentro da plataforma. Não vendemos, alugamos ou compartilhamos seus dados com terceiros para fins comerciais. Você pode revogar o acesso e solicitar a exclusão da conta a qualquer momento.
                       <br /><br />
                       <strong style={{ color: 'rgba(243,239,234,0.75)', display: 'block', marginBottom: 6 }}>Política de Privacidade</strong>
-                      Seus dados pessoais são tratados conforme a Lei Geral de Proteção de Dados (LGPD — Lei 13.709/2018). A senha é guardada apenas como hash (bcrypt) e as conexões trafegam por TLS. O HIVE não acessa sua conta bancária diretamente: só analisa os dados que você autoriza a compartilhar pelo Open Finance. Em Perfil você exporta ou apaga todos os seus dados.
+                      Todos os dados pessoais coletados são tratados em conformidade com a Lei Geral de Proteção de Dados (LGPD — Lei 13.709/2018). Suas senhas são armazenadas com hash criptográfico. Seus dados financeiros são transmitidos e armazenados com criptografia TLS/AES-256. O HIVE não acessa sua conta bancária diretamente — apenas analisa os dados que você autoriza a compartilhar via Open Banking.
                     </div>
 
                     <label className="rp-check-row">
                       <input type="checkbox" checked={termAccepted} onChange={e => { setTermAccepted(e.target.checked); setTermErr(false); }} />
-                      <span className="rp-check-label">Li e aceito os Termos de Uso</span>
+                      <span className="rp-check-label">Li e aceito os <a href="#">Termos de Uso</a></span>
                     </label>
                     <label className="rp-check-row">
                       <input type="checkbox" checked={privAccepted} onChange={e => { setPrivAccepted(e.target.checked); setTermErr(false); }} />
-                      <span className="rp-check-label">Li e aceito a Política de Privacidade</span>
+                      <span className="rp-check-label">Li e aceito a <a href="#">Política de Privacidade</a></span>
                     </label>
 
                     {termErr && (
@@ -978,60 +944,11 @@ export const RegisterPage: React.FC = () => {
                         Aceite os termos para continuar
                       </div>
                     )}
-                    {erroCadastro && <div className="rp-form-err" role="alert">{erroCadastro}</div>}
 
-                    <button className="rp-btn" style={{ marginTop: 14 }} onClick={criarConta} disabled={criando}>
-                      {criando ? 'Criando sua conta…' : 'Aceitar e criar conta'}
+                    <button className="rp-btn" style={{ marginTop: 14 }} onClick={handleStep3} disabled={loading}>
+                      {loading ? 'Criando conta…' : 'Confirmar e entrar'}
                     </button>
-                    <button className="rp-btn-ghost" onClick={() => setStep(1)} disabled={criando}>Voltar</button>
                   </>
-                )}
-
-                {/* ── Step 3: Banco ── */}
-                {step === 3 && (
-                  <>
-                    <div className="rp-card-label">Passo 3 de 3</div>
-                    <div className="rp-card-title">Conecte seu banco</div>
-                    <p className="rp-bank-info">
-                      Sua conta foi criada. Agora conecte um banco pelo Open Finance para o HIVE analisar seus dados reais — você escolhe quais contas compartilhar e pode revogar quando quiser.
-                    </p>
-                    <div className="rp-banks">
-                      {BANKS.map(b => (
-                        <div key={b.name} className="rp-bank-card">
-                          <div className="rp-bank-icon" style={{ background: b.bg, color: b.fg }}>{b.abbr}</div>
-                          <div>
-                            <div className="rp-bank-name">{b.name}</div>
-                            <div className="rp-bank-soon">via Open Finance</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <button className="rp-btn" onClick={() => navigate('/connections')}>Conectar banco agora</button>
-                    <button className="rp-btn-ghost" onClick={() => setStep(4)}>Conectar mais tarde</button>
-                  </>
-                )}
-
-                {/* ── Step 4: Pronto ── */}
-                {step === 4 && (
-                  <div className="rp-success">
-                    <svg className="rp-success-icon" viewBox="0 0 180 200" fill="none">
-                      <polygon points="90,10 168,55 168,145 90,190 12,145 12,55" fill="#7A5002"/>
-                      <polygon points="90,10 12,55 12,145 90,190 105,181 105,19" fill="#D4A820"/>
-                      <polygon points="100,16 110,22 110,178 100,184" fill="#090500"/>
-                      <path d="M58 100 L78 120 L122 78" stroke="#0A0800" strokeWidth="11" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                    <div className="rp-success-title">
-                      {firstName ? `Bem-vindo, ${firstName}.` : 'Tudo certo.'}
-                    </div>
-                    <p className="rp-success-sub">
-                      Enviamos um link de confirmação para <strong>{email.trim().toLowerCase()}</strong>.
-                      Confirme quando puder — você já pode usar o HIVE.
-                    </p>
-                    <button className="rp-btn" onClick={() => navigate('/dashboard')}>Entrar no HIVE</button>
-                    <button className="rp-btn-ghost" onClick={reenviarConfirmacao} disabled={reenviado}>
-                      {reenviado ? 'Link reenviado' : 'Reenviar e-mail de confirmação'}
-                    </button>
-                  </div>
                 )}
               </div>
 
@@ -1043,6 +960,7 @@ export const RegisterPage: React.FC = () => {
             </div>
           </div>
         </div>
+        )}
       </div>
     </>
   );

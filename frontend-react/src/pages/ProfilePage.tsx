@@ -10,6 +10,7 @@ import { logout, logoutAll } from '../api/auth';
 import { getErrorMessage } from '../api/errors';
 import { session } from '../api/session';
 import { getPushState, subscribeToPush, unsubscribeFromPush } from '../pwa/push';
+import { isDemoMode, setDemoMode } from '../utils/demoMode';
 import type { PushState } from '../pwa/push';
 
 const card: React.CSSProperties = { background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16 };
@@ -38,6 +39,15 @@ export const ProfilePage: React.FC = () => {
   const userId = session.userId;
   const email = session.userEmail;
   const nome = session.userName || (email.includes('@') ? email.split('@')[0] : 'Usuário');
+
+  // Modo demonstração por conta (da Beatriz): dados fictícios em Organização,
+  // Oportunidades e Cartões, nunca ligado por padrão.
+  const [demoMode, setDemoModeState] = useState(() => isDemoMode(userId));
+  const toggleDemoMode = () => {
+    const next = !demoMode;
+    setDemoMode(userId, next);
+    setDemoModeState(next);
+  };
 
   const conexoesQ = useQuery({ queryKey: ['pluggy', 'conexoes'], queryFn: painelApi.conexoes, enabled: !!userId });
   const assinaturaQ = useQuery({ queryKey: ['billing', 'assinatura', userId], queryFn: () => contaApi.assinatura(userId), enabled: !!userId });
@@ -134,6 +144,49 @@ export const ProfilePage: React.FC = () => {
                 {pushBusy ? '…' : push === 'subscribed' ? 'Desativar neste aparelho' : 'Ativar neste aparelho'}
               </button>
             )}
+          </div>
+        </div>
+
+        <div style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div>
+            <div style={label}>Modo demonstração</div>
+            <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 4 }}>
+              Mostra dados fictícios em Organização, Oportunidades e Cartões — só nesta conta.
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {demoMode
+                ? 'Ativado — você está vendo dados fictícios.'
+                : 'Desativado — mostrando o estado real (vazio até conectar um banco).'}
+            </div>
+          </div>
+          <button
+            onClick={toggleDemoMode}
+            aria-pressed={demoMode}
+            style={{
+              width: 46, height: 26, borderRadius: 999, border: 'none', cursor: 'pointer',
+              background: demoMode ? '#D4A820' : 'var(--border-color)',
+              position: 'relative', flexShrink: 0, transition: 'background 0.15s',
+            }}
+          >
+            <span style={{
+              position: 'absolute', top: 3, left: demoMode ? 23 : 3,
+              width: 20, height: 20, borderRadius: '50%', background: '#fff',
+              transition: 'left 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            }} />
+          </button>
+        </div>
+
+        {/* As ferramentas não estão no menu principal (3 abas): a entrada é aqui. */}
+        <div style={card}>
+          <div style={label}>Ferramentas</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {([
+              ['/strategies', 'Estratégias'], ['/goals', 'Metas'], ['/defesa', 'Defesa do consumidor'],
+              ['/direitos', 'Direitos esquecidos'], ['/impostos', 'Impostos'], ['/wrapped', 'Seu ano (Wrapped)'],
+              ['/connections', 'Conexões bancárias'], ['/widget', 'Margem do dia e alertas'], ['/planos', 'Planos'],
+            ] as const).map(([rota, nome]) => (
+              <Link key={rota} to={rota} style={{ ...botaoSec, textDecoration: 'none', display: 'inline-block' }}>{nome}</Link>
+            ))}
           </div>
         </div>
 

@@ -42,6 +42,27 @@ class SaveItemRequest(BaseModel):
     item_id: str
     connector_name: Optional[str] = None
 
+class CardResponse(BaseModel):
+    account_id: str
+    bank_name: Optional[str] = None
+    brand: Optional[str] = None
+    level: Optional[str] = None
+    last4: Optional[str] = None
+    credit_limit: Optional[float] = None
+    available_credit_limit: Optional[float] = None
+    balance_close_date: Optional[str] = None
+    balance_due_date: Optional[str] = None
+    currency: str = "BRL"
+    captured_at: str
+
+class ManualCardRequest(BaseModel):
+    bank_name: str
+    brand: Optional[str] = None
+    level: Optional[str] = None
+    last4: Optional[str] = None
+    credit_limit: Optional[float] = None
+    available_credit_limit: Optional[float] = None
+
 @router.post("/connect-token", response_model=ConnectTokenResponse, summary="Gera um Connect Token para o Widget")
 def create_connect_token(current_user_str: str = Depends(get_current_user)):
     """Gera um connect_token obrigatório para inicializar o Widget Pluggy no Frontend."""
@@ -505,6 +526,66 @@ _ITEM_READY_EVENTS = {
     "transactions/created",
     "transactions/updated",
 }
+
+
+@router.get("/cards", response_model=List[CardResponse], summary="Lista os cartões de crédito do usuário")
+def list_user_cards(current_user_str: str = Depends(get_current_user)):
+    """Cartões (bandeira, limite, vencimento) capturados no último sync de cada conta CREDIT.
+
+    Vazio até o usuário conectar um banco e o sync persistir pelo menos uma
+    conta do tipo CREDIT — ver app/core/db/cards.py.
+    """
+    from app.core.db.cards import get_cards
+
+    cards = get_cards(str(current_user_str))
+    return [
+        CardResponse(
+            account_id=c.account_id,
+            bank_name=c.bank_name,
+            brand=c.brand,
+            level=c.level,
+            last4=c.last4,
+            credit_limit=c.credit_limit,
+            available_credit_limit=c.available_credit_limit,
+            balance_close_date=c.balance_close_date,
+            balance_due_date=c.balance_due_date,
+            currency=c.currency,
+            captured_at=str(c.captured_at),
+        )
+        for c in cards
+    ]
+
+
+@router.post("/cards/manual", response_model=CardResponse, summary="Cadastra um cartão manualmente")
+def add_manual_card(payload: ManualCardRequest, current_user_str: str = Depends(get_current_user)):
+    """Para bancos/cartões que o Open Finance ainda não cobre — o usuário informa os dados na mão."""
+    from app.core.db.cards import get_cards, save_manual_card
+
+    account_id = save_manual_card(
+        user_id=str(current_user_str),
+        bank_name=payload.bank_name,
+        brand=payload.brand,
+        level=payload.level,
+        last4=payload.last4,
+        credit_limit=payload.credit_limit,
+        available_credit_limit=payload.available_credit_limit,
+    )
+    created = next((c for c in get_cards(str(current_user_str)) if c.account_id == account_id), None)
+    if not created:
+        raise HTTPException(status_code=500, detail="Falha ao salvar cartão")
+    return CardResponse(
+        account_id=created.account_id,
+        bank_name=created.bank_name,
+        brand=created.brand,
+        level=created.level,
+        last4=created.last4,
+        credit_limit=created.credit_limit,
+        available_credit_limit=created.available_credit_limit,
+        balance_close_date=created.balance_close_date,
+        balance_due_date=created.balance_due_date,
+        currency=created.currency,
+        captured_at=str(created.captured_at),
+    )
 
 
 @router.post("/webhook", status_code=status.HTTP_200_OK, summary="Webhook de eventos de item da Pluggy")

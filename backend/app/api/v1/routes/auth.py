@@ -175,6 +175,21 @@ def _send_verification_email(email: str, token: str) -> None:
         ),
     )
 
+class EmailAvailabilityResponse(BaseModel):
+    available: bool
+
+
+@router.get("/check-email", response_model=EmailAvailabilityResponse)
+@limiter.limit("20/minute")
+async def check_email_availability(request: Request, email: str, db: Session = Depends(get_db)):
+    """
+    Verifica se um e-mail já está cadastrado — usado no passo 1 do cadastro
+    para avisar antes de a pessoa preencher o resto do formulário.
+    """
+    db_user = get_user_by_email(db, email)
+    return EmailAvailabilityResponse(available=db_user is None)
+
+
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
 async def register(request: Request, user: UserCreate, db: Session = Depends(get_db)):

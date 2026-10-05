@@ -130,6 +130,13 @@ def _iso(valor) -> str | None:
     return valor.isoformat() if hasattr(valor, "isoformat") else str(valor)
 
 
+class ChatSessionItem(BaseModel):
+    session_id: str
+    title: str
+    last_message_at: str
+    message_count: int
+
+
 @router.post("/", response_model=ChatResponse)
 @limiter.limit("20/minute")
 async def chat_with_agent(
@@ -271,8 +278,8 @@ async def chat_with_agent(
 @router.get("/history", response_model=List[ChatHistoryItem])
 def get_chat_history(
     user_id: str = Depends(require_owner),
+    session_id: str | None = Query(None, description="Filtra o histórico a uma única conversa"),
     limit: int = Query(50, ge=1, le=200, description="Número máximo de mensagens"),
-    session_id: str | None = Query(None, description="Só a conversa desta sessão"),
     db: Session = Depends(get_db),
 ):
     """
@@ -304,6 +311,47 @@ def get_chat_history(
         )
         for row in rows
     ]
+
+
+@router.get("/sessions", response_model=List[ChatSessionItem])
+def get_chat_sessions(
+    user_id: str = Depends(require_owner),
+    limit: int = Query(30, ge=1, le=100, description="Número máximo de conversas"),
+    db: Session = Depends(get_db),
+):
+    """
+    Lista as conversas do usuário (uma por `session_id`), mais recente primeiro.
+    O título de cada conversa é a primeira mensagem do usuário, truncada.
+    Mensagens gravadas antes da coluna `session_id` existir (session_id nulo)
+    não aparecem aqui — só no histórico legado sem filtro.
+    """
+
+    rows = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.user_id == user_id, ChatMessage.session_id.isnot(None))
+        .order_by(ChatMessage.created_at.asc())
+        .all()
+    )
+
+    sessions: dict[str, dict] = {}
+    for row in rows:
+        s = sessions.setdefault(row.session_id, {"first_human": None, "last_at": row.created_at, "count": 0})
+        s["count"] += 1
+        s["last_at"] = row.created_at
+        if s["first_human"] is None and row.role == "human":
+            s["first_human"] = row.content
+
+    items = [
+        ChatSessionItem(
+            session_id=sid,
+            title=(data["first_human"] or "Nova conversa")[:80],
+            last_message_at=str(data["last_at"]),
+            message_count=data["count"],
+        )
+        for sid, data in sessions.items()
+    ]
+    items.sort(key=lambda i: i.last_message_at, reverse=True)
+    return items[:limit]
 
 
 @router.delete("/history", response_model=ChatClearResponse)

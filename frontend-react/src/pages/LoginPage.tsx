@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { login } from '../api/auth';
-import { describeError } from '../api/errors';
-import { session } from '../api/session';
+import { useNavigate, Link } from 'react-router-dom';
+import toast from 'react-hot-toast';
+import { API_BASE_URL } from '../api/client';
 
 // ─── Slot-machine letter (ticker financeiro) ─────────────────────────────────
 const SLOT_CHARS = ['$', '¥', '€', '%', '+', '#', '8', '4', '2', '1', '9', '6', '3', '7', '0', '5'];
@@ -44,11 +43,9 @@ const SlotLetter: React.FC<{ char: string; delay: number }> = ({ char, delay }) 
   );
 };
 
-// ─── Canvas de Colmeia ───────────────────────────────────────────────────────
+// ─── Canvas de Colmeia — ponto quente fixo no canto, sem depender do mouse ───
 const HoneycombCanvas: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const mouse = useRef({ x: -9999, y: -9999 });
-  const clicks = useRef<Array<{ x: number; y: number; t: number }>>([]);
   const rafRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -57,19 +54,20 @@ const HoneycombCanvas: React.FC = () => {
     const ctx = canvas.getContext('2d')!;
     const DPR = Math.min(window.devicePixelRatio || 1, 2);
     const SIZE = 28;
-    const GAP = 5;
+    const GAP = 1.5;
     const SQRT3 = Math.sqrt(3);
-    const GLOW_R = 200;
-    const WAVE_SPEED = 300;
-    const WAVE_WIDTH = 65;
+    const GLOW_R = 380;
 
     type Hex = { cx: number; cy: number; phase: number };
     let hexes: Hex[] = [];
+    let hotspot = { x: 0, y: 0 };
 
     const resize = () => {
       canvas.width = window.innerWidth * DPR;
       canvas.height = window.innerHeight * DPR;
       ctx.scale(DPR, DPR);
+      // Canto inferior direito — fixo, não segue o cursor.
+      hotspot = { x: window.innerWidth * 0.88, y: window.innerHeight * 0.92 };
       build();
     };
 
@@ -109,43 +107,31 @@ const HoneycombCanvas: React.FC = () => {
     const frame = (now: number) => {
       const t = (now - t0) / 1000;
       ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-      const { x: mx, y: my } = mouse.current;
 
-      // Limpar clicks antigos
-      clicks.current = clicks.current.filter(c => now - c.t < 1100);
+      // O ponto quente pulsa bem devagar sozinho — nunca reage a mouse/clique.
+      const pulse = 0.75 + Math.sin(t * 0.3) * 0.25;
 
       for (const h of hexes) {
-        const dist = Math.hypot(h.cx - mx, h.cy - my);
-        const hover = Math.max(0, 1 - dist / GLOW_R);
-
-        // Ripples de clicks
-        let ripple = 0;
-        for (const ck of clicks.current) {
-          const age = (now - ck.t) / 1000;
-          const wave = age * WAVE_SPEED;
-          const d = Math.hypot(h.cx - ck.x, h.cy - ck.y);
-          const fromWave = Math.abs(d - wave);
-          const r = Math.max(0, 1 - fromWave / WAVE_WIDTH) * Math.max(0, 1 - age * 1.2);
-          ripple = Math.max(ripple, r);
-        }
+        const dist = Math.hypot(h.cx - hotspot.x, h.cy - hotspot.y);
+        const glow = Math.max(0, 1 - dist / GLOW_R) * pulse;
 
         const breathe = Math.sin(t * 0.65 + h.phase) * 0.5 + 0.5;
-        const baseA = 0.012 + breathe * 0.022;
-        const total = Math.max(hover, ripple);
+        const baseA = 0.03 + breathe * 0.035;
         const s = SIZE - GAP * 0.5;
 
         drawHex(h.cx, h.cy, s);
-        ctx.fillStyle = total > 0.02
-          ? `rgba(212,168,32,${total * 0.28})`
-          : `rgba(243,239,234,${baseA * 0.4})`;
-        ctx.fill();
-
-        drawHex(h.cx, h.cy, s);
-        ctx.strokeStyle = total > 0.02
-          ? `rgba(212,168,32,${0.08 + total * 0.85})`
-          : `rgba(243,239,234,${baseA * 1.4})`;
-        ctx.lineWidth = total > 0.15 ? 1.4 : 0.65;
-        ctx.stroke();
+        if (glow > 0.02) {
+          ctx.fillStyle = `rgba(212,168,32,${glow * 0.28})`;
+          ctx.fill();
+          drawHex(h.cx, h.cy, s);
+          ctx.strokeStyle = `rgba(212,168,32,${0.08 + glow * 0.85})`;
+          ctx.lineWidth = glow > 0.15 ? 1.4 : 0.85;
+          ctx.stroke();
+        } else {
+          // Sem contorno — escuros, mas um pouco mais claros que o fundo puro.
+          ctx.fillStyle = `rgba(52,44,34,${baseA})`;
+          ctx.fill();
+        }
       }
 
       rafRef.current = requestAnimationFrame(frame);
@@ -153,15 +139,8 @@ const HoneycombCanvas: React.FC = () => {
 
     rafRef.current = requestAnimationFrame(frame);
 
-    const onMove  = (e: MouseEvent) => { mouse.current = { x: e.clientX, y: e.clientY }; };
-    const onClick = (e: MouseEvent) => { clicks.current.push({ x: e.clientX, y: e.clientY, t: performance.now() }); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('click', onClick);
-
     return () => {
       window.removeEventListener('resize', resize);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('click', onClick);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, []);
@@ -204,18 +183,6 @@ const css = `
   @keyframes pulse-ring {
     0%,100% { opacity: 0.18; transform: translate(-50%,-50%) scale(1); }
     50%      { opacity: 0.07; transform: translate(-50%,-50%) scale(1.06); }
-  }
-
-  /* ── Cursor glow ── */
-  .lp-root::after {
-    content: '';
-    position: fixed;
-    width: 600px; height: 600px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(212,168,32,0.06) 0%, transparent 65%);
-    transform: translate(var(--cx,-9999px), var(--cy,-9999px)) translate(-50%,-50%);
-    pointer-events: none; z-index: 1;
-    transition: transform 0.08s linear;
   }
 
   /* ── Marca d'água HIVE enorme — une as duas colunas ── */
@@ -460,6 +427,16 @@ const css = `
   .lp-input::placeholder { color: rgba(243,239,234,0.25); }
   .lp-input:focus { border-color: rgba(212,168,32,0.5); background: rgba(212,168,32,0.03); }
   .lp-input.err { border-color: rgba(240,122,100,0.55); background: rgba(240,122,100,0.04); }
+  /* Navegador pinta autofill de branco por padrão — força manter o escuro */
+  .lp-input:-webkit-autofill,
+  .lp-input:-webkit-autofill:hover,
+  .lp-input:-webkit-autofill:focus,
+  .lp-input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 100px #171310 inset !important;
+    -webkit-text-fill-color: #F3EFEA !important;
+    caret-color: #F3EFEA;
+    transition: background-color 9999s ease-in-out 0s;
+  }
   .lp-field-err {
     font-size: 0.7rem;
     color: #F07A64;
@@ -537,25 +514,6 @@ const css = `
     background: rgba(212,168,32,0.06);
   }
 
-  .lp-form-err {
-    font-size: 0.78rem;
-    color: #F8AEA0;
-    background: rgba(240,122,100,0.08);
-    border: 1px solid rgba(240,122,100,0.25);
-    border-radius: 10px;
-    padding: 10px 12px;
-    margin: 4px 0 12px;
-  }
-  .lp-forgot {
-    display: block;
-    text-align: right;
-    font-size: 0.74rem;
-    color: rgba(243,239,234,0.45);
-    text-decoration: none;
-    margin: -4px 0 14px;
-  }
-  .lp-forgot:hover { color: #D4A820; }
-
   @media (max-width: 860px) {
     .lp-layout { grid-template-columns: 1fr; padding: 36px 24px 48px; gap: 44px; max-width: none; }
     .lp-left { min-height: auto; padding-right: 0; gap: 28px; justify-content: flex-start; }
@@ -566,58 +524,53 @@ const css = `
 `;
 
 // ─── LoginPage ────────────────────────────────────────────────────────────────
-//
-// O login antigo não falava com o servidor: validava campo vazio, mostrava um
-// código de 6 dígitos que ninguém enviava, aceitava qualquer um e navegava —
-// nenhum token era salvo e todo o app rodava em demonstração. Também não
-// existe segundo fator no backend; simular um seria pior que não ter.
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
-  const [params] = useSearchParams();
-  const destino = params.get('next') || '/dashboard';
-  const [loginEmail, setLoginEmail] = useState('');
+  const [loginEmail, setLoginEmail]       = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [errs, setErrs] = useState({ email: false, password: false });
-  const [erroForm, setErroForm] = useState('');
-
-  // Quem já tem sessão (ou refresh para renová-la) não precisa entrar de novo.
-  useEffect(() => {
-    if (session.isActive) navigate(destino, { replace: true });
-  }, [navigate, destino]);
-
-  // CSS var para cursor glow
-  useEffect(() => {
-    const mm = (e: MouseEvent) => {
-      document.documentElement.style.setProperty('--cx', `${e.clientX}px`);
-      document.documentElement.style.setProperty('--cy', `${e.clientY}px`);
-    };
-    window.addEventListener('mousemove', mm);
-    return () => window.removeEventListener('mousemove', mm);
-  }, []);
+  const [loading, setLoading]             = useState(false);
+  const [errs, setErrs]                   = useState({ email: false, password: false });
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newErrs = { email: !loginEmail.trim(), password: !loginPassword };
+    const newErrs = { email: !loginEmail.trim(), password: !loginPassword.trim() };
     setErrs(newErrs);
-    setErroForm('');
     if (newErrs.email || newErrs.password) return;
 
     setLoading(true);
     try {
-      await login(loginEmail, loginPassword);
-      navigate(destino, { replace: true });
-    } catch (err) {
-      const info = describeError(err);
-      // 401 do /auth/token é resposta ("credenciais erradas"), não sessão
-      // expirada — o cliente HTTP não o intercepta.
-      setErroForm(
-        info.kind === 'unauthorized'
-          ? 'E-mail ou senha incorretos.'
-          : info.kind === 'rate_limited'
-            ? 'Muitas tentativas seguidas. Aguarde alguns minutos ou redefina sua senha.'
-            : info.message,
-      );
+      const body = new URLSearchParams();
+      body.append('username', loginEmail.trim());
+      body.append('password', loginPassword);
+
+      const res = await fetch(`${API_BASE_URL}/auth/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 429) {
+          toast.error('Muitas tentativas. Aguarde alguns minutos.');
+        } else {
+          toast.error(data.detail || 'E-mail ou senha incorretos.');
+        }
+        return;
+      }
+
+      const data = await res.json();
+      localStorage.setItem('jwt_token', data.access_token);
+      if (data.user_id)      localStorage.setItem('user_id', data.user_id);
+      if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
+      localStorage.setItem('user_name', data.full_name || loginEmail.split('@')[0]);
+      localStorage.setItem('user_email', loginEmail.trim());
+      // Cada login começa uma conversa nova — as anteriores continuam
+      // salvas e acessíveis pela lista de conversas do chat.
+      if (data.user_id) localStorage.removeItem(`hive-session:${data.user_id}`);
+      navigate('/chat');
+    } catch {
+      toast.error('Erro de conexão. Verifique sua internet.');
     } finally {
       setLoading(false);
     }
@@ -629,10 +582,7 @@ export const LoginPage: React.FC = () => {
       <div className="lp-root">
         <HoneycombCanvas />
 
-        {/* Marca d'água HIVE gigante — une as duas colunas */}
         <div className="lp-wm" aria-hidden="true">HIVE</div>
-
-        {/* Anel pulsante no lado do form */}
         <div className="lp-ring" aria-hidden="true" />
 
         <div className="lp-layout">
@@ -668,48 +618,47 @@ export const LoginPage: React.FC = () => {
           {/* ── DIREITO — form ── */}
           <div className="lp-right">
             <div className="lp-right-inner">
-            <div className="lp-help-row">
-              <a href="/contact" className="lp-help-link">Precisa de ajuda?</a>
-            </div>
-            <div className="lp-card">
-              <div className="lp-card-title">Acesso ao painel</div>
-              <div className="lp-card-sub">Entre com seus dados para continuar.</div>
+              <div className="lp-help-row">
+                <Link to="/forgot-password" className="lp-help-link" style={{ marginRight: 16 }}>Esqueci minha senha</Link>
+                <a href="/contact" className="lp-help-link">Precisa de ajuda?</a>
+              </div>
+              <div className="lp-card">
+                <div className="lp-card-title">Acesso ao painel</div>
+                <div className="lp-card-sub">Entre com seus dados para continuar.</div>
 
-              <form onSubmit={handleLogin} noValidate>
-                <div className="lp-fields">
-                  <div>
-                    <label className="lp-field-label">E-mail</label>
-                    <input
-                      className={`lp-input${errs.email ? ' err' : ''}`}
-                      type="email" placeholder="seu@email.com"
-                      value={loginEmail}
-                      onChange={e => { setLoginEmail(e.target.value); if (errs.email) setErrs(p => ({...p, email: false})); }}
-                      autoComplete="email" disabled={loading}
-                    />
-                    {errs.email && <div className="lp-field-err">Preencha o e-mail</div>}
+                <form onSubmit={handleLogin}>
+                  <div className="lp-fields">
+                    <div>
+                      <label className="lp-field-label">E-mail</label>
+                      <input
+                        className={`lp-input${errs.email ? ' err' : ''}`}
+                        type="email" placeholder="seu@email.com"
+                        value={loginEmail}
+                        onChange={e => { setLoginEmail(e.target.value); if (errs.email) setErrs(p => ({...p, email: false})); }}
+                        autoComplete="email" autoFocus disabled={loading}
+                      />
+                      {errs.email && <div className="lp-field-err">Preencha o e-mail</div>}
+                    </div>
+                    <div>
+                      <label className="lp-field-label">Senha</label>
+                      <input
+                        className={`lp-input${errs.password ? ' err' : ''}`}
+                        type="password" placeholder="••••••••"
+                        value={loginPassword}
+                        onChange={e => { setLoginPassword(e.target.value); if (errs.password) setErrs(p => ({...p, password: false})); }}
+                        autoComplete="current-password" disabled={loading}
+                      />
+                      {errs.password && <div className="lp-field-err">Preencha a senha</div>}
+                    </div>
                   </div>
-                  <div>
-                    <label className="lp-field-label">Senha</label>
-                    <input
-                      className={`lp-input${errs.password ? ' err' : ''}`}
-                      type="password" placeholder="••••••••"
-                      value={loginPassword}
-                      onChange={e => { setLoginPassword(e.target.value); if (errs.password) setErrs(p => ({...p, password: false})); }}
-                      autoComplete="current-password" disabled={loading}
-                    />
-                    {errs.password && <div className="lp-field-err">Preencha a senha</div>}
-                  </div>
-                </div>
-                <Link to="/forgot-password" className="lp-forgot">Esqueci minha senha</Link>
-                {erroForm && <div className="lp-form-err" role="alert">{erroForm}</div>}
-                <button type="submit" className="lp-btn" disabled={loading}>
-                  {loading ? 'Entrando…' : 'Acessar painel'}
-                </button>
-              </form>
+                  <button type="submit" className="lp-btn" disabled={loading}>
+                    {loading ? 'Entrando…' : 'Acessar painel'}
+                  </button>
+                </form>
 
-              <div className="lp-separator" />
-              <Link to="/register" className="lp-btn-register">Criar uma conta</Link>
-            </div>
+                <div className="lp-separator" />
+                <Link to="/register" className="lp-btn-register">Criar uma conta</Link>
+              </div>
             </div>
           </div>
         </div>

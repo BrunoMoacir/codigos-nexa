@@ -123,7 +123,7 @@ def generate_token_expiry_alerts(days_until_expiry: int) -> List[AlertItem]:
             id="token_expired",
             type="TOKEN_EXPIRY",
             level="CRITICAL",
-            title="⛔ Conexão expirou",
+            title="Conexão expirou",
             message="Sua conexão com o banco expirou. Reconecte imediatamente para continuar usando a Nexa.",
             due_date=datetime.now(timezone.utc),
             action_url="/connections"
@@ -134,7 +134,7 @@ def generate_token_expiry_alerts(days_until_expiry: int) -> List[AlertItem]:
             id="token_expiry_7d",
             type="TOKEN_EXPIRY",
             level="CRITICAL",
-            title=f"⚠️ Conexão vence {_em_dias(days_until_expiry)}",
+            title=f"Conexão vence {_em_dias(days_until_expiry)}",
             message=f"Sua conexão vence {_em_dias(days_until_expiry)}. Reconecte em breve para não perder acesso aos dados.",
             due_date=datetime.now(timezone.utc) + timedelta(days=days_until_expiry),
             action_url="/connections"
@@ -145,7 +145,7 @@ def generate_token_expiry_alerts(days_until_expiry: int) -> List[AlertItem]:
             id="token_expiry_30d",
             type="TOKEN_EXPIRY",
             level="WARNING",
-            title=f"⏰ Conexão vence {_em_dias(days_until_expiry)}",
+            title=f"Conexão vence {_em_dias(days_until_expiry)}",
             message=f"Sua conexão vencerá {_em_dias(days_until_expiry)}. Planeje reconectar em breve.",
             due_date=datetime.now(timezone.utc) + timedelta(days=days_until_expiry),
             action_url="/connections"
@@ -233,7 +233,7 @@ def generate_negative_balance_alert(negative_day: int | None) -> List[AlertItem]
             id="negative_balance",
             type="NEGATIVE_BALANCE",
             level="CRITICAL",
-            title=f"⛔ Saldo negativo {_em_dias(negative_day)}",
+            title=f"Saldo negativo {_em_dias(negative_day)}",
             message=f"Seu saldo pode ficar negativo {_em_dias(negative_day)} se manter os gastos atuais.",
             due_date=datetime.now(timezone.utc) + timedelta(days=negative_day),
             action_url=None
@@ -284,7 +284,7 @@ def generate_high_commitment_alert(
             id="high_commitment",
             type="HIGH_COMMITMENT",
             level="WARNING",
-            title=f"⚠️ {percentage}% do caixa comprometido",
+            title=f"{percentage}% do caixa comprometido",
             message=message,
             due_date=datetime.now(timezone.utc),
             action_url=None

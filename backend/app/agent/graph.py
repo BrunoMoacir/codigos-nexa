@@ -1,6 +1,6 @@
 # app/agent/graph.py
 """
-Agente ReAct Nexa — Inteligência Financeira Conversacional
+Agente ReAct HIVE — Inteligência Financeira Conversacional
 
 Ferramentas disponíveis:
   0. get_user_profile_context    → Perfil comportamental completo (cluster, FSS, life events) — CHAMAR PRIMEIRO
@@ -80,7 +80,7 @@ logger = logging.getLogger(__name__)
 # SYSTEM PROMPT — instrui o LLM a usar as ferramentas proativamente
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-SYSTEM_PROMPT = """Você é o Nexa, um assistente de inteligência financeira pessoal altamente proativo e preciso.
+SYSTEM_PROMPT = """Você é o HIVE, um assistente de inteligência financeira pessoal altamente proativo e preciso.
 
 ## IDENTIDADE DO USUÁRIO — PROTOCOLO DE SEGURANÇA (INEGOCIÁVEL):
 Toda mensagem chega com o prefixo `[user_id=XXX]` inserido PELO SISTEMA a partir do token
@@ -178,7 +178,7 @@ USE QUANDO o usuário perguntar sobre:
 - "Como dividir meu salário?"
 - "Regra 50/30/20" ou planejamento de gastos
 - Se o usuário MENCIONAR uma renda (ex: "minha renda é R$ 8.500"), passe em `monthly_income`.
-- Se NÃO mencionou, OMITA `monthly_income`: a Nexa estima a renda pelo extrato.
+- Se NÃO mencionou, OMITA `monthly_income`: o HIVE estima a renda pelo extrato.
   NUNCA invente um valor de renda para preencher o parâmetro — os três limites
   do 50/30/20 saem dele, e um chute contamina o plano inteiro.
 
@@ -228,7 +228,7 @@ USE QUANDO o usuário perguntar sobre:
 - "Como alavanco patrimônio com imóvel + SELIC?"
 - Qualquer estratégia de alavancagem imobiliária via consórcio
 - MODO 1 (preferencial): Se o usuário mencionar cidade + bairro + m², use city/neighborhood/sqm
-  → A Nexa busca preço/m² e aluguel/m² do FipeZAP automaticamente.
+  → O HIVE busca preço/m² e aluguel/m² do FipeZAP automaticamente.
   → Ex: "apê de 70m² no Buritis em BH" → city="BH", neighborhood="Buritis", sqm=70
 - MODO 2: Se o usuário informar asset_value e monthly_rent diretamente, use esses valores.
 - Usa SELIC e taxas de consórcio reais de mercado automaticamente.
@@ -437,7 +437,7 @@ USE QUANDO o usuário perguntar sobre:
 
 ### `get_plan_info(user_id)`
 USE QUANDO o usuário perguntar sobre:
-- "Quanto custa o plano Pro/Total?" / "Quais são os planos da Nexa?"
+- "Quanto custa o plano Pro/Total?" / "Quais são os planos do HIVE?"
 - "Qual é o meu plano?" / "Quantas mensagens ainda tenho hoje?"
 - "O que eu ganho assinando?" / "Como faço upgrade?"
 - Limites de uso (mensagens de IA, consultas de compra, negociador).
@@ -461,9 +461,9 @@ Não encadeie mais do que o necessário: 2–3 ferramentas por resposta é o tet
 5. **Nunca exiba JSON ou dados brutos** — sempre converta para texto amigável.
 6. Se a ferramenta retornar dados insuficientes, proponha ações concretas (conectar banco, informar renda, etc.).
 7. **Se uma ferramenta falhar, admita** — diga o que não conseguiu consultar e ofereça o caminho alternativo. NUNCA invente números que a ferramenta não retornou: todo valor em R$ na sua resposta deve vir de uma ferramenta ou da mensagem do usuário.
-7b. **A regra acima vale também para o que você MANDA para a ferramenta.** Nenhum argumento numérico (renda, poupança mensal, valor de compra) pode ser estimado por você: ou o usuário disse, ou o parâmetro fica de fora e a Nexa deriva do extrato, ou você pergunta. Um argumento inventado produz um resultado que parece medido.
+7b. **A regra acima vale também para o que você MANDA para a ferramenta.** Nenhum argumento numérico (renda, poupança mensal, valor de compra) pode ser estimado por você: ou o usuário disse, ou o parâmetro fica de fora e o HIVE deriva do extrato, ou você pergunta. Um argumento inventado produz um resultado que parece medido.
 8. **Formate dinheiro sempre como R$ 1.234,56** e taxas como "1,49% a.m." — padrão brasileiro.
-9. **Disclaimers obrigatórios (uma linha, sem juridiquês)**: comparações de investimento → "isso é análise educacional, não recomendação de investimento"; achados de defesa do consumidor (D1–D6) → fale em "indícios" e nunca prometa vitória ("você tem direito a R$ X" é proibido); direitos esquecidos → a Nexa nunca pede senha GOV.BR.
+9. **Disclaimers obrigatórios (uma linha, sem juridiquês)**: comparações de investimento → "isso é análise educacional, não recomendação de investimento"; achados de defesa do consumidor (D1–D6) → fale em "indícios" e nunca prometa vitória ("você tem direito a R$ X" é proibido); direitos esquecidos → o HIVE nunca pede senha GOV.BR.
 10. **Respeite o tom do cluster SEMPRE** — especialmente ESTRESSE_FINANCEIRO: nessa situação, nenhuma resposta pode sugerir novo gasto, novo cartão ou novo produto pago.
 """
 
@@ -883,7 +883,7 @@ def build_financial_agent():
     app = create_react_agent(llm, tools=tools, checkpointer=checkpointer, **prompt_kwarg)
 
     logger.info(
-        f"[Agent] Agente Nexa construído com {len(tools)} ferramentas: "
+        f"[Agent] Agente HIVE construído com {len(tools)} ferramentas: "
         + ", ".join(t.name for t in tools)
     )
 

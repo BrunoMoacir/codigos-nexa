@@ -1,22 +1,15 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { logout } from '../../api/auth';
-import { useSession } from '../../hooks/useAuth';
 
-/**
- * Todas as telas que usam o AppShell. Eram só as 4 da navegação, e as 6
- * páginas legadas passavam valores fora do tipo — eram 6 dos 10 erros que
- * impediam o `npm run build`.
- */
-export type HiveTab =
-  | 'dashboard' | 'chat' | 'feed' | 'organizar'
-  | 'strategies' | 'goals' | 'defesa' | 'direitos' | 'impostos' | 'wrapped'
-  | 'connections' | 'planos' | 'profile' | 'home' | 'widget';
+export type HiveTab = 'chat' | 'feed' | 'organizar' | 'connections' | 'goals' | 'home' | 'profile' | 'strategies'
+  // telas de ferramentas acessadas pelo Perfil
+  | 'defesa' | 'direitos' | 'impostos' | 'wrapped' | 'planos' | 'widget';
 
 interface AppShellProps {
   current: HiveTab;
   children: ReactNode;
-  /** Cabeçalho opcional da tela (as páginas legadas já passavam e era ignorado). */
+  /** Opcional: cabeçalho padrão para as telas de ferramentas (as abas do HIVE desenham o próprio). */
   title?: string;
   subtitle?: string;
 }
@@ -69,16 +62,7 @@ const css = `
     flex-shrink: 0;
   }
 
-  .hs-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
-  .hs-nav-section {
-    font-size: 0.6rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
-    color: rgba(243,239,234,0.28); padding: 14px 12px 4px;
-  }
-  .hs-more { display: none; }
-  .hs-page-head { padding: 28px 32px 0; }
-  .hs-page-title { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.03em; margin: 0; color: #F3EFEA; }
-  .hs-page-sub { font-size: 0.8rem; color: rgba(243,239,234,0.45); margin: 4px 0 0; }
-  .hs-sheet { display: none; }
+  .hs-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
 
   .hs-nav-item {
     display: flex;
@@ -141,21 +125,30 @@ const css = `
     gap: 10px;
     padding: 10px 12px;
     border-radius: 10px;
-    cursor: default;
+    cursor: pointer;
     margin-bottom: 4px;
+    width: 100%;
+    background: none;
+    border: none;
+    font-family: inherit;
+    text-align: left;
+    transition: background 0.15s;
   }
+  .hs-user:hover { background: rgba(243,239,234,0.06); }
+  .hs-user.on { background: rgba(212,168,32,0.08); }
+  .hs-user.on .hs-user-name { color: #F3EFEA; }
   .hs-avatar {
     width: 30px;
     height: 30px;
     border-radius: 50%;
-    background: rgba(212,168,32,0.2);
-    border: 1px solid rgba(212,168,32,0.3);
+    background: #F2DE7A;
+    border: none;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 0.72rem;
     font-weight: 700;
-    color: #D4A820;
+    color: #0A0800;
     flex-shrink: 0;
   }
   .hs-user-name {
@@ -195,10 +188,9 @@ const css = `
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-    /* O shell é sempre escuro, mas as variáveis de tema ficavam no modo
-       claro: as telas de ferramentas (Estratégias, Metas, Defesa…) saíam com
-       card branco e o texto sem cor própria herdava o claro do shell —
-       nome de cartão, select e histórico ficavam invisíveis. */
+    /* Paleta escura nas variáveis de tema: as telas de ferramentas usam
+       var(--bg-surface) etc. e, no modo claro, saíam com card branco e texto
+       herdado do shell — invisível. As abas do HIVE têm cores próprias. */
     color: #F3EFEA;
     --bg-main: #0A0806;
     --bg-surface: #100E0B;
@@ -212,7 +204,9 @@ const css = `
   }
   .hs-main input, .hs-main select, .hs-main textarea { color: inherit; background-color: transparent; }
   .hs-main select option { color: #111; }
-  .hs-main a { color: #D4A820; }
+  .hs-page-head { padding: 28px 32px 0; }
+  .hs-page-title { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.03em; margin: 0; color: #F3EFEA; }
+  .hs-page-sub { font-size: 0.8rem; color: rgba(243,239,234,0.45); margin: 4px 0 0; }
   .hs-page-body { padding: 16px 32px 40px; }
 
   /* ── MOBILE ── */
@@ -257,32 +251,12 @@ const css = `
     .hs-nav-icon { width: 20px; height: 20px; }
     .hs-divider { display: none; }
     .hs-bottom { display: none; }
-    .hs-nav-section, .hs-nav-item.sec { display: none; }
-    .hs-more { display: flex; }
-    .hs-sheet {
-      display: block; position: fixed; left: 0; right: 0; bottom: 64px;
-      background: #0A0806; border-top: 1px solid rgba(243,239,234,0.08);
-      padding: 10px 12px; max-height: 60vh; overflow-y: auto; z-index: 50;
-    }
-    .hs-sheet .hs-nav-item {
-      display: flex; flex-direction: row; font-size: 0.82rem; padding: 10px 12px;
-    }
-    .hs-sheet .hs-nav-section { display: block; }
     .hs-main {
       margin-left: 0;
       padding-bottom: 70px;
     }
   }
 `;
-
-const IconDashboard = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <rect x="2" y="2" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <rect x="8.5" y="2" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <rect x="2" y="8.5" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-  </svg>
-);
 
 const IconChat = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -310,68 +284,33 @@ const IconLogout = () => (
   </svg>
 );
 
-const IconDot = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <polygon points="8,2 13.2,5 13.2,11 8,14 2.8,11 2.8,5" stroke="currentColor" strokeWidth="1.3"/>
-  </svg>
-);
-
 const navItems = [
-  { key: 'dashboard' as HiveTab, label: 'Dashboard',    icon: <IconDashboard />, path: '/dashboard' },
   { key: 'chat'      as HiveTab, label: 'Chat IA',      icon: <IconChat />,      path: '/chat'      },
   { key: 'feed'      as HiveTab, label: 'Oportunidades',icon: <IconFeed />,      path: '/feed'      },
-  { key: 'organizar' as HiveTab, label: 'Organizar',    icon: <IconOrganizar />, path: '/organizar' },
-];
-
-/**
- * O que ficava inalcançável: 6 páginas roteadas sem link (Estratégias, Metas,
- * Conexões, Perfil…) e as funcionalidades de backend que não tinham tela —
- * Defesa do Consumidor, Direitos Esquecidos, Impostos, Wrapped, Planos.
- */
-const navSections: { title: string; items: { key: HiveTab; label: string; path: string }[] }[] = [
-  {
-    title: 'Ferramentas',
-    items: [
-      { key: 'strategies', label: 'Estratégias',        path: '/strategies' },
-      { key: 'goals',      label: 'Metas',              path: '/goals' },
-      { key: 'defesa',     label: 'Defesa do consumidor', path: '/defesa' },
-      { key: 'direitos',   label: 'Direitos esquecidos',  path: '/direitos' },
-      { key: 'impostos',   label: 'Impostos',           path: '/impostos' },
-      { key: 'wrapped',    label: 'Seu ano (Wrapped)',  path: '/wrapped' },
-    ],
-  },
-  {
-    title: 'Conta',
-    items: [
-      { key: 'connections', label: 'Conexões bancárias', path: '/connections' },
-      { key: 'widget',      label: 'Margem do dia e alertas', path: '/widget' },
-      { key: 'planos',      label: 'Planos',             path: '/planos' },
-      { key: 'profile',     label: 'Perfil e privacidade', path: '/profile' },
-    ],
-  },
+  { key: 'organizar' as HiveTab, label: 'Organização',  icon: <IconOrganizar />, path: '/organizar' },
 ];
 
 export const AppShell: React.FC<AppShellProps> = ({ current, children, title, subtitle }) => {
   const navigate = useNavigate();
-  const { displayName } = useSession();
+  const [, forceUpdate] = useState(0);
+
+  const userName = localStorage.getItem('user_name') || '';
+  const userEmail = localStorage.getItem('user_email') || '';
+  const displayName = userName || (userEmail ? userEmail.split('@')[0] : 'Usuário');
   const initials = displayName.slice(0, 2).toUpperCase();
-  const [maisAberto, setMaisAberto] = useState(false);
-  const [saindo, setSaindo] = useState(false);
 
-  // Sair revoga a sessão no servidor (access + refresh). O logout antigo só
-  // limpava o navegador: o token seguia válido, e o histórico do chat em
-  // cache local sobrevivia para o próximo usuário do mesmo aparelho.
+  // Revoga a sessão no servidor (o token seguia válido) e cancela o push
+  // antes de limpar o navegador; falha de rede não impede a saída.
   const handleLogout = async () => {
-    setSaindo(true);
-    await logout();
-    navigate('/login', { replace: true });
+    try {
+      await logout();
+    } finally {
+      ['jwt_token','user_id','user_name','user_email','nexa_data_origin','nexa_data_origin_updated_at'].forEach(k => localStorage.removeItem(k));
+      window.location.href = '/login';
+    }
   };
 
-  const irPara = (path: string) => {
-    setMaisAberto(false);
-    navigate(path);
-  };
-  const secundariaAtiva = navSections.some(sec => sec.items.some(i => i.key === current));
+  useEffect(() => { forceUpdate(n => n + 1); }, []);
 
   return (
     <>
@@ -392,82 +331,38 @@ export const AppShell: React.FC<AppShellProps> = ({ current, children, title, su
               <button
                 key={item.key}
                 className={`hs-nav-item${current === item.key ? ' on' : ''}`}
-                onClick={() => irPara(item.path)}
+                onClick={() => navigate(item.path)}
               >
                 <span className="hs-nav-icon">{item.icon}</span>
                 {item.label}
               </button>
             ))}
-            {navSections.map(sec => (
-              <div key={sec.title}>
-                <div className="hs-nav-section">{sec.title}</div>
-                {sec.items.map(item => (
-                  <button
-                    key={item.key}
-                    className={`hs-nav-item sec${current === item.key ? ' on' : ''}`}
-                    onClick={() => irPara(item.path)}
-                  >
-                    <span className="hs-nav-icon"><IconDot /></span>
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            ))}
-            <button
-              className={`hs-nav-item hs-more${secundariaAtiva || maisAberto ? ' on' : ''}`}
-              onClick={() => setMaisAberto(v => !v)}
-              aria-expanded={maisAberto}
-            >
-              <span className="hs-nav-icon"><IconDot /></span>
-              Mais
-            </button>
           </nav>
-
-          {maisAberto && (
-            <div className="hs-sheet" role="menu">
-              {navSections.map(sec => (
-                <div key={sec.title}>
-                  <div className="hs-nav-section">{sec.title}</div>
-                  {sec.items.map(item => (
-                    <button
-                      key={item.key}
-                      className={`hs-nav-item${current === item.key ? ' on' : ''}`}
-                      onClick={() => irPara(item.path)}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-              ))}
-              <button className="hs-nav-item" onClick={handleLogout} disabled={saindo}>
-                {saindo ? 'Saindo…' : 'Sair'}
-              </button>
-            </div>
-          )}
 
           <div className="hs-divider" />
 
           <div className="hs-bottom">
-            <div className="hs-user">
+            <button className={`hs-user${current === 'profile' ? ' on' : ''}`} onClick={() => navigate('/profile')}>
               <div className="hs-avatar">{initials}</div>
               <span className="hs-user-name">{displayName}</span>
-            </div>
-            <button className="hs-action" onClick={handleLogout} disabled={saindo}>
+            </button>
+            <button className="hs-action" onClick={handleLogout}>
               <IconLogout />
-              {saindo ? 'Saindo…' : 'Sair'}
+              Sair
             </button>
           </div>
         </aside>
 
         <main className="hs-main">
-          {title && (
-            <header className="hs-page-head">
-              <h1 className="hs-page-title">{title}</h1>
-              {subtitle && <p className="hs-page-sub">{subtitle}</p>}
-            </header>
-          )}
-          {/* telas com título (as de ferramentas) não tinham margem própria */}
-          {title ? <div className="hs-page-body">{children}</div> : children}
+          {title ? (
+            <>
+              <header className="hs-page-head">
+                <h1 className="hs-page-title">{title}</h1>
+                {subtitle && <p className="hs-page-sub">{subtitle}</p>}
+              </header>
+              <div className="hs-page-body">{children}</div>
+            </>
+          ) : children}
         </main>
       </div>
     </>

@@ -1,86 +1,123 @@
-import { useEffect, useRef } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { AppShell } from '../components/layout/AppShell';
-import { OpportunityRadarCard } from '../components/OpportunityRadarCard';
-import { ComparadorInvestimentos } from '../components/ComparadorInvestimentos';
-import { feedApi } from '../api/feed';
-import type { Alertas, Notificacao, Notificacoes, Prioridade } from '../api/feed';
-import { painelApi } from '../api/painel';
-import { getErrorMessage } from '../api/errors';
-import { getUserId } from '../api/session';
+import { nexaApi } from '../api/nexa';
+import { isDemoMode } from '../utils/demoMode';
 
 const css = `
-  .fp { display: flex; flex-direction: column; min-height: 100vh; background: #0A0806; padding: 28px 28px 40px; gap: 20px; }
+  @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,800,900&display=swap');
+
+  .fp { font-family: 'Satoshi', system-ui, sans-serif; display: flex; flex-direction: column; min-height: 100vh; background: #0A0806; padding: 28px 28px 40px; gap: 20px; }
 
   /* Topo */
   .fp-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
   .fp-eyebrow { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #D4A820; margin-bottom: 6px; }
   .fp-title { font-size: 1.6rem; font-weight: 900; color: #F3EFEA; letter-spacing: -0.04em; line-height: 1; }
-  .fp-top-kpis { display: flex; gap: 10px; }
-  .fp-mini-kpi { background: #100E0B; border: 1px solid rgba(243,239,234,0.07); border-radius: 12px; padding: 12px 18px; text-align: right; }
-  .fp-mini-val { font-size: 1.2rem; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-  .fp-mini-val.red  { color: #F07A64; }
-  .fp-mini-val.gold { color: #D4A820; }
-  .fp-mini-val.dim  { color: #F3EFEA; }
-  .fp-mini-label { font-size: 0.63rem; color: rgba(243,239,234,0.25); font-weight: 600; margin-top: 2px; letter-spacing: 0.04em; text-transform: uppercase; }
+  .fp-title em { font-style: normal; color: #D4A820; }
+
+  /* Hero — resumo + gráfico comparativo */
+  .fp-hero {
+    display: grid; grid-template-columns: 1fr 1.3fr; gap: 26px;
+    background: linear-gradient(135deg, #14110C 0%, #0F0D0A 100%);
+    border: 1px solid rgba(243,239,234,0.08);
+    border-radius: 20px;
+    padding: 26px 28px;
+    position: relative;
+    overflow: hidden;
+  }
+  .fp-hero::before {
+    content: '';
+    position: absolute; top: -60px; right: -60px;
+    width: 220px; height: 220px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(212,168,32,0.16), transparent 70%);
+    pointer-events: none;
+  }
+  .fp-hero-main { display: flex; flex-direction: column; justify-content: center; gap: 6px; position: relative; z-index: 1; }
+  .fp-hero-label { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(243,239,234,0.35); }
+  .fp-hero-value { font-size: 2.3rem; font-weight: 900; letter-spacing: -0.05em; color: #F3EFEA; font-variant-numeric: tabular-nums; line-height: 1.05; }
+  .fp-hero-sub { font-size: 0.78rem; color: rgba(243,239,234,0.3); max-width: 240px; line-height: 1.4; }
+
+  .fp-hero-chart { display: flex; flex-direction: column; justify-content: center; gap: 16px; position: relative; z-index: 1; }
+  .fp-bar-row { display: flex; align-items: center; gap: 12px; }
+  .fp-bar-icon { flex-shrink: 0; display: flex; }
+  .fp-bar-icon.red  { color: #F07A64; }
+  .fp-bar-icon.gold { color: #D4A820; }
+  .fp-bar-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+  .fp-bar-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .fp-bar-label { font-size: 0.76rem; font-weight: 600; color: rgba(243,239,234,0.55); }
+  .fp-bar-val { font-size: 0.85rem; font-weight: 800; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .fp-bar-val.red  { color: #F07A64; }
+  .fp-bar-val.gold { color: #D4A820; }
+  .fp-bar-track { height: 7px; border-radius: 4px; background: rgba(243,239,234,0.06); overflow: hidden; }
+  .fp-bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
+  .fp-bar-fill.red  { background: linear-gradient(90deg, #F07A64, #F0A090); }
+  .fp-bar-fill.gold { background: linear-gradient(90deg, #D4A820, #F0C840); }
 
   /* Grid de cards */
-  .fp-grid { display: flex; flex-direction: column; gap: 8px; }
+  .fp-grid { display: flex; flex-direction: column; gap: 10px; }
 
   .fp-card {
     display: flex; align-items: center; gap: 16px;
     background: #100E0B;
-    border: 1px solid rgba(243,239,234,0.06);
+    border: 1px solid rgba(243,239,234,0.07);
     border-left: 3px solid transparent;
     border-radius: 12px;
-    padding: 16px 18px;
-    transition: background 0.15s, border-color 0.12s;
+    padding: 16px 20px;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
     cursor: default;
   }
-  .fp-card:hover { background: #161210; }
+  .fp-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px rgba(0,0,0,0.35);
+  }
   .fp-card.alert { border-left-color: #F07A64; }
   .fp-card.warn  { border-left-color: #ECB040; }
   .fp-card.good  { border-left-color: #2EC8A4; }
   .fp-card.gold  { border-left-color: #D4A820; }
   .fp-card.info  { border-left-color: #60B0F2; }
 
-  .fp-card-icon {
-    width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1rem; font-weight: 800;
-  }
-  .fp-card.alert .fp-card-icon { background: rgba(240,122,100,0.1);  color: #F07A64; }
-  .fp-card.warn  .fp-card-icon { background: rgba(236,176,64,0.1);   color: #ECB040; }
-  .fp-card.good  .fp-card-icon { background: rgba(46,200,164,0.1);   color: #2EC8A4; }
-  .fp-card.gold  .fp-card-icon { background: rgba(212,168,32,0.1);   color: #D4A820; }
-  .fp-card.info  .fp-card-icon { background: rgba(96,176,242,0.1);   color: #60B0F2; }
+  .fp-card-icon { flex-shrink: 0; display: flex; }
+  .fp-card.alert .fp-card-icon { color: #F07A64; }
+  .fp-card.warn  .fp-card-icon { color: #ECB040; }
+  .fp-card.good  .fp-card-icon { color: #2EC8A4; }
+  .fp-card.gold  .fp-card-icon { color: #D4A820; }
+  .fp-card.info  .fp-card-icon { color: #60B0F2; }
 
   .fp-card-body { flex: 1; min-width: 0; }
-  .fp-card-title { font-size: 0.87rem; font-weight: 700; color: #F3EFEA; margin-bottom: 2px; }
-  .fp-card-desc  { font-size: 0.73rem; color: rgba(243,239,234,0.32); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fp-card-title { font-size: 0.9rem; font-weight: 700; color: #F3EFEA; margin-bottom: 3px; }
+  .fp-card-desc  { font-size: 0.74rem; color: rgba(243,239,234,0.32); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-  .fp-card-right { text-align: right; flex-shrink: 0; }
-  .fp-card-amount { font-size: 0.95rem; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .fp-card-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+  .fp-card-amount { font-size: 0.98rem; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
   .fp-card.alert .fp-card-amount { color: #F07A64; }
   .fp-card.warn  .fp-card-amount { color: #ECB040; }
   .fp-card.good  .fp-card-amount { color: #2EC8A4; }
   .fp-card.gold  .fp-card-amount { color: #D4A820; }
   .fp-card.info  .fp-card-amount { color: #60B0F2; }
-  .fp-card-tag   { font-size: 0.62rem; color: rgba(243,239,234,0.22); margin-top: 3px; font-weight: 600; letter-spacing: 0.04em; }
 
-  .fp-section-label { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(243,239,234,0.2); margin: 4px 0 8px; }
+  .fp-chip { display: inline-block; font-size: 0.64rem; font-weight: 800; letter-spacing: 0.05em; white-space: nowrap; }
+  .fp-card.alert .fp-chip { color: #F07A64; }
+  .fp-card.warn  .fp-chip { color: #ECB040; }
+  .fp-card.good  .fp-chip { color: #2EC8A4; }
+  .fp-card.gold  .fp-chip { color: #D4A820; }
+  .fp-card.info  .fp-chip { color: #60B0F2; }
 
-  /* Ações do card */
-  .fp-card { align-items: flex-start; }
-  .fp-card-desc.full { white-space: normal; line-height: 1.45; margin-top: 2px; }
-  .fp-card-hint { font-size: 0.72rem; color: #D4A820; margin-top: 6px; line-height: 1.4; }
-  .fp-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
-  .fp-act { background: rgba(243,239,234,0.06); color: rgba(243,239,234,0.75); border: 1px solid rgba(243,239,234,0.1); border-radius: 7px; padding: 5px 10px; font-family: inherit; font-size: 0.7rem; font-weight: 700; cursor: pointer; }
-  .fp-act.go { background: rgba(212,168,32,0.12); color: #D4A820; border-color: rgba(212,168,32,0.3); }
-  .fp-act:disabled { opacity: 0.5; cursor: default; }
-  .fp-msg { font-size: 0.78rem; color: rgba(243,239,234,0.45); background: #100E0B; border: 1px solid rgba(243,239,234,0.06); border-radius: 12px; padding: 14px 18px; line-height: 1.5; }
-  .fp-msg.erro { color: #F8AEA0; border-color: rgba(240,122,100,0.25); }
+  .fp-section-label { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(243,239,234,0.4); margin: 4px 0 2px; }
+
+  /* Alertas e Oportunidades lado a lado — dá pra ver as duas sem rolar */
+  .fp-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  .fp-columns.single { grid-template-columns: 1fr; }
+  .fp-column { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+
+  /* Demo banner — texto simples, sem caixa */
+  .fp-demo { display: flex; align-items: center; gap: 8px; font-size: 0.73rem; color: rgba(243,239,234,0.35); font-style: italic; padding: 2px 2px; }
+  .fp-demo-dot { width: 5px; height: 5px; border-radius: 2px; background: #D4A820; flex-shrink: 0; }
+
+  /* Empty state */
+  .fp-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 48px 16px; gap: 8px; background: #100E0B; border: 1px solid rgba(243,239,234,0.07); border-radius: 14px; }
+  .fp-empty-icon { color: rgba(243,239,234,0.3); margin-bottom: 2px; }
+  .fp-empty-title { font-size: 0.9rem; font-weight: 700; color: rgba(243,239,234,0.5); }
+  .fp-empty-sub { font-size: 0.78rem; color: rgba(243,239,234,0.28); max-width: 320px; line-height: 1.6; }
 
   /* Skeleton */
   .fp-skel { background: rgba(243,239,234,0.05); border-radius: 12px; animation: fp-pulse 1.4s ease-in-out infinite; }
@@ -96,135 +133,113 @@ const css = `
   @media (max-width: 860px) {
     .fp { padding: 16px 14px 32px; }
     .fp-top { flex-direction: column; align-items: flex-start; }
+    .fp-hero { grid-template-columns: 1fr; }
+    .fp-columns { grid-template-columns: 1fr; }
     .fp-cta { flex-direction: column; align-items: flex-start; }
     .fp-cta-btn { width: 100%; text-align: center; }
   }
 `;
 
-type CardType = 'alert' | 'warn' | 'info';
+type CardType = 'alert' | 'warn' | 'good' | 'gold' | 'info';
 
-const TIPO_POR_PRIORIDADE: Record<Prioridade, CardType> = { CRITICAL: 'alert', WARNING: 'warn', INFO: 'info' };
-const ICONE: Record<CardType, string> = { alert: '↯', warn: '◔', info: '✦' };
-const ORDEM: Record<Prioridade, number> = { CRITICAL: 0, WARNING: 1, INFO: 2 };
-const COBERTOS_PELO_RADAR = new Set(['SAVINGS_BELOW_CDI', 'IDLE_MONEY_DETECTED']);
-const ROTULO: Record<Prioridade, string> = { CRITICAL: 'URGENTE', WARNING: 'ATENÇÃO', INFO: 'PARA SABER' };
+interface FeedCard { type: CardType; title: string; desc: string; amount: string; tag: string; }
 
-/** Card unificado: notificação do motor proativo ou alerta operacional. */
-interface Card {
-  chave: string;
-  origem: 'notificacao' | 'alerta';
-  prioridade: Prioridade;
-  titulo: string;
-  texto: string;
-  dica?: string | null;
-  rota?: string | null;
-  notificacao?: Notificacao;
-  alertaId?: string;
+const DEMO_ALERTS: FeedCard[] = [
+  { type: 'alert', title: 'Tarifa de manutenção cobrada',      desc: 'Nubank · Conta corrente · ago/25',      amount: '−R$ 35,00',   tag: 'RECORRENTE' },
+  { type: 'alert', title: 'Tarifa de TED avulso',              desc: 'Itaú · 3 transferências este mês',        amount: '−R$ 21,90',   tag: 'EVITÁVEL' },
+  { type: 'warn',  title: 'Anuidade de cartão se aproxima',    desc: 'Itaú Personnalité · próximo vencimento',   amount:  'R$ 580,00',   tag: 'EM 18 DIAS' },
+  { type: 'warn',  title: 'Rendimento abaixo do CDI',          desc: 'Poupança Bradesco · saldo médio R$ 4.200', amount: '−R$ 142/mês',  tag: 'OPORTUNIDADE' },
+];
+
+const DEMO_OPP: FeedCard[] = [
+  { type: 'gold', title: 'Cashback disponível não resgatado',  desc: 'Cartão Inter · Programa Duo Gourmet',      amount:  'R$ 78,00',   tag: 'DISPONÍVEL' },
+  { type: 'good', title: 'CDB prefixado disponível',           desc: 'Nubank · venc. 3 meses · 14,5% a.a.',     amount: '+R$ 210/ano',  tag: 'RECOMENDADO' },
+  { type: 'gold', title: 'Portabilidade de crédito',           desc: '3,2% a.m. atual → oferta 1,9% a.m.',      amount: '−R$ 380/mês',  tag: 'NOVA OFERTA' },
+];
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapAlert(a: any): FeedCard {
+  // A severidade vem em `level` (CRITICAL/WARNING/INFO); `type` é o tipo do
+  // alerta (NEGATIVE_BALANCE…) e fazia todo alerta cair em "Oportunidades".
+  const nivel = String(a.level || '').toUpperCase();
+  const type: CardType = nivel === 'CRITICAL' ? 'alert' : nivel === 'WARNING' ? 'warn' : 'info';
+  return { type, title: a.title || a.message, desc: a.message || '', amount: '', tag: '' };
 }
 
-function rotaDaInterface(rota?: string | null): string | null {
-  // '/feed' é esta própria tela; rota de API (/api/...) não é navegável
-  if (!rota || rota === '/feed' || rota.startsWith('/api/')) return null;
-  return rota;
+function parseAmount(s: string): number {
+  const m = s.replace(/\./g, '').match(/-?\d+(?:,\d+)?/);
+  if (!m) return 0;
+  return Math.abs(parseFloat(m[0].replace(',', '.')));
 }
 
-// O Feed lia só /alerts, classificava pelo campo errado (type em vez de level)
-// e, sem dado ou com erro, mostrava cards DEMO_* fixos com o banner "conecte
-// seu banco". Agora: /notifications é a fonte principal (17 tipos de card),
-// /alerts entra pelo `level`, cada card tem ação e "dispensar" de verdade, e
-// erro aparece como erro.
+function fmtBRL(n: number) {
+  return `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+}
+
+// ─── Ícones por tipo de card (sem emoji, sem glifo unicode solto) ────────────
+function TypeIcon({ type }: { type: CardType }) {
+  switch (type) {
+    case 'alert':
+      return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path d="M12 3v10M12 21a1.4 1.4 0 1 1 0-2.8A1.4 1.4 0 0 1 12 21Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+        </svg>
+      );
+    case 'warn':
+      return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8"/>
+          <path d="M12 7.5v5.2l3.2 1.9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      );
+    case 'good':
+      return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path d="M4 15l5-5 4 4 7-8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M15 6h5v5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      );
+    case 'gold':
+      return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.8"/>
+          <path d="M12 8v8M9.5 10a2.5 2 0 0 1 2.5-1.5c1.4 0 2.5.7 2.5 1.7s-1.1 1.4-2.5 1.8c-1.4.4-2.5.9-2.5 1.8 0 1 1.1 1.7 2.5 1.7a2.5 2 0 0 0 2.5-1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+        </svg>
+      );
+    default:
+      return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8"/>
+          <path d="M12 11v5.5M12 7.8v.1" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+        </svg>
+      );
+  }
+}
+
 export const FeedPage: React.FC = () => {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const userId = getUserId();
+  const userId = localStorage.getItem('user_id') || '';
 
-  const notifQ = useQuery({
-    queryKey: ['feed', 'notificacoes', userId],
-    queryFn: () => feedApi.notificacoes(userId),
-    enabled: !!userId, staleTime: 2 * 60 * 1000,
+  const alertsQ = useQuery({
+    queryKey: ['alerts', userId],
+    queryFn: () => nexaApi.getAlerts(userId),
+    enabled: !!userId, retry: 1, staleTime: 2 * 60 * 1000,
   });
-  const alertasQ = useQuery({
-    queryKey: ['feed', 'alertas', userId],
-    queryFn: () => feedApi.alertas(userId),
-    enabled: !!userId, staleTime: 2 * 60 * 1000,
-  });
-  const conexoesQ = useQuery({ queryKey: ['pluggy', 'conexoes'], queryFn: painelApi.conexoes, enabled: !!userId, retry: false });
 
-  const cards: Card[] = [
-    // dinheiro parado e poupança × CDI são o próprio card do Radar, logo abaixo
-    ...(notifQ.data?.notifications || []).filter(n => !COBERTOS_PELO_RADAR.has(n.type)).map((n): Card => ({
-      chave: `n:${n.fingerprint}`, origem: 'notificacao', prioridade: n.priority,
-      titulo: n.title, texto: n.message, dica: n.action_hint, rota: rotaDaInterface(n.action_route), notificacao: n,
-    })),
-    ...(alertasQ.data?.alerts || []).map((a): Card => ({
-      chave: `a:${a.id}`, origem: 'alerta', prioridade: a.level,
-      titulo: a.title, texto: a.message, rota: rotaDaInterface(a.action_url), alertaId: a.id,
-    })),
-  ].sort((x, y) => ORDEM[x.prioridade] - ORDEM[y.prioridade]);
+  const demo = isDemoMode(userId);
+  const loading = alertsQ.isLoading;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const realAlerts: FeedCard[] = (alertsQ.data?.alerts || []).map((a: any) => mapAlert(a));
+  const hasReal = realAlerts.length > 0;
+  const showDemo = !hasReal && demo;
+  const showEmpty = !hasReal && !demo;
 
-  const urgentes = cards.filter(c => c.prioridade !== 'INFO');
-  const avisos = cards.filter(c => c.prioridade === 'INFO');
+  const alerts = hasReal ? realAlerts.filter(c => c.type === 'alert' || c.type === 'warn') : showDemo ? DEMO_ALERTS : [];
+  const opps   = hasReal ? realAlerts.filter(c => c.type === 'good' || c.type === 'gold' || c.type === 'info') : showDemo ? DEMO_OPP : [];
 
-  // 'shown' uma vez por card nesta montagem — só para o que o servidor ainda
-  // não tinha visto (o GET não marca mais nada: é idempotente).
-  const enviados = useRef(new Set<string>());
-  useEffect(() => {
-    for (const n of notifQ.data?.notifications || []) {
-      if (!n.seen && !enviados.current.has(n.fingerprint)) {
-        enviados.current.add(n.fingerprint);
-        feedApi.evento(userId, n, 'shown');
-      }
-    }
-  }, [notifQ.data, userId]);
-
-  function abrir(c: Card) {
-    if (c.notificacao) feedApi.evento(userId, c.notificacao, 'tapped');
-    if (c.rota) navigate(c.rota);
-  }
-
-  async function dispensar(c: Card) {
-    // some na hora; o servidor confirma em segundo plano
-    if (c.notificacao) {
-      const fp = c.notificacao.fingerprint;
-      queryClient.setQueryData<Notificacoes>(['feed', 'notificacoes', userId], d =>
-        d ? { ...d, notifications: d.notifications.filter(n => n.fingerprint !== fp), total: d.total - 1 } : d);
-      await feedApi.evento(userId, c.notificacao, 'dismissed');
-    } else if (c.alertaId) {
-      const id = c.alertaId;
-      queryClient.setQueryData<Alertas>(['feed', 'alertas', userId], d =>
-        d ? { ...d, alerts: d.alerts.filter(a => a.id !== id) } : d);
-      try {
-        await feedApi.dispensarAlerta(userId, id);
-      } catch {
-        queryClient.invalidateQueries({ queryKey: ['feed', 'alertas', userId] });
-      }
-    }
-  }
-
-  const loading = notifQ.isLoading || alertasQ.isLoading;
-  const erro = notifQ.error && alertasQ.error ? notifQ.error : null;
-  const semConexao = conexoesQ.data && conexoesQ.data.total === 0;
-
-  const renderCard = (c: Card) => {
-    const tipo = TIPO_POR_PRIORIDADE[c.prioridade];
-    return (
-      <div key={c.chave} className={`fp-card ${tipo}`}>
-        <div className="fp-card-icon">{ICONE[tipo]}</div>
-        <div className="fp-card-body">
-          <div className="fp-card-title">{c.titulo}</div>
-          {c.texto && <div className="fp-card-desc full">{c.texto}</div>}
-          {c.dica && <div className="fp-card-hint">→ {c.dica}</div>}
-          <div className="fp-actions">
-            {c.rota && <button className="fp-act go" onClick={() => abrir(c)}>Ver detalhes →</button>}
-            <button className="fp-act" onClick={() => dispensar(c)} aria-label={`Dispensar: ${c.titulo}`}>Dispensar</button>
-          </div>
-        </div>
-        <div className="fp-card-right">
-          <div className="fp-card-tag">{ROTULO[c.prioridade]}</div>
-        </div>
-      </div>
-    );
-  };
+  const alertsTotal = alerts.reduce((s, a) => s + parseAmount(a.amount), 0);
+  const oppsTotal   = opps.reduce((s, a) => s + parseAmount(a.amount), 0);
+  const barMax = Math.max(alertsTotal, oppsTotal, 1);
 
   return (
     <AppShell current="feed">
@@ -235,70 +250,119 @@ export const FeedPage: React.FC = () => {
         <div className="fp-top">
           <div>
             <div className="fp-eyebrow">Feed de Oportunidades</div>
-            <div className="fp-title">O que o banco<br />não te conta.</div>
+            <div className="fp-title">O que o banco<br />não te <em>conta</em>.</div>
           </div>
-          {!loading && !erro && (
-            <div className="fp-top-kpis">
-              <div className="fp-mini-kpi">
-                <div className="fp-mini-val red">{urgentes.length}</div>
-                <div className="fp-mini-label">Pedem atenção</div>
-              </div>
-              <div className="fp-mini-kpi">
-                <div className="fp-mini-val gold">{avisos.length}</div>
-                <div className="fp-mini-label">Oportunidades</div>
-              </div>
-              <div className="fp-mini-kpi">
-                <div className="fp-mini-val dim">{cards.length}</div>
-                <div className="fp-mini-label">Total</div>
-              </div>
-            </div>
-          )}
         </div>
 
-        {erro && (
-          <div className="fp-msg erro">
-            {getErrorMessage(erro, 'Não foi possível carregar o feed.')}{' '}
-            <button className="fp-act" onClick={() => { notifQ.refetch(); alertasQ.refetch(); }}>Tentar de novo</button>
+        {!loading && !showEmpty && (
+          <div className="fp-hero">
+            <div className="fp-hero-main">
+              <span className="fp-hero-label">Identificado este mês</span>
+              <span className="fp-hero-value">{fmtBRL(alertsTotal + oppsTotal)}</span>
+              <span className="fp-hero-sub">em tarifas evitáveis e oportunidades que você ainda não aproveitou.</span>
+            </div>
+            <div className="fp-hero-chart">
+              <div className="fp-bar-row">
+                <div className="fp-bar-icon red"><TypeIcon type="alert" /></div>
+                <div className="fp-bar-main">
+                  <div className="fp-bar-top">
+                    <span className="fp-bar-label">Perdido em tarifas</span>
+                    <span className="fp-bar-val red">{fmtBRL(alertsTotal)}</span>
+                  </div>
+                  <div className="fp-bar-track"><div className="fp-bar-fill red" style={{ width: `${Math.round((alertsTotal / barMax) * 100)}%` }} /></div>
+                </div>
+              </div>
+              <div className="fp-bar-row">
+                <div className="fp-bar-icon gold"><TypeIcon type="gold" /></div>
+                <div className="fp-bar-main">
+                  <div className="fp-bar-top">
+                    <span className="fp-bar-label">Oportunidades disponíveis</span>
+                    <span className="fp-bar-val gold">{fmtBRL(oppsTotal)}</span>
+                  </div>
+                  <div className="fp-bar-track"><div className="fp-bar-fill gold" style={{ width: `${Math.round((oppsTotal / barMax) * 100)}%` }} /></div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
-        {/* uma das duas fontes falhou: o resto aparece, mas avisa */}
-        {!erro && (notifQ.error || alertasQ.error) && (
-          <div className="fp-msg erro">
-            Parte do feed não carregou ({getErrorMessage(notifQ.error || alertasQ.error)}).
+
+        {showDemo && !loading && (
+          <div className="fp-demo">
+            <div className="fp-demo-dot" />
+            Modo demonstração — desative em Perfil para ver o estado real.
           </div>
         )}
 
         {loading ? (
           <div className="fp-grid">
-            {[1,2,3,4].map(i => <div key={i} className="fp-skel" style={{ height: 72 }} />)}
+            {[1,2,3,4,5].map(i => <div key={i} className="fp-skel" style={{ height: 72 }} />)}
           </div>
-        ) : !erro && (
-          <>
-            <div className="fp-section-label">Pedem atenção</div>
-            {urgentes.length > 0
-              ? <div className="fp-grid">{urgentes.map(renderCard)}</div>
-              : <div className="fp-msg">Nada urgente agora. Quando um gasto fugir do ritmo, uma tarifa subir ou o saldo apertar, aparece aqui.</div>}
-
-            <div className="fp-section-label">Oportunidades</div>
-            <OpportunityRadarCard userId={userId} />
-            <ComparadorInvestimentos userId={userId} />
-            {avisos.length > 0 && <div className="fp-grid">{avisos.map(renderCard)}</div>}
-          </>
-        )}
-
-        {semConexao && (
-          <div className="fp-cta">
-            <div>
-              <div className="fp-cta-text">Conecte seu banco para o feed olhar o seu dinheiro</div>
-              <div className="fp-cta-sub">
-                {conexoesQ.data?.pluggy_configured === false
-                  ? 'Open Finance ainda não está configurado neste ambiente.'
-                  : 'Open Finance · leitura apenas · criptografado'}
+        ) : showEmpty ? (
+          <div className="fp-empty">
+            <svg className="fp-empty-icon" width="30" height="30" viewBox="0 0 24 24" fill="none">
+              <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" strokeWidth="1.6"/>
+              <path d="M20 20l-4.8-4.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+            </svg>
+            <div className="fp-empty-title">Nenhum alerta ou oportunidade ainda</div>
+            <div className="fp-empty-sub">Conecte seu banco pra o HIVE analisar suas tarifas, assinaturas e oportunidades reais.</div>
+          </div>
+        ) : (
+          <div className={`fp-columns${alerts.length > 0 && opps.length > 0 ? '' : ' single'}`}>
+            {alerts.length > 0 && (
+              <div className="fp-column">
+                <div className="fp-section-label">Alertas</div>
+                <div className="fp-grid">
+                  {alerts.map((o, i) => (
+                    <div key={i} className={`fp-card ${o.type}`}>
+                      <div className="fp-card-icon"><TypeIcon type={o.type} /></div>
+                      <div className="fp-card-body">
+                        <div className="fp-card-title">{o.title}</div>
+                        {o.desc && <div className="fp-card-desc">{o.desc}</div>}
+                      </div>
+                      {(o.amount || o.tag) && (
+                        <div className="fp-card-right">
+                          {o.amount && <div className="fp-card-amount">{o.amount}</div>}
+                          {o.tag    && <span className="fp-chip">{o.tag}</span>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-            <button className="fp-cta-btn" onClick={() => navigate('/connections')}>Conectar banco →</button>
+            )}
+
+            {opps.length > 0 && (
+              <div className="fp-column">
+                <div className="fp-section-label">Oportunidades</div>
+                <div className="fp-grid">
+                  {opps.map((o, i) => (
+                    <div key={i} className={`fp-card ${o.type}`}>
+                      <div className="fp-card-icon"><TypeIcon type={o.type} /></div>
+                      <div className="fp-card-body">
+                        <div className="fp-card-title">{o.title}</div>
+                        {o.desc && <div className="fp-card-desc">{o.desc}</div>}
+                      </div>
+                      {(o.amount || o.tag) && (
+                        <div className="fp-card-right">
+                          {o.amount && <div className="fp-card-amount">{o.amount}</div>}
+                          {o.tag    && <span className="fp-chip">{o.tag}</span>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
+
+        <div className="fp-cta">
+          <div>
+            <div className="fp-cta-text">Conecte seu banco para alertas reais</div>
+            <div className="fp-cta-sub">Open Finance · leitura apenas · criptografado</div>
+          </div>
+          <button className="fp-cta-btn" onClick={() => navigate('/connections')}>Conectar banco →</button>
+        </div>
       </div>
     </AppShell>
   );
