@@ -19,6 +19,7 @@ from app.opportunities.models import (
 )
 from app.opportunities.services.idle_money_detector import IdleMoneyDetector
 from app.opportunities.services.bank_comparator import BankComparator
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,7 @@ class OpportunityEngine:
             idle_amount=idle.idle_amount,
             gross_idle_amount=idle.gross_idle_amount,
             emergency_reserve=idle.emergency_reserve,
+            reserve_protected=round(min(idle.emergency_reserve, max(idle.gross_idle_amount, 0.0)), 2),
             reserve_months_applied=idle.reserve_months_applied,
             avg_income_3m=idle.avg_income_3m,
             avg_expenses_3m=idle.avg_expenses_3m,
@@ -264,7 +266,7 @@ class OpportunityEngine:
             return {
                 "status": "CONFIRMED",
                 "reason": (
-                    f"Saldo ocioso de pelo menos R$ {_CONFIRM_THRESHOLD_BRL:,.2f} confirmado em "
+                    f"Saldo ocioso de pelo menos {brl(_CONFIRM_THRESHOLD_BRL)} confirmado em "
                     f"{days_above_threshold}/{days_tracked} dos últimos {days_tracked} dias."
                 ),
                 "is_confirmed_idle": True,
@@ -278,7 +280,7 @@ class OpportunityEngine:
             )
         else:
             reason = (
-                f"Saldo ocioso ficou abaixo de R$ {_CONFIRM_THRESHOLD_BRL:,.2f} em parte dos "
+                f"Saldo ocioso ficou abaixo de {brl(_CONFIRM_THRESHOLD_BRL)} em parte dos "
                 f"últimos {days_tracked} dias — ainda não confirmado."
             )
 
@@ -339,9 +341,20 @@ class OpportunityEngine:
         tem sobrando, quando parte do saldo foi protegida como reserva."""
         if idle.emergency_reserve <= 0:
             return recommendation
+        saldo = max(idle.gross_idle_amount, 0.0)
+        if saldo < idle.emergency_reserve:
+            # A meta da reserva é maior que o saldo: dizer que a meta inteira
+            # "foi mantida de fora" sugeria um dinheiro que o usuário não tem.
+            return (
+                f"{recommendation} "
+                f"Seu saldo estimado ({brl(saldo)}) ainda não cobre a reserva de "
+                f"emergência recomendada de {brl(idle.emergency_reserve)} "
+                f"({idle.reserve_months_applied} meses de gastos) — por isso nada "
+                "foi sugerido para investir."
+            )
         return (
             f"{recommendation} "
-            f"R$ {idle.emergency_reserve:,.2f} foram mantidos de fora como reserva "
+            f"{brl(idle.emergency_reserve)} foram mantidos de fora como reserva "
             f"de emergência (equivalente a {idle.reserve_months_applied} meses de "
             "gastos) e não entram nessa recomendação."
         )
@@ -369,8 +382,8 @@ class OpportunityEngine:
 
         if top is None:
             return (
-                f"Você tem aproximadamente R$ {idle_amount:,.2f} parado na conta, "
-                f"perdendo R$ {monthly_loss:,.2f}/mês em rendimento. "
+                f"Você tem aproximadamente {brl(idle_amount)} parado na conta, "
+                f"perdendo {brl(monthly_loss)}/mês em rendimento. "
                 "Conecte mais dados para ver recomendações personalizadas."
             )
 
@@ -380,13 +393,13 @@ class OpportunityEngine:
         )
 
         return (
-            f"Você tem aproximadamente R$ {idle_amount:,.2f} parado na conta, "
-            f"perdendo R$ {monthly_loss:,.2f}/mês. "
+            f"Você tem aproximadamente {brl(idle_amount)} parado na conta, "
+            f"perdendo {brl(monthly_loss)}/mês. "
             f"Melhor opção: {top.bank_name} {top.product_type} {top.cdi_pct:.0f}% CDI "
-            f"({top.annual_rate_net_pct:.2f}% a.a. líquido), "
+            f"({numero(top.annual_rate_net_pct, 2)}% a.a. líquido), "
             f"{liquidity_label}. "
-            f"Rendimento estimado: R$ {top.monthly_gain_brl:,.2f}/mês ou "
-            f"R$ {top.annual_gain_brl:,.2f}/ano."
+            f"Rendimento estimado: {brl(top.monthly_gain_brl)}/mês ou "
+            f"{brl(top.annual_gain_brl)}/ano."
         )
 
     @staticmethod

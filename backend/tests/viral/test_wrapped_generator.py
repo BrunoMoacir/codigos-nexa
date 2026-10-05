@@ -44,9 +44,26 @@ class TestFallbackMenosde3Meses:
             patch.object(gen, "_score_evolution", return_value=(None, None, None)),
             patch.object(gen, "_get_badges", return_value=[]),
         ):
-            report = gen.generate("u1", 2026)
+            report = gen.generate("u1", 2025)  # ano já fechado
 
         assert report.is_partial_year is False
+
+    def test_ano_em_andamento_e_parcial(self, gen):
+        """O Wrapped do ano corrente se apresentava como retrospectiva fechada."""
+        from datetime import datetime, timezone
+
+        with (
+            patch.object(gen, "_months_active", return_value=12),
+            patch.object(gen, "_biggest_waste", return_value=(None, 0.0)),
+            patch.object(gen, "_worst_fee", return_value=None),
+            patch.object(gen, "_best_card_missed", return_value=(None, 0.0)),
+            patch.object(gen, "_idle_money", return_value=(None, 0.0)),
+            patch.object(gen, "_score_evolution", return_value=(None, None, None)),
+            patch.object(gen, "_get_badges", return_value=[]),
+        ):
+            report = gen.generate("u1", datetime.now(timezone.utc).year)
+
+        assert report.is_partial_year is True
 
     def test_tagline_parcial_menciona_meses(self, gen):
         with patch.object(gen, "_months_active", return_value=2):

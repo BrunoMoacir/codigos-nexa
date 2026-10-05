@@ -21,6 +21,7 @@ from app.tax.services.investment_profiler import InvestmentProfiler
 from app.tax.services.ir_calculator import calc_portfolio_ir, calc_breakeven
 from app.tax.services.tax_loss_harvesting import TaxLossHarvester
 from app.tax.services.zero_tax_mode import ZeroTaxMode
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tax", tags=["Tax (T1/T2 — Otimização de IR)"])
@@ -141,8 +142,8 @@ def calc_breakeven_endpoint(
     - Fórmula: `lci_breakeven = cdb_rate × (1 − IR)`
     - Se informar `lci_offered_rate_pct`, calcula a vantagem da LCI sobre o breakeven.
 
-    **Exemplo:** CDB 13,5% a.a., prazo 13 meses (IR 20%) → breakeven LCI = 10,80%.
-    Qualquer LCI acima de 10,80% supera o CDB líquido.
+    **Exemplo:** CDB 13,5% a.a., prazo 13 meses (IR 17,5%) → breakeven LCI = 11,14%.
+    Qualquer LCI acima de 11,14% supera o CDB líquido.
     """
     if body.cdb_rate_pct <= 0:
         raise HTTPException(status_code=422, detail="cdb_rate_pct deve ser positivo.")
@@ -158,18 +159,18 @@ def calc_breakeven_endpoint(
     if body.lci_offered_rate_pct and result.lci_advantage_pct is not None:
         if result.lci_advantage_pct > 0:
             interpretation = (
-                f"LCI de {body.lci_offered_rate_pct:.2f}% é MELHOR que o CDB líquido "
-                f"(+{result.lci_advantage_pct:.2f} p.p. acima do breakeven). Prefira a LCI."
+                f"LCI de {numero(body.lci_offered_rate_pct, 2)}% é MELHOR que o CDB líquido "
+                f"(+{numero(result.lci_advantage_pct, 2)} p.p. acima do breakeven). Prefira a LCI."
             )
         else:
             interpretation = (
-                f"LCI de {body.lci_offered_rate_pct:.2f}% é PIOR que o CDB líquido "
-                f"({result.lci_advantage_pct:.2f} p.p. abaixo do breakeven). Prefira o CDB."
+                f"LCI de {numero(body.lci_offered_rate_pct, 2)}% é PIOR que o CDB líquido "
+                f"({numero(result.lci_advantage_pct, 2)} p.p. abaixo do breakeven). Prefira o CDB."
             )
     else:
         interpretation = (
-            f"Para superar o CDB de {body.cdb_rate_pct:.2f}% líquido após IR {result.cdb_ir_rate*100:.0f}%, "
-            f"a LCI precisa render pelo menos {result.lci_breakeven_pct:.2f}% a.a."
+            f"Para superar o CDB de {numero(body.cdb_rate_pct, 2)}% ao ano, já descontado o IR de {numero(result.cdb_ir_rate * 100, 1)}%, "
+            f"a LCI precisa render pelo menos {numero(result.lci_breakeven_pct, 2)}% a.a."
         )
 
     return BreakevenResponse(
@@ -203,11 +204,11 @@ def _build_summary(portfolio, total_ir, opportunities, total_saving) -> str:
     if come_cotas:
         parts.append(f"{len(come_cotas)} fundo(s) com come-cotas.")
     if total_ir > 0:
-        parts.append(f"IR estimado se resgatar tudo hoje: R$ {total_ir:,.2f}.")
+        parts.append(f"IR estimado se resgatar tudo hoje: {brl(total_ir)}.")
     if opportunities:
         parts.append(
             f"{len(opportunities)} oportunidade(s) encontrada(s) — "
-            f"economia potencial de R$ {total_saving:,.2f} em IR."
+            f"economia potencial de {brl(total_saving)} em IR."
         )
     else:
         parts.append("Nenhuma oportunidade de otimização fiscal detectada na carteira atual.")

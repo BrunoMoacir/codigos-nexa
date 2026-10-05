@@ -17,6 +17,7 @@ from datetime import date, timedelta
 from typing import Optional
 
 from app.viral.models import WrappedHighlight, WrappedReport
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,9 @@ class WrappedGenerator:
             score_delta=score_delta,
             badges_earned=badges,
             summary_tagline=summary,
+            # O ano corrente ainda não acabou: sem isso o card de 2026, em
+            # outubro, se apresentava como retrospectiva fechada do ano.
+            is_partial_year=year >= _now_utc().year,
         )
 
     def _educational_report(self, user_id: str, year: int, months: int) -> WrappedReport:
@@ -155,10 +159,10 @@ class WrappedGenerator:
             h = WrappedHighlight(
                 category="biggest_waste",
                 title="Maior desperdício do ano",
-                value_formatted=f"R$ {float(amount):,.2f}",
+                value_formatted=f"{brl(float(amount))}",
                 description=(
-                    f"Você pagou R$ {float(amount):,.2f} só em {_friendly_fee(fee_type)} em {year}. "
-                    f"Total de tarifas no ano: R$ {float(total_fees):,.2f}."
+                    f"Você pagou {brl(float(amount))} só em {_friendly_fee(fee_type)} em {year}. "
+                    f"Total de tarifas no ano: {brl(float(total_fees))}."
                 ),
             )
             return h, float(total_fees)
@@ -191,10 +195,10 @@ class WrappedGenerator:
             return WrappedHighlight(
                 category="worst_fee",
                 title="Tarifa mais absurda",
-                value_formatted=f"R$ {float(amount):,.2f}",
+                value_formatted=f"{brl(float(amount))}",
                 description=(
                     f"{_friendly_fee(fee_type)} do {bank}: "
-                    f"R$ {float(amount):,.2f} em um único mês. "
+                    f"{brl(float(amount))} em um único mês. "
                     "Use o Negociador Nexa para contestar ou migrar de banco."
                 ),
             )
@@ -223,9 +227,9 @@ class WrappedGenerator:
             h = WrappedHighlight(
                 category="best_card_missed",
                 title="Cartão que mais renderia",
-                value_formatted=f"R$ {gain:,.2f}/ano",
+                value_formatted=f"{brl(gain)}/ano",
                 description=(
-                    f"O {card_name} poderia ter te dado R$ {gain:,.2f} extras em {date.today().year} "
+                    f"O {card_name} poderia ter te dado {brl(gain)} extras em {date.today().year} "
                     f"em pontos e cashback. Troque no app."
                 ),
             )
@@ -261,10 +265,10 @@ class WrappedGenerator:
             h = WrappedHighlight(
                 category="idle_money",
                 title="Oportunidade que ficou na conta",
-                value_formatted=f"R$ {annual_loss:,.2f}/ano",
+                value_formatted=f"{brl(annual_loss)}/ano",
                 description=(
-                    f"Você deixou R$ {monthly_loss:,.2f}/mês parado na conta corrente rendendo zero. "
-                    f"Aplicado em {bank}, teria rendido R$ {annual_loss:,.2f} no ano."
+                    f"Você deixou {brl(monthly_loss)}/mês parado na conta corrente rendendo zero. "
+                    f"Aplicado em {bank}, teria rendido {brl(annual_loss)} no ano."
                 ),
             )
             return h, annual_loss
@@ -358,11 +362,11 @@ class WrappedGenerator:
         parts = []
         if total_fees > 0:
             parts.append(
-                f"Você pagou R$ {total_fees:,.2f} em tarifas bancárias cobradas em {year}."
+                f"Você pagou {brl(total_fees)} em tarifas bancárias cobradas em {year}."
             )
         if total_savings > 0:
             parts.append(
-                f"A Nexa identificou até R$ {total_savings:,.2f} em oportunidades potenciais — "
+                f"A Nexa identificou até {brl(total_savings)} em oportunidades potenciais — "
                 "valores estimados, sujeitos a condições de mercado."
             )
         if score_delta is not None:

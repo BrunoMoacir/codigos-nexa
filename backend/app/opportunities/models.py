@@ -62,7 +62,10 @@ class OpportunitiesResponse(BaseModel):
     user_id: str
     idle_amount: float                # valor final, já líquido de reserva
     gross_idle_amount: float = 0.0    # proxy de saldo, sem proteção de reserva
-    emergency_reserve: float = 0.0    # reserva protegida (nunca sugerida para investir)
+    emergency_reserve: float = 0.0    # META da reserva (N meses de gasto) — pode passar do saldo
+    # Quanto do saldo de fato ficou protegido: min(meta, saldo). O card dizia
+    # "R$ 78.956 protegidos como reserva" para quem tinha R$ 10.874.
+    reserve_protected: float = 0.0
     reserve_months_applied: int = 0   # 0 quando não foi possível calcular o perfil do usuário
     avg_income_3m: float
     avg_expenses_3m: float
