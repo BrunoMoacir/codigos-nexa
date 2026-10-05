@@ -242,6 +242,33 @@ async def receive_transaction_webhook(
 # ENDPOINT: Buscar transações processadas
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def _extrato_normalizado(user_id: str):
+    """
+    O extrato do usuário com os nomes de coluna que a API expõe.
+
+    `get_transactions_for_user` entrega `date` ou `transaction_date`,
+    `category` ou `predicted_category` conforme a origem — a mesma deriva de
+    nome que zerava a renda no ETL. Normaliza uma vez, para os dois endpoints.
+    """
+    import polars as pl
+    from app.core.db.queries import get_transactions_for_user
+
+    txns = get_transactions_for_user(user_id)
+    if txns.is_empty():
+        return txns
+    rename = {
+        "predicted_category": "category",
+        "pf_pj_label": "context_type",
+        "transaction_date": "date",
+    }
+    for old, new in rename.items():
+        if old in txns.columns and new not in txns.columns:
+            txns = txns.rename({old: new})
+    if "date" in txns.columns:
+        txns = txns.with_columns(pl.col("date").cast(pl.Date))
+    return txns
+
+
 @router.get("/{user_id}", status_code=status.HTTP_200_OK)
 @cache_response(prefix="transactions", ttl=300)
 async def get_user_transactions(
@@ -251,113 +278,212 @@ async def get_user_transactions(
     category: Optional[str] = Query(default=None),
     transaction_type: Optional[str] = Query(default=None),
     limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db)
 ) -> dict:
-    """Retorna transações processadas de um usuário com filtros opcionais."""
+    """
+    Transações processadas do usuário, paginadas, mais recentes primeiro.
+
+    `total` é a contagem REAL com os filtros aplicados — era o tamanho da
+    página, e a tela não tinha como saber que o extrato fora truncado.
+    `offset` era mandado pelo frontend e ignorado aqui, então a paginação era
+    impossível. Lista vazia é 200 com `transactions: []`: "não há lançamentos"
+    é resposta, não recurso inexistente.
+    """
     import polars as pl
-    from app.core.db.queries import get_transactions_for_user
 
     try:
-        txns = get_transactions_for_user(user_id)
+        txns = _extrato_normalizado(user_id)
+        filtros = {
+            "start_date": start_date,
+            "end_date": end_date,
+            "category": category,
+            "transaction_type": transaction_type,
+        }
         if txns.is_empty():
-            serialized = []
-            debit_count = 0
-            credit_count = 0
-        else:
-            # Normalizações esperadas pela API
-            rename = {
-                "predicted_category": "category",
-                "pf_pj_label": "context_type",
-                "transaction_date": "date",
+            return {
+                "user_id": user_id, "total": 0, "limit": limit, "offset": offset,
+                "has_more": False, "debit_count": 0, "credit_count": 0,
+                "filters": filtros, "transactions": [],
             }
-            for old, new in rename.items():
-                if old in txns.columns and new not in txns.columns:
-                    txns = txns.rename({old: new})
 
-            if "date" in txns.columns:
-                txns = txns.with_columns(pl.col("date").cast(pl.Date))
-                if start_date:
-                    from datetime import date as dt_date
-                    txns = txns.filter(pl.col("date") >= dt_date.fromisoformat(start_date))
-                if end_date:
-                    from datetime import date as dt_date
-                    txns = txns.filter(pl.col("date") <= dt_date.fromisoformat(end_date))
+        if "date" in txns.columns:
+            from datetime import date as dt_date
+            if start_date:
+                txns = txns.filter(pl.col("date") >= dt_date.fromisoformat(start_date))
+            if end_date:
+                txns = txns.filter(pl.col("date") <= dt_date.fromisoformat(end_date))
 
-            if category and "category" in txns.columns:
-                txns = txns.filter(pl.col("category").str.to_lowercase() == category.lower())
+        if category and "category" in txns.columns:
+            txns = txns.filter(pl.col("category").str.to_lowercase() == category.lower())
 
-            if transaction_type and "amount" in txns.columns:
-                if transaction_type.lower() == "debit":
-                    txns = txns.filter(pl.col("amount") < 0)
-                else:
-                    txns = txns.filter(pl.col("amount") >= 0)
+        if transaction_type and "amount" in txns.columns:
+            tipo = transaction_type.lower()
+            if tipo in ("debit", "expense"):
+                txns = txns.filter(pl.col("amount") < 0)
+            elif tipo in ("credit", "income"):
+                txns = txns.filter(pl.col("amount") >= 0)
 
-            # Ordena desc e limita
-            if "date" in txns.columns:
-                txns = txns.sort("date", descending=True)
-            result_df = txns.head(limit)
+        # Ordem total e estável (data desc, id desc): sem desempate, páginas
+        # consecutivas podiam repetir ou pular lançamentos do mesmo dia.
+        ordem = [c for c in ("date", "transaction_id") if c in txns.columns]
+        if ordem:
+            txns = txns.sort(ordem, descending=True)
 
-            output_cols = [
-                c
-                for c in (
-                    "transaction_id",
-                    "account_id",
-                    "description",
-                    "amount",
-                    "date",
-                    "category",
-                    "transaction_type",
-                    "is_recurring",
-                    "is_installment",
-                    "context_type",
-                )
-                if c in result_df.columns
-            ]
-            serialized = result_df.select(output_cols).to_dicts()
+        total = txns.height
+        debit_count = txns.filter(pl.col("amount") < 0).height if "amount" in txns.columns else 0
+        credit_count = total - debit_count
+        pagina = txns.slice(offset, limit)
 
-            for row in serialized:
-                if "date" in row and hasattr(row["date"], "isoformat"):
-                    row["date"] = row["date"].isoformat()
-
-            # Contar débito/crédito
-            debit_count = 0
-            credit_count = 0
-            if "amount" in result_df.columns:
-                debit_count = result_df.filter(pl.col("amount") < 0).height
-                credit_count = result_df.filter(pl.col("amount") >= 0).height
-
-        if not serialized:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Nenhuma transação encontrada para user_id='{user_id}'.",
+        output_cols = [
+            c
+            for c in (
+                "transaction_id", "account_id", "description", "amount", "date",
+                "category", "transaction_type", "is_recurring", "is_installment",
+                "context_type",
             )
+            if c in pagina.columns
+        ]
+        serialized = pagina.select(output_cols).to_dicts()
+        for row in serialized:
+            if "date" in row and hasattr(row["date"], "isoformat"):
+                row["date"] = row["date"].isoformat()
+            row["id"] = row.get("transaction_id")
+            row["type"] = "income" if (row.get("amount") or 0) >= 0 else "expense"
 
         logger.info(
-            "GET /transactions/%s | total=%d | debit=%d | credit=%d",
-            user_id,
-            len(serialized),
-            debit_count,
-            credit_count,
+            "GET /transactions/%s | total=%d | pagina=%d (offset=%d)",
+            user_id, total, len(serialized), offset,
         )
-
         return {
             "user_id": user_id,
-            "total": len(serialized),
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "has_more": offset + len(serialized) < total,
             "debit_count": debit_count,
             "credit_count": credit_count,
-            "filters": {
-                "start_date": start_date,
-                "end_date": end_date,
-                "category": category,
-                "transaction_type": transaction_type,
-            },
+            "filters": filtros,
             "transactions": serialized,
         }
     except HTTPException:
         raise
-    except Exception as exc:
-        logger.warning("Erro ao consultar transações: %s", exc)
+    except ValueError as exc:  # data inválida nos filtros
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Filtro inválido: {exc}",
+        )
+    except Exception:
+        # O detail repetia a exceção crua (mensagem de driver, trecho de SQL).
+        logger.exception("Erro ao consultar transações de %s", user_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao buscar transações: {str(exc)}",
+            detail="Erro ao buscar transações.",
+        )
+
+
+@router.get("/{user_id}/summary", status_code=status.HTTP_200_OK)
+@cache_response(prefix="transactions_summary", ttl=300)
+async def get_transactions_summary(
+    user_id: str = Depends(__import__('app.core.security', fromlist=['require_owner']).require_owner),
+    months: int = Query(default=12, ge=1, le=36),
+) -> dict:
+    """
+    Resumo do extrato por mês e por categoria, calculado no servidor.
+
+    O Organizar e o Dashboard montavam receita, gastos, saldo, taxa de
+    poupança, o gráfico mensal e as categorias somando a primeira página de
+    100 lançamentos no navegador — cerca de dois meses e meio de um extrato de
+    um ano, com rótulos de mês fixos no código. Aqui o recorte é por mês real
+    e cobre o período inteiro pedido.
+
+    `income`/`expenses` são entradas e saídas brutas do extrato (positivos).
+    Não é a renda líquida do `IncomeProfiler` — que exclui transferência entre
+    contas próprias e estorno — e por isso a tela as rotula como entradas.
+    """
+    import polars as pl
+
+    vazio = {
+        "user_id": user_id, "period": {"start": None, "end": None},
+        "n_transactions": 0, "months": [],
+        "totals": {"income": 0.0, "expenses": 0.0, "net": 0.0, "savings_rate_pct": 0.0},
+        "by_category": [], "data_as_of": None,
+    }
+    try:
+        txns = _extrato_normalizado(user_id)
+        if txns.is_empty() or "date" not in txns.columns or "amount" not in txns.columns:
+            return vazio
+
+        ultima = txns["date"].max()
+        meses_com_dado = (
+            txns.with_columns(pl.col("date").dt.strftime("%Y-%m").alias("_mes"))
+            ["_mes"].unique().sort()
+        )
+        janela = meses_com_dado.tail(months).to_list()
+        recorte = (
+            txns.with_columns(pl.col("date").dt.strftime("%Y-%m").alias("_mes"))
+            .filter(pl.col("_mes").is_in(janela))
+        )
+
+        por_mes = (
+            recorte.group_by("_mes")
+            .agg(
+                pl.col("amount").filter(pl.col("amount") > 0).sum().alias("income"),
+                (-pl.col("amount").filter(pl.col("amount") < 0)).sum().alias("expenses"),
+            )
+            .sort("_mes")
+        )
+        meses = [
+            {
+                "month": linha["_mes"],
+                "income": round(float(linha["income"] or 0), 2),
+                "expenses": round(float(linha["expenses"] or 0), 2),
+                "net": round(float((linha["income"] or 0) - (linha["expenses"] or 0)), 2),
+            }
+            for linha in por_mes.iter_rows(named=True)
+        ]
+        entradas = sum(m["income"] for m in meses)
+        saidas = sum(m["expenses"] for m in meses)
+
+        categorias = []
+        if "category" in recorte.columns:
+            despesas = recorte.filter(pl.col("amount") < 0)
+            if despesas.height:
+                agrupado = (
+                    despesas.with_columns(pl.col("category").fill_null("Outros"))
+                    .group_by("category")
+                    .agg((-pl.col("amount")).sum().alias("total"), pl.len().alias("count"))
+                    .sort("total", descending=True)
+                )
+                for linha in agrupado.iter_rows(named=True):
+                    total_cat = float(linha["total"] or 0)
+                    categorias.append({
+                        "category": linha["category"] or "Outros",
+                        "total": round(total_cat, 2),
+                        "count": int(linha["count"]),
+                        "pct": round(total_cat / saidas * 100, 1) if saidas else 0.0,
+                    })
+
+        return {
+            "user_id": user_id,
+            "period": {
+                "start": f"{janela[0]}-01" if janela else None,
+                "end": ultima.isoformat() if ultima else None,
+            },
+            "n_transactions": recorte.height,
+            "months": meses,
+            "totals": {
+                "income": round(entradas, 2),
+                "expenses": round(saidas, 2),
+                "net": round(entradas - saidas, 2),
+                "savings_rate_pct": round((entradas - saidas) / entradas * 100, 1) if entradas else 0.0,
+            },
+            "by_category": categorias,
+            "data_as_of": ultima.isoformat() if ultima else None,
+        }
+    except Exception:
+        logger.exception("Erro ao resumir transações de %s", user_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao resumir o extrato.",
         )

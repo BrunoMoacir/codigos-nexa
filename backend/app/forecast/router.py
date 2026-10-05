@@ -40,6 +40,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.core.security import require_owner
 from app.core.cache import cache_response
+from app.core.formatacao import brl
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -134,7 +135,7 @@ async def fetch_user_transactions(user_id: str, horizon_days: int = 30):
             )
 
         current_balance = float(transactions_df.select("amount").sum().item())
-        logger.info(f"💰 Saldo calculado para user={user_id}: R$ {current_balance:,.2f}")
+        logger.info(f"💰 Saldo calculado para user={user_id}: {brl(current_balance)}")
 
         # ── 3. Executar pipeline com saldo real ──────
         runner = NexaRunner(mode="dev")
@@ -167,6 +168,30 @@ async def fetch_user_transactions(user_id: str, horizon_days: int = 30):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ENDPOINT: GET /forecast/{user_id}
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+def primeiro_dia_negativo(cashflow_df) -> tuple[int | None, str | None]:
+    """
+    (número do primeiro dia projetado com saldo negativo, data dele).
+
+    O dia 1 é o primeiro da projeção (amanhã). `negative_day` era a string
+    "Sim", e o ForecastResponse exige int: o endpoint dava 500 exatamente para
+    quem vai ficar no vermelho — o usuário que mais precisa do aviso.
+    """
+    import polars as pl
+
+    if cashflow_df is None or cashflow_df.is_empty() or "projected_balance" not in cashflow_df.columns:
+        return None, None
+    negativos = (
+        cashflow_df.with_row_index("_dia")
+        .filter(pl.col("projected_balance") < 0)
+    )
+    if negativos.is_empty():
+        return None, None
+    dia = int(negativos["_dia"][0]) + 1
+    data = str(negativos["date"][0])[:10] if "date" in negativos.columns else None
+    return dia, data
+
 
 @router.get("/{user_id}", response_model=ForecastResponse)
 @cache_response(prefix="forecast", ttl=900)  # 15 min
@@ -277,11 +302,13 @@ async def get_forecast(
             ending_bal  = cashflow_df.select("projected_balance").tail(1).item()
             worst_bal   = cashflow_df.select("projected_balance").min().item()
             neg_days    = cashflow_df.filter(pl.col("projected_balance") < 0).height
+            primeiro_negativo, data_negativa = primeiro_dia_negativo(cashflow_df)
             cashflow_data = {
                 "starting_balance":  projections.get("current_balance", 0.0),
                 "ending_balance":    ending_bal,
                 "worst_balance":     worst_bal,
-                "negative_day":      None if neg_days == 0 else "Sim",
+                "negative_day":      primeiro_negativo,
+                "first_negative_date": data_negativa,
                 "risk_level":        safe_spend_data.get("risk_level", "LOW"),
                 "total_shadow_impact": 0.0,
                 "days_at_risk":      neg_days,
@@ -378,7 +405,11 @@ async def get_forecast(
         if income_profile_obj is not None and hasattr(income_profile_obj, "to_dict"):
             income_profile_dict = income_profile_obj.to_dict()
             monthly_income   = income_profile_obj.monthly_net_income
-            savings_rate = max(0.0, min(1.0, (monthly_income - monthly_expenses) / monthly_income)) if monthly_income > 0 else 0.0
+            # Fração, NÃO presa em zero. O clamp em [0, 1] fazia quem gasta mais
+            # do que ganha aparecer poupando 0% — e, pela régua do analyzer
+            # (poupança < 0 → 0 pontos, ≥ 0 → 20), ganhar 20 pontos de saúde
+            # que não tem. O limite inferior de −1 é só a faixa do schema.
+            savings_rate = max(-1.0, min(1.0, (monthly_income - monthly_expenses) / monthly_income)) if monthly_income > 0 else 0.0
 
             # income_ratio = expenses / income — o indicador correto de saúde de gasto
             # (burn_rate_ratio é a *taxa de consumo do orçamento no ritmo atual*, outro conceito)
@@ -431,7 +462,10 @@ async def get_forecast(
             profile_data = {
                 "profile_type":        profile_type_calc,
                 "health_score":        health_score,
-                "savings_rate":        round(savings_rate, 4),
+                # Porcentagem (−100 a 100), como o FinancialHealthResponse e o
+                # /health-score/history declaram. Saía como fração (0,0968) num
+                # e porcentagem (9,68) no outro, para a mesma usuária.
+                "savings_rate":        round(savings_rate * 100, 2),
                 "total_income":        round(monthly_income, 2),
                 "total_expenses":      round(monthly_expenses, 2),
                 "monthly_avg_expenses": round(monthly_expenses, 2),
@@ -495,6 +529,7 @@ async def get_forecast(
                 "risk_level":          cashflow_data.get("risk_level", "LOW"),
                 "total_shadow_impact": cashflow_data.get("total_shadow_impact", 0),
                 "days_at_risk":        cashflow_data.get("days_at_risk", 0),
+                "first_negative_date": cashflow_data.get("first_negative_date"),
                 "daily_data":          cashflow_data.get("daily", [])
             },
             safe_to_spend={

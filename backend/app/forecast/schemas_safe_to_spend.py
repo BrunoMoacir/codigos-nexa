@@ -17,6 +17,7 @@ USAGE:
     )
 """
 
+from typing import Optional
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Literal
 
@@ -86,6 +87,16 @@ class SafeToSpendResponse(BaseModel):
     risk_level: RiskLevel = Field(
         ...,
         description="Classificação de risco financeiro"
+    )
+
+    # A rota /forecast montava estes dois e o schema os descartava: o
+    # Dashboard mostrava "Saldo atual R$ NaN". Opcionais para não quebrar
+    # quem constrói a resposta sem eles.
+    current_balance: Optional[float] = Field(
+        default=None, description="Saldo de partida da projeção (R$)"
+    )
+    min_projected_balance: Optional[float] = Field(
+        default=None, description="Menor saldo projetado no horizonte (R$)"
     )
 
 

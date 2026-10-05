@@ -185,6 +185,11 @@ class CashflowSummaryResponse(BaseModel):
         ge=0
     )
 
+    first_negative_date: str | None = Field(
+        None,
+        description="Data (YYYY-MM-DD) do primeiro dia projetado com saldo negativo"
+    )
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CASHFLOW PROJECTION (Resposta Completa)

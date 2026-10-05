@@ -445,6 +445,24 @@ _runners: dict[str, NexaRunner] = {}
 _runners_lock = threading.Lock()
 
 
+def safe_to_spend_total(resultado: dict | None) -> float | None:
+    """
+    O safe_to_spend_total de um resultado do runner — o MESMO número do
+    GET /forecast e do widget.
+
+    Fica em resultado["projections"]["safe_to_spend"]: objeto
+    SafeToSpendResult em `run_from_db()`, dict em `run()`. O Architect lia
+    resultado["safe_to_spend"] (chave que não existe) e nunca recebeu a F1.
+    """
+    if not resultado or resultado.get("status") != "success":
+        return None
+    sts = (resultado.get("projections") or {}).get("safe_to_spend")
+    if sts is None:
+        return None
+    valor = sts.get("safe_to_spend_total") if isinstance(sts, dict) else getattr(sts, "safe_to_spend_total", None)
+    return float(valor) if valor is not None else None
+
+
 def get_runner(mode: str = "dev") -> NexaRunner:
     """
     Retorna uma instância cacheada de NexaRunner para o modo solicitado.

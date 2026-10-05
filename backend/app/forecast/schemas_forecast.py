@@ -91,14 +91,20 @@ class FinancialHealthResponse(BaseModel):
     
     health_score: int = Field(
         ...,
-        description="Score de saúde financeira (0-100)",
+        description=(
+            "Score de saúde financeira (0-100) pela régua de 3 fatores do "
+            "UserProfileAnalyzer (poupança, renda > despesa, despesa/renda). "
+            "O score EXIBÍVEL ao usuário é o combinado de GET /health-score/"
+            "history/{user_id} (current_score: 60% resiliência + 40% ausência "
+            "de estresse), que inclui os sinais do FSS."
+        ),
         ge=0,
         le=100
     )
     
     savings_rate: float = Field(
         ...,
-        description="Taxa de poupança (%)",
+        description="Taxa de poupança em porcentagem, de -100 a 100 (negativa = gasta mais que ganha)",
         ge=-100.0,  # Pode ser negativo (gastando mais que ganha)
         le=100.0
     )
