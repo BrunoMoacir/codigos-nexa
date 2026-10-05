@@ -17,10 +17,32 @@ from app.negotiator.models import (
     NegotiationScript,
     NegotiationTrigger,
 )
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
 _MODEL = "claude-haiku-4-5-20251001"
+
+# Por chamada. Sem timeout, um roteiro travado segurava a requisição inteira
+# (o frontend desistia aos 15 s e culpava "falta de histórico").
+_TIMEOUT_LLM_S = 20.0
+
+
+def _extrair_json(texto: str) -> dict:
+    """
+    O modelo às vezes embrulha o JSON em ```json … ``` ou põe uma frase antes,
+    mesmo instruído a não fazer: `json.loads` direto falhava ("Expecting value:
+    line 1 column 1") e TODO roteiro caía no template local. Pega o primeiro
+    objeto {...} do texto.
+    """
+    t = (texto or "").strip()
+    if t.startswith("```"):
+        t = t.split("\n", 1)[1] if "\n" in t else t[3:]
+        t = t.rsplit("```", 1)[0]
+    ini, fim = t.find("{"), t.rfind("}")
+    if ini == -1 or fim <= ini:
+        raise json.JSONDecodeError("nenhum objeto JSON na resposta", t, 0)
+    return json.loads(t[ini:fim + 1])
 
 # Prompt de sistema fixo — instrui o Claude a agir como especialista em negociação bancária
 _SYSTEM_PROMPT = """\
@@ -88,7 +110,7 @@ class NegotiationScriptGenerator:
     def __init__(self, model: str = _MODEL) -> None:
         self._model = model
         import anthropic
-        self._client = anthropic.Anthropic()
+        self._client = anthropic.Anthropic(timeout=_TIMEOUT_LLM_S, max_retries=1)
 
     def generate(self, opportunity: NegotiationOpportunity) -> NegotiationScript:
         """
@@ -101,7 +123,7 @@ class NegotiationScriptGenerator:
 
         try:
             raw_json = self._call_claude(prompt)
-            data = json.loads(raw_json)
+            data = _extrair_json(raw_json)
             return self._parse_script(data, opportunity)
         except json.JSONDecodeError as exc:
             logger.error(
@@ -120,17 +142,17 @@ class NegotiationScriptGenerator:
 
     def _build_prompt(self, opp: NegotiationOpportunity) -> str:
         fee_line = (
-            f"Valor médio mensal pago: R$ {opp.user_fee_monthly:.2f}"
+            f"Valor médio mensal pago: {brl(opp.user_fee_monthly)}"
             if opp.user_fee_monthly is not None
             else ""
         )
         market_line = (
-            f"Taxa média de mercado: {opp.market_rate_monthly * 100:.2f}% a.m."
+            f"Taxa média de mercado: {numero(opp.market_rate_monthly * 100, 2)}% a.m."
             if opp.market_rate_monthly is not None
             else ""
         )
         saving_line = (
-            f"Economia potencial estimada: R$ {opp.potential_saving_monthly:.2f}/mês"
+            f"Economia potencial estimada: {brl(opp.potential_saving_monthly)}/mês"
             if opp.potential_saving_monthly > 0
             else ""
         )
@@ -156,7 +178,9 @@ class NegotiationScriptGenerator:
         """Chama a API da Anthropic e retorna o texto bruto da resposta."""
         message = self._client.messages.create(
             model=self._model,
-            max_tokens=1024,
+            # 1024 cortava o JSON no meio em roteiros mais longos ("Expecting
+            # ',' delimiter") e o usuário recebia o template local.
+            max_tokens=2048,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_prompt}],
         )

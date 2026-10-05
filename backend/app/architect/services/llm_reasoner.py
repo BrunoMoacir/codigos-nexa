@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import TYPE_CHECKING, Callable, Dict, Optional
+from app.core.formatacao import brl
 
 if TYPE_CHECKING:
     from app.architect.models import (
@@ -44,6 +45,10 @@ if TYPE_CHECKING:
     )
 
 logger = logging.getLogger(__name__)
+
+# Por chamada ao LLM. Sem timeout os clientes esperavam o padrão do SDK
+# (10 min): a simulação ficava presa e o app esperava junto.
+_TIMEOUT_LLM_S = 25.0
 
 # Chaves de override_params aceitas para reprocessamento do motor.
 # Outras chaves são ignoradas para evitar manipulação via prompt injection.
@@ -238,7 +243,7 @@ class LLMReasoner:
         )
         user = (
             f"Estratégia recomendada: {summary['recomendado']}\n"
-            f"Bem: {summary['bem']} — valor R${summary['valor']:,.0f}, entrada R${summary['entrada']:,.0f}\n"
+            f"Bem: {summary['bem']} — valor {brl(summary['valor'], 0)}, entrada {brl(summary['entrada'], 0)}\n"
             f"Prazo: {summary['prazo_meses']} meses | CET: {summary['cet']} | SELIC: {summary['selic']}\n"
             f"Comparação NPV: {' | '.join(npv_lines)}\n"
             f"Garantia SSD: {summary.get('ssd_guarantee') or 'nenhuma'}\n"
@@ -314,11 +319,11 @@ class LLMReasoner:
             "selic":          f"{market_rates.get('selic_annual', 0.1475):.2%}",
             "cet":            f"{market_rates.get('best_cet_annual', 0.15):.2%}",
             "ipca":           f"{market_rates.get('ipca_annual', 0.045):.2%}",
-            "npv_financing":           f"R${npv.financing:,.0f}" if npv.financing is not None else None,
-            "npv_save_invest":         f"R${npv.save_invest:,.0f}" if npv.save_invest is not None else None,
-            "npv_consortium":          f"R${npv.consortium:,.0f}" if npv.consortium is not None else None,
-            "npv_financing_rental":    f"R${npv.financing_rental:,.0f}" if npv.financing_rental is not None else None,
-            "npv_consortium_selic":    f"R${npv.consortium_selic_rental:,.0f}" if npv.consortium_selic_rental is not None else None,
+            "npv_financing":           f"{brl(npv.financing, 0)}" if npv.financing is not None else None,
+            "npv_save_invest":         f"{brl(npv.save_invest, 0)}" if npv.save_invest is not None else None,
+            "npv_consortium":          f"{brl(npv.consortium, 0)}" if npv.consortium is not None else None,
+            "npv_financing_rental":    f"{brl(npv.financing_rental, 0)}" if npv.financing_rental is not None else None,
+            "npv_consortium_selic":    f"{brl(npv.consortium_selic_rental, 0)}" if npv.consortium_selic_rental is not None else None,
             "recomendado":    response.recommended_strategy.value,
             "ssd_guarantee":  response.ssd_guarantee,
             "warnings_motor": [
@@ -377,7 +382,7 @@ class LLMReasoner:
     ) -> str:
         import openai
 
-        client = openai.OpenAI(api_key=self._api_key)
+        client = openai.OpenAI(api_key=self._api_key, timeout=_TIMEOUT_LLM_S, max_retries=1)
         kwargs: dict = {
             "model":      self._model,
             "messages":   [
@@ -401,7 +406,7 @@ class LLMReasoner:
     ) -> str:
         import anthropic
 
-        client = anthropic.Anthropic(api_key=self._api_key)
+        client = anthropic.Anthropic(api_key=self._api_key, timeout=_TIMEOUT_LLM_S, max_retries=1)
         messages: list = [{"role": "user", "content": user}]
         if json_mode:
             # Prefill technique: force the model to start (and continue) with valid JSON

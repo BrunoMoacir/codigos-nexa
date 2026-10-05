@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 import polars as pl
@@ -34,6 +34,7 @@ import polars as pl
 from app.costs.fee_detector import FeeDetector
 from app.costs.models import FeeEntry, FeeType
 from app.negotiator.models import NegotiationOpportunity, NegotiationTrigger
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,7 @@ class NegotiationOpportunityDetector:
         transactions_df: pl.DataFrame,
         health_score: Optional[int],
         reference_date: Optional[date] = None,
+        user_id: Optional[str] = None,
     ) -> list[NegotiationOpportunity]:
         """
         Varre as transações e retorna oportunidades de negociação detectadas.
@@ -94,12 +96,29 @@ class NegotiationOpportunityDetector:
         Returns:
             Lista de NegotiationOpportunity ordenada por economia potencial decrescente.
         """
-        ref = reference_date or date.today()
         opportunities: list[NegotiationOpportunity] = []
 
         if transactions_df.is_empty():
             logger.info("NegotiationOpportunityDetector | DataFrame vazio, nenhuma oportunidade")
             return opportunities
+
+        # Mesmo vocabulário do Raio-X (F5): sem `normalizar_extrato` com o
+        # user_id o institution_id não era preenchido e TODA oportunidade saía
+        # como "Banco desconhecido" — o filtro por banco da tela devolvia zero
+        # enquanto o F5, ao lado, mostrava as tarifas do Nubank.
+        from app.costs.fee_detector import normalizar_extrato
+        transactions_df = normalizar_extrato(transactions_df, user_id=user_id)
+
+        # Janela ancorada no último lançamento quando o extrato está parado:
+        # "juros nos últimos 3 meses" a partir de hoje perdia o que aconteceu.
+        ref = reference_date or date.today()
+        if reference_date is None and "transaction_date" in transactions_df.columns:
+            ultimo = transactions_df.select(pl.col("transaction_date").max()).item()
+            if ultimo is not None:
+                if isinstance(ultimo, datetime):
+                    ultimo = ultimo.date()
+                if ultimo < ref:
+                    ref = ultimo
 
         # Detectar todas as tarifas do histórico
         all_fees = self._fee_detector.detect(transactions_df)
@@ -196,9 +215,9 @@ class NegotiationOpportunityDetector:
                     health_score=health_score,
                     months_as_good_payer=good_payer_months,
                     description=(
-                        f"Você pagou em média R$ {monthly_avg:.2f}/mês em juros rotativos "
+                        f"Você pagou em média {brl(monthly_avg)}/mês em juros rotativos "
                         f"para {bank_name} nos últimos {_JUROS_WINDOW_MONTHS} meses. "
-                        f"A taxa média CDC de mercado é {market_rate * 100:.1f}% a.m."
+                        f"A taxa média CDC de mercado é {numero(market_rate * 100, 1)}% a.m."
                     ),
                 )
             )
@@ -254,8 +273,8 @@ class NegotiationOpportunityDetector:
                     months_as_good_payer=good_payer_months,
                     description=(
                         f"Sua anuidade com {bank_name} equivale a "
-                        f"R$ {monthly_equiv:.2f}/mês (R$ {total_anuidade:.2f}/ano). "
-                        f"A média de mercado é R$ {_ANUIDADE_MARKET_MONTHLY_AVG:.0f}/mês. "
+                        f"{brl(monthly_equiv)}/mês ({brl(total_anuidade)}/ano). "
+                        f"A média de mercado é {brl(_ANUIDADE_MARKET_MONTHLY_AVG, 0)}/mês. "
                         f"Você pode pedir isenção ou redução."
                     ),
                 )
@@ -373,9 +392,9 @@ class NegotiationOpportunityDetector:
                     health_score=health_score,
                     months_as_good_payer=good_payer_months,
                     description=(
-                        f"Você pagou em média R$ {monthly_avg:.2f}/mês em cheque especial "
+                        f"Você pagou em média {brl(monthly_avg)}/mês em cheque especial "
                         f"para {bank_name}. A taxa média de mercado (BACEN SGS 25463) é "
-                        f"{cheque_market_rate * 100:.1f}% a.m. Negocie uma linha de crédito "
+                        f"{numero(cheque_market_rate * 100, 1)}% a.m. Negocie uma linha de crédito "
                         "pessoal com taxa menor ou peça redução do spread."
                     ),
                 )

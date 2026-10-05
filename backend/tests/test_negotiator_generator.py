@@ -117,3 +117,24 @@ def test_parse_script_clamps_success_pct():
         script = generator.generate(opp)
         
     assert script.estimated_success_pct == 100
+
+
+# ── JSON do LLM embrulhado em markdown ou com frase antes ─────────────────────
+
+def test_extrair_json_aceita_cerca_markdown_e_texto_antes():
+    """`json.loads` direto falhava e todo roteiro caía no template local."""
+    from app.negotiator.script_generator import _extrair_json
+
+    assert _extrair_json('```json\n{"opening_line": "Oi"}\n```') == {"opening_line": "Oi"}
+    assert _extrair_json('Claro! Segue:\n{"a": 1, "b": [2]}') == {"a": 1, "b": [2]}
+
+
+def test_extrair_json_sem_objeto_levanta_decode_error():
+    import json
+
+    import pytest
+
+    from app.negotiator.script_generator import _extrair_json
+
+    with pytest.raises(json.JSONDecodeError):
+        _extrair_json("não consigo ajudar com isso")

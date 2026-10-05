@@ -412,13 +412,16 @@ class TestGetMetricsEndpoint:
         assert data["total_simulations"] == 5
         assert data["favorite_strategy"] == "FINANCING"
 
-    def test_retorna_404_para_usuario_sem_simulacoes(self, client):
-        """Usuário sem nenhuma simulação → 404."""
+    def test_usuario_sem_simulacoes_recebe_zeros_e_nao_404(self, client):
+        """Sem simulação é estado normal da tela → 200 com total 0 (era 404)."""
         with patch(_PATCH_GET_USER_METRICS, return_value=None):
             response = client.get(
                 "/api/v1/architect/metrics", params={"user_id": TEST_USER_ID}
             )
-        assert response.status_code == 404
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_simulations"] == 0
+        assert data["favorite_strategy"] is None
 
     def test_sem_user_id_retorna_422(self, client):
         """user_id é obrigatório → 422."""

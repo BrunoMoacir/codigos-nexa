@@ -21,6 +21,7 @@ from app.negotiator.health_score import score_nexa
 from app.negotiator.models import NegotiationReport, NegotiationRequest
 from app.negotiator.opportunity_detector import NegotiationOpportunityDetector
 from app.negotiator.script_generator import NegotiationScriptGenerator
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/negotiator", tags=["Negotiator Bot (F13)"])
@@ -54,8 +55,17 @@ class NegotiationResultUpdate(BaseModel):
     result_gain: Optional[float] = None  # ganho real obtido (R$/mês), se houver
 
 
+# `def`, não `async def`: o handler chama o LLM de forma síncrona. Dentro de
+# `async def` isso travava o event loop e todo o resto do app esperava.
+def _sem_acento(texto: str) -> str:
+    import unicodedata
+    return "".join(
+        c for c in unicodedata.normalize("NFD", texto or "") if unicodedata.category(c) != "Mn"
+    ).lower().strip()
+
+
 @router.post("/generate-script", response_model=NegotiationReport)
-async def generate_negotiation_script(
+def generate_negotiation_script(
     request: NegotiationRequest,
     current_user: str = Depends(get_current_user),
 ) -> NegotiationReport:
@@ -74,11 +84,12 @@ async def generate_negotiation_script(
     - `ANUIDADE_ALTA` — anuidade > R$ 30/mês nos últimos 12 meses
     - `HEALTH_SCORE_ALTO` — score ≥ 70 sem outros triggers (renegociação proativa)
     """
+    # Dono ANTES da cota: um pedido com user_id alheio gastava o roteiro do mês.
+    if current_user != request.user_id:
+        raise HTTPException(status_code=403, detail="Acesso negado")
     # Gating: Free = 0 roteiros; Pro = 1/mês; Total = ilimitado
     from app.billing.gating import consume_usage
     consume_usage(current_user, "negotiator_scripts")
-    if current_user != request.user_id:
-        raise HTTPException(status_code=403, detail="Acesso negado")
     logger.info("[API] F13 negotiator/generate-script | user=%s bank=%s", request.user_id, request.bank_name)
 
     # ── 1. Buscar transações ──────────────────────────────────────
@@ -104,14 +115,17 @@ async def generate_negotiation_script(
 
     # ── 3. Detectar oportunidades ────────────────────────────────
     detector = NegotiationOpportunityDetector()
-    opportunities = detector.detect(transactions_df, health_score=health_score)
+    opportunities = detector.detect(
+        transactions_df, health_score=health_score, user_id=request.user_id,
+    )
 
-    # Filtra por banco específico se informado
+    # Filtra por banco específico se informado — sem acento e por trecho:
+    # "itau" acha "Itaú Unibanco", "nu" não acha nada por acidente.
     if request.bank_name:
-        bank_lower = request.bank_name.lower()
+        alvo = _sem_acento(request.bank_name)
         opportunities = [
             o for o in opportunities
-            if o.bank_name.lower() == bank_lower
+            if alvo and (alvo == _sem_acento(o.bank_name) or (len(alvo) >= 3 and alvo in _sem_acento(o.bank_name)))
         ]
 
     if not opportunities:
@@ -140,13 +154,16 @@ async def generate_negotiation_script(
         )
 
     # ── 4. Gerar scripts para cada oportunidade ──────────────────
-    generator = NegotiationScriptGenerator()
-    scripts = []
-    warnings: list[str] = []
+    # Em paralelo: era um LLM depois do outro, e com 3 oportunidades a
+    # resposta passava do tempo do cliente. Cada chamada tem timeout próprio
+    # e cai no roteiro local se falhar.
+    from concurrent.futures import ThreadPoolExecutor
 
-    for opp in opportunities:
-        script = generator.generate(opp)
-        scripts.append(script)
+    generator = NegotiationScriptGenerator()
+    with ThreadPoolExecutor(max_workers=min(4, len(opportunities))) as pool:
+        scripts = list(pool.map(generator.generate, opportunities))
+    warnings: list[str] = []
+    for opp, script in zip(opportunities, scripts):
         warnings.extend(script.warnings)
         _persist_negotiation(request.user_id, opp)
 
@@ -408,7 +425,7 @@ def _build_summary(
 ) -> str:
     n = len(opportunities)
     banks = ", ".join(dict.fromkeys(o.bank_name for o in opportunities))
-    saving_str = f"R$ {total_saving:.2f}/mês" if total_saving > 0 else "condições melhores"
+    saving_str = f"{brl(total_saving)}/mês" if total_saving > 0 else "condições melhores"
 
     if health_score is None:
         trecho_score = "Não consegui calcular seu Score Nexa desta vez."

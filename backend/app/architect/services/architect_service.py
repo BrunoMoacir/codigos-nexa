@@ -53,6 +53,7 @@ from app.architect.utils.cache import make_simulation_key, simulation_cache
 from app.architect.validators.input_validator import InputValidator
 from app.architect.validators.liquidity_validator import LiquidityValidator, RiskLevel
 from app.architect.rate_defaults import rate
+from app.core.formatacao import brl, numero
 
 logger = logging.getLogger(__name__)
 
@@ -774,10 +775,10 @@ class ArchitectService:
         reduction_pct = round((total_bonus / total_cost * 100) if total_cost > 0 else 0.0, 2)
 
         narrative = (
-            f"Se você pagar as parcelas de R$ {monthly_payment:,.2f}/mês no "
+            f"Se você pagar as parcelas de {brl(monthly_payment)}/mês no "
             f"{best_card_name} ({pts_per_brl:.1f} pts/R$), gera aproximadamente "
-            f"R$ {annual_bonus:,.0f}/ano em pontos — reduzindo o custo efetivo "
-            f"do financiamento em {reduction_pct:.1f}% ao longo de {financing_months} meses."
+            f"{brl(annual_bonus, 0)}/ano em pontos — reduzindo o custo efetivo "
+            f"do financiamento em {numero(reduction_pct, 1)}% ao longo de {financing_months} meses."
         )
 
         return CardOptimizationBonus(
@@ -813,7 +814,13 @@ class ArchitectService:
             return confidence
         try:
             from app.budget.budget_advisor import BudgetAdvisor
-            budget = BudgetAdvisor().suggest(transactions_df, monthly_income)
+            # O banco entrega `date`; o BudgetAdvisor exige `transaction_date`
+            # e, sem ela, devolvia sugestão vazia em silêncio ("Colunas
+            # faltando" no log) — o ajuste de confiança nunca acontecia.
+            df_orcamento = transactions_df
+            if "transaction_date" not in df_orcamento.columns and "date" in df_orcamento.columns:
+                df_orcamento = df_orcamento.rename({"date": "transaction_date"})
+            budget = BudgetAdvisor().suggest(df_orcamento, monthly_income)
             data_sources.append("budget_advisor")
 
             wants_group = next((g for g in budget.group_summary if g.group == "desejos"), None)
@@ -825,8 +832,8 @@ class ArchitectService:
                     confidence = min(1.0, confidence + 0.05)
                 else:
                     warnings.append(
-                        f"A parcela mensal (R$ {monthly_payment:,.0f}) excede a margem "
-                        f"disponível no grupo Desejos (R$ {max(0, wants_remaining):,.0f}/mês)."
+                        f"A parcela mensal ({brl(monthly_payment, 0)}) excede a margem "
+                        f"disponível no grupo Desejos ({brl(max(0, wants_remaining), 0)}/mês)."
                     )
 
             if essentials_group and essentials_group.status == "OVER":
@@ -879,8 +886,8 @@ class ArchitectService:
                     confidence = min(1.0, confidence + 0.05)
                 elif total_gap > monthly_payment * 0.5:
                     warnings.append(
-                        f"Você tem R$ {total_gap:,.0f}/mês de gap nas metas ativas — "
-                        f"somado à parcela mensal (R$ {monthly_payment:,.0f}), "
+                        f"Você tem {brl(total_gap, 0)}/mês de gap nas metas ativas — "
+                        f"somado à parcela mensal ({brl(monthly_payment, 0)}), "
                         "avalie a viabilidade de aportes simultâneos."
                     )
                     confidence = max(0.30, confidence - 0.05)
@@ -966,7 +973,7 @@ class ArchitectService:
             question_id="higher_down_payment",
             question=(
                 f"Você tem condições de aumentar a entrada além dos "
-                f"R$ {request.down_payment:,.0f} atuais? "
+                f"{brl(request.down_payment, 0)} atuais? "
                 "Cada R$ 10.000 a mais reduz a parcela diretamente."
             ),
             field_to_populate="down_payment",
@@ -1260,7 +1267,7 @@ class ArchitectService:
                 source = "financiamentos anteriores" if features.cet_historico_real else "histórico de crédito"
                 warnings.append(
                     f"CET personalizado ({source}): {effective_cet:.1%} a.a. "
-                    f"({diff_pp:.1f} p.p. abaixo do mercado)."
+                    f"({numero(diff_pp, 1)} p.p. abaixo do mercado)."
                 )
 
         # ── Adimplência baixa ─────────────────────────────────────────
@@ -1294,7 +1301,7 @@ class ArchitectService:
                 f"Dados bancários: apenas {meses} "
                 f"{'mês' if meses == 1 else 'meses'} consecutivo{'s' if meses != 1 else ''} "
                 f"com sobra mensal — verifique se o orçamento de "
-                f"R$ {request.max_monthly_budget:,.0f}/mês é sustentável."
+                f"{brl(request.max_monthly_budget, 0)}/mês é sustentável."
             )
 
         # ── Sazonalidade: meses de baixa receita ─────────────────────

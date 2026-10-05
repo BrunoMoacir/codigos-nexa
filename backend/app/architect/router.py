@@ -113,7 +113,7 @@ class UserMetricsResponse(BaseModel):
 # HELPER: Buscar safe_to_spend da F1
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
+def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
     """
     Tenta buscar o safe_to_spend mensal da F1 para o usuário.
 
@@ -129,6 +129,8 @@ async def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
 
         logger.info("architect | user=%s | buscando safe_to_spend da F1", user_id)
 
+        from app.runner import safe_to_spend_total
+
         result = get_runner().run_from_db(user_id=user_id, horizon_days=30)
         if not result or result.get("status") != "success":
             logger.warning(
@@ -137,8 +139,7 @@ async def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
             )
             return None
 
-        sts = result.get("safe_to_spend", {})
-        value = sts.get("safe_to_spend_total")
+        value = safe_to_spend_total(result)
 
         if value is not None and float(value) > 0:
             logger.info(
@@ -163,7 +164,7 @@ async def _fetch_safe_to_spend(user_id: str) -> Optional[float]:
         return None
 
 
-async def _fetch_transactions(user_id: str):
+def _fetch_transactions(user_id: str):
     """
     Busca o DataFrame de transações do usuário para inferência de perfil e CardBonus.
     Retorna None em caso de falha — o service trata graciosamente a ausência.
@@ -321,7 +322,7 @@ def _aggregate_pluggy_transactions_by_month(transactions: list) -> list:
 # HELPER: Buscar OpenFinanceFeatures via Pluggy
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async def _fetch_open_finance(user_id: str) -> Optional[Any]:
+def _fetch_open_finance(user_id: str) -> Optional[Any]:
     """
     Busca dados de Open Finance via Pluggy, normaliza e transforma em
     OpenFinanceFeatures. Retorna None em caso de falha — degradação graciosa.
@@ -451,7 +452,11 @@ async def _fetch_open_finance(user_id: str) -> Optional[Any]:
         "presente (NPV) compatível com a liquidez do usuário."
     ),
 )
-async def simulate(request: SimulationRequest, current_user: str = Depends(get_current_user)) -> SimulationResponse:
+def simulate(request: SimulationRequest, current_user: str = Depends(get_current_user)) -> SimulationResponse:
+    # `def` (era `async def`): a simulação chama o LLM e o BACEN de forma
+    # síncrona por 12–20 s. Dentro de `async def` isso travava o event loop e
+    # TODA outra requisição do servidor esperava a simulação acabar. Como
+    # `def`, o FastAPI a roda no threadpool. Vale para o router inteiro.
     """
     Simula as 3 estratégias de aquisição e recomenda a melhor.
 
@@ -496,14 +501,14 @@ async def simulate(request: SimulationRequest, current_user: str = Depends(get_c
     )
 
     # ── 1. Buscar safe_to_spend da F1 (degradação graciosa) ──────────
-    safe_to_spend = await _fetch_safe_to_spend(request.user_id)
+    safe_to_spend = _fetch_safe_to_spend(request.user_id)
 
     # ── 1.5. Buscar transações para inferência de perfil e CardBonus ─
-    transactions_df = await _fetch_transactions(request.user_id)
+    transactions_df = _fetch_transactions(request.user_id)
 
     # ── 1.7. Buscar OpenFinanceFeatures via Pluggy (se não fornecido) ─
     if request.open_finance_features is None:
-        of_features = await _fetch_open_finance(request.user_id)
+        of_features = _fetch_open_finance(request.user_id)
         if of_features is not None:
             request = request.model_copy(update={"open_finance_features": of_features})
 
@@ -576,7 +581,7 @@ async def simulate(request: SimulationRequest, current_user: str = Depends(get_c
     summary="Health check do módulo Architect",
     tags=["Health"],
 )
-async def health():
+def health():
     """
     Verifica se o módulo F3 está operacional.
 
@@ -607,7 +612,7 @@ async def health():
         "Suporta filtro por tipo de bem e paginação via `limit`."
     ),
 )
-async def list_simulations(
+def list_simulations(
     user_id: str = Depends(require_owner),
     limit: int   = Query(
         default=10,
@@ -689,7 +694,7 @@ async def list_simulations(
         "não receberam feedback. Exibido pelo frontend ao abrir o app."
     ),
 )
-async def get_pending_feedback_endpoint(
+def get_pending_feedback_endpoint(
     current_user: str = Depends(get_current_user),
     window_days: int = Query(default=180, ge=1, le=730, description="Meses mínimos desde a simulação"),
     limit: int = Query(default=10, ge=1, le=50),
@@ -725,7 +730,7 @@ async def get_pending_feedback_endpoint(
         "o response completos (JSON desserializado). Útil para replay e auditoria."
     ),
 )
-async def get_simulation_by_id(
+def get_simulation_by_id(
     simulation_id: str,
     current_user: str = Depends(get_current_user),
 ) -> Dict[str, Any]:
@@ -784,7 +789,7 @@ async def get_simulation_by_id(
         "Retorna a variável mais sensível e o perfil de risco da recomendação."
     ),
 )
-async def get_sensitivity(
+def get_sensitivity(
     simulation_id: str,
     current_user: str = Depends(get_current_user),
 ) -> Dict[str, Any]:
@@ -941,7 +946,7 @@ async def get_sensitivity(
         "total de simulações, estratégia favorita, confidence médio e timestamps."
     ),
 )
-async def get_metrics(
+def get_metrics(
     user_id: str = Depends(require_owner),
 ) -> Dict[str, Any]:
     """
@@ -950,7 +955,7 @@ async def get_metrics(
     Calculadas e mantidas atualizadas automaticamente pelo banco
     (sem GROUP BY em tempo de request — O(1)).
 
-    **Retorna HTTP 404** se o usuário não tiver nenhuma simulação.
+    Sem nenhuma simulação, devolve `total_simulations: 0` (não 404).
 
     **Exemplo:**
     ```
@@ -982,10 +987,13 @@ async def get_metrics(
         )
 
     if metrics is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Nenhuma simulação encontrada para o usuário '{user_id}'.",
-        )
+        # 200 com zeros, não 404: "ainda não simulou" é estado normal da tela,
+        # e o 404 aparecia como erro no console de quem nunca usou o Architect.
+        return {
+            "user_id": user_id, "total_simulations": 0,
+            "last_simulated_at": None, "first_simulated_at": None,
+            "favorite_strategy": None, "avg_confidence_score": None,
+        }
 
     return {
         "user_id":              metrics["user_id"],
@@ -1041,7 +1049,7 @@ def _to_iso(value: Any) -> Optional[str]:
         "para cada janela, incluindo nota de inflação."
     ),
 )
-async def timing_scenarios(
+def timing_scenarios(
     request: SimulationRequest,
     monthly_savings: float = Query(
         ...,
@@ -1152,7 +1160,7 @@ async def timing_scenarios(
         "dispara automaticamente a recalibração dos modelos."
     ),
 )
-async def submit_feedback(
+def submit_feedback(
     simulation_id: str,
     feedback_request: FeedbackRequest,
     current_user: str = Depends(get_current_user),
@@ -1242,7 +1250,7 @@ async def submit_feedback(
         "Use quando uma calibração automática produzir resultados piores que o esperado."
     ),
 )
-async def rollback_calibration(
+def rollback_calibration(
     _: str = Depends(get_current_user),
 ) -> Dict[str, Any]:
     from app.architect.feedback_queries import rollback_calibration_state
