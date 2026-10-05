@@ -27,4 +27,5 @@ EXPOSE $PORT
 
 # Comando de inicializacao da API
 # Railway define $PORT automaticamente
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# --proxy-headers: atrás de proxy, o IP do cliente (rate limit) vem do X-Forwarded-For
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips="${FORWARDED_ALLOW_IPS:-*}"

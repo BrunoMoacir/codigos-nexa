@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.v1.router import router as api_router
 from app.api.v1.routes.dashboard import router as dashboard_router
@@ -70,10 +71,45 @@ def _create_db_tables() -> None:
     logger.error("Failed to connect to database after 20 attempts: %s", last_err)
 
 
+def _avisar_se_banco_atras_das_migracoes() -> None:
+    """
+    Loga em ERROR quando o banco não está no head das migrações.
+
+    `create_all` só cria tabelas que têm modelo ORM. As que existem apenas em
+    migração (user_settings, push_subscriptions, viral_share_log…) ficavam de
+    fora num banco de dev montado por create_all e depois carimbado — e o
+    sintoma era um 500 em GET /settings, sem nada dizendo por quê.
+    """
+    try:
+        from pathlib import Path
+
+        from alembic.config import Config
+        from alembic.runtime.migration import MigrationContext
+        from alembic.script import ScriptDirectory
+
+        ini = Path(__file__).resolve().parents[1] / "alembic.ini"
+        if not ini.exists():
+            return
+        cfg = Config(str(ini))
+        cfg.set_main_option("script_location", str(ini.parent / "alembic"))
+        heads = set(ScriptDirectory.from_config(cfg).get_heads())
+        with engine.connect() as conn:
+            atuais = set(MigrationContext.configure(conn).get_current_heads())
+        if atuais != heads:
+            logger.error(
+                "Banco nas revisões %s, código no head %s. Rode `alembic upgrade head` — "
+                "tabelas que só existem em migração estarão faltando.",
+                sorted(atuais) or "nenhuma", sorted(heads),
+            )
+    except Exception as e:  # nunca impede a subida
+        logger.debug("Checagem de migrações indisponível: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────
     _create_db_tables()
+    _avisar_se_banco_atras_das_migracoes()
 
     # Jobs de sync Pluggy que ficaram sem executor (deploy/crash no meio do
     # sync) voltam a rodar aqui — senão o usuário fica olhando uma barra
@@ -143,6 +179,12 @@ app = FastAPI(
 # Registra o limiter e o handler de erro 429
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# Sem o middleware, `default_limits` não vale para nada: só as rotas com
+# @limiter.limit() próprio eram limitadas, e o "60/min" anunciado acima era
+# letra morta. A chave é o IP do cliente — atrás de proxy (Railway), o
+# uvicorn roda com --proxy-headers para que ele seja o IP real, e não o do
+# proxy (senão todos os usuários dividiriam o mesmo balde).
+app.add_middleware(SlowAPIMiddleware)
 
 # CORS — qualquer origem permitida para suportar frontend local e no Railway
 # Para restringir em produção, defina ALLOWED_ORIGINS no Railway:
@@ -258,12 +300,14 @@ async def request_logging_middleware(request: Request, call_next):
 
 
 @app.get("/health")
+@limiter.exempt
 def health():
     """Liveness probe — verifica se o processo está de pé (não depende do banco)."""
     return {"status": "ok", "service": "nexa-api"}
 
 
 @app.get("/readiness")
+@limiter.exempt
 def readiness():
     """Readiness probe — retorna 503 se o banco não estiver acessível."""
     try:
@@ -280,5 +324,6 @@ def readiness():
 
 
 @app.get("/version")
+@limiter.exempt
 def version():
     return {"version": "0.1.0"}
