@@ -79,6 +79,69 @@ def create_connect_token(current_user_str: str = Depends(get_current_user)):
         )
 
 
+@router.get("/connections", summary="Conexões persistidas do usuário (sem chamar a Pluggy)")
+def list_user_connections(
+    current_user_str: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    As conexões Open Finance que a HIVE tem registradas para o usuário.
+
+    `GET /items` consulta a Pluggy e responde 503 quando as credenciais não
+    estão configuradas — e aí a interface não sabia nem QUAIS bancos o
+    usuário conectou, embora o banco de dados soubesse. Esta rota lê só o que
+    está persistido, e diz se o servidor consegue falar com a Pluggy para
+    conectar/sincronizar (`pluggy_configured`).
+
+    A validade do consentimento é ESTIMADA (12 meses a partir da conexão, o
+    teto regulatório) — a conexão não guarda a data informada pela instituição.
+    """
+    from datetime import timedelta
+
+    itens = (
+        db.query(PluggyItem)
+        .filter(PluggyItem.user_id == str(current_user_str))
+        .order_by(PluggyItem.created_at.asc())
+        .all()
+    )
+    conexoes = []
+    for item in itens:
+        criado = item.created_at
+        if criado is not None and criado.tzinfo is None:
+            criado = criado.replace(tzinfo=timezone.utc)
+        vence = criado + timedelta(days=365) if criado else None
+        conexoes.append({
+            "item_id": item.item_id,
+            "connector_name": item.connector_name,
+            "connected_at": criado.isoformat() if criado else None,
+            "consent_expires_estimate": vence.date().isoformat() if vence else None,
+            "source": _origem_da_conexao(item.item_id, item.connector_name),
+        })
+    origens = {c["source"] for c in conexoes}
+    return {
+        "pluggy_configured": bool(settings.PLUGGY_CLIENT_ID and settings.PLUGGY_CLIENT_SECRET),
+        "total": len(conexoes),
+        # De onde vêm os dados — o Perfil e a Home diziam "Dados reais" lendo
+        # uma flag de localStorage, e persona de demonstração e sandbox
+        # apareciam como reais.
+        "data_source": (
+            "none" if not origens else origens.pop() if len(origens) == 1
+            else "open_finance" if "open_finance" in origens else "misto"
+        ),
+        "connections": conexoes,
+    }
+
+
+def _origem_da_conexao(item_id: str | None, connector_name: str | None) -> str:
+    """'demonstracao' (persona do seed) | 'sandbox' (conector de teste) | 'open_finance'."""
+    if (item_id or "").startswith("demo-item-"):
+        return "demonstracao"
+    nome = (connector_name or "").lower()
+    if "sandbox" in nome or "pluggy bank" in nome or nome.startswith("mocked"):
+        return "sandbox"
+    return "open_finance"
+
+
 @router.get("/items", summary="Lista os Items (contas bancárias) conectados do usuário")
 def list_user_items(
     current_user_str: str = Depends(get_current_user),
@@ -221,18 +284,19 @@ def create_sandbox_item(
             except Exception:
                 db.rollback()
 
-        sync_report = None
+        # Job assíncrono, como o botão Sincronizar: o sync inline rodava antes
+        # de o item ficar UPDATED na Pluggy (voltava zero transações) e
+        # segurava a requisição além do timeout do cliente.
+        job_state = None
         if item_id:
             try:
-                sync_report = _sync_item_transactions(
-                    db=db,
-                    current_user_str=str(current_user_str),
-                    item_id=str(item_id),
-                )
+                job = sync_service.create_job(db, str(current_user_str), [str(item_id)])
+                sync_service.start_job(job.id, str(current_user_str))
+                job_state = sync_service.job_to_dict(job)
             except Exception as e:
-                logger.warning("Sandbox created, but sync failed for item %s: %s", item_id, e)
+                logger.warning("Sandbox criado, mas o job de sync falhou para %s: %s", item_id, e)
 
-        return {"success": True, "item": result, "sync": sync_report}
+        return {"success": True, "item": result, "job": job_state}
     except Exception as e:
         logger.error("Erro ao criar sandbox item Pluggy: %s", e, exc_info=True)
         raise HTTPException(
