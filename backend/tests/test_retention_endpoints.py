@@ -212,6 +212,14 @@ class TestRecentReviewEndpoint:
 class TestWidgetEndpoint:
     def _client_with_sts(self, monkeypatch, sts: dict) -> TestClient:
         import app.forecast.router_safe_to_spend as sts_module
+        from datetime import date as _date
+
+        # O widget passou a usar o MESMO diário do /forecast (fonte única) e a
+        # declarar o frescor do extrato — o payload do endpoint completo traz
+        # os dois campos.
+        base = {"safe_to_spend_daily": round(sts["safe_to_spend_total"] / 30, 2),
+                "stale": False, "data_as_of": _date.today().isoformat()}
+        sts = {**base, **sts}
 
         async def _fake_sts(user_id: str):
             return sts
@@ -229,8 +237,11 @@ class TestWidgetEndpoint:
         body = resp.json()
         assert body["status"] == "OK"
         assert body["color"] == "#22c55e"
-        assert body["remaining_month"] == pytest.approx(2100.0)
-        assert body["daily"] > 0
+        # A margem do projetor já é LÍQUIDA do que foi gasto (o saldo
+        # projetado parte do saldo atual). O widget subtraía o gasto do mês de
+        # novo e esperava 2.100 — a despesa contada duas vezes.
+        assert body["remaining_month"] == pytest.approx(3000.0)
+        assert body["daily"] == pytest.approx(100.0)
         assert "R$" in body["headline"]
 
     def test_status_atencao_por_pct(self, monkeypatch):
@@ -258,4 +269,5 @@ class TestWidgetEndpoint:
         assert set(body.keys()) == {
             "daily", "remaining_month", "pct_consumed", "status",
             "color", "headline", "subline", "updated_at",
+            "data_as_of", "stale",
         }
