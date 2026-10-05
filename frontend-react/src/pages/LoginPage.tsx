@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import toast from 'react-hot-toast';
-import { API_BASE_URL } from '../api/client';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { login } from '../api/auth';
+import { describeError } from '../api/errors';
+import { session } from '../api/session';
 
 // ─── Slot-machine letter (ticker financeiro) ─────────────────────────────────
 const SLOT_CHARS = ['$', '¥', '€', '%', '+', '#', '8', '4', '2', '1', '9', '6', '3', '7', '0', '5'];
@@ -48,7 +49,7 @@ const HoneycombCanvas: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mouse = useRef({ x: -9999, y: -9999 });
   const clicks = useRef<Array<{ x: number; y: number; t: number }>>([]);
-  const rafRef = useRef<number>();
+  const rafRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -536,96 +537,24 @@ const css = `
     background: rgba(212,168,32,0.06);
   }
 
-  /* ── OTP / Verificação ── */
-  .lp-otp-row {
-    display: flex;
-    gap: 8px;
-    justify-content: center;
-    margin: 22px 0;
-  }
-  .lp-otp-input {
-    width: 46px;
-    height: 54px;
-    text-align: center;
-    font-size: 1.5rem;
-    font-weight: 800;
-    background: rgba(243,239,234,0.04);
-    color: #F3EFEA;
-    border: 1.5px solid rgba(243,239,234,0.1);
+  .lp-form-err {
+    font-size: 0.78rem;
+    color: #F8AEA0;
+    background: rgba(240,122,100,0.08);
+    border: 1px solid rgba(240,122,100,0.25);
     border-radius: 10px;
-    font-family: inherit;
-    outline: none;
-    caret-color: #D4A820;
-    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
-    font-variant-numeric: tabular-nums;
+    padding: 10px 12px;
+    margin: 4px 0 12px;
   }
-  .lp-otp-input:focus {
-    border-color: rgba(212,168,32,0.55);
-    background: rgba(212,168,32,0.04);
-    box-shadow: 0 0 0 3px rgba(212,168,32,0.08);
+  .lp-forgot {
+    display: block;
+    text-align: right;
+    font-size: 0.74rem;
+    color: rgba(243,239,234,0.45);
+    text-decoration: none;
+    margin: -4px 0 14px;
   }
-  .lp-otp-input.filled { border-color: rgba(212,168,32,0.3); }
-  .lp-otp-input.otp-err {
-    border-color: rgba(240,122,100,0.6);
-    background: rgba(240,122,100,0.04);
-    animation: lp-shake 0.35s ease;
-  }
-  @keyframes lp-shake {
-    0%,100% { transform: translateX(0); }
-    20%,60% { transform: translateX(-4px); }
-    40%,80% { transform: translateX(4px); }
-  }
-  .lp-otp-info {
-    text-align: center;
-    font-size: 0.8rem;
-    color: rgba(243,239,234,0.42);
-    line-height: 1.6;
-    margin-bottom: 2px;
-  }
-  .lp-otp-info strong { color: #D4A820; font-weight: 700; }
-  .lp-otp-resend {
-    text-align: center;
-    margin-top: 14px;
-    font-size: 0.76rem;
-    color: rgba(243,239,234,0.35);
-  }
-  .lp-otp-resend button {
-    background: none;
-    border: none;
-    color: #D4A820;
-    font-family: inherit;
-    font-size: 0.76rem;
-    font-weight: 700;
-    cursor: pointer;
-    padding: 0;
-    margin-left: 4px;
-    transition: opacity 0.15s;
-  }
-  .lp-otp-resend button:hover:not(:disabled) { opacity: 0.7; }
-  .lp-otp-resend button:disabled { opacity: 0.3; cursor: default; }
-  .lp-back-btn {
-    background: none;
-    border: none;
-    color: rgba(243,239,234,0.4);
-    font-family: inherit;
-    font-size: 0.77rem;
-    cursor: pointer;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    margin-bottom: 14px;
-    transition: color 0.15s;
-  }
-  .lp-back-btn:hover { color: rgba(243,239,234,0.75); }
-  .lp-verify-icon {
-    width: 48px; height: 48px;
-    border-radius: 14px;
-    background: rgba(212,168,32,0.1);
-    border: 1px solid rgba(212,168,32,0.2);
-    display: flex; align-items: center; justify-content: center;
-    margin: 0 auto 16px;
-  }
+  .lp-forgot:hover { color: #D4A820; }
 
   @media (max-width: 860px) {
     .lp-layout { grid-template-columns: 1fr; padding: 36px 24px 48px; gap: 44px; max-width: none; }
@@ -636,28 +565,26 @@ const css = `
   }
 `;
 
-// ─── Máscara do e-mail para exibição no OTP ─────────────────────────────────
-function maskEmail(email: string) {
-  const [local, domain] = email.split('@');
-  if (!domain) return email;
-  const visible = local.slice(0, 2);
-  return `${visible}${'*'.repeat(Math.max(2, local.length - 2))}@${domain}`;
-}
-
 // ─── LoginPage ────────────────────────────────────────────────────────────────
+//
+// O login antigo não falava com o servidor: validava campo vazio, mostrava um
+// código de 6 dígitos que ninguém enviava, aceitava qualquer um e navegava —
+// nenhum token era salvo e todo o app rodava em demonstração. Também não
+// existe segundo fator no backend; simular um seria pior que não ter.
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const destino = params.get('next') || '/dashboard';
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errs, setErrs] = useState({ email: false, password: false });
+  const [erroForm, setErroForm] = useState('');
 
-  // Etapa de verificação OTP
-  const [step, setStep]           = useState<'login' | 'verify'>('login');
-  const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
-  const [otpErr, setOtpErr]       = useState(false);
-  const [cooldown, setCooldown]   = useState(0);
-  const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
+  // Quem já tem sessão (ou refresh para renová-la) não precisa entrar de novo.
+  useEffect(() => {
+    if (session.isActive) navigate(destino, { replace: true });
+  }, [navigate, destino]);
 
   // CSS var para cursor glow
   useEffect(() => {
@@ -669,76 +596,31 @@ export const LoginPage: React.FC = () => {
     return () => window.removeEventListener('mousemove', mm);
   }, []);
 
-  // Cooldown reenvio
-  useEffect(() => {
-    if (cooldown <= 0) return;
-    const t = setTimeout(() => setCooldown(c => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [cooldown]);
-
-  // Foca primeiro dígito ao entrar na etapa verify
-  useEffect(() => {
-    if (step === 'verify') {
-      setTimeout(() => otpRefs.current[0]?.focus(), 120);
-    }
-  }, [step]);
-
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newErrs = { email: !loginEmail.trim(), password: !loginPassword.trim() };
+    const newErrs = { email: !loginEmail.trim(), password: !loginPassword };
     setErrs(newErrs);
+    setErroForm('');
     if (newErrs.email || newErrs.password) return;
-    setStep('verify');
-    setOtpDigits(['', '', '', '', '', '']);
-    setOtpErr(false);
-    setCooldown(60);
-  };
 
-  const handleOtpChange = (idx: number, val: string) => {
-    const digit = val.replace(/\D/g, '').slice(-1);
-    const next = [...otpDigits];
-    next[idx] = digit;
-    setOtpDigits(next);
-    setOtpErr(false);
-    if (digit && idx < 5) otpRefs.current[idx + 1]?.focus();
-    if (next.every(d => d !== '') && digit) submitOtp(next.join(''));
-  };
-
-  const handleOtpKeyDown = (idx: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace' && !otpDigits[idx] && idx > 0) {
-      otpRefs.current[idx - 1]?.focus();
+    setLoading(true);
+    try {
+      await login(loginEmail, loginPassword);
+      navigate(destino, { replace: true });
+    } catch (err) {
+      const info = describeError(err);
+      // 401 do /auth/token é resposta ("credenciais erradas"), não sessão
+      // expirada — o cliente HTTP não o intercepta.
+      setErroForm(
+        info.kind === 'unauthorized'
+          ? 'E-mail ou senha incorretos.'
+          : info.kind === 'rate_limited'
+            ? 'Muitas tentativas seguidas. Aguarde alguns minutos ou redefina sua senha.'
+            : info.message,
+      );
+    } finally {
+      setLoading(false);
     }
-  };
-
-  const handleOtpPaste = (e: React.ClipboardEvent) => {
-    e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    const next = Array(6).fill('').map((_, i) => pasted[i] || '');
-    setOtpDigits(next);
-    if (pasted.length === 6) {
-      submitOtp(pasted);
-    } else {
-      otpRefs.current[pasted.length]?.focus();
-    }
-  };
-
-  const submitOtp = (code: string) => {
-    if (code.length === 6) navigate('/dashboard');
-    else setOtpErr(true);
-  };
-
-  const handleVerify = () => {
-    const code = otpDigits.join('');
-    if (code.length < 6) { setOtpErr(true); return; }
-    submitOtp(code);
-  };
-
-  const handleResend = () => {
-    setOtpDigits(['', '', '', '', '', '']);
-    setOtpErr(false);
-    setCooldown(60);
-    setTimeout(() => otpRefs.current[0]?.focus(), 60);
-    toast.success('Código reenviado para o e-mail!');
   };
 
   return (
@@ -790,103 +672,43 @@ export const LoginPage: React.FC = () => {
               <a href="/contact" className="lp-help-link">Precisa de ajuda?</a>
             </div>
             <div className="lp-card">
-              {step === 'login' ? (
-                <>
-                  <div className="lp-card-title">Acesso ao painel</div>
-                  <div className="lp-card-sub">Entre com seus dados para continuar.</div>
+              <div className="lp-card-title">Acesso ao painel</div>
+              <div className="lp-card-sub">Entre com seus dados para continuar.</div>
 
-                  <form onSubmit={handleLogin}>
-                    <div className="lp-fields">
-                      <div>
-                        <label className="lp-field-label">E-mail</label>
-                        <input
-                          className={`lp-input${errs.email ? ' err' : ''}`}
-                          type="email" placeholder="seu@email.com"
-                          value={loginEmail}
-                          onChange={e => { setLoginEmail(e.target.value); if (errs.email) setErrs(p => ({...p, email: false})); }}
-                          autoComplete="email" disabled={loading}
-                        />
-                        {errs.email && <div className="lp-field-err">Preencha o e-mail</div>}
-                      </div>
-                      <div>
-                        <label className="lp-field-label">Senha</label>
-                        <input
-                          className={`lp-input${errs.password ? ' err' : ''}`}
-                          type="password" placeholder="••••••••"
-                          value={loginPassword}
-                          onChange={e => { setLoginPassword(e.target.value); if (errs.password) setErrs(p => ({...p, password: false})); }}
-                          autoComplete="current-password" disabled={loading}
-                        />
-                        {errs.password && <div className="lp-field-err">Preencha a senha</div>}
-                      </div>
-                    </div>
-                    <button type="submit" className="lp-btn" disabled={loading}>
-                      {loading ? 'Entrando…' : 'Acessar painel'}
-                    </button>
-                  </form>
-
-                  <div className="lp-separator" />
-                  <Link to="/register" className="lp-btn-register">Criar uma conta</Link>
-                </>
-              ) : (
-                <>
-                  <button className="lp-back-btn" onClick={() => setStep('login')}>
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <path d="M9 2L4 7l5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                    Voltar
-                  </button>
-
-                  <div className="lp-verify-icon">
-                    <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-                      <rect x="2" y="6" width="18" height="14" rx="2" stroke="#D4A820" strokeWidth="1.4"/>
-                      <path d="M6 6V5a5 5 0 0 1 10 0v1" stroke="#D4A820" strokeWidth="1.4" strokeLinecap="round"/>
-                      <circle cx="11" cy="13" r="2" fill="#D4A820"/>
-                      <path d="M11 15v2" stroke="#D4A820" strokeWidth="1.4" strokeLinecap="round"/>
-                    </svg>
+              <form onSubmit={handleLogin} noValidate>
+                <div className="lp-fields">
+                  <div>
+                    <label className="lp-field-label">E-mail</label>
+                    <input
+                      className={`lp-input${errs.email ? ' err' : ''}`}
+                      type="email" placeholder="seu@email.com"
+                      value={loginEmail}
+                      onChange={e => { setLoginEmail(e.target.value); if (errs.email) setErrs(p => ({...p, email: false})); }}
+                      autoComplete="email" disabled={loading}
+                    />
+                    {errs.email && <div className="lp-field-err">Preencha o e-mail</div>}
                   </div>
-
-                  <div className="lp-card-title" style={{ textAlign: 'center' }}>Verificação de segurança</div>
-                  <div className="lp-otp-info">
-                    Enviamos um código de 6 dígitos para<br />
-                    <strong>{maskEmail(loginEmail)}</strong>
+                  <div>
+                    <label className="lp-field-label">Senha</label>
+                    <input
+                      className={`lp-input${errs.password ? ' err' : ''}`}
+                      type="password" placeholder="••••••••"
+                      value={loginPassword}
+                      onChange={e => { setLoginPassword(e.target.value); if (errs.password) setErrs(p => ({...p, password: false})); }}
+                      autoComplete="current-password" disabled={loading}
+                    />
+                    {errs.password && <div className="lp-field-err">Preencha a senha</div>}
                   </div>
+                </div>
+                <Link to="/forgot-password" className="lp-forgot">Esqueci minha senha</Link>
+                {erroForm && <div className="lp-form-err" role="alert">{erroForm}</div>}
+                <button type="submit" className="lp-btn" disabled={loading}>
+                  {loading ? 'Entrando…' : 'Acessar painel'}
+                </button>
+              </form>
 
-                  <div className="lp-otp-row" onPaste={handleOtpPaste}>
-                    {otpDigits.map((d, i) => (
-                      <input
-                        key={i}
-                        ref={el => { otpRefs.current[i] = el; }}
-                        className={`lp-otp-input${d ? ' filled' : ''}${otpErr ? ' otp-err' : ''}`}
-                        type="text"
-                        inputMode="numeric"
-                        maxLength={1}
-                        value={d}
-                        onChange={e => handleOtpChange(i, e.target.value)}
-                        onKeyDown={e => handleOtpKeyDown(i, e)}
-                        autoComplete="off"
-                      />
-                    ))}
-                  </div>
-
-                  {otpErr && (
-                    <div className="lp-field-err" style={{ justifyContent: 'center', marginBottom: 10 }}>
-                      Código inválido. Verifique e tente novamente.
-                    </div>
-                  )}
-
-                  <button className="lp-btn" onClick={handleVerify}>
-                    Verificar e entrar
-                  </button>
-
-                  <div className="lp-otp-resend">
-                    Não recebeu?
-                    <button onClick={handleResend} disabled={cooldown > 0}>
-                      {cooldown > 0 ? `Reenviar em ${cooldown}s` : 'Reenviar código'}
-                    </button>
-                  </div>
-                </>
-              )}
+              <div className="lp-separator" />
+              <Link to="/register" className="lp-btn-register">Criar uma conta</Link>
             </div>
             </div>
           </div>

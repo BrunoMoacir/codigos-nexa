@@ -811,6 +811,10 @@ export const ContactPage: React.FC = () => {
   const [message, setMessage] = useState('');
   const [errs, setErrs]       = useState({ fname:'', email:'', message:'' });
   const [sent, setSent]       = useState(false);
+  // Link do WhatsApp com a mensagem pronta (para reabrir se o navegador
+  // bloquear a janela nova).
+  const [waLink, setWaLink]   = useState('');
+  const [bloqueado, setBloqueado] = useState(false);
   const [country, setCountry] = useState(COUNTRIES[0]);
 
   const fmtPhone = (v: string) => {
@@ -843,7 +847,13 @@ export const ContactPage: React.FC = () => {
       `*Mensagem:*`,
       message,
     ].filter(Boolean).join('\n');
-    window.open(`https://wa.me/5531995302006?text=${encodeURIComponent(lines)}`, '_blank');
+    // Não existe endpoint de contato: a mensagem vai pelo WhatsApp, e só
+    // chega à equipe se o usuário apertar "enviar" lá. A tela dizia
+    // "Mensagem enviada!" no instante em que a janela abria.
+    const link = `https://wa.me/5531995302006?text=${encodeURIComponent(lines)}`;
+    setWaLink(link);
+    const janela = window.open(link, '_blank', 'noopener');
+    setBloqueado(!janela);
     setSent(true);
   };
 
@@ -881,10 +891,15 @@ export const ContactPage: React.FC = () => {
                       <path d="M3 9l4 4 8-8" stroke="#2EC8A4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                   </div>
-                  <div className="cp-sent-title">Mensagem enviada!</div>
+                  <div className="cp-sent-title">
+                    {bloqueado ? 'Abra o WhatsApp para enviar' : 'Falta só enviar no WhatsApp'}
+                  </div>
                   <p className="cp-sent-sub">
-                    Sua mensagem foi enviada para nosso WhatsApp. Retornamos em breve em{' '}
-                    <strong style={{color:'#D4A820'}}>{email}</strong>.
+                    {bloqueado
+                      ? 'O navegador bloqueou a janela nova. '
+                      : 'Abrimos o WhatsApp com a sua mensagem pronta. '}
+                    Ela só chega até nós quando você tocar em <strong style={{color:'#D4A820'}}>enviar</strong> por lá.
+                    {' '}<a href={waLink} target="_blank" rel="noreferrer" style={{color:'#D4A820'}}>Abrir o WhatsApp</a>
                   </p>
                   <Link to="/login" className="cp-btn-continue" style={{textDecoration:'none',textAlign:'center',display:'block'}}>
                     Voltar para o login

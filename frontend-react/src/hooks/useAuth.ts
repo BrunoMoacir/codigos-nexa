@@ -1,42 +1,30 @@
-import { useMutation } from '@tanstack/react-query';
-import type { UseMutationResult } from '@tanstack/react-query';
-import { login as loginApi, register as registerApi, logout as logoutApi } from '../api/auth';
-import { useAuthStore } from '../store/authStore';
-import type { LoginResponse, RegisterRequest, RegisterResponse } from '../api/types';
+import { useEffect, useState } from 'react';
+import { onSessionChange, session } from '../api/session';
 
-interface UseAuthReturn {
-  login: UseMutationResult<LoginResponse, Error, { username: string; password: string }>;
-  register: UseMutationResult<RegisterResponse, Error, RegisterRequest>;
-  logout: () => void;
-  isAuthenticated: boolean;
-  userId: string | null;
+export interface SessionSnapshot {
+  isActive: boolean;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  /** Nome para exibir: nome completo, senão a parte local do e-mail. */
+  displayName: string;
 }
 
-export const useAuth = (): UseAuthReturn => {
-  const { setAuth, clearAuth, isAuthenticated, userId } = useAuthStore();
-
-  const loginMutation = useMutation({
-    mutationFn: ({ username, password }: { username: string; password: string }) =>
-      loginApi(username, password),
-    onSuccess: (data) => {
-      setAuth(data.access_token, data.user_id);
-    },
-  });
-
-  const registerMutation = useMutation({
-    mutationFn: (data: RegisterRequest) => registerApi(data),
-  });
-
-  const logout = () => {
-    logoutApi();
-    clearAuth();
-  };
-
+function snapshot(): SessionSnapshot {
+  const userName = session.userName;
+  const userEmail = session.userEmail;
   return {
-    login: loginMutation,
-    register: registerMutation,
-    logout,
-    isAuthenticated,
-    userId,
+    isActive: session.isActive,
+    userId: session.userId,
+    userName,
+    userEmail,
+    displayName: userName || (userEmail ? userEmail.split('@')[0] : 'Usuário'),
   };
-};
+}
+
+/** Sessão reativa: atualiza em login, logout e quando outra aba muda a sessão. */
+export function useSession(): SessionSnapshot {
+  const [estado, setEstado] = useState<SessionSnapshot>(snapshot);
+  useEffect(() => onSessionChange(() => setEstado(snapshot())), []);
+  return estado;
+}
