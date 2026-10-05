@@ -122,28 +122,59 @@ def seed_balances(persona) -> int:
 # ── histórico de health score (evolução mensal) ──────────────────────────
 
 def seed_score_history(persona) -> int:
+    """
+    Histórico mensal do score calculado do PRÓPRIO extrato da persona, com a
+    mesma régua do app (UserProfileAnalyzer + IncomeProfiler, via score_nexa).
+
+    Eram trajetórias digitadas (Ana 78→90, Carla 62→28) com
+    `safe_to_spend = score × 4,5`: o Dashboard mostrava, ao lado do extrato
+    real, um histórico que nenhum cálculo produziu. A margem segura não é
+    reconstruída para meses passados — fica nula, e a tela não a mostra.
+    """
+    import polars as pl
+
     from app.core.database import SessionLocal
+    from app.core.db.queries import get_transactions_for_user
+    from app.forecast.etl.income_profiler import IncomeProfiler
+    from app.forecast.etl.profiles import UserProfileAnalyzer
     from app.health_score.models import HealthScoreHistory
 
-    # trajetórias diferentes: Ana estável-alta, Bruno oscilando, Carla caindo
-    trajectories = {
-        "demo-ana":   [78, 80, 82, 85, 88, 90],
-        "demo-bruno": [55, 48, 60, 42, 58, 50],
-        "demo-carla": [62, 55, 48, 40, 33, 28],
-    }
-    scores = trajectories.get(persona.user_id, [60] * 6)
-    profile = {"demo-ana": "EQUILIBRADO", "demo-bruno": "GASTADOR",
-               "demo-carla": "ALERTA"}.get(persona.user_id, "EQUILIBRADO")
+    df = get_transactions_for_user(persona.user_id)
+    if df.is_empty():
+        return 0
+    df = df.with_columns(pl.col("date").cast(pl.Date))
+    ultimo = df.select(pl.col("date").max()).item()
+
+    # 6 últimos meses COM dado, do mais antigo ao mais recente
+    meses: list[tuple[int, int]] = []
+    y, m = ultimo.year, ultimo.month
+    for _ in range(6):
+        meses.append((y, m))
+        y, m = (y - 1, 12) if m == 1 else (y, m - 1)
+    meses.reverse()
+
     n = 0
     with SessionLocal() as db:
         db.query(HealthScoreHistory).filter(
             HealthScoreHistory.user_id == persona.user_id
         ).delete()
-        for month, score in zip(_months_back(6), scores):
+        for ano, mes in meses:
+            fim_mes = date(ano + (mes == 12), 1 if mes == 12 else mes + 1, 1)
+            ate_aqui = df.filter(pl.col("date") < fim_mes)
+            if ate_aqui.select(pl.col("date").dt.strftime("%Y-%m").n_unique()).item() < 2:
+                continue  # sem histórico suficiente para um score honesto
+            try:
+                renda = IncomeProfiler().build(ate_aqui)
+                perfil = UserProfileAnalyzer().analyze(ate_aqui, income_profile=renda)
+            except Exception as exc:
+                print(f"   score de {ano}-{mes:02d} indisponível: {exc}")
+                continue
             db.add(HealthScoreHistory(
-                user_id=persona.user_id, date=month, health_score=score,
-                savings_rate=round((score - 40) * 0.6, 1), profile_type=profile,
-                safe_to_spend=round(score * 4.5, 2),
+                user_id=persona.user_id, date=f"{ano:04d}-{mes:02d}",
+                health_score=int(perfil.financial_health_score),
+                savings_rate=round(float(perfil.savings_rate), 1),
+                profile_type=str(getattr(perfil.profile_type, "value", perfil.profile_type)),
+                safe_to_spend=None,
             ))
             n += 1
         db.commit()
@@ -277,16 +308,20 @@ def seed_chat(persona) -> int:
     convos = {
         "demo-ana": [
             ("human", "Quanto posso gastar esse mês sem me apertar?"),
-            ("assistant", "Sua margem segura é de cerca de R$ 380/dia. Você está com o "
-                          "score em 90/100 e sobra de caixa saudável — pode manter o padrão."),
+            # sem números digitados: eles contradiziam o extrato que a tela
+            # mostra ao lado (a margem e o score reais vêm das ferramentas)
+            ("assistant", "Sua margem segura do mês está positiva e o extrato fecha com "
+                          "sobra quase todo mês — dá para manter o padrão, de olho no delivery."),
             ("human", "Vale trocar meu cartão?"),
-            ("assistant", "Pelo seu perfil (foodie), um cartão com cashback alto em "
-                          "alimentação recuperaria cerca de R$ 90/mês frente ao atual."),
+            ("assistant", "Pelo seu perfil (muito gasto com comida), um cartão com cashback "
+                          "alto em alimentação rende mais que o atual — a carteira ideal está "
+                          "em Estratégias."),
         ],
         "demo-bruno": [
             ("human", "Quanto vou pagar de DAS esse ano?"),
-            ("assistant", "Seu faturamento acumulado está em ~52% do teto MEI. O DAS "
-                          "mensal está em dia (R$ 76,90). Margem confortável até o limite."),
+            ("assistant", "Pelo que entra na maquininha você está abaixo do teto do MEI. "
+                          "O DAS do MEI é um valor fixo por mês — o relatório do negócio "
+                          "está em Estratégias → MEI / Fiscal."),
         ],
         "demo-carla": [
             ("human", "Meu banco tá cobrando juros abusivos?"),
@@ -300,7 +335,10 @@ def seed_chat(persona) -> int:
     with SessionLocal() as db:
         db.query(ChatMessage).filter(ChatMessage.user_id == persona.user_id).delete()
         for i, (role, content) in enumerate(convos):
-            msg = ChatMessage(user_id=persona.user_id, role=role, content=content)
+            # numa sessão: o app mostra a conversa da sessão atual, e sem ela
+            # estas mensagens nunca apareciam
+            msg = ChatMessage(user_id=persona.user_id, role=role, content=content,
+                              session_id=f"demo-{persona.user_id}")
             msg.created_at = now - timedelta(hours=len(convos) - i)
             db.add(msg)
             n += 1
@@ -311,11 +349,16 @@ def seed_chat(persona) -> int:
 # ── desafios e badges (via serviço real) ─────────────────────────────────
 
 def seed_challenges(persona) -> dict:
-    from app.core.db.queries import get_transactions_for_user
     from app.health_score.challenge_service import ChallengeService
 
     try:
-        df = get_transactions_for_user(persona.user_id)
+        # Os desafios do mês gravados antes da correção de acentos traziam
+        # metas da categoria errada ("Transferências"); regenera os da persona.
+        from sqlalchemy import text
+        from app.core.database import SessionLocal
+        with SessionLocal() as db:
+            db.execute(text("DELETE FROM user_challenges WHERE user_id = :uid"), {"uid": persona.user_id})
+            db.commit()
         challenges = ChallengeService().sync(persona.user_id)
         return {"challenges": len(challenges)}
     except Exception as exc:

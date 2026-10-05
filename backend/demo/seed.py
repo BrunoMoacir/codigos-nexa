@@ -89,7 +89,9 @@ def _persist_transactions(user_id: str, df, clear_existing: bool = False) -> int
                 is_recurring=bool(r.get("is_recurring", False)),
                 is_installment=installments > 1,
                 context_type=str(pf_pj),
-                context_confidence=float(r.get("ml_confidence") or 0.7),
+                # pf_pj_confidence é a confiança do PF/PJ; ml_confidence é a da
+                # CATEGORIA, e era ela que ia para context_confidence.
+                context_confidence=float(r.get("pf_pj_confidence") or r.get("ml_confidence") or 0.7),
                 context_override_by_user=False,
                 pj_subcategory=r.get("pj_subcategory"),
             ))
@@ -196,10 +198,24 @@ def _ensure_goals(persona) -> int:
     return criadas
 
 
-def seed_persona(persona) -> dict:
+def _apagar_metas(persona) -> int:
+    """--reset: metas criadas antes (com tipo antigo, ex. 'veiculo') não eram
+    recriadas — o seed pulava as que já tinham o mesmo nome."""
+    from app.core.database import SessionLocal
+    from app.goals.models import FinancialGoal
+
+    with SessionLocal() as db:
+        n = db.query(FinancialGoal).filter(FinancialGoal.user_id == persona.user_id).delete()
+        db.commit()
+    return n
+
+
+def seed_persona(persona, reset: bool = False) -> dict:
     from demo.personas import generate_raw_transactions
 
     _ensure_user(persona)
+    if reset:
+        _apagar_metas(persona)
     _ensure_plan(persona)
     n_banks = _ensure_pluggy_items(persona)
 
@@ -238,7 +254,7 @@ def seed_all(reset: bool = False) -> list[dict]:
 
     results = []
     for key, persona in PERSONAS.items():
-        r = seed_persona(persona)
+        r = seed_persona(persona, reset=reset)
         r["persona"] = key
         results.append(r)
         print(
