@@ -65,6 +65,13 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     response: str
+    # A sessão da conversa (a mesma que o cliente mandou; nula = conversa
+    # padrão). O app a reaproveita nas próximas mensagens e no histórico.
+    session_id: str | None = None
+    # Ferramentas que o agente chamou NESTE turno — o app mostra discretamente
+    # sob a resposta, para o usuário saber de onde vieram os números.
+    tools_used: list[str] = []
+    created_at: str | None = None
 
 
 class ChatClearResponse(BaseModel):
@@ -76,9 +83,51 @@ class ChatClearResponse(BaseModel):
 
 class ChatHistoryItem(BaseModel):
     id: int
-    role: str
+    role: str          # 'user' | 'assistant' (o banco guarda 'human' para o usuário)
     content: str
-    created_at: str
+    session_id: str | None = None
+    created_at: str    # ISO 8601
+
+
+def _texto(conteudo) -> str:
+    """
+    O conteúdo final do LLM como texto. Com Anthropic ele pode vir como lista
+    de blocos ({"type": "text", "text": ...}); gravar a lista crua numa
+    coluna Text virava "[{'type': 'text'…}]" no histórico.
+    """
+    if isinstance(conteudo, str):
+        return conteudo
+    if isinstance(conteudo, list):
+        return "".join(
+            b.get("text", "") if isinstance(b, dict) else str(b) for b in conteudo
+        )
+    return str(conteudo or "")
+
+
+def _ferramentas_do_turno(messages: list) -> list[str]:
+    """
+    Ferramentas chamadas desde a última mensagem humana.
+
+    O estado devolvido traz o thread INTEIRO (o checkpointer relê a conversa),
+    então olhar todas as mensagens listaria as ferramentas de turnos antigos.
+    """
+    inicio = 0
+    for i, m in enumerate(messages):
+        if isinstance(m, HumanMessage):
+            inicio = i
+    nomes: list[str] = []
+    for m in messages[inicio:]:
+        for chamada in (getattr(m, "tool_calls", None) or []):
+            nome = chamada.get("name") if isinstance(chamada, dict) else getattr(chamada, "name", None)
+            if nome and nome not in nomes:
+                nomes.append(nome)
+    return nomes
+
+
+def _iso(valor) -> str | None:
+    if valor is None:
+        return None
+    return valor.isoformat() if hasattr(valor, "isoformat") else str(valor)
 
 
 @router.post("/", response_model=ChatResponse)
@@ -111,9 +160,11 @@ async def chat_with_agent(
             detail="LLM (Anthropic) não configurado. Defina ANTHROPIC_API_KEY no backend/.env para usar o chat.",
         )
 
-    # Gating: Free = 5 mensagens de IA/dia (402 quando enforcement ligado)
-    from app.billing.gating import consume_usage
-    consume_usage(current_user, "chat_messages")
+    # Gating: Free = 5 mensagens de IA/dia (402 quando enforcement ligado).
+    # Verifica agora e DEBITA só depois da resposta gravada: debitar antes
+    # cobrava a mensagem mesmo quando o agente estourava o tempo (504).
+    from app.billing.gating import check_usage, consume_usage
+    check_usage(current_user, "chat_messages")
 
     logger.info("Mensagem recebida de user_id=%s (len=%d)", chat_request.user_id, len(chat_request.message))
 
@@ -171,14 +222,36 @@ async def chat_with_agent(
         messages = result.get("messages", [])
         if not messages:
             raise ValueError("Agente retornou lista de mensagens vazia")
-        target_message = messages[-1].content
+        target_message = _texto(messages[-1].content)
 
-        # Persistir a mensagem do usuário e a resposta do agente
-        db.add(ChatMessage(user_id=chat_request.user_id, role="human", content=chat_request.message))
-        db.add(ChatMessage(user_id=chat_request.user_id, role="assistant", content=target_message))
+        # Persistir a mensagem do usuário e a resposta do agente, na sessão.
+        # As duas recebem o MESMO created_at (now() do Postgres é o início da
+        # transação), e ordenar só por ele deixava a ordem indeterminada — a
+        # resposta aparecia acima da pergunta. O flush entre elas garante que
+        # a pergunta pegue o id menor; o histórico desempata por id.
+        pergunta = ChatMessage(user_id=chat_request.user_id, role="human",
+                               content=chat_request.message, session_id=chat_request.session_id)
+        db.add(pergunta)
+        db.flush()
+        resposta = ChatMessage(user_id=chat_request.user_id, role="assistant",
+                               content=target_message, session_id=chat_request.session_id)
+        db.add(resposta)
         db.commit()
+        db.refresh(resposta)
 
-        return ChatResponse(response=target_message)
+        try:
+            consume_usage(current_user, "chat_messages")
+        except HTTPException:
+            # corrida entre duas abas no limite: a resposta já foi gerada e
+            # gravada, então entrega; o contador já registrou o uso.
+            pass
+
+        return ChatResponse(
+            response=target_message,
+            session_id=chat_request.session_id,
+            tools_used=_ferramentas_do_turno(messages),
+            created_at=_iso(resposta.created_at),
+        )
 
     except HTTPException:
         raise
@@ -199,29 +272,35 @@ async def chat_with_agent(
 def get_chat_history(
     user_id: str = Depends(require_owner),
     limit: int = Query(50, ge=1, le=200, description="Número máximo de mensagens"),
+    session_id: str | None = Query(None, description="Só a conversa desta sessão"),
     db: Session = Depends(get_db),
 ):
     """
-    Retorna o histórico de mensagens do usuário, ordenado do mais antigo ao mais recente.
-    """
+    Histórico do usuário em ordem cronológica (mais antigo primeiro).
 
+    Com `session_id`, só a conversa dessa sessão — a mesma que a memória do
+    agente guarda. Sem filtro, a tela mostrava mensagens de todas as sessões
+    enquanto o agente só lembrava da atual.
+    """
+    consulta = db.query(ChatMessage).filter(ChatMessage.user_id == user_id)
+    if session_id:
+        consulta = consulta.filter(ChatMessage.session_id == session_id)
     rows = (
-        db.query(ChatMessage)
-        .filter(ChatMessage.user_id == user_id)
-        .order_by(ChatMessage.created_at.desc())
+        consulta
+        # (created_at, id): pergunta e resposta podiam empatar no timestamp
+        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
         .limit(limit)
         .all()
     )
-
-    # Retornar em ordem cronológica (do mais antigo ao mais recente)
     rows = list(reversed(rows))
 
     return [
         ChatHistoryItem(
             id=row.id,
-            role=row.role,
+            role="user" if row.role in ("human", "user") else "assistant",
             content=row.content,
-            created_at=str(row.created_at),
+            session_id=getattr(row, "session_id", None),
+            created_at=_iso(row.created_at),
         )
         for row in rows
     ]
@@ -230,6 +309,7 @@ def get_chat_history(
 @router.delete("/history", response_model=ChatClearResponse)
 def clear_chat_history(
     user_id: str = Depends(require_owner),
+    session_id: str | None = Query(None, description="Apaga só esta conversa"),
     db: Session = Depends(get_db),
 ) -> ChatClearResponse:
     """
@@ -241,14 +321,13 @@ def clear_chat_history(
     agente seguia com ela em contexto.
     """
 
-    deleted_count = (
-        db.query(ChatMessage)
-        .filter(ChatMessage.user_id == user_id)
-        .delete(synchronize_session=False)
-    )
+    consulta = db.query(ChatMessage).filter(ChatMessage.user_id == user_id)
+    if session_id:
+        consulta = consulta.filter(ChatMessage.session_id == session_id)
+    deleted_count = consulta.delete(synchronize_session=False)
     db.commit()
 
-    memoria = esquecer_conversas(user_id)
+    memoria = esquecer_conversas(user_id, session_id=session_id)
 
     logger.info(
         "Historico de chat removido para user_id=%s | linhas=%d | threads=%d (%s)",

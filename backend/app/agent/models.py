@@ -11,3 +11,6 @@ class ChatMessage(Base):
     role = Column(String(20), nullable=False)  # "human" or "assistant"
     content = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Sessão de conversa (a mesma do thread do agente: dono::sessão). Nula nas
+    # mensagens antigas, gravadas antes de o histórico ser por sessão.
+    session_id = Column(String(100), nullable=True, index=True)

@@ -139,3 +139,24 @@ def test_usage_snapshot_reflete_consumo(enforcement_on):
     assert snap["chat_messages"]["used"] == 2
     assert snap["chat_messages"]["limit"] == 5
     assert snap["purchase_checks"]["used"] == 0
+
+
+# ── check_usage: verifica sem consumir (chat debita só depois do sucesso) ────
+
+def test_check_usage_nao_consome(enforcement_on):
+    with patch("app.billing.gating._get_plan", return_value="free"):
+        for _ in range(3):
+            gating.check_usage(USER, "chat_messages")
+        snap = {u["key"]: u for u in usage_snapshot(USER)}
+    assert snap["chat_messages"]["used"] == 0
+
+
+def test_check_usage_bloqueia_quando_o_proximo_passaria_do_limite(enforcement_on):
+    from fastapi import HTTPException
+
+    with patch("app.billing.gating._get_plan", return_value="free"):
+        for _ in range(5):  # Free = 5 mensagens/dia
+            consume_usage(USER, "chat_messages")
+        with pytest.raises(HTTPException) as exc:
+            gating.check_usage(USER, "chat_messages")
+    assert exc.value.status_code == 402

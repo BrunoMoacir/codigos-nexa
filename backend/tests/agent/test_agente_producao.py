@@ -723,7 +723,7 @@ class TestEndpointDeChat:
             resposta = self._cliente(db).delete(f"/chat/history?user_id={self.USUARIO}")
 
         assert resposta.status_code == 200
-        esquecer.assert_called_once_with(self.USUARIO)
+        esquecer.assert_called_once_with(self.USUARIO, session_id=None)  # sem sessão = todas
         assert resposta.json() == {"deleted_count": 7, "agent_threads_cleared": 2}
 
     def test_a_chave_do_rate_limit_e_o_usuario_e_nao_o_ip(self):
@@ -782,3 +782,56 @@ class TestGrafoAbandonado:
             assert importlib.util.find_spec(modulo) is None, f"{modulo} ainda existe"
         except (ImportError, AttributeError, ValueError):
             pass  # pacote pai já removido — é o resultado esperado
+
+
+from unittest.mock import MagicMock  # noqa: E402
+
+
+class TestCotaDoChatSoDepoisDoSucesso:
+    """A mensagem era debitada antes do agente rodar: timeout (504) ou falha
+    (503) custavam uma das 5 mensagens diárias do plano Free."""
+
+    USUARIO = "dono-da-cota"
+
+    def _cliente(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from app.agent.router import router
+        from app.core.database import get_db
+        from app.core.security import get_current_user
+
+        app = FastAPI()
+        app.include_router(router)
+        app.dependency_overrides[get_current_user] = lambda: self.USUARIO
+        app.dependency_overrides[get_db] = lambda: MagicMock()
+        return TestClient(app, raise_server_exceptions=False)
+
+    def test_falha_do_agente_nao_debita(self):
+        from unittest.mock import patch
+
+        with patch("app.billing.gating.check_usage") as verifica, \
+             patch("app.billing.gating.consume_usage") as debita, \
+             patch("app.core.config.settings.LLM_PROVIDER", "anthropic"), \
+             patch("app.core.config.settings.ANTHROPIC_API_KEY", "chave-de-teste"), \
+             patch("app.agent.router._get_agent", side_effect=RuntimeError("caiu")):
+            r = self._cliente().post("/chat/", json={"user_id": self.USUARIO, "message": "oi"})
+
+        assert r.status_code == 503
+        verifica.assert_called_once()
+        debita.assert_not_called()
+
+    def test_sucesso_debita_uma_vez(self):
+        from unittest.mock import patch
+
+        agente = MagicMock()
+        agente.invoke.return_value = {"messages": [AIMessage(content="pronto")]}
+        with patch("app.billing.gating.check_usage"), \
+             patch("app.billing.gating.consume_usage") as debita, \
+             patch("app.core.config.settings.LLM_PROVIDER", "anthropic"), \
+             patch("app.core.config.settings.ANTHROPIC_API_KEY", "chave-de-teste"), \
+             patch("app.agent.router._get_agent", return_value=agente):
+            r = self._cliente().post("/chat/", json={"user_id": self.USUARIO, "message": "oi"})
+
+        assert r.status_code == 200, r.text
+        debita.assert_called_once_with(self.USUARIO, "chat_messages")

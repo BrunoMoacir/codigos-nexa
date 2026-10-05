@@ -156,6 +156,34 @@ def _current(key: str) -> int:
     return count if time.monotonic() <= expires else 0
 
 
+def check_usage(user_id: str, usage_key: str) -> None:
+    """
+    Levanta 402 se o PRÓXIMO uso passaria do limite — sem consumir.
+
+    Para recursos caros que podem falhar (o chat leva até 60 s e pode dar
+    timeout): verifica antes, e `consume_usage` só depois do sucesso. Debitar
+    antes cobrava do plano Free uma mensagem que nunca foi respondida.
+    """
+    user_plan = _get_plan(user_id)
+    limit = _limit_for(user_plan, usage_key)
+    if limit is None:
+        return
+    suffix, _ = _window_bounds(limit.window)
+    used = _current(f"usage:{usage_key}:{user_id}:{suffix}")
+    if used < limit.limit:
+        return
+    if not enforcement_enabled():
+        logger.info(
+            "[Gating] would_block_usage user=%s key=%s used=%d limit=%d (enforcement off)",
+            user_id, usage_key, used, limit.limit,
+        )
+        return
+    raise HTTPException(
+        status_code=402,
+        detail=_upgrade_detail(PLAN_PRO, limit.description),
+    )
+
+
 def consume_usage(user_id: str, usage_key: str) -> None:
     """Consome 1 uso do contador. Levanta 402 quando o limite do plano foi
     atingido (ou apenas loga, com enforcement desligado)."""

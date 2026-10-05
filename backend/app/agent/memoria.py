@@ -94,9 +94,12 @@ def _threads_no_postgres(checkpointer, user_id: str, prefixo: str) -> set[str]:
         return set()
 
 
-def esquecer_conversas(user_id: str) -> dict:
+def esquecer_conversas(user_id: str, session_id: Optional[str] = None) -> dict:
     """
     Apaga o estado do agente para o titular. Nunca levanta exceção.
+
+    Com `session_id`, apaga SÓ o thread dessa sessão — é o "apagar esta
+    conversa" do app. Sem ele, apaga todas (é o caminho da eliminação LGPD).
 
     Returns:
         `{"threads": [...], "apagados": int, "metodo": str, "erro": str|None}`
@@ -116,7 +119,10 @@ def esquecer_conversas(user_id: str) -> dict:
             resultado["erro"] = "agente sem checkpointer"
             return resultado
 
-        threads = _threads_do_usuario(checkpointer, user_id)
+        threads = (
+            [thread_id_de(user_id, session_id)] if session_id
+            else _threads_do_usuario(checkpointer, user_id)
+        )
         resultado["threads"] = threads
 
         # 1) API nativa, quando a versão do langgraph oferece

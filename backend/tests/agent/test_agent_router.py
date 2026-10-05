@@ -24,6 +24,7 @@ def _mock_db_with_history(messages: list[dict] = None) -> MagicMock:
         row.role = m.get("role", "human")
         row.content = m.get("content", "")
         row.created_at = datetime(2026, 1, 1, 12, 0, 0)
+        row.session_id = m.get("session_id")
         mock_rows.append(row)
     db.query.return_value.filter.return_value.order_by.return_value.limit.return_value.all.return_value = mock_rows
     db.query.return_value.filter.return_value.delete.return_value = len(msgs)
@@ -114,8 +115,9 @@ def test_get_history_with_messages():
     data = resp.json()
     assert len(data) == 2
     roles = {item["role"] for item in data}
-    assert "human" in roles
-    assert "assistant" in roles
+    # A API fala 'user'/'assistant' (o banco guarda 'human'). O app comparava
+    # com 'user' e não reconhecia as próprias mensagens no histórico.
+    assert roles == {"user", "assistant"}
     for item in data:
         assert "id" in item
         assert "content" in item
