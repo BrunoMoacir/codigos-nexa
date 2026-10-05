@@ -1,9 +1,13 @@
-import React from 'react';
+import type { ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
+import { RequireAuth } from './components/layout/AuthGuard';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
+import { VerifyEmailPage } from './pages/VerifyEmailPage';
 import { ChatPage } from './pages/ChatPage';
 import { FeedPage } from './pages/FeedPage';
 import { OrganizarPage } from './pages/OrganizarPage';
@@ -15,6 +19,12 @@ import { GoalsPage } from './pages/GoalsPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { WidgetPage } from './pages/WidgetPage';
 import { ContactPage } from './pages/ContactPage';
+import { DefensePage } from './pages/DefensePage';
+import { RightsPage } from './pages/RightsPage';
+import { TaxPage } from './pages/TaxPage';
+import { WrappedPage } from './pages/WrappedPage';
+import { PlansPage } from './pages/PlansPage';
+import { session } from './api/session';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -22,6 +32,10 @@ const queryClient = new QueryClient({
   },
 });
 
+const privada = (el: ReactNode) => <RequireAuth>{el}</RequireAuth>;
+
+/** Quem já tem sessão não precisa ver o login de novo. */
+const Raiz = () => <Navigate to={session.isActive ? '/dashboard' : '/login'} replace />;
 
 function App() {
   return (
@@ -44,27 +58,39 @@ function App() {
       />
       <BrowserRouter>
         <Routes>
-          <Route path="/login"    element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
+          {/* Públicas */}
+          <Route path="/login"           element={<LoginPage />} />
+          <Route path="/register"        element={<RegisterPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password"  element={<ResetPasswordPage />} />
+          <Route path="/verify-email"    element={<VerifyEmailPage />} />
+          <Route path="/contact"         element={<ContactPage />} />
 
-          {/* HIVE — 3 abas principais */}
-          <Route path="/chat"      element={<ChatPage />} />
-          <Route path="/feed"      element={<FeedPage />} />
-          <Route path="/organizar" element={<OrganizarPage />} />
+          {/* HIVE — abas principais */}
+          <Route path="/dashboard" element={privada(<DashboardPage />)} />
+          <Route path="/chat"      element={privada(<ChatPage />)} />
+          <Route path="/feed"      element={privada(<FeedPage />)} />
+          <Route path="/organizar" element={privada(<OrganizarPage />)} />
 
-          {/* Páginas legadas mantidas */}
-          <Route path="/home"        element={<HomePage />} />
-          <Route path="/dashboard"   element={<DashboardPage />} />
-          <Route path="/goals"       element={<GoalsPage />} />
-          <Route path="/strategies"  element={<StrategiesPage />} />
-          <Route path="/connections" element={<ConnectionsPage />} />
-          <Route path="/profile"     element={<ProfilePage />} />
-          <Route path="/widget"      element={<WidgetPage />} />
+          {/* Ferramentas */}
+          <Route path="/strategies" element={privada(<StrategiesPage />)} />
+          <Route path="/goals"      element={privada(<GoalsPage />)} />
+          <Route path="/defesa"     element={privada(<DefensePage />)} />
+          <Route path="/direitos"   element={privada(<RightsPage />)} />
+          <Route path="/impostos"   element={privada(<TaxPage />)} />
+          <Route path="/wrapped"    element={privada(<WrappedPage />)} />
 
-          <Route path="/contact" element={<ContactPage />} />
+          {/* Conta */}
+          <Route path="/connections" element={privada(<ConnectionsPage />)} />
+          <Route path="/planos"      element={privada(<PlansPage />)} />
+          <Route path="/profile"     element={privada(<ProfilePage />)} />
 
-          <Route path="/" element={<Navigate to="/login" replace />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
+          {/* Legadas e utilitárias */}
+          <Route path="/home"   element={privada(<HomePage />)} />
+          <Route path="/widget" element={privada(<WidgetPage />)} />
+
+          <Route path="/"  element={<Raiz />} />
+          <Route path="*"  element={<Raiz />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

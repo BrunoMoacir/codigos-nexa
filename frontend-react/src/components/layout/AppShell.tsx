@@ -1,11 +1,24 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { logout } from '../../api/auth';
+import { useSession } from '../../hooks/useAuth';
 
-export type HiveTab = 'dashboard' | 'chat' | 'feed' | 'organizar';
+/**
+ * Todas as telas que usam o AppShell. Eram só as 4 da navegação, e as 6
+ * páginas legadas passavam valores fora do tipo — eram 6 dos 10 erros que
+ * impediam o `npm run build`.
+ */
+export type HiveTab =
+  | 'dashboard' | 'chat' | 'feed' | 'organizar'
+  | 'strategies' | 'goals' | 'defesa' | 'direitos' | 'impostos' | 'wrapped'
+  | 'connections' | 'planos' | 'profile' | 'home' | 'widget';
 
 interface AppShellProps {
   current: HiveTab;
   children: ReactNode;
+  /** Cabeçalho opcional da tela (as páginas legadas já passavam e era ignorado). */
+  title?: string;
+  subtitle?: string;
 }
 
 const css = `
@@ -56,7 +69,16 @@ const css = `
     flex-shrink: 0;
   }
 
-  .hs-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+  .hs-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
+  .hs-nav-section {
+    font-size: 0.6rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    color: rgba(243,239,234,0.28); padding: 14px 12px 4px;
+  }
+  .hs-more { display: none; }
+  .hs-page-head { padding: 28px 32px 0; }
+  .hs-page-title { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.03em; margin: 0; color: #F3EFEA; }
+  .hs-page-sub { font-size: 0.8rem; color: rgba(243,239,234,0.45); margin: 4px 0 0; }
+  .hs-sheet { display: none; }
 
   .hs-nav-item {
     display: flex;
@@ -173,7 +195,25 @@ const css = `
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    /* O shell é sempre escuro, mas as variáveis de tema ficavam no modo
+       claro: as telas de ferramentas (Estratégias, Metas, Defesa…) saíam com
+       card branco e o texto sem cor própria herdava o claro do shell —
+       nome de cartão, select e histórico ficavam invisíveis. */
+    color: #F3EFEA;
+    --bg-main: #0A0806;
+    --bg-surface: #100E0B;
+    --bg-hover: #181512;
+    --bg-active: #201C17;
+    --text-primary: #F3EFEA;
+    --text-secondary: rgba(243,239,234,0.72);
+    --text-muted: rgba(243,239,234,0.45);
+    --border-color: rgba(243,239,234,0.10);
+    --accent-color: #D4A820;
   }
+  .hs-main input, .hs-main select, .hs-main textarea { color: inherit; background-color: transparent; }
+  .hs-main select option { color: #111; }
+  .hs-main a { color: #D4A820; }
+  .hs-page-body { padding: 16px 32px 40px; }
 
   /* ── MOBILE ── */
   @media (max-width: 860px) {
@@ -217,6 +257,17 @@ const css = `
     .hs-nav-icon { width: 20px; height: 20px; }
     .hs-divider { display: none; }
     .hs-bottom { display: none; }
+    .hs-nav-section, .hs-nav-item.sec { display: none; }
+    .hs-more { display: flex; }
+    .hs-sheet {
+      display: block; position: fixed; left: 0; right: 0; bottom: 64px;
+      background: #0A0806; border-top: 1px solid rgba(243,239,234,0.08);
+      padding: 10px 12px; max-height: 60vh; overflow-y: auto; z-index: 50;
+    }
+    .hs-sheet .hs-nav-item {
+      display: flex; flex-direction: row; font-size: 0.82rem; padding: 10px 12px;
+    }
+    .hs-sheet .hs-nav-section { display: block; }
     .hs-main {
       margin-left: 0;
       padding-bottom: 70px;
@@ -259,6 +310,12 @@ const IconLogout = () => (
   </svg>
 );
 
+const IconDot = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <polygon points="8,2 13.2,5 13.2,11 8,14 2.8,11 2.8,5" stroke="currentColor" strokeWidth="1.3"/>
+  </svg>
+);
+
 const navItems = [
   { key: 'dashboard' as HiveTab, label: 'Dashboard',    icon: <IconDashboard />, path: '/dashboard' },
   { key: 'chat'      as HiveTab, label: 'Chat IA',      icon: <IconChat />,      path: '/chat'      },
@@ -266,21 +323,55 @@ const navItems = [
   { key: 'organizar' as HiveTab, label: 'Organizar',    icon: <IconOrganizar />, path: '/organizar' },
 ];
 
-export const AppShell: React.FC<AppShellProps> = ({ current, children }) => {
+/**
+ * O que ficava inalcançável: 6 páginas roteadas sem link (Estratégias, Metas,
+ * Conexões, Perfil…) e as funcionalidades de backend que não tinham tela —
+ * Defesa do Consumidor, Direitos Esquecidos, Impostos, Wrapped, Planos.
+ */
+const navSections: { title: string; items: { key: HiveTab; label: string; path: string }[] }[] = [
+  {
+    title: 'Ferramentas',
+    items: [
+      { key: 'strategies', label: 'Estratégias',        path: '/strategies' },
+      { key: 'goals',      label: 'Metas',              path: '/goals' },
+      { key: 'defesa',     label: 'Defesa do consumidor', path: '/defesa' },
+      { key: 'direitos',   label: 'Direitos esquecidos',  path: '/direitos' },
+      { key: 'impostos',   label: 'Impostos',           path: '/impostos' },
+      { key: 'wrapped',    label: 'Seu ano (Wrapped)',  path: '/wrapped' },
+    ],
+  },
+  {
+    title: 'Conta',
+    items: [
+      { key: 'connections', label: 'Conexões bancárias', path: '/connections' },
+      { key: 'widget',      label: 'Margem do dia e alertas', path: '/widget' },
+      { key: 'planos',      label: 'Planos',             path: '/planos' },
+      { key: 'profile',     label: 'Perfil e privacidade', path: '/profile' },
+    ],
+  },
+];
+
+export const AppShell: React.FC<AppShellProps> = ({ current, children, title, subtitle }) => {
   const navigate = useNavigate();
-  const [, forceUpdate] = useState(0);
-
-  const userName = localStorage.getItem('user_name') || '';
-  const userEmail = localStorage.getItem('user_email') || '';
-  const displayName = userName || (userEmail ? userEmail.split('@')[0] : 'Usuário');
+  const { displayName } = useSession();
   const initials = displayName.slice(0, 2).toUpperCase();
+  const [maisAberto, setMaisAberto] = useState(false);
+  const [saindo, setSaindo] = useState(false);
 
-  const handleLogout = () => {
-    ['jwt_token','user_id','user_name','user_email','nexa_data_origin','nexa_data_origin_updated_at'].forEach(k => localStorage.removeItem(k));
-    window.location.href = '/login';
+  // Sair revoga a sessão no servidor (access + refresh). O logout antigo só
+  // limpava o navegador: o token seguia válido, e o histórico do chat em
+  // cache local sobrevivia para o próximo usuário do mesmo aparelho.
+  const handleLogout = async () => {
+    setSaindo(true);
+    await logout();
+    navigate('/login', { replace: true });
   };
 
-  useEffect(() => { forceUpdate(n => n + 1); }, []);
+  const irPara = (path: string) => {
+    setMaisAberto(false);
+    navigate(path);
+  };
+  const secundariaAtiva = navSections.some(sec => sec.items.some(i => i.key === current));
 
   return (
     <>
@@ -301,13 +392,58 @@ export const AppShell: React.FC<AppShellProps> = ({ current, children }) => {
               <button
                 key={item.key}
                 className={`hs-nav-item${current === item.key ? ' on' : ''}`}
-                onClick={() => navigate(item.path)}
+                onClick={() => irPara(item.path)}
               >
                 <span className="hs-nav-icon">{item.icon}</span>
                 {item.label}
               </button>
             ))}
+            {navSections.map(sec => (
+              <div key={sec.title}>
+                <div className="hs-nav-section">{sec.title}</div>
+                {sec.items.map(item => (
+                  <button
+                    key={item.key}
+                    className={`hs-nav-item sec${current === item.key ? ' on' : ''}`}
+                    onClick={() => irPara(item.path)}
+                  >
+                    <span className="hs-nav-icon"><IconDot /></span>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            ))}
+            <button
+              className={`hs-nav-item hs-more${secundariaAtiva || maisAberto ? ' on' : ''}`}
+              onClick={() => setMaisAberto(v => !v)}
+              aria-expanded={maisAberto}
+            >
+              <span className="hs-nav-icon"><IconDot /></span>
+              Mais
+            </button>
           </nav>
+
+          {maisAberto && (
+            <div className="hs-sheet" role="menu">
+              {navSections.map(sec => (
+                <div key={sec.title}>
+                  <div className="hs-nav-section">{sec.title}</div>
+                  {sec.items.map(item => (
+                    <button
+                      key={item.key}
+                      className={`hs-nav-item${current === item.key ? ' on' : ''}`}
+                      onClick={() => irPara(item.path)}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              ))}
+              <button className="hs-nav-item" onClick={handleLogout} disabled={saindo}>
+                {saindo ? 'Saindo…' : 'Sair'}
+              </button>
+            </div>
+          )}
 
           <div className="hs-divider" />
 
@@ -316,15 +452,22 @@ export const AppShell: React.FC<AppShellProps> = ({ current, children }) => {
               <div className="hs-avatar">{initials}</div>
               <span className="hs-user-name">{displayName}</span>
             </div>
-            <button className="hs-action" onClick={handleLogout}>
+            <button className="hs-action" onClick={handleLogout} disabled={saindo}>
               <IconLogout />
-              Sair
+              {saindo ? 'Saindo…' : 'Sair'}
             </button>
           </div>
         </aside>
 
         <main className="hs-main">
-          {children}
+          {title && (
+            <header className="hs-page-head">
+              <h1 className="hs-page-title">{title}</h1>
+              {subtitle && <p className="hs-page-sub">{subtitle}</p>}
+            </header>
+          )}
+          {/* telas com título (as de ferramentas) não tinham margem própria */}
+          {title ? <div className="hs-page-body">{children}</div> : children}
         </main>
       </div>
     </>
