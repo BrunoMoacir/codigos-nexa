@@ -1,7 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { AppShell } from '../components/layout/AppShell';
-import { nexaApi } from '../api/nexa';
+import { Markdown } from '../components/Markdown';
+import { painelApi, brl, dataCurta, dataLonga } from '../api/painel';
+import {
+  estrategiasApi, ROTULO_CANAL, ROTULO_ESTRATEGIA, ROTULO_EVENTO, ROTULO_RECOMENDACAO, ROTULO_VEREDICTO,
+} from '../api/estrategias';
+import type { Estrategia, PerfilDeRisco, ResultadoNegociacao, TipoDeBem } from '../api/estrategias';
+import { describeError } from '../api/errors';
+import { getUserId } from '../api/session';
 
 const card: React.CSSProperties = {
   background: 'var(--bg-surface)',
@@ -9,774 +17,463 @@ const card: React.CSSProperties = {
   borderRadius: 12,
   padding: 16,
 };
+const sectionTitle: React.CSSProperties = { marginBottom: 10, fontWeight: 600, fontSize: 15, color: 'var(--text-primary)' };
+const metricLabel: React.CSSProperties = { fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 };
+const metricValue: React.CSSProperties = { fontSize: 20, color: 'var(--text-primary)', fontWeight: 700 };
+const box: React.CSSProperties = { border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 };
+const grid = (min: number): React.CSSProperties => ({ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(${min}px, 1fr))`, gap: 10 });
+const input: React.CSSProperties = { border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 };
+const botao: React.CSSProperties = { border: '1px solid #111', background: 'var(--text-primary)', color: 'var(--bg-surface)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer' };
+const botaoSec: React.CSSProperties = { border: '1px solid var(--border-color)', background: 'var(--bg-surface)', color: 'var(--text-primary)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 12 };
+const nota: React.CSSProperties = { fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 };
+const aviso: React.CSSProperties = { fontSize: 12, color: '#92400e' };
 
-const sectionTitle: React.CSSProperties = {
-  marginBottom: 10,
-  fontWeight: 600,
-  fontSize: 15,
-  color: 'var(--text-primary)',
+const pct = (v: number | null | undefined, casas = 1) => (v == null ? '—' : `${Number(v).toFixed(casas).replace('.', ',')}%`);
+const lerValor = (t: string) => {
+  const s = t.trim();
+  return Number(s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : s);
 };
 
-const metricLabel: React.CSSProperties = {
-  fontSize: 12,
-  color: 'var(--text-muted)',
-  marginBottom: 4,
+/** Erro em linguagem de gente; 402 vira convite para o plano, não "falha". */
+function Erro({ erro, fallback }: { erro: unknown; fallback: string }) {
+  const e = describeError(erro, fallback);
+  return (
+    <div style={{ fontSize: 12, color: '#991b1b', margin: '6px 0' }}>
+      {e.message}
+      {e.kind === 'upgrade_required' && <> · <Link to="/planos">Ver planos</Link></>}
+    </div>
+  );
+}
+
+function Metrica({ rotulo, valor, sub }: { rotulo: string; valor: React.ReactNode; sub?: React.ReactNode }) {
+  return (
+    <div style={box}>
+      <div style={metricLabel}>{rotulo}</div>
+      <div style={metricValue}>{valor}</div>
+      {sub && <div style={{ ...nota, marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+}
+
+const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const ROTULO_TARIFA: Record<string, string> = {
+  JUROS_ROTATIVO: 'Juros do rotativo', ANUIDADE_CARTAO: 'Anuidade do cartão', SEGURO_PRESTAMISTA: 'Seguro prestamista',
+  PACOTE_SERVICOS: 'Pacote de serviços', TED_DOC: 'TED/DOC', SAQUE: 'Saque', CHEQUE_ESPECIAL: 'Cheque especial', IOF: 'IOF',
+};
+const ROTULO_RESULTADO: Record<ResultadoNegociacao, string> = {
+  sucesso: 'Funcionou', parcial: 'Em parte', recusado: 'Recusaram', nao_tentou: 'Não tentei',
 };
 
-const metricValue: React.CSSProperties = {
-  fontSize: 20,
-  color: 'var(--text-primary)',
-  fontWeight: 700,
-};
-
-function currency(value: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
-}
-
-function toNumber(value: unknown) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function getErrorMessage(error: unknown, fallback: string) {
-  const detail = (error as any)?.response?.data?.detail;
-  if (typeof detail === 'string' && detail.trim()) {
-    return detail;
-  }
-  return fallback;
-}
+type Aba = 'optimizer' | 'cards' | 'architect' | 'fiscal' | 'peers' | 'advanced';
 
 export const StrategiesPage: React.FC = () => {
-  const userId = localStorage.getItem('user_id') || '';
-  const [tab, setTab] = useState<'optimizer' | 'cards' | 'architect' | 'fiscal' | 'peers' | 'advanced'>('optimizer');
+  const userId = getUserId();
+  const queryClient = useQueryClient();
+  const [tab, setTab] = useState<Aba>('optimizer');
 
-  const [income, setIncome] = useState(0);
+  const [rendaTexto, setRendaTexto] = useState('');
+  const rendaInformada = lerValor(rendaTexto) > 0 ? lerValor(rendaTexto) : undefined;
   const [maxCards, setMaxCards] = useState(3);
+  const [currentCard, setCurrentCard] = useState('');
 
-  const [targetAmount, setTargetAmount] = useState(120000);
-  const [downPayment, setDownPayment] = useState(20000);
-  const [months, setMonths] = useState(48);
+  const [bem, setBem] = useState({ valor: '120000', entrada: '20000', meses: '48', tipo: 'VEICULO' as TipoDeBem, risco: 'moderado' as PerfilDeRisco });
 
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState<number | ''>('');
-  const [purchaseAmount, setPurchaseAmount] = useState(3000);
-  const [purchaseCategory, setPurchaseCategory] = useState('Eletronicos');
-  const [purchaseInstallments, setPurchaseInstallments] = useState(6);
-  const [autoInstallments, setAutoInstallments] = useState(true);
-  const [negotiationBank, setNegotiationBank] = useState('');
 
-  const forecastContextQuery = useQuery({
-    queryKey: ['forecast-context', userId],
-    queryFn: () => nexaApi.getForecast(userId),
-    enabled: !!userId && (tab === 'advanced' || tab === 'peers'),
+  const [compra, setCompra] = useState({ valor: '3000', aVista: '', categoria: 'Eletrônicos', parcelas: 6 });
+  const [autoParcelas, setAutoParcelas] = useState(true);
+  const [banco, setBanco] = useState('');
+
+  // Contexto do /forecast para TODAS as abas — só peers/advanced buscavam, e
+  // a análise do Optimizer ia sem renda nem margem.
+  const contextoQ = useQuery({
+    queryKey: ['painel', 'previsao', userId],
+    queryFn: () => painelApi.previsao(userId),
+    enabled: !!userId, staleTime: 5 * 60 * 1000, retry: false,
+  });
+  const rendaEstimada = contextoQ.data?.financial_health?.income_profile?.monthly_net_income || undefined;
+  const renda = rendaInformada ?? rendaEstimada;
+  const margem = contextoQ.data?.safe_to_spend?.safe_to_spend_total;
+
+  const ativo = (aba: Aba) => !!userId && tab === aba;
+
+  // ── Optimizer ─────────────────────────────────────────────────────────────
+  const carteiraQ = useQuery({
+    queryKey: ['optimizer', 'carteira', userId, maxCards, rendaInformada ?? 'estimada'],
+    queryFn: () => estrategiasApi.carteira(userId, maxCards, rendaInformada),
+    enabled: ativo('optimizer'),
+  });
+  const cartoesQ = useQuery({ queryKey: ['optimizer', 'cartoes'], queryFn: estrategiasApi.cartoes, enabled: tab === 'optimizer', staleTime: Infinity });
+  const promocoesQ = useQuery({ queryKey: ['optimizer', 'promocoes'], queryFn: estrategiasApi.promocoes, enabled: tab === 'optimizer' });
+  const relatoriosQ = useQuery({ queryKey: ['optimizer', 'relatorios', userId], queryFn: () => estrategiasApi.relatorios(userId), enabled: ativo('optimizer') });
+  const custoQ = useQuery({
+    queryKey: ['optimizer', 'custo', userId, currentCard],
+    queryFn: () => estrategiasApi.custoDeOportunidade(userId, currentCard, 3),
+    enabled: ativo('optimizer') && !!currentCard,
+  });
+  const roiQ = useQuery({
+    queryKey: ['optimizer', 'roi', userId, currentCard],
+    queryFn: () => estrategiasApi.roi(userId, currentCard),
+    enabled: ativo('optimizer') && !!currentCard,
+  });
+  const analiseM = useMutation({
+    mutationFn: () => estrategiasApi.analisar(userId, currentCard || undefined, {
+      ...(margem != null && margem >= 0 ? { safe_to_spend: margem } : {}),
+      ...(renda ? { monthly_income: renda } : {}),
+    }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['optimizer', 'relatorios', userId] }),
   });
 
-  const contextIncome = useMemo(() => {
-    const fromInput = toNumber(income);
-    if (fromInput > 0) return fromInput;
-    const fromForecast = toNumber(forecastContextQuery.data?.financial_health?.total_income);
-    return fromForecast > 0 ? fromForecast : 0;
-  }, [income, forecastContextQuery.data]);
+  // ── Cartões e contas ──────────────────────────────────────────────────────
+  const lancamentosQ = useQuery({
+    queryKey: ['estrategias', 'lancamentos', userId],
+    queryFn: () => painelApi.lancamentos(userId, 500, 0),
+    enabled: ativo('cards'),
+  });
 
-  const contextSafeToSpend = useMemo(
-    () => toNumber(forecastContextQuery.data?.safe_to_spend?.safe_to_spend_total),
-    [forecastContextQuery.data]
-  );
+  // ── Architect ─────────────────────────────────────────────────────────────
+  const simularM = useMutation({
+    mutationFn: () => estrategiasApi.simular({
+      user_id: userId,
+      target_amount: lerValor(bem.valor),
+      down_payment: lerValor(bem.entrada) || 0,
+      asset_type: bem.tipo,
+      financing_months: Math.round(lerValor(bem.meses)) || 48,
+      risk_profile: bem.risco,
+      include_consortium: true,
+      prefers_consortium: false,
+    }),
+    // histórico e métricas não eram invalidados: a simulação nova não aparecia
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['architect'] }),
+  });
+  const pendentesQ = useQuery({ queryKey: ['architect', 'pendentes', userId], queryFn: estrategiasApi.simulacoesPendentes, enabled: ativo('architect') });
+  const responderSimM = useMutation({
+    mutationFn: ({ id, seguiu, estrategia }: { id: string; seguiu: boolean; estrategia: Estrategia }) => estrategiasApi.responderSimulacao(id, seguiu, estrategia),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['architect', 'pendentes', userId] }),
+  });
+  const [respondidos, setRespondidos] = useState<Record<string, 'ACCEPTED' | 'REJECTED'>>({});
+  const responderInsightM = useMutation({
+    mutationFn: ({ reportId, insightId, r }: { reportId: string; insightId: string; r: 'ACCEPTED' | 'REJECTED' }) => estrategiasApi.responderInsight(reportId, insightId, r),
+    onSuccess: (_d, v) => setRespondidos(prev => ({ ...prev, [v.insightId]: v.r })),
+  });
+  const simulacoesQ = useQuery({ queryKey: ['architect', 'simulacoes', userId], queryFn: () => estrategiasApi.simulacoes(userId, 8), enabled: ativo('architect') });
+  const metricasQ = useQuery({ queryKey: ['architect', 'metricas', userId], queryFn: () => estrategiasApi.metricasArchitect(userId), enabled: ativo('architect') });
 
-  const contextHealthScore = useMemo(
-    () => toNumber(forecastContextQuery.data?.financial_health?.health_score),
-    [forecastContextQuery.data]
-  );
+  // ── Fiscal ────────────────────────────────────────────────────────────────
+  const mesParam = month === '' ? undefined : month;
+  const fiscalQ = useQuery({ queryKey: ['fiscal', 'relatorio', userId, year, mesParam], queryFn: () => estrategiasApi.fiscal(userId, year, mesParam), enabled: ativo('fiscal') });
+  const mistoQ = useQuery({ queryKey: ['fiscal', 'misto', userId, year, mesParam], queryFn: () => estrategiasApi.usoMisto(userId, year, mesParam), enabled: ativo('fiscal') });
+  const corrigirM = useMutation({
+    mutationFn: ({ id, ctx }: { id: string; ctx: 'PF' | 'PJ' }) => estrategiasApi.corrigirContexto(userId, id, ctx),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['fiscal'] }),
+  });
 
-  const contextRiskProfile = useMemo(() => {
-    const profileType = String(forecastContextQuery.data?.financial_health?.profile_type || '').toUpperCase();
-    if (profileType.includes('CONSERV')) return 'conservador';
-    if (profileType.includes('GAST')) return 'agressivo';
-    if (contextHealthScore > 0) {
-      if (contextHealthScore >= 75) return 'agressivo';
-      if (contextHealthScore <= 45) return 'conservador';
-    }
-    return 'moderado';
-  }, [forecastContextQuery.data, contextHealthScore]);
+  // ── Comparação ────────────────────────────────────────────────────────────
+  const pares = useQuery({
+    queryKey: ['peers', userId, rendaInformada ?? 'estimada'],
+    queryFn: () => estrategiasApi.comparar(userId, rendaInformada),
+    enabled: ativo('peers'),
+  });
 
-  const suggestedInstallments = useMemo(() => {
-    const amount = toNumber(purchaseAmount);
-    if (amount <= 0) return 1;
-    const incomeRef = contextIncome;
-    if (incomeRef > 0) {
-      const pressure = amount / incomeRef;
-      if (pressure <= 0.2) return 1;
-      if (pressure <= 0.4) return 3;
-      if (pressure <= 0.8) return 6;
-      if (pressure <= 1.5) return 12;
+  // ── F5 · F7 · F13 ─────────────────────────────────────────────────────────
+  const raioXQ = useQuery({ queryKey: ['costs', 'raio-x', userId], queryFn: () => estrategiasApi.raioX(userId), enabled: ativo('advanced') });
+  const revisaoQ = useQuery({ queryKey: ['purchase', 'revisao', userId], queryFn: () => estrategiasApi.revisaoDeCompras(userId), enabled: ativo('advanced') });
+  const historicoNegQ = useQuery({ queryKey: ['negotiator', 'historico', userId], queryFn: () => estrategiasApi.historicoDeNegociacao(userId), enabled: ativo('advanced') });
+
+  const valorCompra = lerValor(compra.valor);
+  const parcelasSugeridas = useMemo(() => {
+    if (!(valorCompra > 0)) return 1;
+    if (renda && renda > 0) {
+      const pressao = valorCompra / renda;
+      if (pressao <= 0.2) return 1;
+      if (pressao <= 0.4) return 3;
+      if (pressao <= 0.8) return 6;
+      if (pressao <= 1.5) return 12;
       return 18;
     }
-    if (amount <= 500) return 1;
-    if (amount <= 2000) return 3;
-    if (amount <= 5000) return 6;
-    if (amount <= 15000) return 12;
+    if (valorCompra <= 500) return 1;
+    if (valorCompra <= 2000) return 3;
+    if (valorCompra <= 5000) return 6;
+    if (valorCompra <= 15000) return 12;
     return 18;
-  }, [purchaseAmount, contextIncome]);
+  }, [valorCompra, renda]);
+  const parcelas = autoParcelas ? parcelasSugeridas : compra.parcelas;
 
-  useEffect(() => {
-    if (autoInstallments) {
-      setPurchaseInstallments(suggestedInstallments);
+  const compraM = useMutation({
+    mutationFn: () => estrategiasApi.analisarCompra({
+      user_id: userId,
+      amount: valorCompra,
+      category: compra.categoria || 'Outros',
+      installments: parcelas,
+      ...(lerValor(compra.aVista) > 0 ? { cash_price: lerValor(compra.aVista) } : {}),
+      // a margem que a tela mostra é a que a análise usa (antes: "indisponível")
+      ...(margem != null && margem >= 0 ? { safe_to_spend: margem } : {}),
+      ...(renda ? { monthly_income: renda } : {}),
+    }),
+  });
+  const negociarM = useMutation({
+    mutationFn: () => estrategiasApi.negociar(userId, banco.trim() || undefined),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['negotiator', 'historico', userId] }),
+  });
+  const resultadoM = useMutation({
+    mutationFn: ({ id, r }: { id: string; r: ResultadoNegociacao }) => estrategiasApi.registrarResultado(id, r),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['negotiator', 'historico', userId] }),
+  });
+
+  const contas = useMemo(() => {
+    const grupos = new Map<string, { id: string; n: number; gasto: number; entrada: number; ultima: string; cats: Record<string, number> }>();
+    for (const t of lancamentosQ.data?.transactions || []) {
+      const id = t.account_id || 'conta';
+      const g = grupos.get(id) || { id, n: 0, gasto: 0, entrada: 0, ultima: '', cats: {} };
+      g.n += 1;
+      if (t.amount >= 0) g.entrada += t.amount; else g.gasto += -t.amount;
+      const c = t.category || 'Outros';
+      g.cats[c] = (g.cats[c] || 0) + Math.abs(t.amount);
+      if (t.date > g.ultima) g.ultima = t.date;
+      grupos.set(id, g);
     }
-  }, [autoInstallments, suggestedInstallments]);
+    return [...grupos.values()].sort((a, b) => b.n - a.n);
+  }, [lancamentosQ.data]);
 
-  const portfolioQuery = useQuery({
-    queryKey: ['optimizer-portfolio', userId, income, maxCards],
-    queryFn: () => nexaApi.getOptimizerPortfolio(userId, maxCards, income > 0 ? income : undefined),
-    enabled: !!userId && tab === 'optimizer',
-  });
+  const contextoTexto = contextoQ.isError
+    ? 'contexto do extrato indisponível'
+    : `renda ${renda ? brl(renda) : 'não detectada'}${rendaInformada ? ' (informada)' : rendaEstimada ? ' (estimada pelo extrato)' : ''} · margem segura do mês ${margem != null ? brl(margem) : '—'}`;
 
-  const cardsQuery = useQuery({
-    queryKey: ['optimizer-cards'],
-    queryFn: () => nexaApi.getOptimizerCards(),
-    enabled: tab === 'optimizer',
-  });
-
-  const accountCardsQuery = useQuery({
-    queryKey: ['cards-transactions', userId],
-    queryFn: () => nexaApi.getTransactions(userId, 500),
-    enabled: !!userId && tab === 'cards',
-  });
-
-  const promotionsQuery = useQuery({
-    queryKey: ['optimizer-promotions'],
-    queryFn: () => nexaApi.getOptimizerPromotions(),
-    enabled: tab === 'optimizer',
-  });
-
-  const optimizerReportsQuery = useQuery({
-    queryKey: ['optimizer-reports', userId],
-    queryFn: () => nexaApi.getOptimizerReports(userId),
-    enabled: !!userId && tab === 'optimizer',
-  });
-
-  const [currentCard, setCurrentCard] = useState('');
-  const opportunityQuery = useQuery({
-    queryKey: ['optimizer-opportunity', userId, currentCard],
-    queryFn: () => nexaApi.getOptimizerOpportunityCost(userId, currentCard, 3),
-    enabled: !!userId && !!currentCard && tab === 'optimizer',
-  });
-
-  const roiQuery = useQuery({
-    queryKey: ['optimizer-roi', userId, currentCard],
-    queryFn: () => nexaApi.getOptimizerRoi(userId, currentCard),
-    enabled: !!userId && !!currentCard && tab === 'optimizer',
-  });
-
-  const promotionOpportunitiesQuery = useQuery({
-    queryKey: [
-      'optimizer-promo-opportunities',
-      userId,
-      currentCard,
-      tab,
-      portfolioQuery.data?.cards?.length || 0,
-      cardsQuery.data?.cards?.length || cardsQuery.data?.results?.length || 0,
-    ],
-    queryFn: () => {
-      const cardsFromPortfolio = (portfolioQuery.data?.cards || [])
-        .map((c: any) => String(c.card_name || c.name || c.card_id || '').trim())
-        .filter(Boolean)
-        .slice(0, 4);
-
-      const apiCards = cardsQuery.data?.cards || cardsQuery.data?.results || [];
-      const selectedCard = apiCards.find((c: any) => (c.card_id || c.id) === currentCard);
-      const selectedName = String(selectedCard?.name || selectedCard?.card_name || currentCard || '').trim();
-
-      const candidateCards = Array.from(new Set([...cardsFromPortfolio, selectedName].filter(Boolean))).slice(0, 5);
-      if (candidateCards.length === 0) {
-        return Promise.resolve({ opportunities: [], alerted_count: 0 });
-      }
-
-      return nexaApi.getOptimizerPromotionOpportunities(userId, candidateCards);
-    },
-    enabled: !!userId && tab === 'optimizer',
-  });
-
-  const optimizerAnalysisMutation = useMutation({
-    mutationFn: () =>
-      nexaApi.analyzeOptimizer({
-        user_id: userId,
-        current_cards: currentCard ? [currentCard] : [],
-        safe_to_spend: contextSafeToSpend > 0 ? contextSafeToSpend : undefined,
-        monthly_income: contextIncome > 0 ? contextIncome : undefined,
-      }),
-  });
-
-  const architectMutation = useMutation({
-    mutationFn: () =>
-      nexaApi.architectSimulate({
-        user_id: userId,
-        target_amount: targetAmount,
-        down_payment: downPayment,
-        risk_profile: 'moderado',
-        asset_type: 'VEICULO',
-        financing_months: months,
-        include_consortium: true,
-        prefers_consortium: false,
-      }),
-  });
-
-  const architectHistory = useQuery({
-    queryKey: ['architect-history', userId],
-    queryFn: () => nexaApi.architectListSimulations(userId, 8),
-    enabled: !!userId && tab === 'architect',
-  });
-
-  const architectMetrics = useQuery({
-    queryKey: ['architect-metrics', userId],
-    queryFn: () => nexaApi.architectMetrics(userId),
-    enabled: !!userId && tab === 'architect',
-  });
-
-  const fiscalReport = useQuery({
-    queryKey: ['fiscal-report', userId, year, month],
-    queryFn: () => nexaApi.getFiscalReport(userId, year, month === '' ? undefined : month),
-    enabled: !!userId && tab === 'fiscal',
-  });
-
-  const fiscalMixed = useQuery({
-    queryKey: ['fiscal-mixed', userId, year, month],
-    queryFn: () => nexaApi.getFiscalMixedUse(userId, year, month === '' ? undefined : month),
-    enabled: !!userId && tab === 'fiscal',
-  });
-
-  const peerQuery = useQuery({
-    queryKey: ['peers', userId, contextIncome],
-    queryFn: () => nexaApi.getPeerComparison(userId, contextIncome > 0 ? contextIncome : undefined, 3),
-    enabled: !!userId && tab === 'peers',
-  });
-
-  const notificationsQuery = useQuery({
-    queryKey: ['notifications', userId, contextIncome],
-    queryFn: () => nexaApi.getNotifications(userId, contextIncome > 0 ? contextIncome : undefined, true),
-    enabled: !!userId && tab === 'peers',
-  });
-
-  const costsQuery = useQuery({
-    queryKey: ['costs-raio-x', userId],
-    queryFn: () => nexaApi.getBankCosts(userId),
-    enabled: !!userId && tab === 'advanced',
-  });
-
-  const purchaseMutation = useMutation({
-    mutationFn: () =>
-      nexaApi.analyzePurchase({
-        user_id: userId,
-        amount: purchaseAmount,
-        category: purchaseCategory,
-        installments: purchaseInstallments,
-        monthly_income: contextIncome > 0 ? contextIncome : undefined,
-        risk_profile: contextRiskProfile,
-        apply_opportunity_cost: true,
-      }),
-  });
-
-  const negotiatorMutation = useMutation({
-    mutationFn: () =>
-      nexaApi.generateNegotiationScript({
-        user_id: userId,
-        bank_name: negotiationBank.trim() || undefined,
-      }),
-  });
-
-  const optimizerCards = cardsQuery.data?.cards || cardsQuery.data?.results || [];
-  const portfolioCards = portfolioQuery.data?.cards || [];
-  const promotions = promotionsQuery.data?.promotions || [];
-  const optimizerReports = optimizerReportsQuery.data?.reports || [];
-  const transactionCards = accountCardsQuery.data?.transactions || [];
-  const architectResult = architectMutation.data || {};
-  const architectActionPlan = architectResult?.action_plan || [];
-  const architectNpv = architectResult?.npv || {};
-  const fiscalData = fiscalReport.data || {};
-  const mixedUseData = fiscalMixed.data || {};
-  const peerData = peerQuery.data || {};
-  const notifications = notificationsQuery.data?.notifications || notificationsQuery.data?.results || [];
-  const costsData = costsQuery.data || {};
-  const purchaseData = purchaseMutation.data || {};
-  const negotiationData = negotiatorMutation.data || {};
-  const optimizerAnalysis = optimizerAnalysisMutation.data || {};
-  const optimizerBestCard = optimizerAnalysis.best_card || {};
-  const optimizerInsights = Array.isArray(optimizerAnalysis.insights) ? optimizerAnalysis.insights : [];
-  const optimizerLifeEvents = Array.isArray(optimizerAnalysis.life_events) ? optimizerAnalysis.life_events : [];
-  const optimizerWarnings = Array.isArray(optimizerAnalysis.warnings) ? optimizerAnalysis.warnings : [];
-  const optimizerProfileSummary = optimizerAnalysis.user_profile_summary || {};
-
-  const isOptimizerLoading =
-    portfolioQuery.isLoading ||
-    cardsQuery.isLoading ||
-    promotionsQuery.isLoading ||
-    optimizerReportsQuery.isLoading;
-  const isCardsLoading = accountCardsQuery.isLoading;
-  const isArchitectLoading = architectHistory.isLoading || architectMetrics.isLoading;
-  const isFiscalLoading = fiscalReport.isLoading || fiscalMixed.isLoading;
-  const isPeersLoading = peerQuery.isLoading || notificationsQuery.isLoading;
-  const isAdvancedLoading = costsQuery.isLoading;
-
-  const accountCardSummaries = useMemo(() => {
-    const groups = new Map<string, {
-      account_id: string;
-      label: string;
-      transaction_count: number;
-      total_spent: number;
-      total_income: number;
-      net_total: number;
-      last_activity: string;
-      categories: Record<string, number>;
-      sample_descriptions: string[];
-    }>();
-
-    transactionCards.forEach((tx: any, index: number) => {
-      const accountId = String(tx.account_id || 'sem_account_id').trim() || 'sem_account_id';
-      if (!groups.has(accountId)) {
-        groups.set(accountId, {
-          account_id: accountId,
-          label: accountId === 'sem_account_id' ? `Conta ${index + 1}` : `Conta ${groups.size + 1}`,
-          transaction_count: 0,
-          total_spent: 0,
-          total_income: 0,
-          net_total: 0,
-          last_activity: '',
-          categories: {},
-          sample_descriptions: [],
-        });
-      }
-
-      const entry = groups.get(accountId)!;
-      const amount = toNumber(tx.amount);
-      const category = String(tx.category || 'Sem categoria');
-      const date = String(tx.date || '');
-      const description = String(tx.description || '').trim();
-
-      entry.transaction_count += 1;
-      entry.net_total += amount;
-      entry.categories[category] = (entry.categories[category] || 0) + Math.abs(amount);
-      if (amount >= 0) {
-        entry.total_income += amount;
-      } else {
-        entry.total_spent += Math.abs(amount);
-      }
-      if (date && (!entry.last_activity || date > entry.last_activity)) {
-        entry.last_activity = date;
-      }
-      if (description && entry.sample_descriptions.length < 3) {
-        entry.sample_descriptions.push(description);
-      }
-    });
-
-    return Array.from(groups.values()).sort((a, b) => {
-      if (b.transaction_count !== a.transaction_count) return b.transaction_count - a.transaction_count;
-      return b.total_spent - a.total_spent;
-    });
-  }, [transactionCards]);
-
-  const topPeerInsights = useMemo(() => {
-    const highlightsAbove = Array.isArray(peerData?.highlights_above) ? peerData.highlights_above : [];
-    const highlightsBelow = Array.isArray(peerData?.highlights_below) ? peerData.highlights_below : [];
-    const rawHighlights = [...highlightsAbove, ...highlightsBelow].filter(Boolean);
-    if (rawHighlights.length > 0) {
-      return rawHighlights.slice(0, 4).map((v: any) => String(v));
-    }
-
-    if (peerData?.summary_text) {
-      return [String(peerData.summary_text)];
-    }
-
-    const expensePosition = peerData?.expense_percentile;
-    const savingPosition = peerData?.savings_percentile;
-    const generated: string[] = [];
-    if (expensePosition != null) {
-      generated.push(`Percentil de despesas: ${toNumber(expensePosition).toFixed(0)}.`);
-    }
-    if (savingPosition != null) {
-      generated.push(`Percentil de poupança: ${toNumber(savingPosition).toFixed(0)}.`);
-    }
-    return generated;
-  }, [peerData]);
+  const campoRenda = (
+    <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>
+      Renda mensal (opcional — sem ela usamos a estimada pelo extrato)
+      <input value={rendaTexto} onChange={e => setRendaTexto(e.target.value)} inputMode="decimal"
+        placeholder={rendaEstimada ? `estimada: ${brl(rendaEstimada, 0)}` : 'R$'} style={{ ...input, width: 220 }} />
+    </label>
+  );
 
   return (
-    <AppShell
-      current="strategies"
-      title="Estratégias Nexa"
-      subtitle="Optimizer, Architect, Fiscal Intelligence e alertas proativos."
-    >
+    <AppShell current="strategies" title="Estratégias" subtitle="Cartões, grandes compras, MEI, comparação com pares e negociação com o banco.">
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-        {[
-          ['optimizer', 'Optimizer'],
-          ['cards', 'Cartões'],
-          ['architect', 'Architect'],
-          ['fiscal', 'Fiscal'],
-          ['peers', 'Peers & Alertas'],
-          ['advanced', 'F5/F7/F13'],
-        ].map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setTab(key as any)}
-            style={{
-              border: '1px solid var(--border-color)',
-              background: tab === key ? 'var(--text-primary)' : 'var(--bg-surface)',
-              color: tab === key ? 'var(--bg-surface)' : 'var(--text-primary)',
-              borderRadius: 8,
-              padding: '8px 12px',
-              cursor: 'pointer',
-              fontSize: 13,
-            }}
-          >
-            {label}
-          </button>
+        {([
+          ['optimizer', 'Cartões ideais'],
+          ['cards', 'Contas e cartões'],
+          ['architect', 'Grande compra'],
+          ['fiscal', 'MEI / Fiscal'],
+          ['peers', 'Comparação'],
+          ['advanced', 'Tarifas, compra e negociação'],
+        ] as [Aba, string][]).map(([key, label]) => (
+          <button key={key} onClick={() => setTab(key)} style={{
+            border: '1px solid var(--border-color)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontSize: 13,
+            background: tab === key ? 'var(--text-primary)' : 'var(--bg-surface)', color: tab === key ? 'var(--bg-surface)' : 'var(--text-primary)',
+          }}>{label}</button>
         ))}
       </div>
+      <div style={{ ...nota, marginBottom: 12 }}>Contexto usado: {contextoTexto}</div>
 
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━ OPTIMIZER ━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {tab === 'optimizer' && (
         <div style={{ display: 'grid', gap: 12 }}>
-          {isOptimizerLoading && (
-            <div style={{ ...card, color: 'var(--text-muted)', fontSize: 14 }}>Carregando dados do Optimizer...</div>
-          )}
           <div style={card}>
-            <div style={sectionTitle}>Portfólio ideal de cartões</div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-              <input
-                type="number"
-                value={income}
-                onChange={(e) => setIncome(Number(e.target.value || 0))}
-                style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8, width: 180 }}
-              />
-              <select value={maxCards} onChange={(e) => setMaxCards(Number(e.target.value))} style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }}>
-                <option value={1}>1 cartão</option>
-                <option value={2}>2 cartões</option>
-                <option value={3}>3 cartões</option>
-                <option value={4}>4 cartões</option>
+            <div style={sectionTitle}>Carteira ideal de cartões</div>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              {campoRenda}
+              <select value={maxCards} onChange={e => setMaxCards(Number(e.target.value))} style={input} aria-label="Máximo de cartões">
+                {[1, 2, 3, 4].map(n => <option key={n} value={n}>até {n} {n > 1 ? 'cartões' : 'cartão'}</option>)}
               </select>
             </div>
-            {income <= 0 && (
-              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 10 }}>
-                Informe sua renda mensal para calcular o portfólio ideal.
-              </div>
-            )}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 10 }}>
-              <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 10 }}>
-                <div style={metricLabel}>Retorno anual</div>
-                <div style={metricValue}>{currency(toNumber(portfolioQuery.data?.total_annual_return))}</div>
-              </div>
-              <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 10 }}>
-                <div style={metricLabel}>Custo anuidade</div>
-                <div style={metricValue}>{currency(toNumber(portfolioQuery.data?.total_annuity_cost))}</div>
-              </div>
-              <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 10 }}>
-                <div style={metricLabel}>Ganho líquido</div>
-                <div style={metricValue}>{currency(toNumber(portfolioQuery.data?.net_annual_gain))}</div>
-              </div>
-            </div>
-
-            {portfolioCards.length === 0 && (
-              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Nenhuma recomendação de portfólio para os parâmetros atuais.</div>
-            )}
-            {portfolioCards.length > 0 && (
-              <div style={{ display: 'grid', gap: 8 }}>
-                {portfolioCards.slice(0, 4).map((item: any, idx: number) => (
-                  <div
-                    key={`${item.card_id || item.id || idx}`}
-                    style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', gap: 10 }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>{item.name || item.card_name || item.card_id || 'Cartão recomendado'}</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                        Cashback: {toNumber(item.cashback_pct || item.cashback || 0).toFixed(2)}%
+            {carteiraQ.isLoading && <div style={nota}>Montando a carteira…</div>}
+            {carteiraQ.isError && <Erro erro={carteiraQ.error} fallback="Não foi possível montar a carteira." />}
+            {carteiraQ.data && (
+              <>
+                <div style={{ ...grid(170), marginBottom: 10 }}>
+                  <Metrica rotulo="Retorno por ano" valor={brl(carteiraQ.data.total_annual_return)} />
+                  <Metrica rotulo="Anuidades" valor={brl(carteiraQ.data.total_annuity_cost)} />
+                  <Metrica rotulo="Ganho líquido por ano" valor={brl(carteiraQ.data.net_annual_gain)} />
+                  <Metrica rotulo="vs. melhor cartão único" valor={brl(carteiraQ.data.vs_single_best)}
+                    sub={carteiraQ.data.vs_single_best <= 0 ? 'um cartão só basta neste perfil' : 'a mais com a carteira'} />
+                </div>
+                {carteiraQ.data.cards.length === 0 && <div style={nota}>Nenhum cartão elegível rende neste perfil.</div>}
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {carteiraQ.data.cards.map(c => (
+                    <div key={c.card_id} style={{ ...box, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 10 }}>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 14 }}>{c.card_name} <span style={nota}>· {c.issuer}</span></div>
+                        <div style={nota}>{c.reason}</div>
+                        <div style={nota}>Use para: {c.assigned_categories.join(', ')} · {brl(c.monthly_spend_directed, 0)}/mês</div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 14, fontWeight: 700 }}>{brl(c.net_annual)}/ano</div>
+                        <div style={nota}>{c.effective_annuity > 0 ? `anuidade ${brl(c.effective_annuity, 0)}` : 'sem anuidade'}</div>
                       </div>
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {currency(toNumber(item.annual_return || item.estimated_return || 0))}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>ano</div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+                <div style={{ ...nota, marginTop: 8 }}>
+                  Base: todo o gasto elegível passando pelo cartão indicado. A análise completa, abaixo, considera só a parte que você já gasta no crédito — por isso os valores diferem.
+                </div>
+              </>
             )}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+          <div style={grid(280)}>
             <div style={card}>
-              <div style={sectionTitle}>Custo de oportunidade</div>
-              <select
-                value={currentCard}
-                onChange={(e) => setCurrentCard(e.target.value)}
-                style={{ width: '100%', border: '1px solid var(--border-color)', borderRadius: 8, padding: 8, marginBottom: 10 }}
-              >
+              <div style={sectionTitle}>Quanto o seu cartão atual deixa na mesa</div>
+              <select value={currentCard} onChange={e => setCurrentCard(e.target.value)} style={{ ...input, width: '100%', marginBottom: 10 }} aria-label="Seu cartão atual">
                 <option value="">Selecione seu cartão atual</option>
-                {optimizerCards.map((c: any) => (
-                  <option key={c.card_id || c.id} value={c.card_id || c.id}>
-                    {c.name || c.card_id || c.id}
-                  </option>
-                ))}
+                {(cartoesQ.data?.cards || []).map(c => <option key={c.card_id} value={c.card_id}>{c.name} · {c.issuer}</option>)}
               </select>
-
-              {!currentCard && <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Selecione um cartão para analisar troca e perda de retorno.</div>}
-
+              {!currentCard && <div style={nota}>Escolha o cartão que você usa hoje para comparar com as alternativas que você consegue contratar.</div>}
               {currentCard && (
                 <div style={{ display: 'grid', gap: 8 }}>
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={metricLabel}>Perda estimada</div>
-                    <div style={metricValue}>{currency(toNumber(opportunityQuery.data?.lost_value || opportunityQuery.data?.opportunity_cost || 0))}</div>
-                  </div>
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={metricLabel}>Melhor alternativa</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {opportunityQuery.data?.best_alternative || opportunityQuery.data?.recommended_card || 'Sem recomendação específica'}
+                  {custoQ.isLoading && <div style={nota}>Calculando…</div>}
+                  {custoQ.isError && <Erro erro={custoQ.error} fallback="Não foi possível calcular o custo de oportunidade." />}
+                  {custoQ.data && (custoQ.data.best_opportunity ? (
+                    <div style={box}>
+                      <div style={metricLabel}>Você deixou de ganhar (últimos {custoQ.data.period_months} meses, já sem anuidade)</div>
+                      <div style={metricValue}>{brl(custoQ.data.best_opportunity.difference)}</div>
+                      <div style={nota}>≈ {brl(custoQ.data.best_opportunity.difference_annualized, 0)}/ano com o {custoQ.data.best_opportunity.card_name}</div>
+                      <div style={{ ...nota, marginTop: 6 }}>{custoQ.data.best_opportunity.explanation}</div>
                     </div>
-                  </div>
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={metricLabel}>ROI do cartão atual</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {roiQuery.data?.verdict || roiQuery.data?.diagnosis || 'Sem diagnóstico'}
+                  ) : <div style={nota}>Nenhum cartão que você pode contratar rende mais que o {custoQ.data.current_card_name} no seu gasto.</div>)}
+                  {roiQ.isError && <Erro erro={roiQ.error} fallback="Não foi possível calcular o retorno do cartão." />}
+                  {roiQ.data && (
+                    <div style={box}>
+                      <div style={metricLabel}>O seu cartão compensa?</div>
+                      <div style={{ fontSize: 14, fontWeight: 700 }}>{ROTULO_VEREDICTO[roiQ.data.verdict] || roiQ.data.verdict}</div>
+                      <div style={nota}>
+                        Recompensa {brl(roiQ.data.reward_value_generated)}/ano − anuidade {brl(roiQ.data.annuity_paid)} = {brl(roiQ.data.net_roi)}
+                      </div>
+                      <div style={{ ...nota, marginTop: 4 }}><Markdown texto={roiQ.data.explanation} /></div>
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-                      Retorno anual: {currency(toNumber(roiQuery.data?.annual_return_value || roiQuery.data?.annual_return || 0))}
-                    </div>
-                  </div>
+                  )}
                 </div>
               )}
             </div>
 
             <div style={card}>
-              <div style={sectionTitle}>Promoções ativas</div>
-              {promotions.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Nenhuma promoção ativa no momento.</div>}
-              {promotions.slice(0, 5).map((promo: any, idx: number) => (
-                <div key={`${promo.id || promo.title || idx}`} style={{ borderBottom: '1px solid var(--border-color)', padding: '8px 0' }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{promo.title || promo.name || 'Promoção'}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                    {promo.description || promo.details || 'Condição promocional disponível.'}
-                  </div>
+              <div style={sectionTitle}>Promoções de transferência de pontos</div>
+              {promocoesQ.isError && <Erro erro={promocoesQ.error} fallback="Não foi possível carregar as promoções." />}
+              {promocoesQ.data && promocoesQ.data.promotions.length === 0 && (
+                <div style={nota}>Nenhuma promoção ativa agora. As da curadoria venceram — aparecem aqui quando houver nova.</div>
+              )}
+              {(promocoesQ.data?.promotions || []).slice(0, 5).map(p => (
+                <div key={p.id} style={{ borderBottom: '1px solid var(--border-color)', padding: '8px 0' }}>
+                  {/* o item não tem title/name: era sempre "Promoção" */}
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{p.loyalty_program} → {p.partner} (+{p.bonus_pct.toFixed(0)}%)</div>
+                  <div style={nota}>até {dataLonga(p.end_date)}{p.days_remaining > 0 ? ` · faltam ${p.days_remaining} dia(s)` : ''}{p.min_points ? ` · mínimo ${p.min_points.toLocaleString('pt-BR')} pontos` : ''}</div>
+                  <div style={nota}>{p.description}</div>
                 </div>
               ))}
-              <div style={{ marginTop: 10, borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
-                <div style={{ ...metricLabel, marginBottom: 6 }}>Oportunidades para o portfólio</div>
-                {(promotionOpportunitiesQuery.data?.opportunities || []).length === 0 && (
-                  <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Sem oportunidades personalizadas no momento.</div>
-                )}
-                {(promotionOpportunitiesQuery.data?.opportunities || []).slice(0, 3).map((item: any, idx: number) => (
-                  <div key={`${item.user_card || idx}`} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    • {item.user_card || 'Cartão'}: {item.alert_text || 'Promoção disponível'}
-                  </div>
-                ))}
-              </div>
             </div>
           </div>
 
           <div style={card}>
-            <div style={sectionTitle}>Optimizer Intelligence</div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-              <button
-                onClick={() => optimizerAnalysisMutation.mutate()}
-                style={{ border: '1px solid #111', background: 'var(--text-primary)', color: 'var(--bg-surface)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}
-              >
-                Rodar análise completa
+            <div style={sectionTitle}>Análise completa do seu perfil</div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button onClick={() => analiseM.mutate()} disabled={analiseM.isPending} style={botao}>
+                {analiseM.isPending ? 'Analisando…' : 'Rodar análise completa'}
               </button>
-              {currentCard && (
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', alignSelf: 'center' }}>
-                  Usando o cartão selecionado como referência atual.
-                </div>
-              )}
+              {currentCard && <span style={nota}>Usando o cartão selecionado como o atual.</span>}
             </div>
-
-            {optimizerAnalysisMutation.isPending && (
-              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Gerando relatório inteligente...</div>
-            )}
-            {optimizerAnalysisMutation.isError && (
-              <div style={{ fontSize: 12, color: '#991b1b', marginBottom: 8 }}>
-                {getErrorMessage(optimizerAnalysisMutation.error, 'Falha ao gerar análise completa do Optimizer.')}
-              </div>
-            )}
-
-            {!optimizerAnalysisMutation.isPending && Object.keys(optimizerAnalysis).length > 0 && (
+            {analiseM.isError && <Erro erro={analiseM.error} fallback="Não foi possível gerar a análise." />}
+            {analiseM.data && (
               <div style={{ display: 'grid', gap: 12 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={metricLabel}>Recomendação</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
-                      {optimizerAnalysis.recommendation_type || 'N/A'}
-                    </div>
-                  </div>
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={metricLabel}>Estratégia</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
-                      {optimizerAnalysis.strategy_text || 'N/A'}
-                    </div>
-                  </div>
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={metricLabel}>Melhor cartão</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
-                      {optimizerBestCard.card_name || optimizerBestCard.name || optimizerBestCard.card_id || 'Sem cartão'}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-                      Ganho líquido: {currency(toNumber(optimizerBestCard.net_gain_expected || optimizerBestCard.net_gain || 0))}
-                    </div>
-                  </div>
+                <div style={grid(200)}>
+                  <Metrica rotulo="Recomendação" valor={<span style={{ fontSize: 15 }}>{ROTULO_RECOMENDACAO[analiseM.data.recommendation_type] || analiseM.data.recommendation_type}</span>} />
+                  {analiseM.data.best_card && (
+                    <Metrica rotulo="Melhor cartão" valor={<span style={{ fontSize: 15 }}>{analiseM.data.best_card.card_name}</span>}
+                      sub={`ganho líquido ${brl(analiseM.data.best_card.net_gain_min, 0)} a ${brl(analiseM.data.best_card.net_gain_max, 0)}/ano (esperado ${brl(analiseM.data.best_card.net_gain_expected, 0)})`} />
+                  )}
                 </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={{ ...metricLabel, marginBottom: 8 }}>Resumo do perfil</div>
-                    <div style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
-                      <div>Cluster: {optimizerProfileSummary.lifestyle_cluster || optimizerProfileSummary.cluster || 'N/A'}</div>
-                      <div>FSS: {optimizerProfileSummary.fss ?? 'N/A'} {optimizerProfileSummary.fss_level ? `(${optimizerProfileSummary.fss_level})` : ''}</div>
-                      <div>Família com filhos: {optimizerProfileSummary.is_family_with_kids ? 'Sim' : 'Não'}</div>
-                      <div>Dia ideal de notificação: {optimizerProfileSummary.best_notification_day ?? 'N/A'}</div>
+                <div style={nota}>{analiseM.data.strategy_text}</div>
+                {!!analiseM.data.best_card?.eligibility_reasons?.length && (
+                  <div style={nota}>Por que você deve ser aprovado: {analiseM.data.best_card.eligibility_reasons.join(' · ')}</div>
+                )}
+                <div style={grid(220)}>
+                  <div style={box}>
+                    <div style={{ ...metricLabel, marginBottom: 8 }}>Seu perfil</div>
+                    <div style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
+                      <div>Gasto médio: {brl(analiseM.data.user_profile_summary.monthly_avg_spend || 0, 0)}/mês</div>
+                      <div>Estresse financeiro (FSS): {analiseM.data.user_profile_summary.fss ?? '—'}{analiseM.data.user_profile_summary.fss_level ? ` (${analiseM.data.user_profile_summary.fss_level.toLowerCase()})` : ''}</div>
+                      <div>Provável MEI: {analiseM.data.user_profile_summary.is_likely_mei ? 'sim' : 'não'}</div>
                     </div>
                   </div>
-
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={{ ...metricLabel, marginBottom: 8 }}>Eventos de vida detectados</div>
-                    {optimizerLifeEvents.length === 0 && (
-                      <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Nenhum evento relevante encontrado.</div>
-                    )}
-                    {optimizerLifeEvents.slice(0, 4).map((event: any, idx: number) => (
-                      <div key={`${event.event || idx}`} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                        • {event.event || 'Evento'} - {event.trigger_action || 'Ação sugerida'}
+                  <div style={box}>
+                    <div style={{ ...metricLabel, marginBottom: 8 }}>Mudanças de vida detectadas</div>
+                    {analiseM.data.life_events.length === 0 && <div style={nota}>Nenhuma.</div>}
+                    {analiseM.data.life_events.map(ev => (
+                      <div key={ev.event} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                        • {ROTULO_EVENTO[ev.event] || ev.event} <span style={nota}>({Math.round(ev.confidence * 100)}% de confiança)</span>
                       </div>
                     ))}
                   </div>
                 </div>
-
-                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                  <div style={{ ...metricLabel, marginBottom: 8 }}>Insights acionáveis</div>
-                  {optimizerInsights.length === 0 && (
-                    <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Nenhum insight acionável disponível.</div>
-                  )}
-                  {optimizerInsights.slice(0, 4).map((insight: any, idx: number) => (
-                    <div key={`${insight.type || idx}`} style={{ borderBottom: idx < Math.min(3, optimizerInsights.length - 1) ? '1px solid var(--border-color)' : 'none', padding: '8px 0' }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {insight.title || insight.type || 'Insight'}
+                {analiseM.data.insights.length > 0 && (
+                  <div style={box}>
+                    <div style={{ ...metricLabel, marginBottom: 8 }}>O que fazer</div>
+                    {analiseM.data.insights.slice(0, 4).map((ins, i) => (
+                      <div key={`${ins.type}-${i}`} style={{ padding: '6px 0' }}>
+                        <div style={{ fontSize: 13, fontWeight: 700 }}>{ins.title}</div>
+                        <div style={nota}>{ins.description}</div>
+                        {ins.gain_interval?.expected != null && <div style={nota}>Ganho estimado: {brl(ins.gain_interval.expected)}</div>}
+                        {ins.insight_id && (respondidos[ins.insight_id]
+                          ? <div style={nota}>{respondidos[ins.insight_id] === 'ACCEPTED' ? 'Anotado: você vai fazer.' : 'Anotado: não se aplica a você.'}</div>
+                          : <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                              <button style={botaoSec} disabled={responderInsightM.isPending} onClick={() => responderInsightM.mutate({ reportId: analiseM.data!.report_id, insightId: ins.insight_id, r: 'ACCEPTED' })}>Vou fazer</button>
+                              <button style={botaoSec} disabled={responderInsightM.isPending} onClick={() => responderInsightM.mutate({ reportId: analiseM.data!.report_id, insightId: ins.insight_id, r: 'REJECTED' })}>Não se aplica</button>
+                            </div>)}
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-                        {insight.description || 'Sem descrição disponível.'}
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
-                        Ganho: {insight.gain_interval?.expected ? currency(toNumber(insight.gain_interval.expected)) : 'N/A'}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {optimizerWarnings.length > 0 && (
-                  <div style={{ fontSize: 12, color: '#92400e' }}>
-                    {optimizerWarnings.slice(0, 3).map((warn: string, idx: number) => (
-                      <div key={`${idx}-${warn}`}>• {warn}</div>
                     ))}
                   </div>
                 )}
-
-                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                  <div style={{ ...metricLabel, marginBottom: 8 }}>Histórico de relatórios</div>
-                  {optimizerReports.length === 0 && (
-                    <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Nenhum relatório salvo encontrado.</div>
-                  )}
-                  {optimizerReports.slice(0, 4).map((report: any, idx: number) => (
-                    <div key={`${report.report_id || idx}`} style={{ borderBottom: idx < Math.min(3, optimizerReports.length - 1) ? '1px solid var(--border-color)' : 'none', padding: '8px 0' }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {report.best_card?.card_name || report.best_card_name || report.recommendation_type || 'Relatório'}
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-                        {report.generated_at ? String(report.generated_at).slice(0, 10) : 'Data indisponível'}
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
-                        {report.strategy_text || 'Sem descrição resumida.'}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                {analiseM.data.warnings.length > 0 && <div style={aviso}>{analiseM.data.warnings.slice(0, 3).map((w, i) => <div key={i}>• {w}</div>)}</div>}
               </div>
             )}
+
+            {/* fora do resultado: o histórico só aparecia depois de rodar uma análise nova */}
+            <div style={{ ...box, marginTop: 12 }}>
+              <div style={{ ...metricLabel, marginBottom: 8 }}>Análises anteriores</div>
+              {relatoriosQ.isError && <Erro erro={relatoriosQ.error} fallback="Não foi possível carregar o histórico." />}
+              {relatoriosQ.data && relatoriosQ.data.reports.length === 0 && <div style={nota}>Nenhuma análise salva ainda.</div>}
+              {(relatoriosQ.data?.reports || []).slice(0, 4).map(r => (
+                <div key={r.report_id} style={{ padding: '6px 0', borderBottom: '1px solid var(--border-color)' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{r.best_card_name || ROTULO_RECOMENDACAO[r.recommendation_type] || 'Análise'}</div>
+                  <div style={nota}>{dataLonga(r.generated_at?.slice(0, 10))}{r.net_gain_expected != null ? ` · ganho esperado ${brl(r.net_gain_expected, 0)}/ano` : ''}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
 
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━ CONTAS E CARTÕES ━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {tab === 'cards' && (
         <div style={{ display: 'grid', gap: 12 }}>
-          {isCardsLoading && (
-            <div style={{ ...card, color: 'var(--text-muted)', fontSize: 14 }}>Carregando cartões detectados nas transações...</div>
-          )}
-
           <div style={card}>
-            <div style={sectionTitle}>Cartões cadastrados na conta</div>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
-              Esta visão usa diretamente as transações injetadas no backend para agrupar as contas/cartões do seu `user_id`.
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 12 }}>
-              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                <div style={metricLabel}>Cartões/contas detectados</div>
-                <div style={metricValue}>{accountCardSummaries.length}</div>
-              </div>
-              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                <div style={metricLabel}>Transações carregadas</div>
-                <div style={metricValue}>{transactionCards.length}</div>
-              </div>
-              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                <div style={metricLabel}>Total de despesas</div>
-                <div style={metricValue}>{currency(transactionCards.reduce((sum: number, tx: any) => sum + (toNumber(tx.amount) < 0 ? Math.abs(toNumber(tx.amount)) : 0), 0))}</div>
-              </div>
-            </div>
-
-            {accountCardSummaries.length === 0 && (
-              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>
-                Nenhuma conta/cartão encontrado nas transações atuais.
-              </div>
+            <div style={sectionTitle}>Contas e cartões no seu extrato</div>
+            {lancamentosQ.isLoading && <div style={nota}>Carregando lançamentos…</div>}
+            {lancamentosQ.isError && <Erro erro={lancamentosQ.error} fallback="Não foi possível carregar os lançamentos." />}
+            {lancamentosQ.data && (
+              <>
+                <div style={{ ...grid(180), marginBottom: 8 }}>
+                  <Metrica rotulo="Contas/cartões" valor={contas.length} />
+                  <Metrica rotulo="Lançamentos analisados" valor={lancamentosQ.data.transactions.length.toLocaleString('pt-BR')}
+                    sub={lancamentosQ.data.has_more ? `os mais recentes de ${lancamentosQ.data.total.toLocaleString('pt-BR')}` : 'todos'} />
+                </div>
+                {contas.length === 0 && <div style={nota}>Nenhum lançamento ainda.</div>}
+              </>
             )}
           </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-            {accountCardSummaries.map((item: any) => {
-              const topCategory = Object.entries(item.categories || {})
-                .sort((a, b) => Number(b[1]) - Number(a[1]))[0];
-
+          <div style={grid(280)}>
+            {contas.map(c => {
+              const top = Object.entries(c.cats).sort((a, b) => b[1] - a[1])[0];
               return (
-                <div key={item.account_id} style={card}>
-                  <div style={sectionTitle}>{item.label}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
-                    ID da conta/cartão: {item.account_id}
+                <div key={c.id} style={card}>
+                  <div style={sectionTitle}>{c.id}</div>
+                  <div style={grid(120)}>
+                    <Metrica rotulo="Lançamentos" valor={c.n} />
+                    <Metrica rotulo="Saídas" valor={brl(c.gasto, 0)} />
+                    <Metrica rotulo="Entradas" valor={brl(c.entrada, 0)} />
                   </div>
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                      <div style={metricLabel}>Movimentações</div>
-                      <div style={metricValue}>{item.transaction_count}</div>
-                    </div>
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                      <div style={metricLabel}>Despesas</div>
-                      <div style={metricValue}>{currency(item.total_spent)}</div>
-                    </div>
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                      <div style={metricLabel}>Receitas</div>
-                      <div style={metricValue}>{currency(item.total_income)}</div>
-                    </div>
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                      <div style={metricLabel}>Categoria dominante</div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {topCategory ? `${topCategory[0]} (${currency(toNumber(topCategory[1]))})` : 'Sem categoria'}
-                      </div>
-                    </div>
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                      <div style={metricLabel}>Última movimentação</div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {item.last_activity ? String(item.last_activity).slice(0, 10) : 'Sem data'}
-                      </div>
-                    </div>
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                      <div style={metricLabel}>Exemplos</div>
-                      <div style={{ display: 'grid', gap: 4 }}>
-                        {(item.sample_descriptions || []).slice(0, 3).map((desc: string, idx: number) => (
-                          <div key={`${item.account_id}-${idx}`} style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                            • {desc}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                      <div style={metricLabel}>Saldo líquido nas transações</div>
-                      <div style={metricValue}>{currency(item.net_total)}</div>
-                    </div>
+                  <div style={{ ...nota, marginTop: 8 }}>
+                    Maior categoria: {top ? `${top[0]} (${brl(top[1], 0)})` : '—'} · último lançamento em {dataCurta(c.ultima)}
                   </div>
                 </div>
               );
@@ -785,428 +482,362 @@ export const StrategiesPage: React.FC = () => {
         </div>
       )}
 
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━ GRANDE COMPRA ━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {tab === 'architect' && (
         <div style={{ display: 'grid', gap: 12 }}>
-          {isArchitectLoading && (
-            <div style={{ ...card, color: 'var(--text-muted)', fontSize: 14 }}>Carregando histórico e métricas do Architect...</div>
-          )}
           <div style={card}>
-            <div style={sectionTitle}>Simulação estratégica</div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-              <input type="number" value={targetAmount} onChange={(e) => setTargetAmount(Number(e.target.value || 0))} style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }} />
-              <input type="number" value={downPayment} onChange={(e) => setDownPayment(Number(e.target.value || 0))} style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }} />
-              <input type="number" value={months} onChange={(e) => setMonths(Number(e.target.value || 0))} style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }} />
-              <button
-                onClick={() => architectMutation.mutate()}
-                style={{ border: '1px solid #111', background: 'var(--text-primary)', color: 'var(--bg-surface)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}
-              >
-                Simular
+            <div style={sectionTitle}>Financiar, consórcio ou juntar e pagar à vista?</div>
+            <div style={{ ...grid(150), marginBottom: 10, alignItems: 'end' }}>
+              {([['valor', 'Valor do bem (R$)'], ['entrada', 'Entrada (R$)'], ['meses', 'Prazo (meses)']] as const).map(([k, rot]) => (
+                <label key={k} style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>{rot}
+                  <input value={bem[k]} inputMode="decimal" onChange={e => setBem({ ...bem, [k]: e.target.value })} style={input} />
+                </label>
+              ))}
+              <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>Tipo
+                <select value={bem.tipo} onChange={e => setBem({ ...bem, tipo: e.target.value as TipoDeBem })} style={input}>
+                  {(['VEICULO', 'IMOVEL', 'REFORMA', 'VIAGEM', 'OUTRO'] as TipoDeBem[]).map(t => (
+                    <option key={t} value={t}>{({ VEICULO: 'Veículo', IMOVEL: 'Imóvel', REFORMA: 'Reforma', VIAGEM: 'Viagem', OUTRO: 'Outro' })[t]}</option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>Perfil de risco
+                <select value={bem.risco} onChange={e => setBem({ ...bem, risco: e.target.value as PerfilDeRisco })} style={input}>
+                  <option value="conservador">Conservador</option><option value="moderado">Moderado</option><option value="agressivo">Arrojado</option>
+                </select>
+              </label>
+              <button onClick={() => simularM.mutate()} disabled={simularM.isPending || !(lerValor(bem.valor) > 0)} style={botao}>
+                {simularM.isPending ? 'Simulando… (até 30 s)' : 'Simular'}
               </button>
             </div>
 
-            {architectMutation.isPending && <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Processando simulação...</div>}
-
-            {!architectMutation.isPending && Object.keys(architectResult).length === 0 && (
-              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Execute uma simulação para comparar estratégias e custos.</div>
-            )}
-
-            {!architectMutation.isPending && Object.keys(architectResult).length > 0 && (
-              <div style={{ display: 'grid', gap: 10 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={metricLabel}>Estratégia recomendada</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
-                      {architectResult.recommended_strategy || 'N/A'}
-                    </div>
+            {/* erro aparece como erro — timeout e 422 voltavam para "Execute uma simulação…" */}
+            {simularM.isError && <Erro erro={simularM.error} fallback="A simulação falhou." />}
+            {!simularM.data && !simularM.isPending && !simularM.isError && <div style={nota}>Compara as estratégias pelo custo em valor presente e pelo impacto na sua liquidez.</div>}
+            {simularM.data && (() => {
+              const r = simularM.data;
+              const npv: [string, number | null | undefined][] = [
+                ['Financiamento', r.npv.financing], ['Consórcio', r.npv.consortium], ['Juntar e comprar à vista', r.npv.save_invest],
+                ...(typeof r.npv.financing_rental === 'number' ? [['Financiar e alugar', r.npv.financing_rental] as [string, number]] : []),
+                ...(typeof r.npv.consortium_selic_rental === 'number' ? [['Consórcio + renda fixa + aluguel', r.npv.consortium_selic_rental] as [string, number]] : []),
+              ];
+              return (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  <div style={grid(180)}>
+                    <Metrica rotulo="Estratégia recomendada" valor={<span style={{ fontSize: 15 }}>{ROTULO_ESTRATEGIA[r.recommended_strategy] || r.recommended_strategy}</span>} />
+                    <Metrica rotulo="Confiança" valor={pct(r.confidence_score * 100, 0)} />
+                    <Metrica rotulo="Prazo até ter o bem" valor={`${r.months_to_achieve} meses`} />
+                    <Metrica rotulo="Custo total esperado" valor={brl(r.costs.expected_cost, 0)} />
+                    <Metrica rotulo="Impacto na liquidez" valor={pct(r.liquidity_impact * 100, 0)} />
                   </div>
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={metricLabel}>Confiança</div>
-                    <div style={metricValue}>{(toNumber(architectResult.confidence_score) * 100).toFixed(0)}%</div>
+                  <div style={box}>
+                    <div style={{ ...metricLabel, marginBottom: 8 }}>Custo em valor presente (quanto menos negativo, melhor)</div>
+                    {npv.map(([rot, v]) => (
+                      <div key={rot} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '2px 0' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>{rot}</span>
+                        {/* null era R$ 0,00 — parecia o melhor ao lado de valores negativos */}
+                        <strong>{typeof v === 'number' ? brl(v, 0) : 'não calculado'}</strong>
+                      </div>
+                    ))}
+                    {r.ssd_guarantee && <div style={{ ...nota, marginTop: 6 }}>{r.ssd_guarantee}</div>}
                   </div>
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={metricLabel}>Prazo alvo</div>
-                    <div style={metricValue}>{toNumber(architectResult.months_to_achieve)} meses</div>
+                  <div style={box}>
+                    <div style={{ ...metricLabel, marginBottom: 8 }}>Plano de ação</div>
+                    {r.action_plan.length === 0 && <div style={nota}>Sem plano detalhado.</div>}
+                    {r.action_plan.map(p => <div key={p.step} style={{ fontSize: 13, marginBottom: 4 }}>{p.step}. {p.action}</div>)}
                   </div>
+                  {r.warnings.length > 0 && <div style={aviso}>{r.warnings.slice(0, 3).map((w, i) => <div key={i}>• {w}</div>)}</div>}
                 </div>
+              );
+            })()}
+          </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={metricLabel}>Custo esperado</div>
-                    <div style={metricValue}>{currency(toNumber(architectResult?.costs?.expected_cost))}</div>
-                  </div>
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={metricLabel}>Liquidez impactada</div>
-                    <div style={metricValue}>{(toNumber(architectResult.liquidity_impact) * 100).toFixed(0)}%</div>
-                  </div>
-                </div>
-
-                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                  <div style={{ ...metricLabel, marginBottom: 8 }}>Comparativo NPV</div>
-                  <div style={{ display: 'grid', gap: 7 }}>
-                    {Object.entries(architectNpv)
-                      .filter(([k]) => k !== 'discount_rate_used')
-                      .slice(0, 5)
-                      .map(([key, value]) => (
-                        <div key={key} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                          <span style={{ color: 'var(--text-secondary)', textTransform: 'capitalize' }}>{key.replaceAll('_', ' ')}</span>
-                          <strong style={{ color: 'var(--text-primary)' }}>{currency(toNumber(value))}</strong>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-
-                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                  <div style={{ ...metricLabel, marginBottom: 8 }}>Plano de ação</div>
-                  {architectActionPlan.length === 0 && (
-                    <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Sem plano detalhado disponível.</div>
-                  )}
-                  {architectActionPlan.slice(0, 5).map((step: any, idx: number) => (
-                    <div key={`${step.step || idx}`} style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                      {idx + 1}. {step.action || 'Executar próxima etapa.'}
+          <div style={grid(280)}>
+            <div style={card}>
+              <div style={sectionTitle}>Simulações anteriores</div>
+              {(pendentesQ.data || []).length > 0 && (
+                <div style={{ ...box, marginBottom: 8 }}>
+                  <div style={{ ...metricLabel, marginBottom: 6 }}>Passados alguns meses: o que você fez? (deixa as próximas simulações mais certeiras)</div>
+                  {responderSimM.isError && <Erro erro={responderSimM.error} fallback="Não foi possível registrar." />}
+                  {(pendentesQ.data || []).map(p => (
+                    <div key={p.simulation_id} style={{ fontSize: 12, padding: '4px 0', display: 'grid', gap: 4 }}>
+                      <span>{dataLonga(p.created_at.slice(0, 10))}: recomendamos {ROTULO_ESTRATEGIA[p.recommended_strategy] || p.recommended_strategy}.</span>
+                      <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        <button style={botaoSec} disabled={responderSimM.isPending} onClick={() => responderSimM.mutate({ id: p.simulation_id, seguiu: true, estrategia: p.recommended_strategy })}>Segui</button>
+                        {(['FINANCING', 'CONSORTIUM', 'SAVE_INVEST'] as Estrategia[]).filter(e => e !== p.recommended_strategy).map(e => (
+                          <button key={e} style={botaoSec} disabled={responderSimM.isPending} onClick={() => responderSimM.mutate({ id: p.simulation_id, seguiu: false, estrategia: e })}>Fiz {ROTULO_ESTRATEGIA[e].toLowerCase()}</button>
+                        ))}
+                      </span>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-            <div style={card}>
-              <div style={sectionTitle}>Histórico</div>
-              {(!Array.isArray(architectHistory.data) || architectHistory.data.length === 0) && (
-                <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Nenhuma simulação prévia encontrada.</div>
               )}
-              {Array.isArray(architectHistory.data) && architectHistory.data.slice(0, 5).map((sim: any, idx: number) => (
-                <div key={`${sim.simulation_id || idx}`} style={{ borderBottom: '1px solid var(--border-color)', padding: '8px 0' }}>
-                  <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>{sim.recommended_strategy || 'Estratégia simulada'}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    {sim.created_at ? String(sim.created_at).slice(0, 10) : 'Data indisponível'}
-                  </div>
+              {simulacoesQ.isError && <Erro erro={simulacoesQ.error} fallback="Não foi possível carregar o histórico." />}
+              {simulacoesQ.data && simulacoesQ.data.length === 0 && <div style={nota}>Nenhuma simulação ainda.</div>}
+              {(simulacoesQ.data || []).slice(0, 5).map(sim => (
+                <div key={sim.id} style={{ borderBottom: '1px solid var(--border-color)', padding: '8px 0' }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{ROTULO_ESTRATEGIA[sim.recommended_strategy] || sim.recommended_strategy} · {brl(sim.target_amount, 0)}</div>
+                  <div style={nota}>{dataLonga(sim.created_at?.slice(0, 10))} · {sim.months_to_achieve} meses · custo {brl(sim.expected_cost, 0)}</div>
                 </div>
               ))}
             </div>
             <div style={card}>
-              <div style={sectionTitle}>Métricas</div>
-              <div style={{ display: 'grid', gap: 8 }}>
-                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                  <div style={metricLabel}>Simulações totais</div>
-                  <div style={metricValue}>{toNumber(architectMetrics.data?.total_simulations)}</div>
+              <div style={sectionTitle}>Resumo</div>
+              {metricasQ.isError && <Erro erro={metricasQ.error} fallback="Não foi possível carregar as métricas." />}
+              {metricasQ.data && (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <Metrica rotulo="Simulações feitas" valor={metricasQ.data.total_simulations} />
+                  <Metrica rotulo="Estratégia mais recomendada" valor={<span style={{ fontSize: 15 }}>{metricasQ.data.favorite_strategy ? ROTULO_ESTRATEGIA[metricasQ.data.favorite_strategy] || metricasQ.data.favorite_strategy : '—'}</span>}
+                    sub={metricasQ.data.avg_confidence_score != null ? `confiança média ${pct(metricasQ.data.avg_confidence_score * 100, 0)}` : undefined} />
                 </div>
-                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                  <div style={metricLabel}>Estratégia mais usada</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
-                    {architectMetrics.data?.most_common_strategy || architectMetrics.data?.top_strategy || 'N/A'}
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━ MEI / FISCAL ━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {tab === 'fiscal' && (
         <div style={{ display: 'grid', gap: 12 }}>
-          {isFiscalLoading && (
-            <div style={{ ...card, color: 'var(--text-muted)', fontSize: 14 }}>Carregando relatório fiscal...</div>
-          )}
           <div style={card}>
-            <div style={sectionTitle}>Parâmetros fiscais</div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-              <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value || new Date().getFullYear()))} style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }} />
-              <select value={month} onChange={(e) => setMonth(e.target.value === '' ? '' : Number(e.target.value))} style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }}>
-                <option value="">Todos</option>
-                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={nota}>Período:</span>
+              <input type="number" value={year} onChange={e => setYear(Number(e.target.value || new Date().getFullYear()))} style={{ ...input, width: 100 }} aria-label="Ano" />
+              <select value={month} onChange={e => setMonth(e.target.value === '' ? '' : Number(e.target.value))} style={input} aria-label="Mês">
+                <option value="">Ano inteiro</option>
+                {MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
               </select>
             </div>
+            <div style={{ ...nota, marginTop: 6 }}>Só entra o que o extrato classificou como da empresa (PJ). Corrija abaixo o que estiver errado.</div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+          <div style={grid(300)}>
             <div style={card}>
-              <div style={sectionTitle}>Relatório Fiscal</div>
-              <div style={{ display: 'grid', gap: 8 }}>
-                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                  <div style={metricLabel}>Total dedutível</div>
-                  <div style={metricValue}>{currency(toNumber(fiscalData.total_deductible || fiscalData.deductible_total))}</div>
-                </div>
-                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                  <div style={metricLabel}>Economia estimada</div>
-                  <div style={metricValue}>{currency(toNumber(fiscalData.estimated_savings || fiscalData.tax_savings))}</div>
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                  {fiscalData.summary_text || 'Dados fiscais consolidados para o período selecionado.'}
-                </div>
-              </div>
-            </div>
-            <div style={card}>
-              <div style={sectionTitle}>Uso Misto PF/PJ</div>
-              <div style={{ display: 'grid', gap: 8 }}>
-                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                  <div style={metricLabel}>Transações com uso misto</div>
-                  <div style={metricValue}>{toNumber(mixedUseData.total_mixed_transactions || mixedUseData.count)}</div>
-                </div>
-                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                  <div style={metricLabel}>Percentual misto</div>
-                  <div style={metricValue}>{toNumber(mixedUseData.mixed_pct || mixedUseData.percentage).toFixed(1)}%</div>
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                  {mixedUseData.summary_text || 'Monitoramento de transações com potencial sobreposição entre PF e PJ.'}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {tab === 'peers' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-          {isPeersLoading && (
-            <div style={{ ...card, color: 'var(--text-muted)', fontSize: 14 }}>Carregando benchmark e notificações...</div>
-          )}
-          <div style={card}>
-            <div style={sectionTitle}>Benchmark com pares</div>
-            <input
-              type="number"
-              value={income}
-              onChange={(e) => setIncome(Number(e.target.value || 0))}
-              style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8, width: 180, marginBottom: 10 }}
-            />
-            {income <= 0 && (
-              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 10 }}>
-                Informe a renda mensal para habilitar benchmark e notificações.
-              </div>
-            )}
-            <div style={{ display: 'grid', gap: 8 }}>
-              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                <div style={metricLabel}>Score de comparação</div>
-                <div style={metricValue}>{toNumber(peerData.peer_score || peerData.comparison_score)}</div>
-              </div>
-              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                <div style={metricLabel}>Posição de gastos</div>
-                <div style={metricValue}>{toNumber(peerData.expense_percentile).toFixed(0)}%</div>
-              </div>
-              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                <div style={{ ...metricLabel, marginBottom: 8 }}>Insights</div>
-                {topPeerInsights.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Sem insights disponíveis para a faixa atual.</div>}
-                {topPeerInsights.map((insight, idx) => (
-                  <div key={`${idx}-${insight}`} style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 5 }}>
-                    • {insight}
+              <div style={sectionTitle}>Relatório do negócio</div>
+              {fiscalQ.isLoading && <div style={nota}>Carregando…</div>}
+              {fiscalQ.isError && <Erro erro={fiscalQ.error} fallback="Não foi possível gerar o relatório fiscal." />}
+              {fiscalQ.data && (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <div style={grid(130)}>
+                    <Metrica rotulo="Receita" valor={brl(fiscalQ.data.total_receita, 0)} />
+                    <Metrica rotulo="Despesas" valor={brl(fiscalQ.data.total_despesa, 0)} />
+                    <Metrica rotulo="Lucro estimado" valor={brl(fiscalQ.data.lucro_estimado, 0)} />
                   </div>
-                ))}
-              </div>
+                  <Metrica rotulo={`DAS estimado (${fiscalQ.data.period_label})`} valor={brl(fiscalQ.data.das_estimado)}
+                    sub={`${fiscalQ.data.das_faixa || '—'} · alíquota efetiva ${pct(fiscalQ.data.das_aliquota_efetiva, 2)}${fiscalQ.data.fator_r != null ? ` · Fator R ${pct(fiscalQ.data.fator_r * 100)}` : ''}`} />
+                  {fiscalQ.data.das_observacao && <div style={nota}>{fiscalQ.data.das_observacao}</div>}
+                  {[['Receitas', fiscalQ.data.receitas], ['Despesas', fiscalQ.data.despesas]].map(([rot, linhas]) => (
+                    (linhas as typeof fiscalQ.data.receitas).length > 0 && (
+                      <div key={rot as string} style={box}>
+                        <div style={{ ...metricLabel, marginBottom: 6 }}>{rot as string}</div>
+                        {(linhas as typeof fiscalQ.data.receitas).map(l => (
+                          <div key={l.subcategory} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0' }}>
+                            <span>{l.label} <span style={nota}>({l.count})</span></span><strong>{brl(l.total, 0)}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-          <div style={card}>
-            <div style={sectionTitle}>Notificações</div>
-            {notifications.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Sem notificações recentes.</div>}
-            {notifications.slice(0, 8).map((note: any, idx: number) => (
-              <div key={`${note.id || idx}`} style={{ borderBottom: '1px solid var(--border-color)', padding: '8px 0' }}>
-                <div style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 600 }}>
-                  {note.title || note.type || 'Notificação'}
+            <div style={card}>
+              <div style={sectionTitle}>Gastos de uso misto (casa e empresa)</div>
+              {mistoQ.isError && <Erro erro={mistoQ.error} fallback="Não foi possível detectar uso misto." />}
+              {mistoQ.data && (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <div style={grid(130)}>
+                    <Metrica rotulo="Lançamentos" valor={mistoQ.data.candidates.length} />
+                    <Metrica rotulo="Gasto misto" valor={brl(mistoQ.data.total_mixed_spend, 0)} />
+                    <Metrica rotulo="Parte dedutível (PJ)" valor={brl(mistoQ.data.total_pj_deductible, 0)}
+                      sub={mistoQ.data.total_mixed_spend > 0 ? `${pct((mistoQ.data.total_pj_deductible / mistoQ.data.total_mixed_spend) * 100, 0)} do gasto misto` : undefined} />
+                  </div>
+                  {corrigirM.isError && <Erro erro={corrigirM.error} fallback="Não foi possível salvar a correção." />}
+                  {mistoQ.data.candidates.slice(0, 8).map(c => (
+                    <div key={c.transaction_id} style={{ ...box, display: 'grid', gap: 4 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                        <span>{c.description}</span><strong>{brl(Math.abs(c.amount))}</strong>
+                      </div>
+                      <div style={nota}>{dataCurta(c.date)} · {c.explanation}</div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button style={botaoSec} disabled={corrigirM.isPending} onClick={() => corrigirM.mutate({ id: c.transaction_id, ctx: 'PJ' })}>É da empresa</button>
+                        <button style={botaoSec} disabled={corrigirM.isPending} onClick={() => corrigirM.mutate({ id: c.transaction_id, ctx: 'PF' })}>É pessoal</button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                  {note.message || note.description || 'Atualização financeira disponível.'}
-                </div>
-              </div>
-            ))}
+              )}
+            </div>
           </div>
         </div>
       )}
 
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ COMPARAÇÃO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {tab === 'peers' && (
+        <div style={card}>
+          <div style={sectionTitle}>Você comparado a pessoas com renda parecida</div>
+          <div style={{ marginBottom: 10 }}>{campoRenda}</div>
+          {pares.isLoading && <div style={nota}>Comparando…</div>}
+          {pares.isError && <Erro erro={pares.error} fallback="Não foi possível comparar." />}
+          {pares.data && (
+            <div style={{ display: 'grid', gap: 10 }}>
+              {/* score/percentil de gasto não existem na resposta: eram sempre 0 */}
+              <div style={grid(180)}>
+                <Metrica rotulo="Quanto você poupa" valor={pct(pares.data.user_savings_rate)} sub={`pessoas parecidas: ${pct(pares.data.benchmark_savings_rate)}`} />
+                <Metrica rotulo="Sua posição" valor={<span style={{ fontSize: 15 }}>{pares.data.savings_percentile_label}</span>} sub={pares.data.bracket_label} />
+              </div>
+              {pares.data.highlights_above.length > 0 && <div style={{ fontSize: 13 }}>Gasta <strong>acima</strong> do esperado em: {pares.data.highlights_above.join(', ')}</div>}
+              {pares.data.highlights_below.length > 0 && <div style={{ fontSize: 13 }}>Gasta <strong>abaixo</strong> do esperado em: {pares.data.highlights_below.join(', ')}</div>}
+              <div style={box}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '4px 16px', fontSize: 12 }}>
+                  <span style={metricLabel}>Categoria</span><span style={metricLabel}>Você</span><span style={metricLabel}>Parecidos</span>
+                  {pares.data.categories.map(c => (
+                    <div key={c.category} style={{ display: 'contents' }}>
+                      <span title={c.insight}>{c.label}</span>
+                      <strong style={{ color: c.user_pct > c.benchmark_pct * 1.2 ? '#b91c1c' : undefined }}>{pct(c.user_pct, 0)}</strong>
+                      <span>{pct(c.benchmark_pct, 0)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={nota}>Percentual da renda por categoria. Fonte: {pares.data.benchmark_source}.</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ━━━━━━━━━━━━━━━━━━━━ TARIFAS · COMPRA · NEGOCIAÇÃO ━━━━━━━━━━━━━━━━━━━━ */}
       {tab === 'advanced' && (
         <div style={{ display: 'grid', gap: 12 }}>
-          {isAdvancedLoading && (
-            <div style={{ ...card, color: 'var(--text-muted)', fontSize: 14 }}>Carregando análise de custos bancários...</div>
-          )}
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+          <div style={grid(300)}>
             <div style={card}>
-              <div style={sectionTitle}>F5 • Raio-X de Custos Bancários</div>
-              {costsQuery.isError && (
-                <div style={{ fontSize: 12, color: '#991b1b', marginBottom: 8 }}>
-                  {getErrorMessage(costsQuery.error, 'Falha ao carregar custos bancários. Verifique se o usuário possui extratos no backend.')}
+              <div style={sectionTitle}>Raio-X do que o banco te cobra</div>
+              {raioXQ.isLoading && <div style={nota}>Analisando tarifas…</div>}
+              {raioXQ.isError && <Erro erro={raioXQ.error} fallback="Não foi possível analisar as tarifas." />}
+              {raioXQ.data && (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <div style={grid(130)}>
+                    <Metrica rotulo={`Pago em ${raioXQ.data.analysis_months} meses`} valor={brl(raioXQ.data.total_paid, 0)} sub={`${dataCurta(raioXQ.data.period_start)} a ${dataCurta(raioXQ.data.period_end)}`} />
+                    <Metrica rotulo="Por mês" valor={brl(raioXQ.data.monthly_avg)} />
+                    <Metrica rotulo="Dá para economizar" valor={`${brl(raioXQ.data.savings_opportunity)}/mês`} />
+                  </div>
+                  {Object.entries(raioXQ.data.by_fee_type).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                      <span>{ROTULO_TARIFA[k] || k}</span><strong>{brl(v, 0)}</strong>
+                    </div>
+                  ))}
+                  {raioXQ.data.by_bank.length > 0 && <div style={nota}>Bancos: {raioXQ.data.by_bank.map(b => `${b.bank_name} (${brl(b.monthly_avg)}/mês)`).join(' · ')}</div>}
+                  {raioXQ.data.total_paid === 0 && <div style={nota}>Nenhuma tarifa encontrada no extrato.</div>}
                 </div>
               )}
-              <div style={{ display: 'grid', gap: 8 }}>
-                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                  <div style={metricLabel}>Total pago no período</div>
-                  <div style={metricValue}>{currency(toNumber(costsData.total_paid))}</div>
-                </div>
-                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                  <div style={metricLabel}>Média mensal</div>
-                  <div style={metricValue}>{currency(toNumber(costsData.monthly_avg))}</div>
-                </div>
-                <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                  <div style={metricLabel}>Economia potencial/mês</div>
-                  <div style={metricValue}>{currency(toNumber(costsData.savings_opportunity))}</div>
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                  {Array.isArray(costsData.by_bank) && costsData.by_bank.length > 0
-                    ? `${costsData.by_bank.length} bancos analisados.`
-                    : 'Sem dados suficientes para análise de tarifas.'}
-                </div>
-              </div>
             </div>
 
             <div style={card}>
-              <div style={sectionTitle}>F7 • Modo Compra Inteligente</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
-                Contexto atual: renda {contextIncome > 0 ? currency(contextIncome) : 'não detectada'} • safe-to-spend {currency(contextSafeToSpend)} • score {contextHealthScore.toFixed(0)}/100 • perfil {contextRiskProfile}
-              </div>
+              <div style={sectionTitle}>Compra inteligente: como pagar?</div>
               <div style={{ display: 'grid', gap: 8, marginBottom: 10 }}>
-                <input
-                  type="number"
-                  value={purchaseAmount}
-                  onChange={(e) => setPurchaseAmount(Number(e.target.value || 0))}
-                  style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }}
-                />
-                <input
-                  value={purchaseCategory}
-                  onChange={(e) => setPurchaseCategory(e.target.value)}
-                  placeholder="Categoria"
-                  style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }}
-                />
-                <input
-                  type="number"
-                  value={purchaseInstallments}
-                  min={1}
-                  max={48}
-                  onChange={(e) => {
-                    setAutoInstallments(false);
-                    setPurchaseInstallments(Number(e.target.value || 1));
-                  }}
-                  style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }}
-                />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    Sugestão inteligente: {suggestedInstallments}x
-                  </span>
-                  <button
-                    onClick={() => {
-                      setAutoInstallments(true);
-                      setPurchaseInstallments(suggestedInstallments);
-                    }}
-                    style={{ border: '1px solid var(--border-color)', background: 'var(--bg-surface)', color: 'var(--text-primary)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 12 }}
-                  >
-                    Usar sugestão
+                <div style={grid(130)}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>Valor (R$)
+                    <input value={compra.valor} inputMode="decimal" onChange={e => setCompra({ ...compra, valor: e.target.value })} style={input} />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>Preço à vista, se tiver desconto
+                    <input value={compra.aVista} inputMode="decimal" placeholder="opcional" onChange={e => setCompra({ ...compra, aVista: e.target.value })} style={input} />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>Categoria
+                    <input value={compra.categoria} onChange={e => setCompra({ ...compra, categoria: e.target.value })} style={input} />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>Parcelas
+                    <input type="number" min={1} max={48} value={parcelas}
+                      onChange={e => { setAutoParcelas(false); setCompra({ ...compra, parcelas: Number(e.target.value || 1) }); }} style={input} />
+                  </label>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={nota}>Sugestão para o seu orçamento: {parcelasSugeridas}x</span>
+                  <button style={botaoSec} onClick={() => setAutoParcelas(true)}>Usar sugestão</button>
+                  <button style={botao} disabled={compraM.isPending || !(valorCompra > 0)} onClick={() => compraM.mutate()}>
+                    {compraM.isPending ? 'Calculando…' : 'Analisar compra'}
                   </button>
                 </div>
-                <button
-                  onClick={() => purchaseMutation.mutate()}
-                  style={{ border: '1px solid #111', background: 'var(--text-primary)', color: 'var(--bg-surface)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}
-                >
-                  Analisar compra
-                </button>
               </div>
-
-              {purchaseMutation.isPending && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Calculando melhores opções...</div>}
-              {purchaseMutation.isError && (
-                <div style={{ fontSize: 12, color: '#991b1b', marginBottom: 8 }}>
-                  {getErrorMessage(purchaseMutation.error, 'Falha ao analisar compra. Verifique autenticação e dados disponíveis no backend.')}
-                </div>
-              )}
-              {!purchaseMutation.isPending && Object.keys(purchaseData).length > 0 && (
+              {compraM.isError && <Erro erro={compraM.error} fallback="Não foi possível analisar a compra." />}
+              {compraM.data && (
                 <div style={{ display: 'grid', gap: 8 }}>
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={metricLabel}>Método recomendado</div>
-                    <div style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 700 }}>{purchaseData.recommended_label || purchaseData.recommended_method || 'N/A'}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-                      Custo líquido: {currency(toNumber(purchaseData.recommended_net_cost))}
-                    </div>
+                  <Metrica rotulo="Melhor forma de pagar" valor={<span style={{ fontSize: 15 }}>{compraM.data.recommended_label}</span>}
+                    sub={`custo líquido ${brl(compraM.data.recommended_net_cost_real ?? compraM.data.recommended_net_cost)}`} />
+                  <div style={{ ...nota, color: 'var(--text-secondary)' }}><Markdown texto={compraM.data.reasoning} /></div>
+                  <div style={box}>
+                    <div style={{ ...metricLabel, marginBottom: 6 }}>Todas as opções (custo líquido, já com o rendimento do dinheiro parado)</div>
+                    {compraM.data.options.map(o => (
+                      <div key={`${o.method}-${o.label}`} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}>
+                        <span>{o.label}</span><strong>{brl(o.net_cost_real ?? o.net_cost)}</strong>
+                      </div>
+                    ))}
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    {purchaseData.reasoning || 'Sem justificativa detalhada para este cenário.'}
+                  <div style={nota}>
+                    {compraM.data.liquidity_impact.affordable === null
+                      ? 'Margem segura do mês não calculada — confira o saldo antes de pagar à vista.'
+                      : `Margem segura: ${brl(compraM.data.liquidity_impact.safe_to_spend_before)} → ${brl(compraM.data.liquidity_impact.safe_to_spend_after)} depois da compra${compraM.data.liquidity_impact.affordable ? '' : ' (estoura a margem)'}.`}
                   </div>
-                  {Array.isArray(purchaseData.options) && purchaseData.options.length > 0 && (
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                      <div style={{ ...metricLabel, marginBottom: 8 }}>Comparativo de opções</div>
-                      {purchaseData.options.slice(0, 4).map((option: any, idx: number) => (
-                        <div key={`${option.method || idx}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, borderBottom: idx < Math.min(3, purchaseData.options.length - 1) ? '1px solid var(--border-color)' : 'none', padding: '6px 0' }}>
-                          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                            {option.label || option.method || 'Opção'}
-                          </div>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
-                            {currency(toNumber(option.net_cost_real ?? option.net_cost ?? option.total_cost))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {Array.isArray(purchaseData.warnings) && purchaseData.warnings.length > 0 && (
-                    <div style={{ fontSize: 12, color: '#92400e' }}>
-                      {purchaseData.warnings.slice(0, 3).map((warn: string, idx: number) => (
-                        <div key={`${idx}-${warn}`}>• {warn}</div>
-                      ))}
-                    </div>
-                  )}
+                  {compraM.data.warnings.length > 0 && <div style={aviso}>{compraM.data.warnings.slice(0, 3).map((w, i) => <div key={i}>• {w}</div>)}</div>}
                 </div>
               )}
+              <div style={{ ...box, marginTop: 10 }}>
+                <div style={{ ...metricLabel, marginBottom: 6 }}>Suas compras das últimas 2 semanas</div>
+                {revisaoQ.isError && <Erro erro={revisaoQ.error} fallback="Não foi possível revisar as compras recentes." />}
+                {revisaoQ.data && revisaoQ.data.total === 0 && <div style={nota}>Nada a revisar — nenhuma compra recente que tivesse forma de pagamento melhor.</div>}
+                {(revisaoQ.data?.reviews || []).slice(0, 4).map(r => (
+                  <div key={r.transaction_id} style={{ fontSize: 12, padding: '3px 0' }}>
+                    {r.merchant} ({brl(r.amount)}, {dataCurta(r.purchase_date)}): pagou com {r.paid_method_label}; {r.best_method_label} teria economizado {brl(r.potential_savings_brl)}.
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
           <div style={card}>
-            <div style={sectionTitle}>F13 • Negotiator Bot</div>
+            <div style={sectionTitle}>Negociar com o banco</div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-              <input
-                value={negotiationBank}
-                onChange={(e) => setNegotiationBank(e.target.value)}
-                placeholder="Banco (opcional, ex: Itaú)"
-                style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8, minWidth: 240 }}
-              />
-              <button
-                onClick={() => negotiatorMutation.mutate()}
-                style={{ border: '1px solid #111', background: 'var(--text-primary)', color: 'var(--bg-surface)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}
-              >
-                Gerar roteiro
+              <input value={banco} onChange={e => setBanco(e.target.value)} placeholder="Banco (opcional, ex.: Itaú)" style={{ ...input, minWidth: 240 }} />
+              <button onClick={() => negociarM.mutate()} disabled={negociarM.isPending} style={botao}>
+                {negociarM.isPending ? 'Gerando roteiros…' : 'Gerar roteiro'}
               </button>
             </div>
-
-            {negotiatorMutation.isPending && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Gerando scripts de negociação...</div>}
-            {negotiatorMutation.isError && (
-              <div style={{ fontSize: 12, color: '#991b1b', marginBottom: 8 }}>
-                {getErrorMessage(negotiatorMutation.error, 'Falha ao gerar roteiro. Verifique se há histórico de transações no backend para este usuário.')}
-              </div>
-            )}
-
-            {!negotiatorMutation.isPending && Object.keys(negotiationData).length > 0 && (
+            {negociarM.isError && <Erro erro={negociarM.error} fallback="Não foi possível gerar o roteiro." />}
+            {negociarM.data && (
               <div style={{ display: 'grid', gap: 10 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={metricLabel}>Oportunidades</div>
-                    <div style={metricValue}>{toNumber(negotiationData.opportunities_found)}</div>
-                  </div>
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={metricLabel}>Confiança</div>
-                    <div style={metricValue}>{(toNumber(negotiationData.confidence_score) * 100).toFixed(0)}%</div>
-                  </div>
-                </div>
-
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                  {negotiationData.summary || 'Sem resumo disponível para negociação neste momento.'}
-                </div>
-
-                {(negotiationData.scripts || []).slice(0, 3).map((script: any, idx: number) => (
-                  <div key={`${idx}-${script?.opportunity?.bank_name || 'bank'}`} style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-                      {script?.opportunity?.bank_name || 'Banco'} • {script?.opportunity?.product || 'Produto'}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-                      Meta: {script?.target_ask || 'Negociar condições melhores'}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                      {script?.opening_line || 'Sem script gerado para esta oportunidade.'}
+                <div style={{ fontSize: 13 }}>{negociarM.data.summary}</div>
+                {negociarM.data.scripts.map((s, i) => (
+                  <div key={i} style={{ ...box, display: 'grid', gap: 6 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{s.opportunity.bank_name} · {s.opportunity.product}</div>
+                    <div style={nota}>{s.opportunity.description}</div>
+                    <div style={{ fontSize: 12 }}><strong>Comece com:</strong> {s.opening_line}</div>
+                    {s.key_arguments.length > 0 && <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>{s.key_arguments.map((a, j) => <li key={j}>{a}</li>)}</ul>}
+                    <div style={{ fontSize: 12 }}><strong>Peça:</strong> {s.target_ask}</div>
+                    <div style={{ fontSize: 12 }}><strong>Se recusarem:</strong> {s.fallback_ask}</div>
+                    <div style={nota}>
+                      {ROTULO_CANAL[s.recommended_channel] || s.recommended_channel} · {s.best_time} · chance estimada {s.estimated_success_pct}%
+                      {s.generated_by === 'fallback' ? ' · roteiro padrão (a IA não respondeu)' : ''}
                     </div>
                   </div>
                 ))}
-                {Array.isArray(negotiationData.warnings) && negotiationData.warnings.length > 0 && (
-                  <div style={{ fontSize: 12, color: '#92400e' }}>
-                    {negotiationData.warnings.slice(0, 3).map((warn: string, idx: number) => (
-                      <div key={`${idx}-${warn}`}>• {warn}</div>
-                    ))}
-                  </div>
-                )}
+                {negociarM.data.warnings.length > 0 && <div style={aviso}>{negociarM.data.warnings.slice(0, 3).map((w, i) => <div key={i}>• {w}</div>)}</div>}
               </div>
             )}
+            <div style={{ ...box, marginTop: 10 }}>
+              <div style={{ ...metricLabel, marginBottom: 6 }}>Como foram suas negociações? (calibra as próximas estimativas)</div>
+              {historicoNegQ.isError && <Erro erro={historicoNegQ.error} fallback="Não foi possível carregar o histórico." />}
+              {resultadoM.isError && <Erro erro={resultadoM.error} fallback="Não foi possível registrar o resultado." />}
+              {historicoNegQ.data && historicoNegQ.data.items.length === 0 && <div style={nota}>Nenhum roteiro gerado ainda.</div>}
+              {(historicoNegQ.data?.items || []).slice(0, 5).map(it => (
+                <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', padding: '4px 0', fontSize: 12 }}>
+                  <span>{it.bank_name} · {dataCurta(it.generated_at?.slice(0, 10))}{it.potential_gain ? ` · até ${brl(it.potential_gain)}/mês` : ''}</span>
+                  {it.result_status
+                    ? <strong>{ROTULO_RESULTADO[it.result_status as ResultadoNegociacao] || it.result_status}</strong>
+                    : <span style={{ display: 'flex', gap: 4 }}>
+                        {(Object.keys(ROTULO_RESULTADO) as ResultadoNegociacao[]).map(r => (
+                          <button key={r} style={botaoSec} disabled={resultadoM.isPending} onClick={() => resultadoM.mutate({ id: it.id, r })}>{ROTULO_RESULTADO[r]}</button>
+                        ))}
+                      </span>}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
