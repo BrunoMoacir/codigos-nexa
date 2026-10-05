@@ -44,10 +44,13 @@ _advisor = BudgetAdvisor(history_months=3)
 @cache_response(prefix="budget", ttl=1800)  # 30 min
 async def get_budget_advice(
     user_id: str = Depends(require_owner),
-    monthly_income: float = Query(
-        ...,
+    monthly_income: float | None = Query(
+        default=None,
         gt=0,
-        description="Renda mensal líquida do usuário (R$). Obrigatório para calcular os percentuais 50/30/20.",
+        description=(
+            "Renda mensal líquida (R$). Opcional: sem ela, a renda é estimada pelo "
+            "extrato (IncomeProfiler, confiança ≥ 0,5)."
+        ),
     ),
     history_months: int = Query(
         default=3,
@@ -75,8 +78,6 @@ async def get_budget_advice(
     > em 8 p.p. Desejos: 22% (ideal 30%) — dentro do esperado.
     > Poupança: 6% (ideal 20%) — abaixo do ideal. Faltam R$1.120/mês para atingir a meta."
     """
-    logger.info("GET /budget/%s | income=R$%.0f | history=%dm", user_id, monthly_income, history_months)
-
     # ── 1. Buscar transações do Postgres ────────────────────────────────
     try:
         transactions_df = get_transactions_for_user(user_id)
@@ -86,6 +87,33 @@ async def get_budget_advice(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Erro ao acessar dados de transações.",
         )
+
+    # A renda era obrigatória na query, e a tela não tinha de onde tirá-la: o
+    # endpoint respondia 422 para quem abria o orçamento. Mesma regra da
+    # ferramenta do agente (7b do prompt): sem renda declarada, estima pelo
+    # extrato; sem confiança suficiente, PERGUNTA — nunca chuta um número.
+    renda_estimada = False
+    if monthly_income is None:
+        try:
+            from app.forecast.etl.income_profiler import IncomeProfiler
+
+            perfil = IncomeProfiler().build(transactions_df) if not transactions_df.is_empty() else None
+            if perfil is not None and perfil.confidence >= 0.5 and perfil.monthly_net_income > 0:
+                monthly_income = float(perfil.monthly_net_income)
+                renda_estimada = True
+        except Exception as exc:
+            logger.warning("budget/%s: estimativa de renda falhou: %s", user_id, exc)
+        if monthly_income is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Não foi possível estimar sua renda pelo extrato com confiança. "
+                    "Informe a renda mensal para montar o 50/30/20."
+                ),
+            )
+
+    logger.info("GET /budget/%s | income=R$%.0f (estimada=%s) | history=%dm",
+                user_id, monthly_income, renda_estimada, history_months)
 
     if transactions_df.is_empty():
         # Em dev (ou usuário novo), não retornar 404 — devolve sugestão padrão 50/30/20
@@ -135,7 +163,7 @@ async def get_budget_advice(
             ),
             confidence=0.0,
         )
-        return suggestion.to_dict()
+        return {**suggestion.to_dict(), "income_source": "estimada" if renda_estimada else "informada"}
 
     # ── 2. Detectar cluster comportamental (ConsumptionProfiler) ───────
     # Usa o DataFrame original (coluna `date`) antes do rename para transaction_date.
@@ -179,4 +207,4 @@ async def get_budget_advice(
         "GET /budget/%s | cortes=%d | conf=%.2f | gap_poupanca=R$%.0f",
         user_id, len(suggestion.actionable_cuts), suggestion.confidence, suggestion.savings_gap,
     )
-    return suggestion.to_dict()
+    return {**suggestion.to_dict(), "income_source": "estimada" if renda_estimada else "informada"}

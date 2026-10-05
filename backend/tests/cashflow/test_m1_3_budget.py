@@ -343,3 +343,39 @@ def test_api_negative_income():
     """monthly_income negativo → 422 (gt=0 via Query)."""
     resp = _client.get("/budget/user_test?monthly_income=-100")
     assert resp.status_code == 422
+
+
+# ── Extrato parado: a janela ancora no último dado, não em hoje ─────────────
+
+def test_janela_ancora_no_ultimo_lancamento_quando_o_extrato_esta_parado():
+    """
+    Hoje = outubro, último lançamento = agosto. A janela de 3 meses ancorava
+    em hoje (jul–set) e achava só 2 meses; agora vai de jun a ago.
+    """
+    from unittest.mock import patch
+    import datetime as _dt
+
+    rows = []
+    for mes in (6, 7, 8):
+        rows.append({"date": date(2026, mes, 10), "amount": -2000.0, "category": "Moradia"})
+    df = _make_df(rows)
+
+    class _Hoje(_dt.date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 10, 4)
+
+    with patch("datetime.date", _Hoje):
+        s = BudgetAdvisor(history_months=3).suggest(df, monthly_income=INCOME)
+    assert s.history_months == 3
+    assert s.total_expenses_avg == pytest.approx(2000.0)
+
+
+def test_juros_do_rotativo_nao_vira_investimento():
+    """'juros rotativo cartao' casava com a regra de rendimento e entrava como poupança."""
+    from app.forecast.etl.classifier import TransactionClassifier
+
+    clf = TransactionClassifier()
+    assert clf._classify_text("juros rotativo cartao")[0] != "Investimentos"
+    assert clf._classify_text("jcp itausa")[0] == "Investimentos"
+    assert clf._classify_text("rendimento poupanca")[0] == "Investimentos"

@@ -40,6 +40,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,23 @@ _NON_DISCRETIONARY = {
     "educacao", "educação", "education", "tarifas", "fees", "outros",
     "other", "sem categoria", "uncategorized", "renda", "income",
 }
+
+
+def _chave_categoria(cat: str) -> str:
+    """
+    'Transferências' → 'transferencia'. A lista acima tem 'transferência' e o
+    classificador escreve 'Transferências' (plural): a comparação crua deixava
+    passar, e o desafio do mês da Ana era "gastar 15% menos em Transferências".
+    """
+    import unicodedata
+
+    sem_acento = "".join(
+        c for c in unicodedata.normalize("NFD", cat or "") if unicodedata.category(c) != "Mn"
+    ).lower().strip()
+    return sem_acento[:-1] if sem_acento.endswith("s") else sem_acento
+
+
+_NAO_DISCRICIONARIAS_CHAVES = {_chave_categoria(c) for c in _NON_DISCRETIONARY}
 
 
 @dataclass
@@ -274,7 +292,7 @@ class ChallengeService:
                 continue
             months_seen.add(_month_key(tx["date"]))
             cat = (tx["category"] or "").strip()
-            if not cat or cat.lower() in _NON_DISCRETIONARY:
+            if not cat or _chave_categoria(cat) in _NAO_DISCRICIONARIAS_CHAVES:
                 continue
             by_category[cat] = by_category.get(cat, 0.0) + abs(tx["amount"])
 
@@ -293,7 +311,7 @@ class ChallengeService:
             challenge_type="REDUZIR_CATEGORIA",
             month=month,
             title=f"Gastar 15% menos em {top_cat}",
-            target_label=f"até R$ {target:,.0f} em {top_cat}",
+            target_label=f"até {brl(target, 0)} em {top_cat}",
             target_value=target,
             progress_value=0.0,
             pct_progress=0.0,
@@ -340,8 +358,8 @@ class ChallengeService:
             user_id=user_id,
             challenge_type="GUARDAR_VALOR",
             month=month,
-            title=f"Guardar R$ {target:,.0f} no mês",
-            target_label=f"R$ {target:,.0f} poupados",
+            title=f"Guardar {brl(target, 0)} no mês",
+            target_label=f"{brl(target, 0)} poupados",
             target_value=float(target),
             progress_value=0.0,
             pct_progress=0.0,
@@ -564,15 +582,15 @@ class ChallengeService:
         if ch.challenge_type == "SEM_TARIFAS":
             baseline = ch.metadata.get("baseline_fees_3m_brl", 0.0)
             if ch.status == "COMPLETED":
-                return f"Nos 3 meses anteriores você tinha pago R$ {baseline:,.2f} em tarifas."
+                return f"Nos 3 meses anteriores você tinha pago {brl(baseline)} em tarifas."
             return "Nenhuma tarifa bancária detectada até agora."
         if ch.challenge_type == "REDUZIR_CATEGORIA":
             return (
-                f"Gasto atual: R$ {ch.progress_value:,.0f} "
-                f"de um teto de R$ {ch.target_value:,.0f}."
+                f"Gasto atual: {brl(ch.progress_value, 0)} "
+                f"de um teto de {brl(ch.target_value, 0)}."
             )
         if ch.challenge_type == "GUARDAR_VALOR":
-            return f"Já guardados: R$ {ch.progress_value:,.0f} de R$ {ch.target_value:,.0f}."
+            return f"Já guardados: {brl(ch.progress_value, 0)} de {brl(ch.target_value, 0)}."
         if ch.challenge_type == "SUBIR_SCORE":
             return f"Score atual: {ch.progress_value:.0f} — alvo: {ch.target_value:.0f}."
         return ""

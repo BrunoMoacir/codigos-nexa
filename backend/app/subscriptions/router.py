@@ -107,73 +107,32 @@ def get_subscriptions_simple(
     user_id: str = Depends(require_owner),   # IDOR fix (auditoria 2026-07)
 ):
     """
-    M1.5 — Lista assinaturas do usuário diretamente do banco.
-    Endpoint simplificado para o frontend (exige token do próprio titular).
+    M1.5 — Lista enxuta das assinaturas, para o frontend.
+
+    Lia a tabela `subscriptions`, que nenhuma migração cria: respondia sempre
+    "Tabela de assinaturas não existe" com lista vazia, para todo usuário.
+    Agora é o MESMO detector de GET /subscriptions/{user_id}, com a forma
+    simplificada — uma fonte só para as duas telas.
     """
-    from app.core.database import get_db
-    from sqlalchemy import text
-    from sqlalchemy.orm import Session
-
-    # Criar uma sessão do banco manualmente
-    db = next(get_db())
-
-    try:
-        # Primeiro verificar se a tabela existe
-        check_table = db.execute(text("""
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables
-                WHERE table_name = 'subscriptions'
-            );
-        """))
-        table_exists = check_table.fetchone()[0]
-
-        if not table_exists:
-            return {
-                "user_id": user_id,
-                "total": 0,
-                "subscriptions": [],
-                "total_monthly_cost": 0.0,
-                "message": "Tabela de assinaturas não existe"
-            }
-
-        # Buscar assinaturas
-        result = db.execute(text("""
-            SELECT subscription_id, name, category, amount, billing_cycle,
-                   next_billing_date, status, auto_renew, created_at
-            FROM subscriptions
-            WHERE user_id = :user_id
-            ORDER BY created_at DESC
-        """), {"user_id": user_id})
-
-        subscriptions = []
-        total_cost = 0.0
-
-        for row in result:
-            subscription = {
-                "subscription_id": row[0],
-                "name": row[1],
-                "category": row[2],
-                "amount": row[3],
-                "billing_cycle": row[4],
-                "next_billing_date": str(row[5]) if row[5] else None,
-                "status": row[6],
-                "auto_renew": row[7],
-                "created_at": str(row[8]) if row[8] else None,
-            }
-            subscriptions.append(subscription)
-
-            if row[6] == 'active' and row[4] == 'monthly':  # active status, monthly billing
-                total_cost += row[3]
-
-        return {
-            "user_id": user_id,
-            "total": len(subscriptions),
-            "subscriptions": subscriptions,
-            "total_monthly_cost": total_cost,
+    relatorio = get_subscriptions(months=6, user_id=user_id)
+    alertadas = {a.get("merchant") for a in relatorio.get("alerted", []) if isinstance(a, dict)}
+    itens = [
+        {
+            "name": s.get("merchant"),
+            "category": s.get("subscription_category"),
+            "amount": s.get("monthly_amount"),
+            "billing_cycle": "monthly",
+            "first_seen": s.get("first_seen"),
+            "last_seen": s.get("last_seen"),
+            "price_changed": s.get("first_amount") not in (None, s.get("monthly_amount")),
+            "needs_attention": s.get("merchant") in alertadas,
         }
-
-    except Exception as e:
-        logger.error("[Subscriptions] Erro ao buscar assinaturas para user=%s: %s", user_id, e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Erro ao buscar assinaturas.")
-    finally:
-        db.close()
+        for s in relatorio.get("subscriptions", [])
+    ]
+    return {
+        "user_id": user_id,
+        "total": len(itens),
+        "subscriptions": itens,
+        "total_monthly_cost": relatorio.get("total_monthly_cost", 0.0),
+        "summary_text": relatorio.get("summary_text"),
+    }

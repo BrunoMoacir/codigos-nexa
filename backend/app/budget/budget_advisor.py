@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import polars as pl
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -396,6 +397,16 @@ class BudgetAdvisor:
         if reference_month is None:
             today = _date.today()
             ref_year, ref_month = today.year, today.month
+            # Extrato parado (sync atrasado): a janela ancorava em hoje e
+            # perdia os meses que existem — com dado até agosto e hoje em
+            # outubro, "últimos 3 meses" virava só julho e agosto, e uma
+            # compra atípica de agosto pesava o dobro. Ancora no mês seguinte
+            # ao último lançamento quando ele é anterior ao mês corrente.
+            ultimo = df_expenses.select(pl.col("transaction_date").max()).item()
+            if ultimo is not None and (ultimo.year, ultimo.month) < (ref_year, ref_month):
+                ref_year, ref_month = (
+                    (ultimo.year + 1, 1) if ultimo.month == 12 else (ultimo.year, ultimo.month + 1)
+                )
         else:
             ref_year, ref_month = reference_month
 
@@ -435,8 +446,7 @@ class BudgetAdvisor:
         cat_groups: dict[str, str] = {}
 
         for row in rows:
-            cat = (row["category"] or "outros").lower().strip()
-            group = _classify_category(cat)
+            group = _classify_category(row["category"] or "outros")
             cat_groups[row["category"]] = group
             
             # Somes apenas despesas reais (ignora saídas que já são declaradamente reservas/investimentos)
@@ -630,9 +640,25 @@ class BudgetAdvisor:
 # HELPERS UTILITÁRIOS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def _chave_de_categoria(category: str) -> str:
+    """
+    'Alimentação' → 'alimentacao'. As categorias do classificador chegam com
+    acento e as listas acima são sem acento: `.lower()` sozinho fazia toda
+    despesa essencial acentuada (Alimentação, Saúde, Educação, Habitação)
+    cair em "desejos" — o 50/30/20 da Ana saía com 92% em desejos.
+    """
+    import unicodedata
+
+    sem_acento = "".join(
+        c for c in unicodedata.normalize("NFD", category or "")
+        if unicodedata.category(c) != "Mn"
+    )
+    return sem_acento.lower().strip().replace(" ", "_")
+
+
 def _classify_category(category: str) -> str:
     """Classifica uma categoria no grupo 50/30/20."""
-    cat = category.lower().strip()
+    cat = _chave_de_categoria(category)
     if cat in ESSENTIALS:
         return "essenciais"
     if cat in SAVINGS:
@@ -668,7 +694,7 @@ def _build_reasoning(
     parts = [
         f"Seu gasto médio em {cat_label} nos últimos {n_months} "
         f"{'mês' if n_months == 1 else 'meses'} foi de "
-        f"R${alloc.current_amount:,.0f}/mês ({alloc.current_pct*100:.0f}% da renda)."
+        f"{brl(alloc.current_amount, 0)}/mês ({alloc.current_pct*100:.0f}% da renda)."
     ]
 
     if pct_over >= 5:
@@ -677,8 +703,8 @@ def _build_reasoning(
         )
 
     parts.append(
-        f"Reduzir para R${alloc.suggested_amount:,.0f}/mês liberaria "
-        f"R${saving:,.0f}/mês para poupança ou objetivos."
+        f"Reduzir para {brl(alloc.suggested_amount, 0)}/mês liberaria "
+        f"{brl(saving, 0)}/mês para poupança ou objetivos."
     )
 
     if group_delta_pct > 0.05:
@@ -719,7 +745,7 @@ def _build_summary_text(
         elif g.status == _STATUS_UNDER and g.group == "poupanca":
             parts.append(
                 f"{label}: {cur:.0f}% (ideal {tgt:.0f}%) — abaixo do ideal. "
-                f"Faltam R${savings_gap:,.0f}/mês para atingir a meta."
+                f"Faltam {brl(savings_gap, 0)}/mês para atingir a meta."
             )
         else:
             parts.append(f"{label}: {cur:.0f}% (ideal {tgt:.0f}%) — dentro do esperado.")

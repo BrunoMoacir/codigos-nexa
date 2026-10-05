@@ -27,6 +27,7 @@ INTEGRAÇÃO:
 from __future__ import annotations
 
 import logging
+from collections import Counter
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -34,6 +35,7 @@ from enum import Enum
 from typing import Optional
 
 import polars as pl
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +49,41 @@ _VALUE_TOLERANCE_PCT: float = 0.05          # ±5%
 # Janela de dias do mês para considerar "mesma data mensal"
 _DAY_OF_MONTH_WINDOW: int = 5
 
-# Mínimo de recorrências para considerar como assinatura confirmada
-_MIN_OCCURRENCES: int = 2
+# Mínimo de recorrências para considerar como assinatura confirmada — o
+# mesmo piso do detector v2 (doc 01). Com 2, duas idas à padaria no mesmo
+# valor por acaso já eram "assinatura".
+_MIN_OCCURRENCES: int = 3
+
+# Um reajuste de preço é um DEGRAU (39,90 → 55,90); compra do dia a dia tem um
+# valor diferente a cada vez. Até 3 valores distintos acomoda dois reajustes.
+_MAX_VALORES_DISTINTOS: int = 3
+
+def _nao_e_assinatura(desc: str) -> bool:
+    """A descrição é de conta fixa, moradia, investimento ou transferência?"""
+    import unicodedata
+
+    texto = "".join(
+        c for c in unicodedata.normalize("NFD", desc or "") if unicodedata.category(c) != "Mn"
+    ).lower()
+    palavras = f" {re.sub(r'[^a-z0-9]+', ' ', texto)} "
+    return any(f" {termo} " in palavras for termo in _NAO_E_ASSINATURA)
+
+
+# Contas fixas, moradia, investimento e transferência não são assinatura, por
+# mais regulares que sejam. Sem este filtro o endpoint listava "14 assinaturas,
+# R$ 4.637/mês" — com aluguel, condomínio e a aplicação mensal em CDB.
+_NAO_E_ASSINATURA: tuple[str, ...] = (
+    # moradia e contas de consumo (mesma lista negativa do detector v2)
+    "aluguel", "imovel", "condominio", "iptu", "casa", "apartamento", "locacao",
+    "enel", "cemig", "copel", "celesc", "light", "sabesp", "sanepar", "cedae",
+    "embasa", "comgas", "gas", "botijao", "energia", "conta luz", "conta agua",
+    "boleto", "fatura", "mensalidade", "escola", "faculdade", "colegio", "curso",
+    "plano saude", "convenio", "seguro",
+    # dinheiro que muda de lugar, não serviço contratado
+    "aplicacao", "cdb", "lci", "lca", "tesouro", "investimento", "poupanca",
+    "resgate", "rendimento", "deposito", "transferencia", "pix", "ted", "doc",
+    "salario", "das simei", "tarifa", "anuidade", "juros", "iof",
+)
 
 # Valor máximo para "low value" flag (R$ — fácil de esquecer)
 _LOW_VALUE_THRESHOLD: float = 15.0
@@ -231,7 +266,7 @@ class SubscriptionDetector:
 
         logger.info(
             f"SubscriptionDetector [{user_id}]: {len(subscriptions)} assinaturas "
-            f"(R$ {total_cost:.0f}/mês), {len(alerted)} alertadas"
+            f"({brl(total_cost, 0)}/mês), {len(alerted)} alertadas"
         )
 
         return SubscriptionReport(
@@ -306,16 +341,21 @@ class SubscriptionDetector:
         for desc, group in groups.items():
             if len(group) < _MIN_OCCURRENCES:
                 continue
+            if _nao_e_assinatura(desc):
+                continue
 
             amounts = [r["amount"] for r in group]
-            avg_amount = sum(amounts) / len(amounts)
-            # Coeficiente de variação — muito variado não é assinatura
-            if avg_amount > 0:
-                cv = (max(amounts) - min(amounts)) / avg_amount
-                if cv > 0.40:  # tolerância de 40%: permite reajustes de até ~40% sem descartar
-                    continue
+            # Preço fixo com no máximo dois reajustes: poucos valores distintos
+            # E um deles cobrindo a maioria das cobranças. Três idas ao mesmo
+            # estacionamento com três valores diferentes passavam no primeiro
+            # critério sozinho.
+            contagem = Counter(round(a, 2) for a in amounts)
+            if len(contagem) > _MAX_VALORES_DISTINTOS:
+                continue
+            if max(contagem.values()) / len(amounts) < 0.5:
+                continue
 
-            # Deve ter ocorrido em pelo menos 2 meses distintos
+            # Um lançamento por mês, em pelo menos 3 meses distintos
             dates = [r["date"] for r in group]
             months = {(d.year, d.month) for d in dates}
             if len(months) < _MIN_OCCURRENCES:
@@ -382,14 +422,14 @@ class SubscriptionDetector:
                 alerts.append(AlertReason.DUPLICATE_CATEGORY)
                 messages.append(
                     f"Você tem {count} serviços de {cat_label} — "
-                    f"R$ {total_cat:.0f}/mês no total. Vale revisar quais usa."
+                    f"{brl(total_cat, 0)}/mês no total. Vale revisar quais usa."
                 )
 
             # Heurística 2: LOW_VALUE — < R$15, fácil de esquecer
             if sub.monthly_amount < _LOW_VALUE_THRESHOLD:
                 alerts.append(AlertReason.LOW_VALUE)
                 messages.append(
-                    f"{sub.merchant.title()}: R$ {sub.monthly_amount:.2f}/mês "
+                    f"{sub.merchant.title()}: {brl(sub.monthly_amount)}/mês "
                     f"— valor pequeno, fácil de esquecer. Ainda usa?"
                 )
 
@@ -401,8 +441,8 @@ class SubscriptionDetector:
                 pct = (sub.monthly_amount / sub.first_amount - 1) * 100
                 alerts.append(AlertReason.PRICE_INCREASE)
                 messages.append(
-                    f"{sub.merchant.title()} aumentou de R$ {sub.first_amount:.2f} "
-                    f"para R$ {sub.monthly_amount:.2f} (+{pct:.0f}%). "
+                    f"{sub.merchant.title()} aumentou de {brl(sub.first_amount)} "
+                    f"para {brl(sub.monthly_amount)} (+{pct:.0f}%). "
                     f"Ainda vale a pena manter?"
                 )
 
@@ -430,7 +470,7 @@ class SubscriptionDetector:
 
         parts.append(
             f"Encontrei {len(subscriptions)} assinaturas ativas "
-            f"totalizando R$ {total_cost:.0f}/mês."
+            f"totalizando {brl(total_cost, 0)}/mês."
         )
 
         if alerted:

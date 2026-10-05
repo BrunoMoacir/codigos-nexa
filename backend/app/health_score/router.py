@@ -263,7 +263,7 @@ def get_health_score_history_endpoint(
             db=db,
             user_id=user_id,
             health_score=current_score,
-            savings_rate=current_savings_rate,
+            savings_rate=round(current_savings_rate, 1),
             profile_type=current_profile_type,
         )
         if not saved:

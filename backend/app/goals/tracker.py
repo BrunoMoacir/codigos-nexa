@@ -42,6 +42,7 @@ from typing import Optional
 
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
+from app.core.formatacao import brl
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,10 @@ class GoalProjection:
     current_monthly_actual: float             # quanto está guardando (0.0 se desconhecido)
     gap: float                                # gap = monthly_needed - current_monthly_actual
     suggestion: str
+    # O ritmo de aporte é CONHECIDO? (o usuário informou monthly_actual).
+    # Sem ele, "0/mês" é ausência de dado, não aporte zero — e a meta saía
+    # classificada como UNREALISTIC para todo mundo que nunca registrou aporte.
+    contribution_known: bool = True
 
     def to_dict(self) -> dict:
         monthly_needed = round(self.monthly_needed, 2)
@@ -139,6 +144,8 @@ class GoalProjection:
         }
 
     def _derive_feasibility(self) -> str:
+        if not self.contribution_known and self.monthly_needed > 0:
+            return "SEM_DADOS"
         if self.on_track:
             return "EASY"
         if self.monthly_needed <= 0:
@@ -154,10 +161,16 @@ class GoalProjection:
 
     def _derive_alerts(self) -> list[str]:
         alerts: list[str] = []
+        if not self.contribution_known and self.monthly_needed > 0:
+            alerts.append(
+                f"Para chegar no prazo, guarde {brl(self.monthly_needed)}/mês. "
+                "Registre seus aportes para acompanhar o ritmo."
+            )
+            return alerts
         if self.current_monthly_actual <= 0 and self.monthly_needed > 0:
-            alerts.append("Nenhuma contribuição mensal detectada.")
+            alerts.append("Nenhuma contribuição mensal registrada.")
         if self.gap > 0:
-            alerts.append(f"Faltam R$ {self.gap:,.2f}/mês para atingir a meta.")
+            alerts.append(f"Faltam {brl(self.gap)}/mês para atingir a meta.")
         return alerts
 
 
@@ -325,6 +338,7 @@ class GoalTracker:
             current_monthly_actual=monthly_actual,
             gap=gap,
             suggestion=suggestion,
+            contribution_known=goal.monthly_contribution_actual is not None,
         )
 
     def list_goals(
@@ -587,21 +601,21 @@ class GoalTracker:
         # Progresso
         parts.append(
             f"Meta '{goal.name}': {goal.progress_pct:.0f}% concluída "
-            f"(R$ {goal.current_amount:,.0f} / R$ {goal.target_amount:,.0f})."
+            f"({brl(goal.current_amount, 0)} / {brl(goal.target_amount, 0)})."
         )
 
         # Contribuição necessária
         if monthly_needed > 0:
-            parts.append(f"Você precisa guardar R$ {monthly_needed:,.0f}/mês.")
+            parts.append(f"Você precisa guardar {brl(monthly_needed, 0)}/mês.")
         
         if monthly_actual > 0:
-            parts.append(f"Contribuição atual detectada: R$ {monthly_actual:,.0f}/mês.")
+            parts.append(f"Contribuição atual detectada: {brl(monthly_actual, 0)}/mês.")
 
         # Gap
         if gap > 0:
             parts.append(
-                f"Faltam R$ {gap:,.0f}/mês para estar no ritmo. "
-                f"Considere reduzir R$ {gap:,.0f} em despesas variáveis."
+                f"Faltam {brl(gap, 0)}/mês para estar no ritmo. "
+                f"Considere reduzir {brl(gap, 0)} em despesas variáveis."
             )
         elif monthly_needed > 0:
             parts.append("✅ Você está no ritmo para atingir a meta!")
@@ -623,7 +637,7 @@ class GoalTracker:
                 parts.append(f"📅 Com este ritmo: meta em ~{projected_months:.0f} meses.")
         elif monthly_actual == 0 and monthly_needed > 0:
             parts.append(
-                f"⚠️ Nenhuma contribuição detectada. Comece guardando R$ {monthly_needed:,.0f}/mês."
+                f"⚠️ Nenhuma contribuição detectada. Comece guardando {brl(monthly_needed, 0)}/mês."
             )
 
         return " ".join(parts)
