@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import streamlit as st
 from streamlit.testing.v1 import AppTest
 
 _APP = str(Path(__file__).parents[2] / "demo" / "streamlit_app.py")
@@ -64,6 +65,7 @@ def app() -> AppTest:
 
 
 def _abrir(app: AppTest, page: str) -> AppTest:
+    st.cache_data.clear()
     app = app.run()
     app.sidebar.radio[0].set_value(page)
     return app.run()
@@ -93,6 +95,34 @@ def test_feed_vazio_exibe_estado_explicitamente(app: AppTest) -> None:
     rendered = _abrir(app, "🔔 Feed")
 
     assert any("Nenhum card relevante" in item.value for item in rendered.info)
+
+
+def test_feed_com_cards_exibe_conteudo_e_prioridades(app: AppTest) -> None:
+    cards = [
+        {
+            "priority": "CRITICAL",
+            "title": "Conta em risco",
+            "message": "O saldo pode ficar negativo.",
+            "action_hint": "Revise os gastos.",
+            "type": "cashflow",
+        },
+        {
+            "priority": "INFO",
+            "title": "Dinheiro parado",
+            "message": "Há saldo sem rendimento.",
+            "action_hint": None,
+            "type": "idle_money",
+        },
+    ]
+
+    with patch("demo.services.build_feed", return_value=cards):
+        rendered = _abrir(app, "🔔 Feed")
+
+    assert not rendered.exception
+    text = " ".join(item.value for item in rendered.markdown)
+    assert "Conta em risco" in text
+    assert "Dinheiro parado" in text
+    assert [item.value for item in rendered.metric] == ["1", "0", "1"]
 
 
 def test_chat_sem_llm_explica_como_ativar(app: AppTest) -> None:
@@ -131,3 +161,28 @@ def test_chat_envia_identidade_da_persona_e_persiste_resposta(app: AppTest) -> N
     assert captured["inputs"]["messages"][0].content == (  # type: ignore[index]
         "[user_id=demo-ana] Como está meu saldo?"
     )
+
+
+def test_chat_mostra_erro_do_agente_sem_quebrar_a_tela(app: AppTest) -> None:
+    with (
+        patch("app.agent.singleton.get_agent", side_effect=RuntimeError("agente indisponível")),
+        patch("app.core.config.settings.LLM_PROVIDER", "openai"),
+        patch("app.core.config.settings.OPENAI_API_KEY", "test-key"),
+    ):
+        rendered = _abrir(app, "💬 Chat")
+        rendered.chat_input[0].set_value("Teste de erro").run()
+
+    assert not rendered.exception
+    assert any("Erro ao consultar o agente" in item.value for item in rendered.markdown)
+
+
+def test_pipeline_sem_dados_exibe_erro_e_interrompe_renderizacao(app: AppTest) -> None:
+    empty = {
+        "ok": False,
+        "error": "Sem transações — rode `python3 -m demo.seed` primeiro.",
+    }
+    with patch("demo.services.dashboard_data", return_value=empty):
+        rendered = _abrir(app, "📊 Dashboard")
+
+    assert not rendered.exception
+    assert any("Sem transações" in item.value for item in rendered.error)

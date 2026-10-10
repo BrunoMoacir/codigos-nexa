@@ -3,8 +3,10 @@ from __future__ import annotations
 import polars as pl
 
 from demo.services import (
+    _note_to_dict,
     _pf_pj_split,
     _recent_transactions,
+    _safe,
     _spend_by_category,
     dashboard_data,
 )
@@ -76,3 +78,34 @@ def test_dashboard_data_explica_quando_persona_nao_tem_transacoes(monkeypatch) -
         "ok": False,
         "error": "Sem transações — rode `python3 -m demo.seed` primeiro.",
     }
+
+
+def test_note_to_dict_preserva_procedencia_e_valores_opcionais() -> None:
+    class Note:
+        type = "idle_money"
+        priority = "INFO"
+        title = "Dinheiro parado"
+        message = "Há saldo sem rendimento."
+        action_hint = None
+        metadata = {"source": "engine"}
+
+    assert _note_to_dict(Note()) == {
+        "type": "idle_money",
+        "priority": "INFO",
+        "title": "Dinheiro parado",
+        "message": "Há saldo sem rendimento.",
+        "action_hint": None,
+        "metadata": {"source": "engine"},
+    }
+
+
+def test_safe_isola_falha_de_um_detector() -> None:
+    called = False
+
+    def detector_falho() -> None:
+        nonlocal called
+        called = True
+        raise RuntimeError("falha externa")
+
+    assert _safe(detector_falho) is None
+    assert called
