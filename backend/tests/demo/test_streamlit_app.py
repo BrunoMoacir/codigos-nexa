@@ -96,7 +96,12 @@ def test_feed_vazio_exibe_estado_explicitamente(app: AppTest) -> None:
 
 
 def test_chat_sem_llm_explica_como_ativar(app: AppTest) -> None:
-    rendered = _abrir(app, "💬 Chat")
+    with (
+        patch("app.core.config.settings.LLM_PROVIDER", "anthropic"),
+        patch("app.core.config.settings.ANTHROPIC_API_KEY", None),
+        patch("app.core.config.settings.OPENAI_API_KEY", None),
+    ):
+        rendered = _abrir(app, "💬 Chat")
 
     assert any("Nenhuma chave de LLM" in item.value for item in rendered.warning)
 
