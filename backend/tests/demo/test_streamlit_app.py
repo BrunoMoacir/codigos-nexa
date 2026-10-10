@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -98,3 +99,30 @@ def test_chat_sem_llm_explica_como_ativar(app: AppTest) -> None:
     rendered = _abrir(app, "💬 Chat")
 
     assert any("Nenhuma chave de LLM" in item.value for item in rendered.warning)
+
+
+def test_chat_envia_identidade_da_persona_e_persiste_resposta(app: AppTest) -> None:
+    agent = SimpleNamespace()
+    captured: dict[str, object] = {}
+
+    def invoke(inputs, config):
+        captured["inputs"] = inputs
+        captured["config"] = config
+        return {"messages": [SimpleNamespace(content="Seu saldo está positivo.")]}
+
+    agent.invoke = invoke
+
+    with (
+        patch("app.agent.singleton.get_agent", return_value=agent),
+        patch("app.core.config.settings.LLM_PROVIDER", "openai"),
+        patch("app.core.config.settings.OPENAI_API_KEY", "test-key"),
+    ):
+        rendered = _abrir(app, "💬 Chat")
+        rendered.chat_input[0].set_value("Como está meu saldo?").run()
+
+    assert not rendered.exception
+    assert any("Seu saldo está positivo." in item.value for item in rendered.markdown)
+    assert captured["config"] == {"configurable": {"thread_id": "demo-ana"}}
+    assert captured["inputs"]["messages"][0].content == (  # type: ignore[index]
+        "[user_id=demo-ana] Como está meu saldo?"
+    )
