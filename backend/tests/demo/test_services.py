@@ -7,7 +7,10 @@ from demo.services import (
     _pf_pj_split,
     _recent_transactions,
     _safe,
+    _safe_to_spend,
     _spend_by_category,
+    _health_score,
+    _behavioral_profile,
     dashboard_data,
 )
 
@@ -109,3 +112,55 @@ def test_safe_isola_falha_de_um_detector() -> None:
 
     assert _safe(detector_falho) is None
     assert called
+
+
+def test_spend_by_category_sem_colunas_necessarias_retorna_lista_vazia() -> None:
+    assert _spend_by_category(pl.DataFrame({"amount": [10.0]})) == []
+
+
+def test_pf_pj_split_sem_contexto_retorna_dict_vazio() -> None:
+    frame = pl.DataFrame({"amount": [-10.0]})
+
+    assert _pf_pj_split(frame) == {}
+
+
+def test_health_score_degrada_quando_pipeline_de_score_falha(monkeypatch) -> None:
+    from app.forecast.etl.profiles import UserProfileAnalyzer
+
+    frame = pl.DataFrame({"amount": [-10.0]})
+    monkeypatch.setattr(
+        UserProfileAnalyzer,
+        "analyze",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("score indisponível")),
+    )
+
+    result = _health_score("demo-ana", frame)
+
+    assert result["score"] is None
+    assert result["level"] is None
+
+
+def test_behavioral_profile_degrada_quando_profiler_falha() -> None:
+    frame = pl.DataFrame({"amount": [-10.0]})
+
+    result = _behavioral_profile(frame)
+
+    assert result["cluster"] == "NAO_CLASSIFICADO"
+    assert "error" in result
+
+
+def test_safe_to_spend_usa_total_e_diario_do_resultado() -> None:
+    from app.notifications.notifier import SafeToSpendInput
+
+    class SafeToSpend:
+        safe_to_spend_daily = 25.0
+        safe_to_spend_total = 750.0
+
+    class Context:
+        safe_to_spend = None
+
+    ctx = Context()
+    _safe_to_spend(ctx, {"projections": {"safe_to_spend": SafeToSpend()}}, SafeToSpendInput)
+
+    assert ctx.safe_to_spend.daily_safe_amount == 25.0
+    assert ctx.safe_to_spend.monthly_safe_amount == 750.0
