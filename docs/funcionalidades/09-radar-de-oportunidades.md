@@ -258,6 +258,11 @@ resultado marca quais bancos tiveram tarifa real vs. projetada.
 
 - **Não executa a aplicação** (F6 sweep automático depende da fase de
   iniciação de pagamento do Open Finance).
+- O primeiro contrato do F6 está disponível em
+  `POST /api/v1/opportunities/{user_id}/sweep/preview`: ele calcula uma
+  proposta limitada ao `idle_amount` após a reserva de emergência, exige
+  consentimento e não movimenta dinheiro. A execução permanece bloqueada até
+  existir iniciação de pagamento Open Finance fase 4.
 - **Não compara fundos, ações ou previdência** — escopo é renda fixa bancária
   (CDB/RDB/LCI/LCA) + Tesouro SELIC.
 - **Não recebe comissão** — estruturalmente: nenhum link é afiliado.

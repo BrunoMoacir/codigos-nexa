@@ -159,6 +159,28 @@ class CompareResponse(BaseModel):
     disclaimer: str = ""
 
 
+class SweepPreviewRequest(BaseModel):
+    """Parâmetros para simular um sweep sem iniciar movimentação financeira."""
+
+    amount: float | None = None
+    holding_months: int = 12
+
+
+class SweepPreviewResponse(BaseModel):
+    """Prévia segura do F6 antes da iniciação de pagamento Open Finance."""
+
+    user_id: str
+    status: Literal["PREVIEW_ONLY", "NO_ELIGIBLE_AMOUNT", "REQUIRES_CONSENT"]
+    executable: bool = False
+    consent_required: bool = True
+    amount: float
+    source: Literal["IDLE_AMOUNT", "REQUESTED_AMOUNT"]
+    holding_months: int
+    top_opportunity: Optional[OpportunityItem] = None
+    reason: str
+    disclaimer: str = ""
+
+
 # ── OPP.3 — Tesouro SELIC vs. CDB vs. Poupança ────────────────────────
 
 class TreasuryComparisonEntry(BaseModel):
