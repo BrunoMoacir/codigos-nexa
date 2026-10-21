@@ -5,7 +5,6 @@ import { nexaApi } from '../api/nexa';
 import { isDemoMode } from '../utils/demoMode';
 
 const css = `
-  @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,800,900&display=swap');
 
   .fp { font-family: 'Satoshi', system-ui, sans-serif; display: flex; flex-direction: column; min-height: 100vh; background: #0A0806; padding: 28px 28px 40px; gap: 20px; }
 

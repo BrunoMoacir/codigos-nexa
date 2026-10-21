@@ -32,7 +32,6 @@ const BANKS = [
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────
 const css = `
-  @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,800,900&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   .rp-root {
