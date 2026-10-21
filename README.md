@@ -10,7 +10,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.139-009688?style=flat-square&logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-4169E1?style=flat-square&logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/Testes-⟦B_PASS_BADGE⟧%20passando-success?style=flat-square)
+![Tests](https://img.shields.io/badge/Testes-3.636%20passando-success?style=flat-square)
 ![License](https://img.shields.io/badge/Licen%C3%A7a-Propriet%C3%A1ria-red?style=flat-square)
 
 [Como Construímos Valor](#-como-a-hive-constrói-valor) •
@@ -80,7 +80,7 @@ O repositório tem três peças:
 | Peça | Onde | Estado |
 |:---|:---|:---|
 | **API** (FastAPI) | [`backend/`](backend/) | Produto completo: 141 operações, 31 ferramentas de IA, 9 jobs agendados |
-| **App web** (React 19) | [`frontend-react/`](frontend-react/) | Protótipo funcional ligado ao backend real em todas as telas, com o redesenho visual HIVE |
+| **App web oficial** (React 19) | [`frontend-react/`](frontend-react/) | Ligado à API real em todas as telas, com o redesenho visual HIVE da Beatriz Samaha |
 | **Demo Streamlit** | [`backend/demo/`](backend/demo/) | O sistema inteiro sobre personas com um ano de extrato, para teste manual |
 
 > **📄 Estado real do projeto:** notas por camada, posição competitiva contra a
@@ -265,13 +265,14 @@ Os 8 clusters: `EXPLORADOR_GLOBAL` (milhas/lounge), `URBANO_FOODIE` (cashback al
 
 ## 🖥️ App Web (frontend-react)
 
-React 19 + TypeScript + Vite, com o redesenho visual **HIVE** (tema escuro, hexágonos). Todas as telas leem a API real — não há dados fabricados no caminho padrão.
+O **frontend oficial** da HIVE: React 19 + TypeScript + Vite, com o redesenho visual **HIVE** da Beatriz Samaha (preto quente, ouro, Satoshi, hexágonos). Todas as telas leem a API real — não há dados fabricados no caminho padrão. Detalhes de desenvolvimento em [frontend-react/README.md](frontend-react/README.md).
 
-> **Status:** é um protótipo funcional, não o frontend oficial. O app oficial
-> ainda será construído; o que deve ser portado dele são os módulos tipados de
-> [`src/api/`](frontend-react/src/api/) (escritos a partir das respostas reais
-> da API), o cliente HTTP com renovação de sessão e o PWA (`src/pwa/`,
-> `public/sw.js`, `public/manifest.webmanifest`).
+> **Status (out/2026):** o `frontend-react/` deixou de ser protótipo e passou a
+> ser o app oficial, com o design como está. Ganhou lint zerado, testes de
+> ponta a ponta (Playwright), job próprio no CI, carregamento de fonte que não
+> trava a tela e correções de dados (Organização com 12 meses reais, login que
+> volta para a tela de origem). O visual é a referência do produto: mudanças
+> visuais são combinadas com a Beatriz.
 
 ### Navegação
 
@@ -284,12 +285,12 @@ React 19 + TypeScript + Vite, com o redesenho visual **HIVE** (tema escuro, hex�
 | Rota | Tela | Acesso | Endpoints principais |
 |:---|:---|:---:|:---|
 | `/login` | Login | público | `POST /auth/token` |
-| `/register` | Cadastro em 2 passos (telefone opcional, aceite dos termos) | público | `GET /auth/check-email`, `POST /auth/register` |
+| `/register` | Cadastro em 3 passos (CPF e telefone opcionais, aceite dos termos) | público | `GET /auth/check-email`, `POST /auth/register` |
 | `/forgot-password` · `/reset-password` · `/verify-email` | Recuperação de senha e verificação de e-mail | público | `POST /auth/forgot-password`, `/reset-password`, `/verify-email`, `/resend-verification` |
 | `/contact` | Contato (abre o WhatsApp com a mensagem pronta) | público | — |
 | `/chat` | Chat IA com lista de conversas e "Nova conversa" | logado | `GET /chat/sessions`, `GET /chat/history`, `POST /chat/` |
 | `/feed` | Oportunidades: alertas por gravidade e oportunidades | logado | `GET /alerts/{user_id}` |
-| `/organizar` | Organização: cartões, gráfico mensal/semanal, categorias, metas, lançamentos | logado | `GET /transactions/{user_id}`, `/pluggy/cards`, `/goals/{user_id}` |
+| `/organizar` | Organização: cartões, gasto mês a mês (12 meses) e por semana, categorias do período, metas, movimentações | logado | `GET /transactions/{user_id}` (paginado), `/pluggy/cards`, `/goals/{user_id}` |
 | `/organizar/cartao/novo` | Cadastro manual de cartão | logado | `POST /pluggy/cards/manual` |
 | `/profile` | Perfil, preferências, privacidade (LGPD), modo demo, Ferramentas | logado | `/settings/{user_id}`, `/billing/subscription/{user_id}`, `/pluggy/connections`, `/privacy/*`, `/auth/logout-all` |
 | `/strategies` | Estratégias: cartões, grandes compras, MEI, pares, negociador | logado | `/optimizer/*`, `/architect/*`, `/purchase/*`, `/fiscal-report/*`, `/peers/*`, `/negotiator/*`, `/costs/raio-x/*`, `/context/override` |
@@ -306,10 +307,11 @@ React 19 + TypeScript + Vite, com o redesenho visual **HIVE** (tema escuro, hex�
 ### Como o app fala com a API
 
 - **Base URL:** `VITE_API_URL` quando definida; senão `/api/v1` relativo. No `npm run dev`, o Vite faz proxy de `/api` para `VITE_DEV_BACKEND` (padrão `http://localhost:8000`); em produção o `nginx.conf.template` faz o mesmo papel.
-- **Sessão:** access token de 30 min + refresh de 14 dias com rotação. O cliente HTTP ([`src/api/client.ts`](frontend-react/src/api/client.ts)) renova uma única vez quando várias requisições tomam 401 ao mesmo tempo; se o refresh falhar, volta para `/login?next=<tela>`.
+- **Sessão:** access token de 30 min + refresh de 14 dias com rotação. O cliente HTTP ([`src/api/client.ts`](frontend-react/src/api/client.ts)) renova uma única vez quando várias requisições tomam 401 ao mesmo tempo; se o refresh falhar, volta para `/login?next=<tela>` e, depois do login, para a tela de origem (só caminhos internos).
 - **Timeouts por tipo de chamada:** padrão 30 s, chamadas lentas (simulações, consulta SVR) 75 s e chat 95 s — o agente pode levar mais que o padrão.
 - **Erros por tipo:** [`src/api/errors.ts`](frontend-react/src/api/errors.ts) traduz 401/402/403/404/429/5xx e timeout em mensagens em português.
 - **Formatação:** valores em `pt-BR` (R$ com vírgula decimal).
+- **Fonte:** a Satoshi vem do Fontshare e carrega sem bloquear a renderização; se o CDN cair, o app abre com a fonte do sistema.
 
 ### Modo demonstração (por conta)
 
@@ -521,8 +523,8 @@ usuário** é de ~R$ 3.000.
 | **Retenção** | Scheduler com 9 jobs, daily digest, entrega email/in-app/push, PWA com widget instalável e Web Push VAPID, checkout-context, revisão de compras |
 | **Viral** | Placar de economia (SVG/PNG) e Wrapped anual (SVG), com registro e revogação de compartilhamento |
 | **IA** | Agente ReAct com 31 ferramentas, conversas por sessão, memória com fallback Redis → Postgres, perfil comportamental (8 clusters), life events |
-| **App web** | Todas as telas ligadas à API real (cadastro com aceite dos termos, chat por conversas, feed, organização, cartões, perfil com LGPD, conexões, estratégias, metas, defesa, direitos, impostos, wrapped, planos, widget), recuperação de senha e verificação de e-mail, renovação de sessão automática |
-| **Plataforma** | Auth JWT + refresh rotativo, IDOR hardening, LGPD export/erase, rate limiting, audit log, ⟦B_PASS⟧ testes de backend passando (⟦B_COV⟧ de cobertura), testes de contrato front↔back |
+| **App web oficial** | `frontend-react` com o redesenho HIVE, lint zerado, 29 testes unitários, 13 testes e2e e job no CI; todas as telas ligadas à API real (cadastro com aceite dos termos, chat por conversas, feed, organização, cartões, perfil com LGPD, conexões, estratégias, metas, defesa, direitos, impostos, wrapped, planos, widget), recuperação de senha e verificação de e-mail, renovação de sessão automática |
+| **Plataforma** | Auth JWT + refresh rotativo, IDOR hardening, LGPD export/erase, rate limiting, audit log, 3.636 testes de backend passando (79% de cobertura), testes de contrato front↔back |
 
 ### 🚧 Falta (em ordem de prioridade de negócio)
 
@@ -530,7 +532,7 @@ usuário** é de ~R$ 3.000.
 |:---|:---|:---|:---|
 | **CI verde de novo** | O `requirements.txt` não resolve num ambiente limpo e o CI falha na instalação desde agosto (ver [Problemas Conhecidos](#️-problemas-conhecidos)) | Sem CI, nenhum push é verificado e o `pip-audit` não roda | Rodada de dependências (langchain 0.2 × numpy 2) |
 | **Chaves Stripe + flip do enforcement** | Billing/gating implementados em dark launch; falta criar os Prices no Stripe, preencher o `.env` e ligar `BILLING_ENFORCEMENT_ENABLED` | Último passo entre o código e a receita | Conta Stripe |
-| **Frontend oficial** | O `frontend-react/` é protótipo funcional; o app oficial ainda será construído, portando `src/api/` e o PWA | Toda a inteligência do backend precisa de uma casa definitiva | Design system |
+| **Decisões de produto no app** | Botão "Continuar com Google" sem backend, CPF pedido e não enviado, passo 2 do cadastro dizendo que o Open Banking está "em construção", Feed sem os cards do motor de notificações — ver [frontend-react/README.md](frontend-react/README.md#pendências-conhecidas) | Promessa visível que o produto não cumpre | Design (Beatriz) |
 | **Validação jurídica (D5)** | Revisão por advogado dos templates de petição JEC e cartas | Código pronto; lançar sem revisão gera risco de responsabilidade por orientação incorreta | Advogado parceiro |
 | **Contrato SERPRO (produção)** | A consulta real de restituição IRPF funciona em trial; produção exige contratar a API Consulta Restituição na Loja SERPRO (consumer key/secret + chave do e-CNPJ) | Sem o contrato, o `POST /rights/{user_id}/ir/check` degrada para o passo a passo de habilitação | Contratação SERPRO (custo por consulta) |
 | **App mobile nativo** | Widget de homescreen nativo, push FCM | PWA cobre o essencial, mas retenção diária de massa exige mobile nativo | Time mobile |
@@ -651,7 +653,7 @@ México: Open Banking regulado (Ley Fintech 2018), 60M sub-bancarizados, concent
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
-│   APP WEB (React 19 + Vite, protótipo HIVE) · PWA Widget/Push     │
+│   APP WEB oficial (frontend-react, React 19) · PWA Widget/Push    │
 │   Demo Streamlit (backend/demo) sobre os mesmos serviços          │
 └────────────────────────────┬──────────────────────────────────────┘
                              │ HTTPS /api/v1 · JWT (+ refresh rotativo)
@@ -717,7 +719,7 @@ México: Open Banking regulado (Ley Fintech 2018), 60M sub-bancarizados, concent
 
 | Camada | Backend | | Camada | Frontend/DevOps |
 |:---|:---|---|:---|:---|
-| API | FastAPI 0.139 + Uvicorn + Pydantic 2 | | Framework | React 19 + TypeScript 5.9 (protótipo) |
+| API | FastAPI 0.139 + Uvicorn + Pydantic 2 | | Framework | React 19 + TypeScript 5.9 |
 | Database | PostgreSQL + SQLAlchemy 2.0 + Alembic 1.13 | | Build | Vite 8 |
 | Cache/Locks | Redis + SlowAPI | | Styling | TailwindCSS 4 + CSS por tela |
 | DataFrames | Polars 1.0 · DuckDB 1.4 | | Dados | React Query 5 + Axios · Zustand 5 |
@@ -726,7 +728,7 @@ México: Open Banking regulado (Ley Fintech 2018), 60M sub-bancarizados, concent
 | Taxas | BACEN SGS + ANBIMA | | Container | Docker · nginx (frontend) |
 | IA | LangGraph 0.2 + Claude (ou OpenAI) | | CI | GitHub Actions (testes + pip-audit + build) |
 | Scheduler | APScheduler 3.10 | | Deploy | Railway (`Dockerfile.railway`) |
-| Pagamentos | Stripe | | Testes | pytest · Vitest |
+| Pagamentos | Stripe | | Testes | pytest · Vitest · Playwright |
 
 ### Estrutura do repositório
 
@@ -752,6 +754,7 @@ codigos-nexa/
 │   ├── src/pages/           # telas (21)
 │   ├── src/components/      # AppShell, guardas de rota, UI
 │   ├── src/pwa/             # registro do service worker e push
+│   ├── e2e/                 # testes de ponta a ponta (Playwright)
 │   └── nginx.conf.template  # proxy /api em produção
 ├── docs/                    # relatório, segurança, funcionalidades, roadmap
 ├── docker-compose.yml       # api + postgres + redis + frontend
@@ -1099,7 +1102,23 @@ O DuckDB (`backend/finance.duckdb`, ou `DUCKDB_PATH`) guarda o histórico analí
 
 ### Backend
 
-⟦TABELA_TESTES⟧
+**3.636 passando · 0 falhas · 147 pulados · 79% de cobertura** (rodada completa de 21/10/2026). A suíte é mantida 100% verde como política do projeto.
+
+| Lote | Testes | O que cobre |
+|:---|---:|:---|
+| `tests/optimizer/` | 926 | Catálogo de cartões, ranking, custo de oportunidade, promoções |
+| `tests/architect/` | 630 | VPL, Monte Carlo, calibração pelas séries do BACEN, sensibilidade |
+| `tests/test_*.py` (raiz) | 554 | ETL, pipeline ponta a ponta, segurança e LGPD, PF/PJ, Pluggy, endpoints |
+| `tests/agent/` | 314 | As 31 ferramentas, histórico por conversa, agente de produção |
+| `tests/opportunities/` | 200 | Radar, Bank Match, catálogo vivo |
+| `tests/defense/` | 164 | D1–D6 e séries do BACEN |
+| `tests/notifications/` | 143 | 17 geradores, filtro de relevância, entrega |
+| `tests/fiscal/` · `tests/rights/` · `tests/seasonality/` | 87 · 80 · 79 | IR, MEI/DAS, direitos esquecidos, calendário fiscal |
+| `tests/costs/` · `tests/viral/` · `tests/peers/` · `tests/purchase/` | 68 · 62 · 59 · 56 | Raio-X, Wrapped/placar, pares, compra inteligente |
+| `tests/billing/` · `tests/ligacao/` · `tests/health_score/` · `tests/cashflow/` | 42 · 39 · 30 · 28 | Planos e gating, contratos front↔back, score, fluxo de caixa |
+| `tests/negotiator/` · `tests/demo/` · `tests/auth/` · `tests/jobs/` · `tests/e2e/` | 27 · 21 · 14 · 8 · 5 | Negociador, personas, conta, jobs, ponta a ponta |
+
+Os pulados são opcionais por custo ou ambiente: 126 avaliações da prosa do agente, que gastam tokens (ligue com `NEXA_EVAL_LLM=1`; o juiz LLM com `NEXA_EVAL_JUDGE=1`), 13 da suíte do usuário-referência, que pede o seed de dados reais, e os demais dependem de um LLM no ar ou do Redis Stack (`NEXA_TEST_REDIS_STACK_URL`).
 
 Como rodar:
 
@@ -1128,7 +1147,7 @@ A suíte inteira leva ~25 min (o lote `architect` sozinho passa de 9 min, por ca
 | Cartões | `/pluggy/cards` e `/cards/manual` só do dono do token |
 | E-mail disponível | `/auth/check-email` com a mesma regra de caixa do cadastro |
 
-**Cobertura não é atestado.** ⟦B_COV⟧ mede o que foi *executado*, não o que foi *verificado*. As auditorias de 2026 encontraram dezenas de testes que passavam sobre código quebrado — por isso cada correção é validada por **mutação**: quebra-se o código de propósito e exige-se que um teste específico falhe. A distribuição também importa: ⟦JOBS_COV⟧
+**Cobertura não é atestado.** 79% mede o que foi *executado*, não o que foi *verificado*. As auditorias de 2026 encontraram dezenas de testes que passavam sobre código quebrado — por isso cada correção é validada por **mutação**: quebra-se o código de propósito e exige-se que um teste específico falhe. A distribuição também importa: `app/jobs` está a **28%**, o pior módulo do projeto — e é a camada que roda de madrugada sem ninguém olhando. Os mais cobertos são `app/seasonality` (97%), `app/peers` (94%) e `app/budget` (92%).
 
 ### Frontend
 
@@ -1140,11 +1159,14 @@ npm run build       # tsc + build de produção
 npm run lint        # ESLint
 ```
 
-**17 testes em 4 arquivos, todos passando:** `ChatPage` (histórico da conversa salva, envio na conversa atual, "Nova conversa" sem apagar a anterior, lista de conversas), `StrategiesPage`, `Badge` e `KpiCard`. Checagem de tipos e build passam. O lint tem 10 erros conhecidos (ver [Problemas Conhecidos](#️-problemas-conhecidos)).
+**29 testes unitários em 6 arquivos e 13 testes e2e, todos passando; lint, tipos e build sem erros.**
+
+- **Unitários** (Vitest + Testing Library): Chat (histórico da conversa salva, envio na conversa atual, "Nova conversa" sem apagar a anterior, lista de conversas), Estratégias, componentes, destino seguro do login e a busca paginada da Organização.
+- **Ponta a ponta** (Playwright, `npm run test:e2e`), contra o backend local com as personas: as 14 telas logadas abrem sem nenhum erro de API nos três planos, as abas navegam no celular, a sessão vencida renova sozinha, a sessão morta volta para a tela de origem depois do login, `next` externo é recusado e o cadastro envia `accepted_terms`. O envio real ao agente só roda com `HIVE_E2E_CHAT=1`.
 
 ### CI
 
-GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) em push para `main`/`develop` e PR para `main`: migrações + pytest, `pip-audit` nos pins diretos + catraca de CVE na árvore transitiva (o número só pode descer) e build da imagem Docker. **Hoje o CI falha na instalação de dependências** — ver [Problemas Conhecidos](#️-problemas-conhecidos).
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) em push para `main`/`develop` e PR para `main`: migrações + pytest, `pip-audit` nos pins diretos + catraca de CVE na árvore transitiva (o número só pode descer) build da imagem Docker e, para o `frontend-react`, lint + tipos + testes unitários + build. **Hoje os jobs do backend falham na instalação de dependências** — ver [Problemas Conhecidos](#️-problemas-conhecidos).
 
 ---
 
@@ -1209,6 +1231,7 @@ curl -X POST http://localhost:8000/api/v1/architect/simulate \
 - **Feature nova:** card no feed **e** ferramenta no agente (ver [Superfícies](#-as-superfícies-do-produto)); nada de valores fabricados — sem dado, a resposta diz o que falta.
 - **Rota nova com dados do usuário:** `require_owner` (ou o usuário do token) é obrigatório; o teste de segurança falha se uma rota privada não exigir autenticação. Rota pública precisa entrar na allowlist de `tests/test_seguranca_lgpd.py` com justificativa.
 - **Migrações:** uma por mudança de schema; nunca a mesma coluna em dois ramos; um único head depois de cada merge.
+- **Visual do app:** o `frontend-react` segue o redesenho da Beatriz Samaha; mudança visual se combina com ela antes. O app precisa passar em `npm run lint`, `npx tsc -b`, `npx vitest run` e `npm run test:e2e`.
 - **Não versionar:** `.env`, `backend/finance.duckdb`, `test.db`, artefatos de cobertura.
 - **Personas:** mudou o classificador PF/PJ? Rode `python3 -m demo.seed --reset` — o banco guarda o rótulo antigo.
 
@@ -1222,11 +1245,7 @@ Verificados em outubro/2026:
 |:---|:---|:---|
 | `backend/requirements.txt` não resolve (`langchain 0.2.16` × `SALib 1.5.2` por causa do numpy) | CI falha na instalação desde agosto; `docker compose up --build` não sobe a API | Instalação em dois passos ([Início Rápido](#-início-rápido)); correção real = atualizar o langchain ou trocar o SALib |
 | Job "Docker Build" do CI roda `docker build ./backend`, mas não existe `backend/Dockerfile` | O job falharia mesmo com as dependências resolvidas | Apontar para o `Dockerfile` da raiz (`docker build -f Dockerfile .`) |
-| 10 erros de ESLint no frontend (efeitos com `setState`, blocos vazios, expressões soltas e 2 antigos em `ThemeProvider`/`Button`) | `npm run lint` não passa | Nenhum quebra build nem teste |
-| `npm run test:e2e` aponta para o Playwright, mas não há `playwright.config` nem testes e2e no repositório | O script não roda | Usar Vitest + checagem manual |
-| `frontend-react/README.md` ainda é o template do Vite | Sem documentação própria do frontend | Ver a seção [App Web](#️-app-web-frontend-react) deste README |
 | `POST /pluggy/cards/manual` aceita limite negativo e qualquer texto em `last4` | Dado ruim pode entrar pela tela de cartão manual | Validar no backend (Pydantic) |
-| O login sempre leva ao Chat e ignora `?next=` | Depois de uma sessão expirada, o usuário não volta à tela em que estava | Ler `next` no `LoginPage` |
 | Tabelas `community_*` existem no banco sem rotas na API | Schema sem uso | Remover ou implementar |
 | `docs/SETUP_LOCAL.md` descreve o fluxo antigo (Streamlit como frontend, fallback DuckDB) | Pode confundir quem chega | Usar o [Início Rápido](#-início-rápido) deste README |
 
@@ -1255,12 +1274,12 @@ Verificados em outubro/2026:
 ### Fase 2 — Monetização e Casa Própria (em andamento)
 
 - [x] **Billing + gating Free/Pro/Total** (Stripe, dark launch — falta só chaves + flip da flag)
-- [x] **App web ligado ao backend real** em todas as telas (protótipo, out/2026)
+- [x] **App web ligado ao backend real** em todas as telas (out/2026)
 - [x] Redesenho visual HIVE: login, cadastro, chat por conversas, feed, organização, cartões
 - [x] Telas de conta: recuperação de senha e verificação de e-mail
 - [x] Personas de demonstração com um ano de extrato pelo ETL real
 - [ ] **CI verde** (resolver o conflito de dependências)
-- [ ] **Frontend oficial** (substituir o protótipo, portando `src/api/` e o PWA)
+- [x] **Frontend oficial:** `frontend-react` promovido a app oficial, com o design como está (out/2026)
 - [ ] Validação jurídica e lançamento do D5
 - [ ] R4.a relatório trimestral · R5 anti-churn (⚠️ jobs escritos e nunca agendados)
 - [ ] Lançamento público do Wrapped (dezembro)
@@ -1302,7 +1321,7 @@ Verificados em outubro/2026:
 
 ### HIVE
 
-**141 operações de API · 31 ferramentas de IA · 17 tipos de alerta proativo · ⟦B_PASS⟧ testes passando**
+**141 operações de API · 31 ferramentas de IA · 17 tipos de alerta proativo · 3.636 testes passando**
 
 *Trabalhar para você, não para o banco.*
 
