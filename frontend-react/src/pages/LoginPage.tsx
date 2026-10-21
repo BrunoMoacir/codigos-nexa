@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { destinoSeguro } from '../utils/destinoSeguro';
 import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../api/client';
 
@@ -97,7 +98,8 @@ const HoneycombCanvas: React.FC = () => {
         const a = (Math.PI / 3) * i;
         const x = cx + r * Math.cos(a);
         const y = cy + r * Math.sin(a);
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
       }
       ctx.closePath();
     };
@@ -155,7 +157,6 @@ const HoneycombCanvas: React.FC = () => {
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────
 const css = `
-  @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,800,900&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   .lp-root {
@@ -526,6 +527,7 @@ const css = `
 // ─── LoginPage ────────────────────────────────────────────────────────────────
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [loginEmail, setLoginEmail]       = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loading, setLoading]             = useState(false);
@@ -568,7 +570,8 @@ export const LoginPage: React.FC = () => {
       // Cada login começa uma conversa nova — as anteriores continuam
       // salvas e acessíveis pela lista de conversas do chat.
       if (data.user_id) localStorage.removeItem(`hive-session:${data.user_id}`);
-      navigate('/chat');
+      // sessão expirada no meio do uso: volta para a tela em que a pessoa estava
+      navigate(destinoSeguro(params.get('next')), { replace: true });
     } catch {
       toast.error('Erro de conexão. Verifique sua internet.');
     } finally {

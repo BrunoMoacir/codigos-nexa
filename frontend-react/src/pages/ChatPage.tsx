@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { AppShell } from '../components/layout/AppShell';
 import { nexaApi } from '../api/nexa';
 import type { ChatHistoryItem, ChatSessionItem } from '../api/types';
+import { describeError } from '../api/errors';
 
 type Message = { role: 'user' | 'assistant'; content: string; ts: string; image?: string; id?: number };
 
@@ -22,8 +23,21 @@ function newSessionId() {
   return globalThis.crypto?.randomUUID?.() || `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function lerCopiaLocal(storageKey: string): Message[] {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    const parsed = raw ? JSON.parse(raw) as Message[] : null;
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function relativeTime(iso: string): string {
-  const then = new Date(iso.includes('Z') || iso.includes('+') ? iso : `${iso}Z`).getTime();
+  // O backend serializa '2026-10-05 20:15:10.123456+00:00' (espaço e microssegundos),
+  // que o Safari não lê: normaliza para ISO antes de criar a data.
+  const limpo = iso.trim().replace(' ', 'T').replace(/(\.\d{3})\d+/, '$1');
+  const then = new Date(/Z|[+-]\d{2}:?\d{2}$/.test(limpo) ? limpo : `${limpo}Z`).getTime();
   if (Number.isNaN(then)) return '';
   const diffMin = Math.max(0, Math.round((Date.now() - then) / 60000));
   if (diffMin < 1) return 'Agora';
@@ -331,29 +345,30 @@ export const ChatPage: React.FC = () => {
     enabled: !!userId,
   });
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      const parsed = raw ? JSON.parse(raw) as Message[] : null;
-      setMessages(Array.isArray(parsed) && parsed.length > 0 ? parsed : []);
-    } catch { setMessages([]); }
-  }, [storageKey]);
-
-  useEffect(() => {
-    if (historyQuery.data === undefined) return; // esta sessão ainda não resolveu
-    const history = historyQuery.data
+  // Trocou de conversa: mostra a cópia local na hora, enquanto o histórico chega.
+  // E quando o histórico do servidor chega, ele vira a verdade. Ajuste de estado
+  // durante a renderização (padrão do React para "estado que segue uma prop"),
+  // em vez de setState dentro de efeito, que renderizava tudo duas vezes.
+  const [chaveCarregada, setChaveCarregada] = useState<string | null>(null);
+  if (chaveCarregada !== storageKey) {
+    setChaveCarregada(storageKey);
+    setMessages(lerCopiaLocal(storageKey));
+  }
+  const [historicoAplicado, setHistoricoAplicado] = useState<ChatHistoryItem[] | undefined>(undefined);
+  if (historyQuery.data !== undefined && historyQuery.data !== historicoAplicado) {
+    setHistoricoAplicado(historyQuery.data);
+    setMessages(historyQuery.data
       .map(mapHistoryItem)
       .filter(m => m.content.trim())
-      .sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
-    setMessages(history);
-  }, [historyQuery.data]);
+      .sort((a, b) => (a.id ?? 0) - (b.id ?? 0)));
+  }
 
   useEffect(() => {
-    try { localStorage.setItem(storageKey, JSON.stringify(messages)); } catch {}
+    try { localStorage.setItem(storageKey, JSON.stringify(messages)); } catch { /* storage cheio ou bloqueado: a conversa segue só na tela */ }
   }, [messages, storageKey]);
 
   useEffect(() => {
-    try { localStorage.setItem(sessionKey, sessionId); } catch {}
+    try { localStorage.setItem(sessionKey, sessionId); } catch { /* sem storage: a conversa vale só nesta aba */ }
   }, [sessionId, sessionKey]);
 
   useEffect(() => {
@@ -368,12 +383,14 @@ export const ChatPage: React.FC = () => {
       void historyQuery.refetch();
       void sessionsQuery.refetch();
     },
-    onError: () => {
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: 'Não consegui responder agora. Verifique se o backend está ativo.',
-        ts: new Date().toISOString(),
-      }]);
+    onError: (err) => {
+      // Antes toda falha dizia "verifique se o backend está ativo" — inclusive a
+      // cota do plano Free esgotada (402) e o limite de requisições (429).
+      const info = describeError(err, 'Não consegui responder agora. Tente de novo em instantes.');
+      const content = info.kind === 'upgrade_required'
+        ? `${info.message} Veja os planos em Perfil → Planos.`
+        : info.message;
+      setMessages(prev => [...prev, { role: 'assistant', content, ts: new Date().toISOString() }]);
     },
   });
 
@@ -385,7 +402,7 @@ export const ChatPage: React.FC = () => {
     setMessages([]);
     setImagePreview(null);
     setShowSessions(false);
-    try { localStorage.setItem(sessionKey, sid); } catch {}
+    try { localStorage.setItem(sessionKey, sid); } catch { /* sem storage: a conversa vale só nesta aba */ }
   };
 
   const switchSession = (sid: string) => {
