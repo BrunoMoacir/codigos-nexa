@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Literal, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Ticket OPP1-C — status de confiança da detecção de dinheiro ocioso.
 # Ver docs/OPP1_DINHEIRO_PARADO_PLANO.md seção 5.2 para a tabela de uso por status.
@@ -162,8 +162,8 @@ class CompareResponse(BaseModel):
 class SweepPreviewRequest(BaseModel):
     """Parâmetros para simular um sweep sem iniciar movimentação financeira."""
 
-    amount: float | None = None
-    holding_months: int = 12
+    amount: float | None = Field(default=None, gt=0)
+    holding_months: int = Field(default=12, ge=1, le=360)
 
 
 class SweepPreviewResponse(BaseModel):

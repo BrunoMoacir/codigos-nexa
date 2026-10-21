@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from app.opportunities.models import (
     OpportunityItem,
@@ -68,6 +69,12 @@ def test_preview_permite_valor_menor_que_o_idle() -> None:
     assert result.amount == 1000.0
     assert result.source == "REQUESTED_AMOUNT"
     assert result.holding_months == 24
+
+
+@pytest.mark.parametrize("holding_months", [0, 361])
+def test_preview_rejeita_prazo_fora_do_limite(holding_months: int) -> None:
+    with pytest.raises(ValidationError):
+        SweepPreviewRequest(holding_months=holding_months)
 
 
 @pytest.mark.parametrize("amount", [0.0, -1.0, 2500.01])

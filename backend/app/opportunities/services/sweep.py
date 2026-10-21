@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from app.opportunities.models import (
     DISCLAIMER,
-    OpportunityItem,
     OpportunitiesResponse,
     SweepPreviewRequest,
     SweepPreviewResponse,
