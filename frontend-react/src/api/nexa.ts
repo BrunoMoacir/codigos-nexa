@@ -1,4 +1,5 @@
 import apiClient, { TIMEOUTS } from './client';
+import type { Transaction } from './types';
 
 export const nexaApi = {
   // Dashboard
@@ -56,6 +57,31 @@ export const nexaApi = {
       params: { limit, offset },
     });
     return data;
+  },
+
+  /**
+   * Lançamentos dos últimos `meses` (mais recentes primeiro), paginando de 1.000
+   * em 1.000 (o máximo por página da API). A Organização pedia só os 100 mais
+   * recentes: o gráfico de "1 ano" mostrava 3–4 meses e os totais saíam de uma
+   * amostra.
+   */
+  getTransactionsWindow: async (userId: string, meses = 12) => {
+    const hoje = new Date();
+    const inicio = new Date(hoje.getFullYear(), hoje.getMonth() - meses, 1);
+    const limite = `${inicio.getFullYear()}-${String(inicio.getMonth() + 1).padStart(2, '0')}-01`;
+    const todas: Transaction[] = [];
+    let total = 0;
+    for (let pagina = 0; pagina < 6; pagina++) {
+      const { data } = await apiClient.get(`/transactions/${userId}`, {
+        params: { limit: 1000, offset: pagina * 1000 },
+      });
+      const lote = (data?.transactions || []) as Transaction[];
+      total = data?.total ?? total;
+      todas.push(...lote);
+      const maisAntiga = lote[lote.length - 1]?.date || '';
+      if (!data?.has_more || !lote.length || (maisAntiga && maisAntiga < limite)) break;
+    }
+    return { total, transactions: todas.filter((t) => !t.date || t.date >= limite) };
   },
 
   getAlerts: async (userId: string) => {

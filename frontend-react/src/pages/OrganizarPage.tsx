@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { AppShell } from '../components/layout/AppShell';
@@ -419,8 +419,8 @@ export const OrganizarPage: React.FC = () => {
   const [period, setPeriod] = useState('1a');
 
   const txnsQ = useQuery({
-    queryKey: ['transactions', userId],
-    queryFn: () => nexaApi.getTransactions(userId, 100),
+    queryKey: ['transactions', userId, '12m'],
+    queryFn: () => nexaApi.getTransactionsWindow(userId, 12),
     enabled: !!userId,
     retry: 1, staleTime: 2 * 60 * 1000,
   });
@@ -453,8 +453,6 @@ export const OrganizarPage: React.FC = () => {
   const showDemo = !hasReal && demo;
   const showEmpty = !hasReal && !demo;
 
-  const cats: { name: string; color: string; pct: number; val: string }[] =
-    hasReal ? buildCats(txns) : showDemo ? DEMO_CATS : [];
 
   const monthSeries: BarPoint[] = hasReal
     ? buildMonthlySeries(txns, t => t.amount < 0 || t.type === 'expense')
@@ -463,9 +461,15 @@ export const OrganizarPage: React.FC = () => {
   const chartSeries = monthSeries.slice(-Math.min(periodMonths, monthSeries.length));
   const currentMonthKey = monthSeries.length ? monthSeries[monthSeries.length - 1].key : null;
 
+  // As categorias seguem o período do gráfico (1 ano / 6 meses), não a amostra baixada.
+  const mesesDoGrafico = new Set(chartSeries.map(m => m.key));
+  const cats: { name: string; color: string; pct: number; val: string }[] =
+    hasReal ? buildCats(txns.filter(t => mesesDoGrafico.has(t.date?.slice(0, 7) || ''))) : showDemo ? DEMO_CATS : [];
+
   const [drillKey, setDrillKey] = useState<string | null>(null);
   const [weekIdx, setWeekIdx] = useState(0);
-  useEffect(() => { setWeekIdx(0); }, [drillKey]);
+  // a semana volta para a primeira sempre que o mês detalhado muda
+  const selecionarMes = (key: string | null) => { setDrillKey(key); setWeekIdx(0); };
   const drillPoint = drillKey ? monthSeries.find(m => m.key === drillKey) || null : null;
 
   let monthDaily: number[] = [];
@@ -505,8 +509,11 @@ export const OrganizarPage: React.FC = () => {
   const displayCards: { bank_name?: string | null; brand?: string | null; level?: string | null; last4?: string | null; credit_limit?: number | null; available_credit_limit?: number | null }[] =
     hasRealCards ? realCards : (!hasRealCards && demo ? DEMO_CARDS : []);
 
-  const totalIn  = txns.filter(t => t.amount > 0 || t.type === 'income').reduce((s, t) => s + Math.abs(t.amount), 0);
-  const totalOut = txns.filter(t => t.amount < 0 || t.type === 'expense').reduce((s, t) => s + Math.abs(t.amount), 0);
+  // "Resumo do mês" = o mês clicado no gráfico, ou o mais recente do extrato
+  const mesDoResumo = drillPoint?.key ?? currentMonthKey;
+  const txnsDoMes = txns.filter(t => t.date?.slice(0, 7) === mesDoResumo);
+  const totalIn  = txnsDoMes.filter(t => t.amount > 0 || t.type === 'income').reduce((s, t) => s + Math.abs(t.amount), 0);
+  const totalOut = txnsDoMes.filter(t => t.amount < 0 || t.type === 'expense').reduce((s, t) => s + Math.abs(t.amount), 0);
   const saldo    = totalIn - totalOut;
 
   const displayTxns = hasReal
@@ -553,7 +560,7 @@ export const OrganizarPage: React.FC = () => {
           <div className="op-panel">
             <div className="op-panel-head">
               {drillPoint ? (
-                <button type="button" className="op-back-btn" onClick={() => setDrillKey(null)}>
+                <button type="button" className="op-back-btn" onClick={() => selecionarMes(null)}>
                   <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M9 2.5 3.5 7 9 11.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   Gastos em {drillPoint.label}
                 </button>
@@ -600,7 +607,7 @@ export const OrganizarPage: React.FC = () => {
                 <AreaChart
                   series={chartSeries}
                   currentKey={currentMonthKey}
-                  onSelect={setDrillKey}
+                  onSelect={selecionarMes}
                   h={190}
                 />
                 <p className="op-chart-hint">Clique num mês pra ver o gasto por semana.</p>

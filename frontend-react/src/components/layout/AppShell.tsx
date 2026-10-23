@@ -15,7 +15,6 @@ interface AppShellProps {
 }
 
 const css = `
-  @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,800,900&display=swap');
 
   .hs {
     font-family: 'Satoshi', system-ui, sans-serif;

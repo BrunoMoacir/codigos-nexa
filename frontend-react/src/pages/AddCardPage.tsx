@@ -6,7 +6,6 @@ const BRANDS = ['Visa', 'Mastercard', 'Elo', 'American Express', 'Hipercard'];
 const LEVELS = ['Standard', 'Gold', 'Platinum', 'Black', 'Infinite'];
 
 const css = `
-  @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,800,900&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   .ac-root {
