@@ -80,3 +80,34 @@ class DefenseResponse(BaseModel):
         "Os valores apresentados são estimativas educacionais baseadas em indícios. "
         "Não constituem garantia de recuperação judicial ou extrajudicial."
     )
+
+
+class PortabilitySimulationRequest(BaseModel):
+    """Dados mínimos para simular uma proposta de portabilidade."""
+
+    balance: float = Field(gt=0, description="Saldo devedor atual em reais.")
+    current_monthly_rate: float = Field(
+        gt=0, le=1, description="Taxa mensal atual em formato decimal."
+    )
+    target_monthly_rate: float = Field(
+        gt=0, le=1, description="Taxa mensal proposta em formato decimal."
+    )
+    remaining_months: int = Field(ge=1, le=360)
+    current_payment: Optional[float] = Field(default=None, gt=0)
+
+
+class PortabilitySimulationResponse(BaseModel):
+    """Resultado educacional, sem solicitação ou execução de portabilidade."""
+
+    balance: float
+    remaining_months: int
+    current_monthly_rate: float
+    target_monthly_rate: float
+    current_payment: float
+    target_payment: float
+    current_total_cost: float
+    target_total_cost: float
+    estimated_savings: float
+    status: Literal["ADVANTAGEOUS", "NO_ADVANTAGE", "INVALID_TARGET"]
+    recommendation: str
+    disclaimer: str
