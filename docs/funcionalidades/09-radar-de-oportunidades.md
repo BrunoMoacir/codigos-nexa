@@ -117,6 +117,30 @@ Job diário 02h30 persiste em `product_catalog.json`; fallback é o catálogo
 curado versionado. O comparator recarrega por mtime/TTL — o job atualiza sem
 restart.
 
+#### Fontes suplementares fora do Open Finance
+
+O conector aceita uma fonte externa explicitamente configurada por
+`NEXA_SUPPLEMENTAL_CATALOG_PATH`. O arquivo pode ser uma lista ou um objeto
+`{"products": [...]}` com o contrato mínimo:
+
+```json
+{
+  "bank_name": "Instituição",
+  "product_type": "CDB",
+  "cdi_pct": 112,
+  "min_amount": 100,
+  "liquidity_days": 1
+}
+```
+
+Essa fonte deve ser uma exportação licenciada ou fornecida por integração
+aprovada (por exemplo, uma fonte de mercado autorizada); o código não presume
+que dados públicos possam ser raspados ou redistribuídos. Ofertas inválidas,
+fora da faixa de 30%–200% do CDI ou sem campos obrigatórios são descartadas.
+Os produtos recebem `data_source=supplemental`, são deduplicados com as ofertas
+Open Finance e o job diário preserva a origem combinada
+`open_finance+supplemental`.
+
 ### 3. IR regressivo real (`fiscal/ir_pf_calculator.py`)
 
 O mesmo motor usado pelo módulo de impostos (doc 12). Cobre 8 tipos:
