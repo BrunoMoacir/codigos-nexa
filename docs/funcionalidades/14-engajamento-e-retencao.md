@@ -53,6 +53,20 @@ tanto quanto nível.
 **Perfil derivado**: poupança ≥ 20% → CONSERVADOR · ≥ 10% → EQUILIBRADO ·
 < 10% → GASTADOR.
 
+#### HIVE Score exportável
+
+O score agregado pode ser baixado pelo titular autenticado em:
+
+```http
+GET /api/v1/health-score/export/{user_id}?months=12
+```
+
+A resposta é um JSON versionado (`schema_version`) com score atual, tendência,
+variações de 30/90 dias, resiliência, FSS, qualidade dos dados e histórico
+mensal. O exportador não inclui transações brutas, descrições, instituições,
+CPF ou credenciais. O arquivo é educacional: não é classificação de crédito
+nem recomendação financeira.
+
 ### MX.2 — Metas (`app/goals/tracker.py`)
 
 ```

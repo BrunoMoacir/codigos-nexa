@@ -461,7 +461,7 @@ para que só um worker assuma cada job.
 | 9 | Architect (F3) | architect.py | ✅ Pronto | ⚠️ DuckDB | ✅ Sim | ❌ Não |
 | 10 | Optimizer (F2) | optimizer.py | ✅ Pronto | ✅ Sim | ❌ Não | ❌ Não |
 | 11 | Chat (Agent IA) | chat.py | ✅ Pronto | ❌ N/A | ❌ Não | ✅ Sim |
-| 12 | Health Score (MX.1) | health_score.py | ✅ Pronto | ❌ N/A | ❌ Não | ❌ Não |
+| 12 | Health Score (MX.1) | health_score.py | ✅ Pronto + exportável | ❌ N/A | ❌ Não | ❌ Não |
 | 13 | Subscriptions (M1.5) | subscriptions.py | ✅ Pronto | ⚠️ NexaRunner | ❌ Não | ❌ Não |
 | 14 | Goals (MX.2) | goals.py | ✅ Pronto | ⚠️ Fallback | ❌ Não | ✅ Sim |
 | 15 | Budget (M1.3) | budget.py | ✅ Pronto | ⚠️ NexaRunner | ❌ Não | ✅ Sim |
