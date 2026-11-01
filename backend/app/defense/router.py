@@ -15,12 +15,19 @@ from fastapi.responses import Response
 
 from app.core.security import require_owner  # noqa: F401 (mantido p/ referência)
 from app.billing.gating import require_plan
-from app.defense.models import DefenseResponse, EvidenceDossier, CorrectionIndex
+from app.defense.models import (
+    CorrectionIndex,
+    DefenseResponse,
+    EvidenceDossier,
+    PortabilitySimulationRequest,
+    PortabilitySimulationResponse,
+)
 from app.defense.services.tied_sale_detector import TiedSaleDetector
 from app.defense.services.wrongful_charge_detector import WrongfulChargeDetector
 from app.defense.services.abusive_interest_detector import AbusiveInterestDetector
 from app.defense.services.unilateral_change_detector import UnilateralChangeDetector
 from app.defense.services.portability_detector import PortabilityDetector
+from app.defense.services.portability_simulator import simulate_portability
 from app.defense.services.evidence_builder import EvidenceBuilder
 from app.core.formatacao import brl
 
@@ -37,6 +44,20 @@ _detectors = {
 _builder = EvidenceBuilder()
 
 _VALID_DETECTORS = {"d1", "d2", "d3", "d4", "d6"}
+
+
+@router.post("/portability/simulate", response_model=PortabilitySimulationResponse)
+def simulate_portability_route(
+    body: PortabilitySimulationRequest,
+    user_id: str = require_plan("total"),
+) -> PortabilitySimulationResponse:
+    """F9/F10 — compara uma proposta de portabilidade sem executá-la."""
+    logger.info(
+        "[defense/portability/simulate] user=%s months=%d",
+        user_id,
+        body.remaining_months,
+    )
+    return simulate_portability(body)
 
 
 @router.get("/{user_id}", response_model=DefenseResponse)

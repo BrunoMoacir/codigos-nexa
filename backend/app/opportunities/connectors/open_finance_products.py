@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,7 @@ _MAX_WORKERS = 8               # fetches concorrentes
 _MIN_PRODUCTS_FOR_LIVE = 8     # abaixo disso o catálogo vivo não substitui o curado
 
 _SUPPORTED_TYPES = {"CDB", "RDB", "LCI", "LCA"}
+_SUPPLEMENTAL_CATALOG_ENV = "NEXA_SUPPLEMENTAL_CATALOG_PATH"
 
 
 class OpenFinanceProductsConnector(BaseConnector):
@@ -72,8 +74,11 @@ class OpenFinanceProductsConnector(BaseConnector):
 
     def fetch_rates(self) -> dict[str, Any]:
         """Busca e normaliza as ofertas públicas de renda fixa bancária."""
+        supplemental = self._load_supplemental_catalog()
         endpoints = self._discover_endpoints()
         if not endpoints:
+            if len(supplemental) >= _MIN_PRODUCTS_FOR_LIVE:
+                return {"products": supplemental, "source": "supplemental"}
             raise ConnectorError("Nenhum endpoint de bank-fixed-incomes descoberto no diretório")
 
         endpoints = endpoints[:_MAX_INSTITUTIONS]
@@ -89,7 +94,7 @@ class OpenFinanceProductsConnector(BaseConnector):
                 except Exception as exc:
                     logger.debug("[OpenFinanceProducts] %s: %s", futures[future], exc)
 
-        products = self._dedupe(products)
+        products = self._dedupe(products + supplemental)
 
         if len(products) < _MIN_PRODUCTS_FOR_LIVE:
             raise ConnectorError(
@@ -101,10 +106,14 @@ class OpenFinanceProductsConnector(BaseConnector):
             "[OpenFinanceProducts] catálogo vivo: %d produtos de %d instituições",
             len(products), len(institutions),
         )
-        return {"products": products, "source": "open_finance"}
+        source = "open_finance+supplemental" if supplemental else "open_finance"
+        return {"products": products, "source": source}
 
     def get_fallback_rates(self) -> dict[str, Any]:
-        """Fallback = catálogo curado (backend/data/bank_products.json)."""
+        """Fallback = fonte suplementar validada ou catálogo curado."""
+        supplemental = self._load_supplemental_catalog()
+        if supplemental:
+            return {"products": supplemental, "source": "supplemental"}
         try:
             with open(_CURATED_CATALOG_PATH, encoding="utf-8") as f:
                 data = json.load(f)
@@ -112,6 +121,73 @@ class OpenFinanceProductsConnector(BaseConnector):
         except Exception as exc:
             logger.error("[OpenFinanceProducts] fallback curado falhou: %s", exc)
             return {"products": [], "source": "curated"}
+
+    @classmethod
+    def _load_supplemental_catalog(cls) -> list[dict]:
+        """Carrega uma exportação externa somente quando explicitamente configurada.
+
+        O arquivo deve conter ``{"products": [...]}`` ou uma lista de produtos.
+        Nenhum dado externo é inventado: entradas inválidas são descartadas e
+        cada produto recebe ``data_source=supplemental`` para transparência.
+        """
+        configured_path = os.getenv(_SUPPLEMENTAL_CATALOG_ENV)
+        if not configured_path:
+            return []
+        try:
+            with open(configured_path, encoding="utf-8") as file:
+                payload = json.load(file)
+            raw_products = payload.get("products", []) if isinstance(payload, dict) else payload
+            if not isinstance(raw_products, list):
+                return []
+            normalized = []
+            for raw in raw_products:
+                if isinstance(raw, dict):
+                    product = cls._normalize_supplemental_product(raw)
+                    if product is not None:
+                        normalized.append(product)
+            return cls._dedupe(normalized)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("[OpenFinanceProducts] fonte suplementar indisponível: %s", exc)
+            return []
+
+    @staticmethod
+    def _normalize_supplemental_product(raw: dict) -> dict | None:
+        """Valida o contrato mínimo para uma oferta fora do Open Finance."""
+        try:
+            bank_name = str(raw["bank_name"]).strip()
+            product_type = str(raw["product_type"]).upper()
+            cdi_pct = float(raw["cdi_pct"])
+            min_amount = float(raw.get("min_amount", 1.0))
+            liquidity_days = int(raw["liquidity_days"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if (
+            not bank_name
+            or product_type not in _SUPPORTED_TYPES
+            or not 30.0 <= cdi_pct <= 200.0
+            or min_amount < 0
+            or liquidity_days < 0
+        ):
+            return None
+        if product_type == "RDB":
+            product_type = "CDB"
+        liquidity = "daily" if liquidity_days <= 1 else (
+            "12m" if liquidity_days <= 365 else "24m"
+        )
+        return {
+            "bank_name": bank_name,
+            "product_type": product_type,
+            "cdi_pct": round(cdi_pct, 2),
+            "min_amount": min_amount,
+            "liquidity": liquidity,
+            "liquidity_days": liquidity_days,
+            "rating": str(raw.get("rating", "N/A")),
+            "index": "CDI",
+            "is_tax_exempt": product_type in ("LCI", "LCA"),
+            "fgc_covered": bool(raw.get("fgc_covered", True)),
+            "data_source": "supplemental",
+            **({"promotional": True} if cdi_pct > 130 else {}),
+        }
 
     # ── API pública ──────────────────────────────────────────────────
 

@@ -259,12 +259,33 @@ simples de juros contra a melhor taxa de mercado da modalidade.
 
 **Base legal**: Res. CMN 5.057/2022 (portabilidade gratuita).
 
+### F9/F10 — Simulação de portabilidade e pagamento otimizado
+
+Quando o usuário recebe uma proposta de outro banco, pode comparar o cenário
+sem iniciar uma portabilidade:
+
+```http
+POST /api/v1/defense/portability/simulate
+```
+
+O corpo informa `balance`, `current_monthly_rate`, `target_monthly_rate` e
+`remaining_months`. O serviço calcula as parcelas e o custo remanescente pelo
+sistema PRICE e retorna a economia estimada, ou informa quando a taxa proposta
+não traz vantagem. `current_payment` é opcional para preservar a parcela real
+quando ela já é conhecida.
+
+Essa rota é apenas uma simulação autenticada do plano Total. Ela não consulta
+o banco destino, não solicita portabilidade e não executa pagamentos. Antes de
+decidir, o usuário deve comparar o CET completo, tarifas, seguros, prazo e
+condições da proposta formal.
+
 ---
 
 ## Como funciona (técnico)
 
 - **Endpoints**: `GET /defense/{user_id}` (análise consolidada),
-  `/{user_id}/dossier`, `/{user_id}/zip` (download), `/{user_id}/portability`.
+  `/{user_id}/dossier`, `/{user_id}/zip` (download), `/{user_id}/portability`
+  e `POST /defense/portability/simulate` (simulação F9/F10).
 - 6 tools no agente (`detect_abusive_fees`, `detect_wrongful_charges`,
   `detect_abusive_interest`, `get_defense_analysis`, `get_evidence_dossier`,
   `get_portability_analysis`).

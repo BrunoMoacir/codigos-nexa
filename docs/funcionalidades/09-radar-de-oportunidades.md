@@ -117,6 +117,30 @@ Job diário 02h30 persiste em `product_catalog.json`; fallback é o catálogo
 curado versionado. O comparator recarrega por mtime/TTL — o job atualiza sem
 restart.
 
+#### Fontes suplementares fora do Open Finance
+
+O conector aceita uma fonte externa explicitamente configurada por
+`NEXA_SUPPLEMENTAL_CATALOG_PATH`. O arquivo pode ser uma lista ou um objeto
+`{"products": [...]}` com o contrato mínimo:
+
+```json
+{
+  "bank_name": "Instituição",
+  "product_type": "CDB",
+  "cdi_pct": 112,
+  "min_amount": 100,
+  "liquidity_days": 1
+}
+```
+
+Essa fonte deve ser uma exportação licenciada ou fornecida por integração
+aprovada (por exemplo, uma fonte de mercado autorizada); o código não presume
+que dados públicos possam ser raspados ou redistribuídos. Ofertas inválidas,
+fora da faixa de 30%–200% do CDI ou sem campos obrigatórios são descartadas.
+Os produtos recebem `data_source=supplemental`, são deduplicados com as ofertas
+Open Finance e o job diário preserva a origem combinada
+`open_finance+supplemental`.
+
 ### 3. IR regressivo real (`fiscal/ir_pf_calculator.py`)
 
 O mesmo motor usado pelo módulo de impostos (doc 12). Cobre 8 tipos:
@@ -258,6 +282,11 @@ resultado marca quais bancos tiveram tarifa real vs. projetada.
 
 - **Não executa a aplicação** (F6 sweep automático depende da fase de
   iniciação de pagamento do Open Finance).
+- O primeiro contrato do F6 está disponível em
+  `POST /api/v1/opportunities/{user_id}/sweep/preview`: ele calcula uma
+  proposta limitada ao `idle_amount` após a reserva de emergência, exige
+  consentimento e não movimenta dinheiro. A execução permanece bloqueada até
+  existir iniciação de pagamento Open Finance fase 4.
 - **Não compara fundos, ações ou previdência** — escopo é renda fixa bancária
   (CDB/RDB/LCI/LCA) + Tesouro SELIC.
 - **Não recebe comissão** — estruturalmente: nenhum link é afiliado.

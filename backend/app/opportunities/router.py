@@ -29,6 +29,8 @@ from app.opportunities.models import (
     CompareResponse,
     ProductCatalogResponse,
     SavingsVsCdiResult,
+    SweepPreviewRequest,
+    SweepPreviewResponse,
     TreasuryComparisonResponse,
 )
 from app.opportunities.services.opportunity_engine import OpportunityEngine
@@ -37,6 +39,7 @@ from app.opportunities.services.bank_match import BankMatchService
 from app.opportunities.services.bank_scorecard import BankScorecardService
 from app.opportunities.services.savings_vs_cdi import SavingsVsCdiService
 from app.opportunities.services.treasury_comparator import TreasuryComparatorService
+from app.opportunities.services.sweep import build_sweep_preview
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/opportunities", tags=["Opportunities (OPP)"])
@@ -187,6 +190,26 @@ def get_bank_match(
     except Exception as exc:
         logger.error("[opportunities] bank_match user=%s: %s", user_id, exc)
         raise HTTPException(status_code=500, detail="Erro ao calcular o melhor banco para o usuário.")
+
+
+@router.post("/{user_id}/sweep/preview", response_model=SweepPreviewResponse)
+def preview_sweep(
+    body: SweepPreviewRequest,
+    user_id: str = require_plan("pro"),
+) -> SweepPreviewResponse:
+    """F6 — calcula a prévia do sweep, sem iniciar pagamento."""
+    try:
+        opportunities = _engine.analyze(
+            user_id=user_id,
+            holding_months=body.holding_months,
+            persist_snapshot=False,
+        )
+        return build_sweep_preview(user_id, opportunities, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("[opportunities] sweep_preview user=%s: %s", user_id, exc)
+        raise HTTPException(status_code=500, detail="Erro ao calcular a prévia do sweep.") from exc
 
 
 @router.get("/{user_id}/banks", response_model=BankComparisonResponse)

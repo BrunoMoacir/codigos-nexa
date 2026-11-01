@@ -2,13 +2,13 @@
 app/jobs/product_catalog_refresh.py — Job diário 02h30 (OPP V2, Etapa 3)
 
 Atualiza o catálogo vivo de produtos de renda fixa via Open Finance Dados
-Abertos e persiste em app/opportunities/data/product_catalog.json — o
-BankComparator prefere esse arquivo quando existe (fallback: catálogo
-curado backend/data/bank_products.json).
+Abertos e fontes suplementares explicitamente configuradas e persiste em
+app/opportunities/data/product_catalog.json — o BankComparator prefere esse
+arquivo quando existe (fallback: catálogo curado backend/data/bank_products.json).
 
-O arquivo só é sobrescrito quando o fetch retorna um catálogo com origem
-"open_finance" (o fallback curado do conector nunca é gravado como se
-fosse catálogo vivo — evitaria mascarar a origem real dos dados).
+O arquivo só é sobrescrito quando o fetch retorna ofertas vivas
+("open_finance" ou "open_finance+supplemental"). O fallback curado nunca é
+gravado como se fosse catálogo vivo.
 """
 
 import json
@@ -34,7 +34,7 @@ async def run_product_catalog_refresh() -> None:
     connector = OpenFinanceProductsConnector()
     catalog = connector.get_rates()
 
-    if catalog.get("source") != "open_finance" or not catalog.get("products"):
+    if catalog.get("source") not in {"open_finance", "open_finance+supplemental"} or not catalog.get("products"):
         logger.info(
             "[product_catalog_refresh] catálogo vivo indisponível (source=%s) — "
             "mantendo catálogo atual",

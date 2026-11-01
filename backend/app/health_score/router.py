@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import List, Literal, Optional
 
 import polars as pl
-from fastapi import APIRouter, HTTPException, Query, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -146,6 +146,34 @@ def _get_change(history: list[dict], months_back: int) -> Optional[int]:
 def _fetch_transactions_sync(user_id: str, db: Session = None) -> pl.DataFrame:
     """Wrapper testável sobre get_transactions_for_user."""
     return get_transactions_for_user(user_id, db=db)
+
+
+@router.get("/export/{user_id}", response_class=Response)
+def export_hive_score_endpoint(
+    user_id: str = Depends(require_owner),
+    months: int = Query(default=12, ge=1, le=24, description="Meses de histórico"),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Exporta o HIVE Score agregado em JSON, sem transações brutas."""
+    try:
+        history = get_health_score_history_endpoint(
+            user_id=user_id,
+            months=months,
+            db=db,
+        )
+        from app.health_score.exporter import build_hive_score_export
+
+        export = build_hive_score_export(history)
+        return Response(
+            content=export.model_dump_json(indent=2),
+            media_type="application/json",
+            headers={
+                "Content-Disposition": 'attachment; filename="hive_score_export.json"'
+            },
+        )
+    except Exception as exc:
+        logger.error("[health-score] export user=%s: %s", user_id, exc)
+        raise HTTPException(status_code=500, detail="Erro ao exportar o HIVE Score.")
 
 
 

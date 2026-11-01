@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Literal, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Ticket OPP1-C — status de confiança da detecção de dinheiro ocioso.
 # Ver docs/OPP1_DINHEIRO_PARADO_PLANO.md seção 5.2 para a tabela de uso por status.
@@ -156,6 +156,28 @@ class CompareResponse(BaseModel):
     holding_months: int
     cdi_annual_pct: float
     opportunities: list[OpportunityItem]
+    disclaimer: str = ""
+
+
+class SweepPreviewRequest(BaseModel):
+    """Parâmetros para simular um sweep sem iniciar movimentação financeira."""
+
+    amount: float | None = Field(default=None, gt=0)
+    holding_months: int = Field(default=12, ge=1, le=360)
+
+
+class SweepPreviewResponse(BaseModel):
+    """Prévia segura do F6 antes da iniciação de pagamento Open Finance."""
+
+    user_id: str
+    status: Literal["PREVIEW_ONLY", "NO_ELIGIBLE_AMOUNT", "REQUIRES_CONSENT"]
+    executable: bool = False
+    consent_required: bool = True
+    amount: float
+    source: Literal["IDLE_AMOUNT", "REQUESTED_AMOUNT"]
+    holding_months: int
+    top_opportunity: Optional[OpportunityItem] = None
+    reason: str
     disclaimer: str = ""
 
 
