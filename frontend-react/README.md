@@ -22,6 +22,8 @@ Para ter dados, popule as personas de demonstração no backend (`cd backend && 
 | `npx tsc -b` | Só a checagem de tipos |
 | `npm test` | Testes unitários (Vitest, modo observação) — `npx vitest run` roda uma vez |
 | `npm run test:e2e` | Testes de ponta a ponta (Playwright) contra o app e a API de verdade |
+| `npm run build:mobile` | Build para o app nativo (`--mode mobile`, exige `.env.mobile` com API https) + `cap sync` |
+| `npm run cap:android` · `npm run cap:ios` | Abre o projeto nativo no Android Studio · Xcode |
 
 ### Variáveis
 
@@ -29,6 +31,8 @@ Para ter dados, popule as personas de demonstração no backend (`cd backend && 
 |:---|:---|:---|
 | `VITE_API_URL` | `/api/v1` | Base da API no navegador. O padrão relativo funciona com o proxy do Vite e com o nginx |
 | `VITE_DEV_BACKEND` | `http://localhost:8000` | Para onde o `npm run dev` encaminha `/api` |
+
+No app nativo, `VITE_API_URL` vem do `.env.mobile` (modelo em [.env.mobile.example](.env.mobile.example), fora do git) e precisa ser uma URL absoluta **https** — o build recusa outra.
 
 ## Como o app fala com a API
 
@@ -51,7 +55,7 @@ Navegação em três abas — **Chat IA**, **Oportunidades** e **Organização**
 | `/feed` | Oportunidades | `/alerts/{user_id}` |
 | `/organizar` | Cartões, gasto mês a mês (12 meses) e por semana, categorias, metas e movimentações | `/transactions/{user_id}` (paginado), `/pluggy/cards`, `/goals/{user_id}` |
 | `/organizar/cartao/novo` | Cadastro manual de cartão | `POST /pluggy/cards/manual` |
-| `/profile` | Perfil, preferências, LGPD, modo demo, Ferramentas | `/settings`, `/billing/subscription`, `/privacy/*`, `/auth/logout-all` |
+| `/profile` | Perfil, preferências, LGPD, modo demo, Ferramentas | `/settings`, `/billing/subscription`, `/privacy/*`, `/auth/logout-all`, `/push/*` |
 | `/strategies` | Cartões, grandes compras, MEI, pares, negociador | `/optimizer/*`, `/architect/*`, `/purchase/*`, `/fiscal-report/*`, `/peers/*`, `/negotiator/*` |
 | `/goals` · `/connections` | Metas e desafios · Conexões Open Finance | `/goals/*`, `/health-score/*` · `/pluggy/*`, `/data-quality/*` |
 | `/defesa` · `/direitos` · `/impostos` · `/wrapped` · `/planos` | Defesa do consumidor, direitos esquecidos, impostos, retrospectiva, planos | `/defense/*`, `/rights/*`, `/tax/*`, `/viral/*`, `/billing/*` |
@@ -65,9 +69,21 @@ Os caminhos seguem os que o backend gera em e-mails, cards de notificação e no
 
 `public/manifest.webmanifest`, `public/sw.js` e [src/pwa/](src/pwa/) (registro do service worker e Web Push). O service worker só é registrado no build de produção; a API nunca passa pelo cache.
 
+## App nativo (Android/iOS)
+
+O mesmo app, embrulhado pelo Capacitor ([capacitor.config.ts](capacitor.config.ts)) — nenhuma tela muda. A ponte fica em [src/native/](src/native/):
+
+- **Widget de tela inicial**: o app pede ao backend um token de escopo restrito (só lê a margem do dia) e o entrega ao código nativo; **o JWT nunca sai do WebView**. O logout revoga o token e limpa o widget.
+- **Push**: no app, o interruptor de notificações do Perfil usa o FCM (`/push/devices`) em vez do Web Push; tocar numa notificação só abre rota interna.
+- **Links externos** (Stripe, WhatsApp, sites oficiais) abrem no navegador do sistema; o WebView não navega para fora do app.
+- **Arquivos** (export LGPD, dossiê) saem pela folha de compartilhar do sistema.
+- **Planos**: no app não há compra (regras das lojas) — `/planos` mostra o plano e os limites e manda assinar pelo site.
+
+Build, Firebase, o alvo do widget no Xcode e publicação: [docs/APP_NATIVO.md](../docs/APP_NATIVO.md).
+
 ## Testes
 
-- **Unitários** (Vitest + Testing Library) em [src/tests/unit/](src/tests/unit/): páginas, componentes e a lógica de API (renovação do login, busca paginada da Organização).
+- **Unitários** (Vitest + Testing Library) em [src/tests/unit/](src/tests/unit/): páginas (Chat, Estratégias, Planos), componentes, a lógica de API (renovação do login, busca paginada da Organização) e a ponte nativa (`@capacitor/*` simulados).
 - **Ponta a ponta** (Playwright) em [e2e/](e2e/), contra o backend local com as personas: todas as telas abrem sem erro de API nos três planos, as abas navegam no celular, a sessão renova sozinha e volta para a tela de origem, o cadastro envia `accepted_terms`. Um passo de preparação entra uma vez com cada persona e guarda a sessão em `e2e/.auth/` (fora do git); só os testes do próprio login entram de novo — a suíte faz 7 logins, e o backend aceita 10 por minuto por IP, então espere um minuto entre duas execuções seguidas. Rode `npx playwright install chromium` uma vez. O envio real ao agente só roda com `HIVE_E2E_CHAT=1` (gasta crédito de IA). Para usar um Chromium já instalado: `PLAYWRIGHT_CHROMIUM_PATH=/caminho/do/chrome`.
 
 O CI roda lint, tipos, testes unitários e build a cada push.
