@@ -14,6 +14,7 @@ import { GoalsPage } from './pages/GoalsPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { WidgetPage } from './pages/WidgetPage';
 import { ContactPage } from './pages/ContactPage';
+import { PonteNativa } from './native/PonteNativa';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { VerifyEmailPage } from './pages/VerifyEmailPage';
@@ -51,6 +52,8 @@ function App() {
         }}
       />
       <BrowserRouter>
+        {/* app nativo (Capacitor): push, widget, links externos, botão voltar — não desenha nada */}
+        <PonteNativa />
         <Routes>
           <Route path="/login"    element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />

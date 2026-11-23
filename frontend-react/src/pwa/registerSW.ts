@@ -1,3 +1,5 @@
+import { ehNativo } from '../native/plataforma';
+
 /**
  * Registro do service worker do PWA (R1.d).
  * Chamado uma vez no boot (main.tsx). Silencioso quando não suportado.
@@ -7,6 +9,9 @@
  */
 export function registerServiceWorker(): void {
   if (!('serviceWorker' in navigator)) return;
+  // no app nativo os arquivos já vêm do pacote instalado; um SW ali só
+  // serviria versões antigas do cache depois de uma atualização da loja
+  if (ehNativo()) return;
 
   if (!import.meta.env.PROD) {
     navigator.serviceWorker.getRegistrations()

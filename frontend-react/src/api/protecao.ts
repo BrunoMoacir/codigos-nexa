@@ -1,4 +1,5 @@
 import apiClient, { TIMEOUTS } from './client';
+import { salvarArquivo } from '../native/arquivos';
 
 /**
  * Defesa do consumidor (D1–D6), Direitos esquecidos (T3), Impostos (T1/T2) e
@@ -152,16 +153,10 @@ export interface PlacarDeEconomia {
   disclaimer: string;
 }
 
-/** Baixa uma resposta binária (com o token da sessão) como arquivo. */
+/** Baixa uma resposta binária (com o token da sessão) como arquivo — no app
+ * nativo, abre o compartilhamento do sistema (o WebView ignora <a download>). */
 function baixar(blob: Blob, nome: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = nome;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  void salvarArquivo(blob, nome);
 }
 
 export const protecaoApi = {

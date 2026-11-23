@@ -10,6 +10,7 @@
  * notificação de sistema mesmo com o app fechado.
  */
 import apiClient from '../api/client';
+import { ehNativo } from '../native/plataforma';
 import { getUserId } from '../api/session';
 
 export type PushState = 'unsupported' | 'not-configured' | 'denied' | 'subscribed' | 'unsubscribed';
@@ -31,6 +32,7 @@ function isSupported(): boolean {
  * dizia "ativado" e nenhum alerta chegava. Nesse caso reenvia a inscrição.
  */
 export async function getPushState(): Promise<PushState> {
+  if (ehNativo()) return (await import('../native/pushNativo')).estadoPushNativo();
   if (!isSupported()) return 'unsupported';
   if (Notification.permission === 'denied') return 'denied';
 
@@ -52,6 +54,7 @@ export async function getPushState(): Promise<PushState> {
 }
 
 export async function subscribeToPush(): Promise<PushState> {
+  if (ehNativo()) return (await import('../native/pushNativo')).ativarPushNativo();
   if (!isSupported()) return 'unsupported';
 
   const userId = getUserId();
@@ -76,6 +79,7 @@ export async function subscribeToPush(): Promise<PushState> {
 }
 
 export async function unsubscribeFromPush(): Promise<PushState> {
+  if (ehNativo()) return (await import('../native/pushNativo')).desativarPushNativo();
   if (!isSupported()) return 'unsupported';
 
   const userId = getUserId();
