@@ -38,7 +38,20 @@ class TestAuth:
     """Testes de autenticação."""
 
     def test_login_success(self, client):
-        """POST /auth/token — login com credenciais válidas."""
+        """POST /auth/token — login com credenciais válidas.
+
+        O usuário test@nexa.local só existe no DuckDB local de desenvolvimento
+        (o `finance.duckdb`, fora do git desde 31c7374). Sem esse arquivo o
+        teste não tem o que verificar — pula, como o fixture `auth_headers`.
+        Com o arquivo presente, um 401 continua sendo falha de verdade.
+        """
+        from app.core.db.queries import get_connection
+
+        try:
+            get_connection().close()
+        except FileNotFoundError:
+            pytest.skip("finance.duckdb ausente: usuário de fallback DuckDB não provisionado")
+
         resp = client.post("/api/v1/auth/token", data={
             "username": "test@nexa.local",
             "password": "test123"
