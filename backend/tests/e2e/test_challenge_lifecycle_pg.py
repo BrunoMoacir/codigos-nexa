@@ -93,7 +93,9 @@ def pg_engine():
         from alembic.config import Config
         from alembic.script import ScriptDirectory
 
-        heads = ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
+        # caminho absoluto: a suíte roda tanto de backend/ (CI) quanto da raiz do repo
+        ini = Path(__file__).resolve().parents[2] / "alembic.ini"
+        heads = ScriptDirectory.from_config(Config(str(ini))).get_heads()
         assert len(heads) == 1, f"grafo de migração ramificado: {heads}"
         assert version == heads[0], f"schema em {version}, head é {heads[0]}"
         tables = {

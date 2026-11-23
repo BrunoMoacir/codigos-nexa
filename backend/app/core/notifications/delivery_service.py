@@ -162,7 +162,7 @@ def deliver(
         try:
             from app.core.notifications import push_sender
 
-            if push_sender.is_configured() and push_sender.has_active_subscription(user_id):
+            if push_sender.tem_destino(user_id):
                 channels = [*channels, "push"]
         except Exception as exc:
             logger.debug("[DeliveryService] push elegibilidade: %s", exc)

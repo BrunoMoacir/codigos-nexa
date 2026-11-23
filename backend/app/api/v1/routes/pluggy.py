@@ -1,13 +1,13 @@
 # app/api/v1/routes/pluggy.py
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Any, List, Optional
 import asyncio
 import logging
 import requests as http_requests
 import uuid
-from datetime import datetime, timezone
+from datetime import timezone
 
 from sqlalchemy.orm import Session
 
@@ -39,8 +39,11 @@ class ConnectTokenResponse(BaseModel):
     connect_token: str
 
 class SaveItemRequest(BaseModel):
-    item_id: str
-    connector_name: Optional[str] = None
+    # IDs de item da Pluggy são UUIDs. Validar o formato impede que um
+    # item_id como "../connectors" vire outro caminho da API da Pluggy nas
+    # chamadas feitas com a NOSSA credencial.
+    item_id: str = Field(..., pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+    connector_name: Optional[str] = Field(default=None, max_length=120)
 
 class CardResponse(BaseModel):
     account_id: str
@@ -238,23 +241,61 @@ def save_user_item(
     current_user_str: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Quando o Widget do frontend conecta uma conta com sucesso, salva o item_id."""
+    """
+    Quando o Widget do frontend conecta uma conta com sucesso, salva o item_id.
+
+    O item precisa ter sido criado para ESTE usuário: o connect token leva o
+    clientUserId, e a Pluggy devolve esse campo no item. Antes, qualquer
+    item_id enviado era gravado — quem obtivesse o id do item de outra pessoa
+    (log, print, suporte) vinculava o banco dela à própria conta e
+    sincronizava o extrato. Conexão nova também respeita o limite do plano
+    (Free: 1 banco).
+    """
+    user_id = str(current_user_str)
+    existing = db.query(PluggyItem).filter(
+        PluggyItem.user_id == user_id,
+        PluggyItem.item_id == request.item_id
+    ).first()
+    if existing:
+        return {"success": True, "message": "Item salvo com sucesso"}
+
+    if not settings.PLUGGY_CLIENT_ID or not settings.PLUGGY_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Pluggy não configurada neste ambiente.",
+        )
+
+    from app.billing.gating import check_bank_limit
+
+    check_bank_limit(user_id)
+
     try:
-        existing = db.query(PluggyItem).filter(
-            PluggyItem.user_id == str(current_user_str),
-            PluggyItem.item_id == request.item_id
-        ).first()
+        item = PluggyClient().get_item(request.item_id)
+    except http_requests.HTTPError as exc:
+        codigo = getattr(getattr(exc, "response", None), "status_code", None)
+        if codigo in (400, 404):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conexão não encontrada na Pluggy.")
+        logger.warning("Pluggy /items/{id} respondeu %s ao validar o item", codigo)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Não foi possível validar a conexão agora.")
+    except Exception as exc:
+        logger.warning("Falha ao validar item na Pluggy: %s", exc)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Não foi possível validar a conexão agora.")
 
-        if not existing:
-            record = PluggyItem(
-                id=str(uuid.uuid4()),
-                user_id=str(current_user_str),
-                item_id=request.item_id,
-                connector_name=request.connector_name,
-            )
-            db.add(record)
-            db.commit()
+    dono = str((item or {}).get("clientUserId") or "")
+    if dono != user_id:
+        logger.warning("[Pluggy] user=%s tentou salvar item de outro clientUserId", user_id)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Esta conexão não pertence à sua conta.")
 
+    connector = item.get("connector") if isinstance(item, dict) else None
+    nome = request.connector_name or (connector.get("name") if isinstance(connector, dict) else None)
+    try:
+        db.add(PluggyItem(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            item_id=request.item_id,
+            connector_name=nome,
+        ))
+        db.commit()
         return {"success": True, "message": "Item salvo com sucesso"}
     except Exception as e:
         db.rollback()
@@ -277,6 +318,11 @@ def create_sandbox_item(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Pluggy não configurada. Defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no backend/.env.",
         )
+    # sandbox também é uma conexão: conta para o limite do plano
+    from app.billing.gating import check_bank_limit
+
+    check_bank_limit(str(current_user_str))
+    perf_multiplier = max(1, min(int(perf_multiplier or 1), 10))
 
     try:
         pluggy = PluggyClient()

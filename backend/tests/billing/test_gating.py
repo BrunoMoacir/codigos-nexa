@@ -27,6 +27,9 @@ def _memoria_limpa(monkeypatch):
 @pytest.fixture
 def enforcement_on(monkeypatch):
     monkeypatch.setattr(settings, "BILLING_ENFORCEMENT_ENABLED", True, raising=False)
+    # enforcement só vale com o Stripe pronto para cobrar
+    monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "sk_test_x", raising=False)
+    monkeypatch.setattr(settings, "STRIPE_WEBHOOK_SECRET", "whsec_x", raising=False)
 
 
 @pytest.fixture

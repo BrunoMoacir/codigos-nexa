@@ -1,4 +1,5 @@
 import apiClient, { TIMEOUTS } from './client';
+import { salvarArquivo } from '../native/arquivos';
 
 /** Planos, assinatura, preferências e direitos LGPD do titular. */
 
@@ -45,6 +46,9 @@ export const contaApi = {
     if (!data?.checkout_url) throw new Error('O Stripe não devolveu o link de pagamento.');
     return data.checkout_url;
   },
+  /** Volta do Checkout: o backend lê a sessão no Stripe e libera o plano na hora. */
+  confirmar: async (userId: string, sessionId: string): Promise<{ plan: string }> =>
+    (await apiClient.post(`/billing/checkout/${userId}/confirm`, { session_id: sessionId })).data,
   portal: async (userId: string): Promise<string> => {
     const { data } = await apiClient.post(`/billing/portal/${userId}`);
     if (!data?.portal_url) throw new Error('O Stripe não devolveu o link do portal.');
@@ -59,14 +63,7 @@ export const contaApi = {
   exportarDados: async (userId: string): Promise<void> => {
     const { data } = await apiClient.get(`/privacy/export/${userId}`, { timeout: TIMEOUTS.lento });
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `hive-meus-dados-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    await salvarArquivo(blob, `hive-meus-dados-${new Date().toISOString().slice(0, 10)}.json`);
   },
   /** Irreversível: apaga conta e dados. Exige a frase exata. */
   excluirDados: async (userId: string, confirmacao: string): Promise<void> => {

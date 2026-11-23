@@ -120,6 +120,19 @@ PLANS: dict[str, Plan] = {
     ),
 }
 
+# Prices no Stripe por lookup_key estável: o código acha o price certo sem
+# depender de IDs copiados à mão para o .env (scripts/stripe_setup.py os cria).
+PRICE_LOOKUP_KEYS: dict[str, str] = {
+    PLAN_PRO: "hive_pro_mensal",
+    PLAN_TOTAL: "hive_total_mensal",
+}
+
+
+def price_cents(plan_id: str) -> int:
+    """Preço mensal em centavos (o Stripe trabalha em unidades inteiras)."""
+    return int(round(PLANS[plan_id].price_brl_monthly * 100))
+
+
 # Feature → tier mínimo (usado pelos routers via require_plan)
 FEATURE_MIN_PLAN: dict[str, str] = {
     "opportunities": PLAN_PRO,
@@ -133,6 +146,6 @@ FEATURE_MIN_PLAN: dict[str, str] = {
 
 __all__ = [
     "PLAN_FREE", "PLAN_PRO", "PLAN_TOTAL", "PLANS",
-    "FREE_LIMITS", "PRO_LIMITS", "FEATURE_MIN_PLAN",
-    "Plan", "UsageLimit", "plan_satisfies",
+    "FREE_LIMITS", "PRO_LIMITS", "FEATURE_MIN_PLAN", "PRICE_LOOKUP_KEYS",
+    "Plan", "UsageLimit", "plan_satisfies", "price_cents",
 ]

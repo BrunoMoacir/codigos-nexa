@@ -328,6 +328,9 @@ def _rotas_reais(app) -> list:
 _DEPS_DE_AUTH = (
     "get_current_user", "require_owner", "require_plan",
     "get_current_token_data", "oauth2_scheme",
+    # GET /widget/margem: token de widget (escopo só-leitura, hash no banco,
+    # revogável) — o widget de tela inicial não pode usar o refresh rotativo
+    "dono_do_token_de_widget",
 )
 
 

@@ -3,7 +3,9 @@ app/billing/router.py — Endpoints de billing (Stripe).
 
 GET  /billing/plans                      — catálogo público de planos
 GET  /billing/subscription/{user_id}     — plano efetivo + uso dos limites
-POST /billing/checkout/{user_id}         — sessão de Checkout (pro|total)
+POST /billing/checkout/{user_id}         — sessão de Checkout (pro|total);
+                                           409 se já houver assinatura paga
+POST /billing/checkout/{user_id}/confirm — volta do Checkout: sincroniza na hora
 POST /billing/portal/{user_id}           — portal do cliente (trocar/cancelar)
 POST /billing/webhook                    — eventos Stripe (assinado; fail-closed
                                            em produção sem segredo, como o Pluggy)
@@ -19,12 +21,14 @@ from app.billing.gating import enforcement_enabled, usage_snapshot
 from app.billing.models import (
     CheckoutIn,
     CheckoutOut,
+    ConfirmIn,
+    ConfirmOut,
     PlanOut,
     PortalOut,
     SubscriptionOut,
 )
 from app.billing.plans import PLANS
-from app.billing.service import BillingService
+from app.billing.service import AssinaturaJaAtiva, BillingService, CheckoutDeOutroUsuario
 from app.billing.stripe_client import (
     StripeAssinaturaInvalida,
     StripeClient,
@@ -64,7 +68,7 @@ def get_subscription(user_id: str = Depends(require_owner)) -> SubscriptionOut:
         cancel_at_period_end=record["cancel_at_period_end"],
         current_period_end=record["current_period_end"],
         usage=usage_snapshot(user_id),
-        billing_enabled=_service.stripe.is_configured,
+        billing_enabled=_service.stripe.is_ready,
         enforcement_enabled=enforcement_enabled(),
     )
 
@@ -91,13 +95,50 @@ def create_checkout(
             success_url=f"{base}/planos?checkout=success&session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{base}/planos?checkout=cancel",
         )
+    except AssinaturaJaAtiva as exc:
+        # Um segundo checkout criaria uma segunda cobrança mensal: troca de
+        # plano, cartão ou cancelamento é pelo portal.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "already_subscribed",
+                "plan": exc.plano,
+                "message": "Você já tem uma assinatura ativa. Para trocar de plano, use o portal de pagamento.",
+            },
+        )
     except StripeNaoConfigurado as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+        logger.warning("[Billing] checkout sem Stripe configurado: %s", exc)
+        raise HTTPException(status_code=503, detail="Assinaturas indisponíveis neste ambiente.")
     except StripeIndisponivel as exc:
         logger.warning("[Billing] checkout indisponível user=%s: %s", user_id, exc)
         raise HTTPException(status_code=503, detail="Stripe indisponível no momento.")
 
     return CheckoutOut(checkout_url=session.get("url", ""), session_id=session.get("id", ""))
+
+
+@router.post("/checkout/{user_id}/confirm", response_model=ConfirmOut)
+def confirm_checkout(
+    body: ConfirmIn,
+    user_id: str = Depends(require_owner),
+) -> ConfirmOut:
+    """
+    Volta do Checkout: lê a sessão NO STRIPE, confere que é do próprio usuário
+    e sincroniza a assinatura — o plano libera sem esperar o webhook. O
+    session_id vem da URL (manipulável), por isso nada dele é confiado sem a
+    leitura no Stripe.
+    """
+    try:
+        plano = _service.confirm_checkout(user_id=user_id, session_id=body.session_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="session_id inválido.")
+    except CheckoutDeOutroUsuario:
+        raise HTTPException(status_code=403, detail="Esta sessão de pagamento não é da sua conta.")
+    except StripeNaoConfigurado:
+        raise HTTPException(status_code=503, detail="Assinaturas indisponíveis neste ambiente.")
+    except StripeIndisponivel as exc:
+        logger.warning("[Billing] confirmação indisponível user=%s: %s", user_id, exc)
+        raise HTTPException(status_code=503, detail="Stripe indisponível no momento.")
+    return ConfirmOut(plan=plano)
 
 
 @router.post("/portal/{user_id}", response_model=PortalOut)
@@ -107,7 +148,8 @@ def create_portal(user_id: str = Depends(require_owner)) -> PortalOut:
     try:
         session = _service.create_portal(user_id=user_id, return_url=f"{base}/planos")
     except StripeNaoConfigurado as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        logger.info("[Billing] portal sem assinatura user=%s: %s", user_id, exc)
+        raise HTTPException(status_code=409, detail="Você ainda não tem assinatura para gerenciar.")
     except StripeIndisponivel as exc:
         logger.warning("[Billing] portal indisponível user=%s: %s", user_id, exc)
         raise HTTPException(status_code=503, detail="Stripe indisponível no momento.")
@@ -146,7 +188,16 @@ async def stripe_webhook(request: Request) -> dict:
     except json.JSONDecodeError:
         raise HTTPException(status_code=422, detail="Payload inválido.")
 
-    action = _service.handle_webhook_event(event)
+    if not isinstance(event, dict):
+        raise HTTPException(status_code=422, detail="Payload inválido.")
+
+    try:
+        action = _service.handle_webhook_event(event)
+    except Exception as exc:
+        # 500 faz o Stripe reenviar (com backoff, por até 3 dias). O detalhe
+        # fica no log; a resposta não expõe nada.
+        logger.error("[Billing] webhook %s (%s) falhou: %s", event.get("id"), event.get("type"), exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Falha ao processar o evento.")
     logger.info("[Billing] webhook %s → %s", event.get("type"), action)
     return {"received": True, "action": action}
 

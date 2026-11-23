@@ -23,7 +23,7 @@ interface WidgetData {
   daily: number;
   remaining_month: number;
   pct_consumed: number;
-  status: 'OK' | 'ATENCAO' | 'CRITICO';
+  status: 'OK' | 'ATENCAO' | 'CRITICO' | 'SEM_DADOS';
   color: string;
   headline: string;
   subline: string;

@@ -10,7 +10,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.139-009688?style=flat-square&logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-4169E1?style=flat-square&logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/Testes-3.636%20passando-success?style=flat-square)
+![Tests](https://img.shields.io/badge/Testes-3.755%20passando-success?style=flat-square)
 ![License](https://img.shields.io/badge/Licen%C3%A7a-Propriet%C3%A1ria-red?style=flat-square)
 
 [Como Construímos Valor](#-como-a-hive-constrói-valor) •
@@ -75,12 +75,13 @@ A **HIVE** é uma plataforma de inteligência financeira pessoal que combina **O
 
 A HIVE cobra do usuário, não do banco. Essa é a única estrutura de receita que garante neutralidade total: nenhuma recomendação é comissionada, nenhum produto é empurrado.
 
-O repositório tem três peças:
+O repositório tem quatro peças:
 
 | Peça | Onde | Estado |
 |:---|:---|:---|
-| **API** (FastAPI) | [`backend/`](backend/) | Produto completo: 141 operações, 31 ferramentas de IA, 9 jobs agendados |
+| **API** (FastAPI) | [`backend/`](backend/) | Produto completo: 150 operações, 31 ferramentas de IA, 9 jobs agendados |
 | **App web oficial** (React 19) | [`frontend-react/`](frontend-react/) | Ligado à API real em todas as telas, com o redesenho visual HIVE da Beatriz Samaha |
+| **App nativo** (Android/iOS) | [`frontend-react/android`](frontend-react/android) · [`ios`](frontend-react/ios) | O mesmo app web no Capacitor + widget de tela inicial + push FCM; pronto para compilar e publicar ([APP_NATIVO.md](docs/APP_NATIVO.md)) |
 | **Demo Streamlit** | [`backend/demo/`](backend/demo/) | O sistema inteiro sobre personas com um ano de extrato, para teste manual |
 
 > **📄 Estado real do projeto:** notas por camada, posição competitiva contra a
@@ -467,7 +468,27 @@ APScheduler com lock distribuído Redis (`SET NX EX`) — seguro em multi-instâ
 | **Pro** | R$ 19,90/mês | Bancos ilimitados, Raio-X completo, Radar de Oportunidades, chat ilimitado, Negociador (1/mês), digest diário, desafios e badges | Se o usuário recupera **R$ 50+/mês** (média esperada: tarifas + cashback + dinheiro parado), o plano se paga 2,5× |
 | **Total** | R$ 39,90/mês | Tudo do Pro + Defesa do Consumidor completa (dossiê PROCON/JEC), portabilidade simulada, otimizador de IR, Wrapped trimestral, Negociador ilimitado | Uma única contestação de tarifa recuperada (R$ 200–800) paga o ano inteiro |
 
-**Status de implementação:** billing e gating **implementados** em `app/billing/` — Stripe Checkout/Portal/webhook assinado (fail-closed em produção), tabela `user_subscriptions` (Alembic), hierarquia Free/Pro/Total e limites de uso com contadores Redis + fallback em memória. Gates aplicados: Defesa e Otimizador de IR exigem **Total**; Radar de Oportunidades e Raio-X exigem **Pro**. **Dark launch:** `BILLING_ENFORCEMENT_ENABLED=false` por padrão — violações são apenas logadas (`would_block`); ligar a flag em produção ativa os 402 com contexto de upgrade. Falta: criar Products/Prices no dashboard Stripe e preencher `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PRO_MONTHLY` e `STRIPE_PRICE_TOTAL_MONTHLY`.
+**Status de implementação:** billing e gating **implementados** em `app/billing/` — Stripe Checkout/Portal/webhook assinado (fail-closed em produção), tabela `user_subscriptions` (Alembic), hierarquia Free/Pro/Total e limites de uso com contadores Redis + fallback em memória. Gates aplicados: Defesa e Otimizador de IR exigem **Total**; Radar de Oportunidades e Raio-X exigem **Pro**. **Dark launch:** `BILLING_ENFORCEMENT_ENABLED=false` por padrão — violações são apenas logadas (`would_block`); ligar a flag em produção ativa os 402 com contexto de upgrade.
+
+**Pronto para o go-live** ([roteiro](docs/STRIPE_GO_LIVE.md)):
+
+- **Conta Stripe:** `scripts/stripe_setup.py` prepara a conta de forma idempotente (produtos, prices com lookup_key, portal, webhook com versão fixada).
+- **Webhook:**
+  - relê a assinatura no Stripe a cada evento, então eventos fora de ordem ou repetidos não corrompem o plano;
+  - deduplica por `event.id`;
+  - trata boleto assíncrono;
+  - dá 7 dias de tolerância ao `past_due`.
+- **Checkout:**
+  - recusa uma segunda assinatura (409, troca pelo portal);
+  - usa chave de idempotência;
+  - confirma o pagamento na volta, sem esperar o webhook.
+- **Enforcement:** fail-safe (não bloqueia ninguém sem o Stripe configurado).
+- **Limites:**
+  - janelas no calendário de São Paulo;
+  - limite de bancos pelas conexões reais;
+  - as ferramentas do agente de IA respeitam o plano.
+
+Falta só a conta: rodar o script, preencher as variáveis, fazer uma assinatura de teste e ligar a flag.
 
 ### Unit Economics — alvo vs. chão real
 
@@ -523,19 +544,20 @@ usuário** é de ~R$ 3.000.
 | **Retenção** | Scheduler com 9 jobs, daily digest, entrega email/in-app/push, PWA com widget instalável e Web Push VAPID, checkout-context, revisão de compras |
 | **Viral** | Placar de economia (SVG/PNG) e Wrapped anual (SVG), com registro e revogação de compartilhamento |
 | **IA** | Agente ReAct com 31 ferramentas, conversas por sessão, memória com fallback Redis → Postgres, perfil comportamental (8 clusters), life events |
-| **App web oficial** | `frontend-react` com o redesenho HIVE, lint zerado, 29 testes unitários, 13 testes e2e e job no CI; todas as telas ligadas à API real (cadastro com aceite dos termos, chat por conversas, feed, organização, cartões, perfil com LGPD, conexões, estratégias, metas, defesa, direitos, impostos, wrapped, planos, widget), recuperação de senha e verificação de e-mail, renovação de sessão automática |
-| **Plataforma** | Auth JWT + refresh rotativo, IDOR hardening, LGPD export/erase, rate limiting, audit log, 3.636 testes de backend passando (79% de cobertura), testes de contrato front↔back |
+| **App web oficial** | `frontend-react` com o redesenho HIVE, lint zerado, 50 testes unitários, 13 testes e2e e job no CI; todas as telas ligadas à API real (cadastro com aceite dos termos, chat por conversas, feed, organização, cartões, perfil com LGPD, conexões, estratégias, metas, defesa, direitos, impostos, wrapped, planos, widget), recuperação de senha e verificação de e-mail, renovação de sessão automática |
+| **App nativo** | Android e iOS com Capacitor 8 embrulhando o **mesmo** `frontend-react` (design idêntico): widget de tela inicial com a margem do dia (Android: AppWidget + WorkManager; iOS: WidgetKit) usando credencial de escopo restrito, nunca o JWT; push FCM HTTP v1 com visibilidade privada na tela de bloqueio; links externos no navegador do sistema; sem venda dentro do app (regras das lojas) — ver [APP_NATIVO.md](docs/APP_NATIVO.md) |
+| **Plataforma** | Auth JWT + refresh rotativo, IDOR hardening, LGPD export/erase, rate limiting, audit log, 3.755 testes de backend passando (79% de cobertura), testes de contrato front↔back |
 
 ### 🚧 Falta (em ordem de prioridade de negócio)
 
 | Item | O que é | Por que importa | Dependência |
 |:---|:---|:---|:---|
 | **CI verde de novo** | O `requirements.txt` não resolve num ambiente limpo e o CI falha na instalação desde agosto (ver [Problemas Conhecidos](#️-problemas-conhecidos)) | Sem CI, nenhum push é verificado e o `pip-audit` não roda | Rodada de dependências (langchain 0.2 × numpy 2) |
-| **Chaves Stripe + flip do enforcement** | Billing/gating implementados em dark launch; falta criar os Prices no Stripe, preencher o `.env` e ligar `BILLING_ENFORCEMENT_ENABLED` | Último passo entre o código e a receita | Conta Stripe |
+| **Ligar a cobrança** | Código pronto para o go-live (setup da conta por script, webhook robusto, confirmação imediata, enforcement fail-safe). Falta executar o [roteiro](docs/STRIPE_GO_LIVE.md): rodar `scripts/stripe_setup.py`, preencher as variáveis, assinar em modo teste e ligar `BILLING_ENFORCEMENT_ENABLED` | Último passo entre o código e a receita | Conta Stripe ativada |
 | **Decisões de produto no app** | Botão "Continuar com Google" sem backend, CPF pedido e não enviado, passo 2 do cadastro dizendo que o Open Banking está "em construção", Feed sem os cards do motor de notificações — ver [frontend-react/README.md](frontend-react/README.md#pendências-conhecidas) | Promessa visível que o produto não cumpre | Design (Beatriz) |
 | **Validação jurídica (D5)** | Revisão por advogado dos templates de petição JEC e cartas | Código pronto; lançar sem revisão gera risco de responsabilidade por orientação incorreta | Advogado parceiro |
 | **Contrato SERPRO (produção)** | A consulta real de restituição IRPF funciona em trial; produção exige contratar a API Consulta Restituição na Loja SERPRO (consumer key/secret + chave do e-CNPJ) | Sem o contrato, o `POST /rights/{user_id}/ir/check` degrada para o passo a passo de habilitação | Contratação SERPRO (custo por consulta) |
-| **App mobile nativo** | Widget de homescreen nativo, push FCM | PWA cobre o essencial, mas retenção diária de massa exige mobile nativo | Time mobile |
+| **Publicar o app nativo** | Código pronto (widget + FCM + ponte com o app web). Falta: compilar com o Android SDK/Xcode (não compilados neste ambiente), criar o projeto Firebase, adicionar no Xcode o alvo do widget iOS, assinar e enviar às lojas — ver [APP_NATIVO.md](docs/APP_NATIVO.md) | Retenção diária de massa: o widget põe a margem do dia na tela inicial | Contas Google Play e Apple Developer, Firebase |
 | **R4.a Relatório trimestral** | ⚠️ **O job existe e nunca roda** — `app/jobs/quarterly_report.py` está escrito e testado, mas não está registrado em `app/core/scheduler.py` | Reforço de valor percebido a cada 3 meses | Duas linhas de `add_job` — mas só faz sentido com usuários e cobrança |
 | **R5 Anti-churn** | ⚠️ **Mesma situação** — `app/jobs/win_back.py` escrito, testado e nunca agendado. Falta ainda a tela de cancelamento com impacto calculado e o modo pausa | Reduz churn no momento crítico | Billing primeiro |
 | **V3 Ranking de bancos abusivos** | Relatório trimestral público anonimizado | Autoridade de marca + imprensa | Massa de dados D1–D3 |
@@ -724,7 +746,7 @@ México: Open Banking regulado (Ley Fintech 2018), 60M sub-bancarizados, concent
 | Cache/Locks | Redis + SlowAPI | | Styling | TailwindCSS 4 + CSS por tela |
 | DataFrames | Polars 1.0 · DuckDB 1.4 | | Dados | React Query 5 + Axios · Zustand 5 |
 | ML | Scikit-learn 1.8 · SALib (sensibilidade) | | Rotas · Gráficos | React Router 7 · Recharts 3 |
-| Open Finance | Pluggy + Dados Abertos | | PWA | Manifest + Service Worker + VAPID |
+| Open Finance | Pluggy + Dados Abertos | | PWA · Nativo | Manifest + Service Worker + VAPID · Capacitor 8 + FCM |
 | Taxas | BACEN SGS + ANBIMA | | Container | Docker · nginx (frontend) |
 | IA | LangGraph 0.2 + Claude (ou OpenAI) | | CI | GitHub Actions (testes + pip-audit + build) |
 | Scheduler | APScheduler 3.10 | | Deploy | Railway (`Dockerfile.railway`) |
@@ -754,6 +776,8 @@ codigos-nexa/
 │   ├── src/pages/           # telas (21)
 │   ├── src/components/      # AppShell, guardas de rota, UI
 │   ├── src/pwa/             # registro do service worker e push
+│   ├── src/native/          # ponte com o app nativo (widget, push FCM, links, arquivos)
+│   ├── android/ · ios/      # projetos nativos do Capacitor (widget de tela inicial)
 │   ├── e2e/                 # testes de ponta a ponta (Playwright)
 │   └── nginx.conf.template  # proxy /api em produção
 ├── docs/                    # relatório, segurança, funcionalidades, roadmap
@@ -767,7 +791,7 @@ codigos-nexa/
 
 ## 🔌 Endpoints da API
 
-**141 operações em 134 caminhos.** Todas as rotas de dados ficam sob `/api/v1` e exigem `Authorization: Bearer <token>`, exceto as marcadas como públicas. Rotas com `{user_id}` só respondem ao dono do token (403 para outra pessoa). Swagger em `http://localhost:8000/docs`.
+**150 operações em 141 caminhos.** Todas as rotas de dados ficam sob `/api/v1` e exigem `Authorization: Bearer <token>`, exceto as marcadas como públicas. Rotas com `{user_id}` só respondem ao dono do token (403 para outra pessoa). Swagger em `http://localhost:8000/docs`.
 
 ### Sistema e Autenticação
 
@@ -889,6 +913,9 @@ codigos-nexa/
 | `GET` | `/api/v1/push/vapid-public-key` | Chave pública VAPID (pública) |
 | `POST/DELETE` | `/api/v1/push/subscribe/{user_id}` | Inscreve · cancela Web Push |
 | `GET` | `/api/v1/push/status/{user_id}` | Situação da inscrição |
+| `POST/DELETE` | `/api/v1/push/devices/{user_id}` | Registra · remove o token FCM do app nativo |
+| `POST/DELETE` | `/api/v1/widget/token/{user_id}` | Emite · revoga o token do widget de tela inicial (escopo restrito, 90 dias, um por aparelho) |
+| `GET` | `/api/v1/widget/margem` | Margem do dia para o widget nativo (header `X-Widget-Token`; não aceita JWT) |
 | `GET` | `/api/v1/viral/savings-card/{user_id}[/svg\|/png]` | Placar de economia compartilhável |
 | `GET` | `/api/v1/viral/wrapped/{user_id}/{year}[/svg]` | HIVE Wrapped anual |
 | `POST/DELETE` | `/api/v1/viral/shares` · `/viral/shares/{share_id}` | Registra · revoga um compartilhamento |
@@ -903,7 +930,8 @@ codigos-nexa/
 | `GET/PUT` | `/api/v1/settings/{user_id}` | Preferências do usuário |
 | `GET` | `/api/v1/billing/plans` | Planos (pública) |
 | `GET` | `/api/v1/billing/subscription/{user_id}` | Assinatura + uso dos limites |
-| `POST` | `/api/v1/billing/checkout/{user_id}` · `/billing/portal/{user_id}` | Stripe Checkout e portal do cliente |
+| `POST` | `/api/v1/billing/checkout/{user_id}` · `/billing/portal/{user_id}` | Stripe Checkout (409 se já assina: troca é pelo portal) e portal do cliente |
+| `POST` | `/api/v1/billing/checkout/{user_id}/confirm` | Confirma a volta do Checkout lendo a sessão no Stripe — libera o plano sem esperar o webhook |
 | `POST` | `/api/v1/billing/webhook` | Webhook Stripe (assinado, fail-closed; pública) |
 | `GET` | `/api/v1/privacy/export/{user_id}` | Export LGPD (portabilidade) |
 | `DELETE` | `/api/v1/privacy/erase/{user_id}` | Eliminação irreversível (LGPD) |
@@ -1049,18 +1077,22 @@ Definidas em [`backend/app/core/config.py`](backend/app/core/config.py). Modelos
 | | `PLUGGY_WEBHOOK_SECRET` | — | Obrigatório em produção (sem ele o webhook responde 503) |
 | | `PLUGGY_AUTOSYNC_ON_WEBHOOK` | `true` | Sincroniza ao receber o webhook |
 | | `PLUGGY_SYNC_LOOKBACK_DAYS` | `7` | Janela de releitura de cada sync |
-| **Billing** | `STRIPE_SECRET_KEY` · `STRIPE_WEBHOOK_SECRET` | — | Stripe |
-| | `STRIPE_PRICE_PRO_MONTHLY` · `STRIPE_PRICE_TOTAL_MONTHLY` | — | IDs dos Prices |
-| | `BILLING_ENFORCEMENT_ENABLED` | `false` | `true` aplica os limites (402); `false` só registra |
+| **Billing** | `STRIPE_SECRET_KEY` · `STRIPE_WEBHOOK_SECRET` | — | Stripe (segredos). Ver [STRIPE_GO_LIVE.md](docs/STRIPE_GO_LIVE.md) |
+| | `STRIPE_PRICE_PRO_MONTHLY` · `STRIPE_PRICE_TOTAL_MONTHLY` | — | IDs dos Prices — opcionais: vazios, resolve pelos lookup_keys do `scripts/stripe_setup.py` |
+| | `STRIPE_PORTAL_CONFIGURATION` | — | Configuração do portal (`bpc_…`) criada pelo script |
+| | `STRIPE_API_VERSION` | `2024-06-20` | Versão fixada em toda chamada e no webhook |
+| | `BILLING_ENFORCEMENT_ENABLED` | `false` | `true` aplica os limites (402); `false` só registra. Só vale com chave + segredo do webhook preenchidos |
 | **Direitos** | `SERPRO_CONSUMER_KEY` · `SERPRO_CONSUMER_SECRET` | — | API Consulta Restituição |
 | | `SERPRO_RESTITUICAO_PRIVATE_KEY_B64` · `SERPRO_RESTITUICAO_TRIAL` | — · `false` | Chave do e-CNPJ · ambiente trial |
 | **E-mail** | `SENDGRID_API_KEY` ou `SMTP_HOST` · `SMTP_PORT` · `SMTP_USER` · `SMTP_PASSWORD` | — · `587` | Envio de e-mails |
 | | `EMAIL_FROM` · `EMAIL_FROM_NAME` | `noreply@nexa.app` · `Nexa` | Remetente |
 | **Push** | `VAPID_PUBLIC_KEY` · `VAPID_PRIVATE_KEY` · `VAPID_CLAIMS_EMAIL` | — | Web Push do PWA |
+| | `FCM_SERVICE_ACCOUNT_B64` | — | Conta de serviço do Firebase em base64 (segredo) — push do app nativo. Ver [APP_NATIVO.md](docs/APP_NATIVO.md) |
 | **Jobs** | `SCHEDULER_ENABLED` | `false` | Liga o APScheduler |
 | **Observabilidade** | `SENTRY_DSN` · `SENTRY_TRACES_SAMPLE_RATE` | — · `0.0` | Sentry (sem dados de extrato) |
 | **Frontend** | `VITE_API_URL` | `/api/v1` | Base da API no navegador |
 | | `VITE_DEV_BACKEND` | `http://localhost:8000` | Alvo do proxy do `npm run dev` |
+| **App nativo** | `VITE_API_URL` em `frontend-react/.env.mobile` | — | URL absoluta **https** da API (o `build:mobile` recusa outra); o backend precisa de `https://localhost,capacitor://localhost` em `ALLOWED_ORIGINS` |
 
 ---
 
@@ -1102,7 +1134,7 @@ O DuckDB (`backend/finance.duckdb`, ou `DUCKDB_PATH`) guarda o histórico analí
 
 ### Backend
 
-**3.636 passando · 0 falhas · 147 pulados · 79% de cobertura** (rodada completa de 21/10/2026). A suíte é mantida 100% verde como política do projeto.
+**3.755 passando · 0 falhas · 158 pulados** (rodada completa de 22/11/2026; cobertura de 79% medida em 21/10/2026). A suíte é mantida 100% verde como política do projeto.
 
 | Lote | Testes | O que cobre |
 |:---|---:|:---|
@@ -1159,9 +1191,9 @@ npm run build       # tsc + build de produção
 npm run lint        # ESLint
 ```
 
-**29 testes unitários em 6 arquivos e 13 testes e2e, todos passando; lint, tipos e build sem erros.**
+**50 testes unitários em 9 arquivos e 13 testes e2e, todos passando; lint, tipos e build sem erros; `npm audit --omit=dev` sem vulnerabilidades.**
 
-- **Unitários** (Vitest + Testing Library): Chat (histórico da conversa salva, envio na conversa atual, "Nova conversa" sem apagar a anterior, lista de conversas), Estratégias, componentes, destino seguro do login e a busca paginada da Organização.
+- **Unitários** (Vitest + Testing Library): Chat (histórico da conversa salva, envio na conversa atual, "Nova conversa" sem apagar a anterior, lista de conversas), Estratégias, Planos (troca pelo portal, 409 sem segunda assinatura, confirmação na volta do Checkout, compra desligada no app nativo), a ponte nativa (token FCM, widget sem JWT, toque só em rota interna, links externos fora do WebView), componentes, destino seguro do login e a busca paginada da Organização.
 - **Ponta a ponta** (Playwright, `npm run test:e2e`), contra o backend local com as personas: as 14 telas logadas abrem sem nenhum erro de API nos três planos, as abas navegam no celular, a sessão vencida renova sozinha, a sessão morta volta para a tela de origem depois do login, `next` externo é recusado e o cadastro envia `accepted_terms`. O envio real ao agente só roda com `HIVE_E2E_CHAT=1`.
 
 ### CI
@@ -1239,7 +1271,7 @@ curl -X POST http://localhost:8000/api/v1/architect/simulate \
 
 ## ⚠️ Problemas Conhecidos
 
-Verificados em outubro/2026:
+Verificados em outubro/2026 (dependências do frontend em novembro/2026):
 
 | Problema | Impacto | Contorno |
 |:---|:---|:---|
@@ -1247,6 +1279,7 @@ Verificados em outubro/2026:
 | Job "Docker Build" do CI roda `docker build ./backend`, mas não existe `backend/Dockerfile` | O job falharia mesmo com as dependências resolvidas | Apontar para o `Dockerfile` da raiz (`docker build -f Dockerfile .`) |
 | `POST /pluggy/cards/manual` aceita limite negativo e qualquer texto em `last4` | Dado ruim pode entrar pela tela de cartão manual | Validar no backend (Pydantic) |
 | Tabelas `community_*` existem no banco sem rotas na API | Schema sem uso | Remover ou implementar |
+| `npm audit` do `frontend-react` ainda aponta avisos **só em ferramentas de desenvolvimento** (vitest 4.1.1, browserslist, brace-expansion, typescript-eslint; nada vai para o bundle — `npm audit --omit=dev` = 0) | Risco restrito à máquina de quem desenvolve | As correções foram publicadas há menos de duas semanas (nov/2026); atualizar quando amadurecerem. O vitest exige o npm 11 (o npm 10 quebra com `edgesOut` ao resolver os peers exatos) |
 | `docs/SETUP_LOCAL.md` descreve o fluxo antigo (Streamlit como frontend, fallback DuckDB) | Pode confundir quem chega | Usar o [Início Rápido](#-início-rápido) deste README |
 
 ---
@@ -1273,7 +1306,8 @@ Verificados em outubro/2026:
 
 ### Fase 2 — Monetização e Casa Própria (em andamento)
 
-- [x] **Billing + gating Free/Pro/Total** (Stripe, dark launch — falta só chaves + flip da flag)
+- [x] **Billing + gating Free/Pro/Total** (Stripe, dark launch — pronto para o go-live; falta a conta, ver [STRIPE_GO_LIVE.md](docs/STRIPE_GO_LIVE.md))
+- [x] **App nativo Android/iOS** (Capacitor, widget de tela inicial, push FCM) — falta compilar, assinar e publicar
 - [x] **App web ligado ao backend real** em todas as telas (out/2026)
 - [x] Redesenho visual HIVE: login, cadastro, chat por conversas, feed, organização, cartões
 - [x] Telas de conta: recuperação de senha e verificação de e-mail
@@ -1286,7 +1320,7 @@ Verificados em outubro/2026:
 
 ### Fase 3 — Escala (2027)
 
-- [ ] App mobile nativo (widget homescreen, FCM)
+- [ ] App nativo nas lojas (Google Play e App Store)
 - [ ] F6 sweep automático · F8 radar 200+ instituições · F12 modo família
 - [ ] HIVE Score exportável → bureau alternativo
 - [ ] B2B2C — primeiros contratos corporativos
@@ -1309,6 +1343,8 @@ Verificados em outubro/2026:
 | [ROADMAP.md](docs/ROADMAP.md) | Roadmap de produto auditado contra o código |
 | [MUDANÇAS.md](docs/MUDANÇAS.md) | Mapa técnico de cada mudança por camada |
 | [SEGURANCA.md](docs/SEGURANCA.md) | Modelo de segurança completo |
+| [STRIPE_GO_LIVE.md](docs/STRIPE_GO_LIVE.md) | Roteiro para ligar a cobrança: setup da conta, variáveis, teste de ponta a ponta, enforcement |
+| [APP_NATIVO.md](docs/APP_NATIVO.md) | App Android/iOS: modelo de segurança, build, Firebase, widget, publicação |
 | [ENDPOINTS_SUMMARY.md](docs/ENDPOINTS_SUMMARY.md) | Referência de endpoints (o OpenAPI em `/docs` é a fonte da verdade) |
 | [QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md) | Cheatsheet do dev |
 | [BACKEND_REFERENCE.md](docs/BACKEND_REFERENCE.md) | Referência de arquivos do backend |
@@ -1321,7 +1357,7 @@ Verificados em outubro/2026:
 
 ### HIVE
 
-**141 operações de API · 31 ferramentas de IA · 17 tipos de alerta proativo · 3.636 testes passando**
+**150 operações de API · 31 ferramentas de IA · 17 tipos de alerta proativo · 3.755 testes passando**
 
 *Trabalhar para você, não para o banco.*
 

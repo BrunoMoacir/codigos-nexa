@@ -30,7 +30,9 @@ from app.optimizer.models_orm import OptimizationReport  # noqa: F401
 from app.architect.models_orm import ArchitectSimulation, ArchitectSimulationMetrics  # noqa: F401
 from app.core.models.pluggy_item import PluggyItem  # noqa: F401
 from app.pluggy_sync.models_orm import PluggySyncJob  # noqa: F401
-from app.billing.models_orm import UserSubscription  # noqa: F401
+from app.billing.models_orm import BillingWebhookEvent, UserSubscription  # noqa: F401
+from app.notifications.models_orm import PushDevice  # noqa: F401
+from app.widget.models_orm import WidgetToken  # noqa: F401
 from app.core.models.auth_token import AuthToken  # noqa: F401
 from app.jobs.models_orm import IntelligenceMetric  # noqa: F401
 

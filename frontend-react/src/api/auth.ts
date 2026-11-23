@@ -55,9 +55,19 @@ async function cancelarPush(): Promise<void> {
   }
 }
 
+async function limparWidget(): Promise<void> {
+  try {
+    const { limparWidgetNativo } = await import('../native/widgetNativo');
+    await limparWidgetNativo(session.userId);
+  } catch {
+    /* fora do app nativo ou plugin indisponível */
+  }
+}
+
 export async function logout(): Promise<void> {
   const refresh = session.refreshToken;
   await cancelarPush();
+  await limparWidget();
   try {
     if (session.accessToken) {
       await apiClient.post('/auth/logout', refresh ? { refresh_token: refresh } : {});
@@ -72,6 +82,7 @@ export async function logout(): Promise<void> {
 /** Encerra a sessão em TODOS os aparelhos (troca de senha não é exigida). */
 export async function logoutAll(): Promise<void> {
   await cancelarPush();
+  await limparWidget();
   try {
     await apiClient.post('/auth/logout-all');
   } finally {

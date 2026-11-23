@@ -125,7 +125,7 @@ class TestSendToUser:
         monkeypatch.setattr(
             push_sender, "get_active_subscriptions",
             lambda uid: [push_sender.PushSubscription(
-                id="sub1", endpoint="https://push.example/x", p256dh="p", auth="a",
+                id="sub1", endpoint="https://fcm.googleapis.com/fcm/send/x", p256dh="p", auth="a",
             )],
         )
 
@@ -154,6 +154,18 @@ class TestSendToUser:
         sent, failed = push_sender.send_to_user(_USER, "titulo", "corpo")
         assert (sent, failed) == (0, 1)
         assert revoked == ["sub1"]
+
+    def test_envio_nao_segue_redirecionamento(self, _configured, monkeypatch):
+        # um 3xx do destino não pode levar o backend para outro host/porta/HTTP
+        import pywebpush
+
+        sessoes = []
+        monkeypatch.setattr(pywebpush, "webpush", lambda **k: sessoes.append(k.get("requests_session")))
+        monkeypatch.setattr(push_sender, "_mark_success", lambda sid: None)
+
+        push_sender.send_to_user(_USER, "titulo", "corpo")
+        assert len(sessoes) == 1 and sessoes[0] is not None
+        assert sessoes[0].max_redirects == 0
 
     def test_sem_vapid_desativado(self, monkeypatch):
         from app.core.config import settings

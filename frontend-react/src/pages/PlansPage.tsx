@@ -4,8 +4,10 @@ import { useSearchParams } from 'react-router-dom';
 import { AppShell } from '../components/layout/AppShell';
 import { contaApi, ROTULO_JANELA, ROTULO_USO } from '../api/conta';
 import { brl, dataLonga } from '../api/painel';
+import axios from 'axios';
 import { getErrorMessage } from '../api/errors';
 import { getUserId } from '../api/session';
+import { vendaNoApp } from '../native/plataforma';
 
 const card: React.CSSProperties = { background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 18 };
 const nota: React.CSSProperties = { fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 };
@@ -31,6 +33,21 @@ export const PlansPage: React.FC = () => {
     const c = params.get('checkout');
     return c === 'success' || c === 'cancel' ? c : null;
   });
+  // o session_id some da URL logo abaixo; guardado aqui para a confirmação
+  const [sessaoDoCheckout] = useState(() => params.get('session_id') || '');
+
+  // Confirma a volta do Checkout no backend (que lê a sessão no Stripe): o
+  // plano libera na hora, sem depender do webhook chegar.
+  const confirmacaoQ = useQuery({
+    queryKey: ['billing', 'confirmacao', sessaoDoCheckout],
+    queryFn: () => contaApi.confirmar(userId, sessaoDoCheckout),
+    enabled: retorno === 'success' && !!sessaoDoCheckout && !!userId,
+    retry: 2,
+    staleTime: Infinity,
+  });
+  useEffect(() => {
+    if (confirmacaoQ.isSuccess) queryClient.invalidateQueries({ queryKey: ['billing', 'assinatura', userId] });
+  }, [confirmacaoQ.isSuccess, queryClient, userId]);
 
   const planosQ = useQuery({ queryKey: ['billing', 'planos'], queryFn: contaApi.planos, staleTime: Infinity });
   const assinaturaQ = useQuery({ queryKey: ['billing', 'assinatura', userId], queryFn: () => contaApi.assinatura(userId), enabled: !!userId });
@@ -47,24 +64,40 @@ export const PlansPage: React.FC = () => {
     }
   }, [params, setParams, queryClient, userId]);
 
-  const checkoutM = useMutation({
-    mutationFn: (plano: 'pro' | 'total') => contaApi.checkout(userId, plano),
-    onSuccess: (url) => { window.location.href = url; },
-  });
   const portalM = useMutation({
     mutationFn: () => contaApi.portal(userId),
     onSuccess: (url) => { window.location.href = url; },
   });
+  const checkoutM = useMutation({
+    mutationFn: (plano: 'pro' | 'total') => contaApi.checkout(userId, plano),
+    onSuccess: (url) => { window.location.href = url; },
+    // 409 = já existe assinatura paga: troca de plano é pelo portal (um
+    // segundo checkout seria uma segunda cobrança mensal)
+    onError: (erro) => {
+      if (axios.isAxiosError(erro) && erro.response?.status === 409) portalM.mutate();
+    },
+  });
 
   const a = assinaturaQ.data;
-  const pagamentosAtivos = a?.billing_enabled ?? false;
+  // no app nativo a assinatura é feita pelo site (regras das lojas — ver native/plataforma.ts)
+  const podeComprar = vendaNoApp();
+  const pagamentosAtivos = (a?.billing_enabled ?? false) && podeComprar;
 
   return (
     <AppShell current="planos" title="Planos" subtitle="O que cada plano inclui e quanto do seu limite você já usou.">
-      {retorno === 'success' && <div style={faixa('ok')}>Pagamento confirmado. Seu plano é atualizado assim que o Stripe avisar (alguns segundos).</div>}
+      {retorno === 'success' && (
+        confirmacaoQ.data && confirmacaoQ.data.plan !== 'free'
+          ? <div style={faixa('ok')}>Pagamento confirmado — seu plano {confirmacaoQ.data.plan === 'total' ? 'Total' : 'Pro'} já está ativo.</div>
+          : confirmacaoQ.isPending && sessaoDoCheckout
+            ? <div style={faixa('ok')}>Confirmando o pagamento…</div>
+            : <div style={faixa('aviso')}>Recebemos o seu pedido. Se o pagamento foi por boleto ou ainda está em análise, o plano é liberado assim que o pagamento for confirmado.</div>
+      )}
       {retorno === 'cancel' && <div style={faixa('aviso')}>Pagamento cancelado — nada foi cobrado.</div>}
-      {(checkoutM.isError || portalM.isError) && <div style={faixa('erro')}>{getErrorMessage(checkoutM.error || portalM.error, 'Não foi possível abrir o pagamento.')}</div>}
-      {a && !pagamentosAtivos && <div style={faixa('aviso')}>Pagamentos ainda não estão ativos neste ambiente — os planos aparecem só para consulta.</div>}
+      {((checkoutM.isError && !(axios.isAxiosError(checkoutM.error) && checkoutM.error.response?.status === 409)) || portalM.isError) && (
+        <div style={faixa('erro')}>{getErrorMessage(portalM.error || checkoutM.error, 'Não foi possível abrir o pagamento.')}</div>
+      )}
+      {!podeComprar && <div style={faixa('aviso')}>No app você acompanha o seu plano e os limites. Para assinar ou trocar de plano, entre na sua conta pelo site da HIVE.</div>}
+      {podeComprar && a && !pagamentosAtivos && <div style={faixa('aviso')}>Pagamentos ainda não estão ativos neste ambiente — os planos aparecem só para consulta.</div>}
 
       <div style={{ ...card, marginBottom: 12 }}>
         <div style={{ fontWeight: 700, marginBottom: 6 }}>Seu plano</div>
@@ -113,6 +146,11 @@ export const PlansPage: React.FC = () => {
               </ul>
               {atual ? (
                 <div style={{ fontSize: 13, fontWeight: 700 }}>✓ Seu plano</div>
+              ) : pago && a && a.plan !== 'free' ? (
+                // já assina outro plano pago: a troca (com proporcionalidade) é no portal
+                <button style={botao} disabled={!pagamentosAtivos || portalM.isPending} onClick={() => portalM.mutate()}>
+                  {portalM.isPending ? 'Abrindo…' : `Trocar para ${p.name}`}
+                </button>
               ) : pago ? (
                 <button style={botao} disabled={!pagamentosAtivos || checkoutM.isPending}
                   onClick={() => checkoutM.mutate(p.plan_id as 'pro' | 'total')}>

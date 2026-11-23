@@ -112,11 +112,30 @@ as chaves**. Ações obrigatórias do operador:
    para o example) e forçar push — com repo privado, a rotação (passo 1)
    é o mitigador suficiente.
 
-## 9. Pendências conhecidas (não bloqueiam, anotadas)
+## 9. Cobrança, app nativo e integrações (2026-11)
+
+| Superfície | Proteção |
+|:---|:---|
+| **Webhook Stripe** | Assinatura verificada (fail-closed em produção). Não confia no corpo do evento: relê a assinatura no Stripe. Dedupe por `event.id`. Conflito de dono (metadata × registro) não altera nada. Erro interno → 500 genérico, sem detalhe |
+| **IDs do Stripe em URL** | `cs_…`/`sub_…` validados por regex antes de virarem caminho na API do Stripe com a nossa chave (sem path injection) |
+| **Confirmação do Checkout** | `POST /billing/checkout/{id}/confirm` só aceita sessão criada para o mesmo usuário (403 se for de outra conta) |
+| **Enforcement** | Só bloqueia com o Stripe configurado. Flag ligada sem chave não tranca ninguém sem caminho de pagamento |
+| **Pluggy `POST /pluggy/items`** | `item_id` com formato UUID (sem path injection na API da Pluggy). O item precisa ter `clientUserId` igual ao usuário logado: antes, quem obtivesse o id do item de outra pessoa vinculava o banco dela à própria conta |
+| **Web Push (SSRF)** | O endpoint de inscrição só é aceito em https:443 de um serviço de push conhecido (FCM, Mozilla, Apple, WNS). O host é lido pelo `urlparse` e pelo parser do urllib3 (o que conecta), e os dois têm de concordar; `\`, `@`, credencial na URL, espaço, controle e não-ASCII são recusados, porque é nessas URLs que os dois parsers divergem. O envio não segue redirecionamento. Antes, qualquer URL virava uma requisição do servidor; endpoints antigos fora da regra são revogados no próximo envio |
+| **Token do widget nativo** | `hwt_` + 32 bytes aleatórios; só o SHA-256 no banco; escopo de uma rota (`GET /widget/margem`); 90 dias; um por aparelho; revogado no logout, `logout-all`, **reset de senha** e exclusão LGPD, e recusado se for anterior ao último corte de sessão (`sessions_valid_from`) ou se a conta estiver inativa. O reset de senha e o `logout-all` também revogam os aparelhos de push nativo. O JWT não abre a rota do widget e o token do widget não abre nenhuma outra |
+| **Push FCM** | Conta de serviço só em variável de ambiente (segredo); notificação com visibilidade privada na tela de bloqueio; URL de destino forçada a rota interna; token inválido revogado sozinho; token transferido quando o aparelho troca de conta |
+| **App nativo** | Sem código remoto (`server.url`), sem navegação para fora do WebView, sem texto puro, backup desligado, credenciais do widget no Keystore/Keychain (`ThisDeviceOnly`). Detalhes em [APP_NATIVO.md](APP_NATIVO.md) |
+| **Agente de IA** | Ferramentas de plano superior respondem "RECURSO DO PLANO X" em vez de entregar o recurso pelo chat (o gating vale também pela conversa) |
+| **Dependências do frontend** | `npm audit --omit=dev` = 0. Atualizações escolhidas só entre versões com ≥ 2 semanas de publicação e com proveniência verificada (axios publicado por GitHub Actions com SLSA) — defesa contra pacote comprometido recém-publicado |
+
+## 10. Pendências conhecidas (não bloqueiam, anotadas)
 
 - Rotação de SECRET_KEY sem derrubar sessões (exige suporte a múltiplas
   chaves de verificação) — baixa prioridade em monolito.
 - Migração langchain 1.x (zera o baseline de CVEs).
 - Retenção formal de logs de auditoria (definir prazo e sink imutável
   antes do primeiro usuário externo).
-- Push iOS depende de instalação do PWA (limitação de plataforma).
+- Push iOS no navegador depende de instalar o PWA (limitação de plataforma); no app nativo vai pelo FCM.
+- App nativo: o refresh token fica no `localStorage` do WebView (sandbox do
+  app), não no Keychain/Keystore; certificate pinning não implementado — ver
+  [APP_NATIVO.md](APP_NATIVO.md#riscos-residuais-decisões-conscientes).

@@ -103,8 +103,21 @@ class Settings(BaseSettings):
     # ("would_block"), nada é bloqueado. Ligar em produção após o lançamento.
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
+    # IDs dos Prices. Opcionais: vazios, o cliente resolve pelos lookup_keys
+    # que o scripts/stripe_setup.py cria (hive_pro_mensal / hive_total_mensal).
     STRIPE_PRICE_PRO_MONTHLY: str = ""
     STRIPE_PRICE_TOTAL_MONTHLY: str = ""
+    # Versão da API fixada em toda chamada. A 2025-03-31.basil tirou
+    # current_period_end da assinatura e `subscription` da fatura; fixar a
+    # versão (e ler os dois formatos) impede que um upgrade da conta mude os
+    # campos que o webhook lê.
+    STRIPE_API_VERSION: str = "2024-06-20"
+    # Configuração do portal do cliente (bpc_…) criada pelo stripe_setup.py:
+    # troca Pro↔Total, cancelamento no fim do período, troca de cartão.
+    # Vazia, o Stripe usa a configuração padrão da conta.
+    STRIPE_PORTAL_CONFIGURATION: str = ""
+    # Só vale com o Stripe configurado (chave + segredo do webhook): ligar sem
+    # isso bloquearia usuários sem nenhum caminho para pagar — ver gating.py.
     BILLING_ENFORCEMENT_ENABLED: bool = False
 
     # SERPRO — API Consulta Restituição IRPF (T3)
@@ -157,6 +170,10 @@ class Settings(BaseSettings):
     VAPID_PUBLIC_KEY: str = ""
     VAPID_PRIVATE_KEY: str = ""
     VAPID_CLAIMS_EMAIL: str = "mailto:noreply@nexa.app"
+    # Push nativo (app Android/iOS) via Firebase Cloud Messaging HTTP v1:
+    # JSON da conta de serviço do Firebase em base64. SEGREDO — só no
+    # gerenciador de segredos do deploy. Vazio = push nativo desligado.
+    FCM_SERVICE_ACCOUNT_B64: str = ""
 
     # ── Observabilidade ───────────────────────────────────────────────────
     # Vazio = desligado. O SDK já estava instalado e nunca era inicializado:

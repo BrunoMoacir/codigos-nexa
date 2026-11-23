@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ícone das notificações: o hexágono HIVE em branco (o Android exige ícone monocromático). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="180"
+    android:viewportHeight="200">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M90,10 L168,55 L168,145 L90,190 L12,145 L12,55 Z M100,16 L100,184 L110,178 L110,22 Z" android:fillType="evenOdd" />
+</vector>
