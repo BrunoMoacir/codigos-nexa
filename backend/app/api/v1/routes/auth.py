@@ -411,6 +411,26 @@ async def forgot_password(
     return {"message": "Se o e-mail estiver cadastrado, enviamos as instruções de redefinição."}
 
 
+def _desligar_aparelhos(user_id: str) -> None:
+    """
+    Revoga as credenciais de aparelho, que vivem fora do JWT: o token do
+    widget (90 dias), os aparelhos de push nativo e as inscrições de Web Push
+    (sem validade).
+
+    O corte por `sessions_valid_from` não alcança nenhuma delas. Quem encerra
+    todas as sessões (reset de senha, "sair de todos os aparelhos") chama esta
+    função, para o widget parar de ler a margem e nenhum aparelho ou navegador
+    continuar recebendo os alertas desta conta. No login seguinte, o app e o
+    navegador da própria pessoa reenviam o push que estava ligado.
+    """
+    from app.core.notifications import fcm_sender, push_sender
+    from app.widget import service as widget_service
+
+    widget_service.revogar(user_id)
+    fcm_sender.remover_aparelho(user_id)
+    push_sender.remover_inscricoes(user_id)
+
+
 @router.post("/reset-password", status_code=status.HTTP_200_OK)
 @limiter.limit("5/minute")
 async def reset_password(
@@ -444,6 +464,10 @@ async def reset_password(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Erro ao atualizar a senha. Tente novamente.",
         )
+
+    # O reset existe para expulsar um intruso: as credenciais dos aparelhos
+    # (widget e push nativo) saem junto com as sessões.
+    _desligar_aparelhos(user_id)
 
     ip = request.client.host if request.client else "unknown"
     req_id = getattr(request.state, "request_id", None)
@@ -530,6 +554,8 @@ async def logout_all_devices(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Não foi possível encerrar as sessões. Tente novamente.",
         )
+
+    _desligar_aparelhos(current_user)
 
     ip = request.client.host if request.client else "unknown"
     req_id = getattr(request.state, "request_id", None)
