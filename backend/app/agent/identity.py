@@ -114,7 +114,19 @@ def _vincular(nome: str, func: Callable) -> Callable:
             # `usuario_autenticado()` acima continua sendo exigido), mas o
             # argumento não existe para ser sobrescrito.
             kwargs.pop("user_id", None)
-        return func(*args, **kwargs)
+
+        # Mesmo plano e mesma cota da rota equivalente (ver planos_das_ferramentas)
+        from app.agent.planos_das_ferramentas import (
+            bloqueio_da_ferramenta,
+            registrar_uso_da_ferramenta,
+        )
+
+        bloqueio = bloqueio_da_ferramenta(nome, dono)
+        if bloqueio is not None:
+            return bloqueio
+        resultado = func(*args, **kwargs)
+        registrar_uso_da_ferramenta(nome, dono)
+        return resultado
 
     vinculada.__name__ = getattr(func, "__name__", nome)
     vinculada.__doc__ = func.__doc__
