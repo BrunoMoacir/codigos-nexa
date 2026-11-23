@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">HIVE</string>
+    <string name="title_activity_main">HIVE</string>
+    <string name="package_name">br.com.hive.app</string>
+    <string name="custom_url_scheme">br.com.hive.app</string>
+    <string name="widget_rotulo">MARGEM DO DIA</string>
+    <string name="widget_carregando">Atualizando…</string>
+    <string name="widget_sem_sessao">Entre no app HIVE</string>
+    <string name="widget_abrir_app">Toque para abrir e ativar o widget</string>
+    <string name="widget_descricao">Quanto você pode gastar hoje sem comprometer as contas</string>
+    <string name="canal_alertas">Alertas financeiros</string>
+</resources>
