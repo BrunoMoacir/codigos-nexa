@@ -29,3 +29,6 @@ playwright-report
 blob-report
 coverage
 e2e/.auth
+
+# build mobile: a URL da API de cada ambiente
+.env.mobile
