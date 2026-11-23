@@ -295,6 +295,20 @@ class TestCompensacaoDePerda:
 # Come-cotas
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def _congelar_hoje(monkeypatch, dia: dt.date) -> None:
+    """O ZeroTaxMode mede a distância até o próximo come-cotas a partir de
+    `date.today()`. Sem fixar o dia, os testes de recomendação falhavam nas
+    semanas que antecedem cada incidência (maio e novembro)."""
+    import app.tax.services.zero_tax_mode as modulo
+
+    class _DataFixa(dt.date):
+        @classmethod
+        def today(cls):
+            return cls(dia.year, dia.month, dia.day)
+
+    monkeypatch.setattr(modulo, "date", _DataFixa)
+
+
 class TestComeCotas:
 
     @pytest.mark.parametrize("mes,esperado", [
@@ -322,21 +336,40 @@ class TestComeCotas:
         data, nome = proximo_come_cotas(dt.date(2026, 12, 20))
         assert data.year == 2027 and nome == "maio"
 
-    def test_a_data_aparece_formatada_na_recomendacao(self):
+    def test_a_data_aparece_formatada_na_recomendacao(self, monkeypatch):
+        hoje = dt.date(2026, 7, 10)
+        _congelar_hoje(monkeypatch, hoje)
         pos = _pos(product_type="FUNDO_MM", has_come_cotas=True,
                    current_balance=215_000.0, unrealized_gain=15_000.0,
                    estimated_ir=2_625.0)
         achados = [o for o in ZeroTaxMode().find_opportunities([pos], 0.1465)
                    if o.opportunity_type == "avoid_come_cotas"]
         assert achados
-        data, _ = proximo_come_cotas(dt.date.today())
+        data, _ = proximo_come_cotas(hoje)
         assert data.strftime("%d/%m/%Y") in achados[0].action_deadline
+        assert "30/11/2026" in achados[0].action_deadline
 
-    def test_o_beneficio_e_diferimento_e_nao_economia(self):
+    def test_a_poucos_dias_da_incidencia_nao_ha_recomendacao(self, monkeypatch):
+        """
+        O IR que a troca adia é o do rendimento entre hoje e a próxima
+        incidência. A 8 dias do come-cotas de novembro, 215 mil a 13% a.a.
+        antecipariam ~R$ 86 — abaixo do piso de R$ 100: não vale recomendar
+        uma migração de fundo por isso.
+        """
+        _congelar_hoje(monkeypatch, dt.date(2026, 11, 22))
+        pos = _pos(product_type="FUNDO_MM", has_come_cotas=True,
+                   current_balance=215_000.0, unrealized_gain=15_000.0,
+                   estimated_ir=2_625.0)
+        achados = [o for o in ZeroTaxMode().find_opportunities([pos], 0.1465)
+                   if o.opportunity_type == "avoid_come_cotas"]
+        assert achados == []
+
+    def test_o_beneficio_e_diferimento_e_nao_economia(self, monkeypatch):
         """
         O IR do come-cotas volta no resgate. Chamar de "economia de imposto" e
         somar no total superestima o benefício.
         """
+        _congelar_hoje(monkeypatch, dt.date(2026, 7, 10))
         pos = _pos(product_type="FUNDO_MM", has_come_cotas=True,
                    current_balance=215_000.0, unrealized_gain=15_000.0,
                    estimated_ir=2_625.0)
