@@ -31,3 +31,18 @@ class UserSubscription(Base):
     __table_args__ = (
         Index("ix_user_subscriptions_plan_status", "plan", "status"),
     )
+
+
+class BillingWebhookEvent(Base):
+    """
+    Eventos do Stripe já processados (event id único). O Stripe reenvia o
+    mesmo evento em retries e pode entregá-lo duas vezes; a última checagem
+    por usuário (`last_event_id`) só pegava a repetição imediata — A, B, A
+    reprocessava A.
+    """
+
+    __tablename__ = "billing_webhook_events"
+
+    event_id = Column(String(100), primary_key=True)
+    event_type = Column(String(80), nullable=False)
+    processed_at = Column(DateTime(timezone=True), nullable=False)

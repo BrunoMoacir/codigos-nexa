@@ -45,3 +45,12 @@ class CheckoutOut(BaseModel):
 
 class PortalOut(BaseModel):
     portal_url: str
+
+
+class ConfirmIn(BaseModel):
+    """Volta do Checkout: o session_id que o Stripe pôs na success_url."""
+    session_id: str
+
+
+class ConfirmOut(BaseModel):
+    plan: str                       # plano efetivo depois da sincronização
