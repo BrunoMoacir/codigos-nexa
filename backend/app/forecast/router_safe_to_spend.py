@@ -69,10 +69,17 @@ async def get_safe_to_spend(user_id: str = Depends(require_owner)) -> dict:
             detail="Erro ao processar dados financeiros.",
         )
 
+    if result is None:
+        # conta sem extrato (nenhum banco conectado ainda): não é erro do servidor
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sem extrato para calcular a margem. Conecte um banco.",
+        )
     if result.get("status") != "success":
+        logger.error("Pipeline de safe-to-spend/%s retornou erro: %s", user_id, result.get("error"))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Pipeline retornou erro: {result.get('error', 'desconhecido')}",
+            detail="Erro ao processar dados financeiros.",
         )
 
     # ── Safe-to-Spend: fonte ÚNICA, a mesma do /forecast ──────────────
@@ -198,7 +205,24 @@ async def get_safe_to_spend_widget(user_id: str = Depends(require_owner)) -> dic
     logger.info("GET /safe-to-spend/%s/widget", user_id)
 
     # Reusa o endpoint completo (e o cache Redis dele)
-    full = await get_safe_to_spend(user_id=user_id)
+    try:
+        full = await get_safe_to_spend(user_id=user_id)
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_404_NOT_FOUND:
+            raise
+        # Conta nova: o widget da tela inicial mostra o próximo passo em vez de erro
+        return {
+            "daily": 0.0,
+            "remaining_month": 0.0,
+            "pct_consumed": 0.0,
+            "status": "SEM_DADOS",
+            "color": "#94a3b8",
+            "headline": "Conecte seu banco",
+            "subline": "A margem do dia aparece depois da primeira sincronização",
+            "data_as_of": None,
+            "stale": False,
+            "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
 
     # O mesmo valor diário do /forecast. O widget dividia a margem pelos dias
     # restantes do mês do calendário, o forecast pelos 30 dias do horizonte:

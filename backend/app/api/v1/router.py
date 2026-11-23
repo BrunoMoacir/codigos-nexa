@@ -98,6 +98,9 @@ from app.seasonality.router import router as seasonality_router
 # Privacy — Direitos do titular LGPD (export/eliminação)
 from app.privacy.router import router as privacy_router
 
+# ── Widget nativo (token de escopo restrito) ──
+from app.widget.router import router as widget_router
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CRIAR ROUTER PRINCIPAL
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -192,6 +195,7 @@ router.include_router(seasonality_router)
 
 # Privacy — Direitos do titular LGPD
 router.include_router(privacy_router)
+router.include_router(widget_router)
 
 # Billing — Planos e Stripe
 router.include_router(billing_router)
